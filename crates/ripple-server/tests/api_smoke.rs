@@ -7,7 +7,10 @@ use std::time::Duration;
 
 use axum::body::{to_bytes, Body};
 use axum::http::{header, Method, Request, StatusCode};
-use ripple_server::api::{auth::AuthClaimRequest, router, schedules::trigger_due_schedules};
+use ripple_server::api::{
+    auth::AuthClaimRequest, router, schedules::trigger_due_schedules,
+    tasks::trigger_due_task_actions,
+};
 use ripple_server::config::{
     ApiDocsConfig, AppConfig, CodexConfig, CorsConfig, DocumentPreviewConfig, FeishuConfig,
     GogcliOAuthConfig, LoggingConfig, SandboxConfig, SecurityConfig, SkillsConfig, UserAuthConfig,
@@ -1027,7 +1030,7 @@ async fn router_serves_core_control_plane_routes() {
 #[tokio::test]
 async fn task_api_creates_lists_confirms_and_lists_session_tasks() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
-    let (_state, app) = test_state_and_app(&root);
+    let (state, app) = test_state_and_app(&root);
 
     let (status, session) = call(
         app.clone(),
@@ -1144,6 +1147,54 @@ async fn task_api_creates_lists_confirms_and_lists_session_tasks() {
         Some(false),
         "{confirmed}"
     );
+
+    let (status, deleted) = call(
+        app.clone(),
+        Method::POST,
+        &format!("/v1/tasks/{task_id}/delete"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{deleted}");
+    assert_eq!(
+        deleted.get("ok").and_then(Value::as_bool),
+        Some(true),
+        "{deleted}"
+    );
+    assert_eq!(
+        deleted.get("task_id").and_then(Value::as_str),
+        Some(task_id),
+        "{deleted}"
+    );
+
+    let (status, list_after_delete) =
+        call(app.clone(), Method::GET, "/v1/tasks", Value::Null).await;
+    assert_eq!(status, StatusCode::OK, "{list_after_delete}");
+    assert_eq!(
+        list_after_delete.get("count").and_then(Value::as_u64),
+        Some(0),
+        "{list_after_delete}"
+    );
+    let (status, missing_detail) = call(
+        app.clone(),
+        Method::GET,
+        &format!("/v1/tasks/{task_id}"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{missing_detail}");
+    assert!(state
+        .storage
+        .list_task_actions("smoke-user", task_id)
+        .await
+        .expect("list actions after delete")
+        .is_empty());
+    assert!(state
+        .storage
+        .list_task_events("smoke-user", task_id)
+        .await
+        .expect("list events after delete")
+        .is_empty());
 
     let _ = std::fs::remove_dir_all(root);
 }
@@ -1300,6 +1351,164 @@ async fn task_actions_drive_status_machine_progress_and_events() {
             .and_then(Value::as_object)
             .is_some(),
         "{events}"
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn due_task_action_trigger_runs_due_action_and_returns_result_to_session() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+
+    let (status, session) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/sessions",
+        json!({
+            "title": "Follow-up session",
+            "model": "codex-test"
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let session_id = session
+        .get("session_id")
+        .and_then(Value::as_str)
+        .expect("session id")
+        .to_string();
+
+    let (status, created) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/tasks",
+        json!({
+            "task_id": "task-due-actions",
+            "title": "延后处理两件事",
+            "objective": "按步骤时间处理两件事并反馈",
+            "status": "active",
+            "source_session_id": session_id,
+            "actions": [
+                {
+                    "action_id": "act-due",
+                    "title": "搜索新闻",
+                    "objective": "搜索并整理新闻",
+                    "status": "confirmed",
+                    "created_at": "2000-01-01T00:00:00Z",
+                    "due_in_seconds": 60
+                },
+                {
+                    "action_id": "act-future",
+                    "title": "稍后检查 skill",
+                    "objective": "稍后检查 skill",
+                    "status": "confirmed",
+                    "created_at": "2999-01-01T00:00:00Z",
+                    "due_in_seconds": 60
+                }
+            ]
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+    assert_eq!(
+        created
+            .pointer("/actions/0/next_wakeup_at")
+            .and_then(Value::as_str),
+        Some("2000-01-01T00:01:00Z"),
+        "{created}"
+    );
+
+    let triggered = trigger_due_task_actions(&state)
+        .await
+        .expect("trigger due task actions");
+    assert_eq!(
+        triggered
+            .get("smoke-user")
+            .and_then(|ids| ids.first())
+            .map(String::as_str),
+        Some("task-due-actions:act-due"),
+        "{triggered:?}"
+    );
+
+    let (status, detail) = call(
+        app.clone(),
+        Method::GET,
+        "/v1/tasks/task-due-actions",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{detail}");
+    let actions = detail
+        .get("actions")
+        .and_then(Value::as_array)
+        .expect("actions");
+    let due_action = actions
+        .iter()
+        .find(|action| action.get("action_id").and_then(Value::as_str) == Some("act-due"))
+        .expect("due action");
+    assert_eq!(
+        due_action.get("status").and_then(Value::as_str),
+        Some("completed"),
+        "{detail}"
+    );
+    assert!(due_action
+        .get("result_summary")
+        .and_then(Value::as_str)
+        .is_some_and(|summary| summary.contains("fake codex completed")));
+    assert!(due_action
+        .get("last_run_id")
+        .and_then(Value::as_str)
+        .is_some());
+    assert_eq!(
+        due_action.get("next_wakeup_at").and_then(Value::as_str),
+        Some("2000-01-01T00:01:00Z"),
+        "{detail}"
+    );
+    let future_action = actions
+        .iter()
+        .find(|action| action.get("action_id").and_then(Value::as_str) == Some("act-future"))
+        .expect("future action");
+    assert_eq!(
+        future_action.get("status").and_then(Value::as_str),
+        Some("confirmed"),
+        "{detail}"
+    );
+
+    let (status, events) = call(
+        app.clone(),
+        Method::GET,
+        "/v1/tasks/task-due-actions/events",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{events}");
+    let event_types = events
+        .get("events")
+        .and_then(Value::as_array)
+        .expect("events")
+        .iter()
+        .filter_map(|event| event.get("event_type").and_then(Value::as_str))
+        .collect::<Vec<_>>();
+    assert!(
+        event_types.contains(&"task_action_due_triggered"),
+        "{events}"
+    );
+    assert!(event_types.contains(&"task_action_completed"), "{events}");
+
+    let (status, session_detail) = call(
+        app,
+        Method::GET,
+        &format!("/v1/sessions/{session_id}"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session_detail}");
+    let session_text = session_detail.to_string();
+    assert!(
+        session_text.contains("fake codex completed"),
+        "{session_detail}"
     );
 
     let _ = std::fs::remove_dir_all(root);

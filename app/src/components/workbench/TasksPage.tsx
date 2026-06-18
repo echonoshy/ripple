@@ -10,12 +10,14 @@ import {
   Loader2,
   Play,
   RefreshCw,
+  Trash2,
   X,
 } from "lucide-react";
 import {
   AuthError,
   cancelTask,
   confirmTask,
+  deleteTask,
   fetchSchedules,
   fetchTask,
   fetchTaskEvents,
@@ -64,6 +66,7 @@ interface TasksPageProps {
   onConfirmTask?: (taskId: string) => void;
   onRunTaskNow?: (taskId: string) => void;
   onCancelTask?: (taskId: string) => void;
+  onDeleteTask?: (taskId: string) => void;
 }
 
 type TaskFilter = "all" | "open" | "waiting" | "blocked" | "done";
@@ -179,6 +182,8 @@ function eventLabel(eventType: string, t: ReturnType<typeof useI18n>["t"]): stri
       return t("tasks.event.taskActionCreated");
     case "task_action_started":
       return t("tasks.event.taskActionStarted");
+    case "task_action_due_triggered":
+      return t("tasks.event.taskActionDueTriggered");
     case "task_action_completed":
       return t("tasks.event.taskActionCompleted");
     case "task_action_blocked":
@@ -272,6 +277,7 @@ export default function TasksPage({
   onConfirmTask,
   onRunTaskNow,
   onCancelTask,
+  onDeleteTask,
 }: TasksPageProps) {
   const { locale, t } = useI18n();
   const isControlled = tasks !== undefined;
@@ -339,18 +345,24 @@ export default function TasksPage({
     [handleError, isControlled, t]
   );
 
-  const loadTasks = useCallback(async () => {
+  const loadTasks = useCallback(async (preferredSelectedId: string | null = selectedId) => {
     if (isControlled) return;
     setInternalLoading(true);
     try {
       const [nextTasks, nextSchedules] = await Promise.all([fetchTasks(), fetchSchedules()]);
       setTaskList(nextTasks);
       setScheduleList(nextSchedules);
-      const nextSelectedId = selectedId || nextTasks[0]?.taskId || null;
+      const nextSelectedId =
+        preferredSelectedId && nextTasks.some((task) => task.taskId === preferredSelectedId)
+          ? preferredSelectedId
+          : nextTasks[0]?.taskId || null;
       setSelectedId(nextSelectedId);
       setInternalError(null);
       if (nextSelectedId) {
         await loadTaskDetail(nextSelectedId);
+      } else {
+        setDetailActions([]);
+        setTaskEvents([]);
       }
     } catch (caught) {
       handleError(caught, t("tasks.failedToLoad"));
@@ -401,6 +413,10 @@ export default function TasksPage({
         (schedule.task_action_id ? actionIds.has(schedule.task_action_id) : false)
     );
   }, [scheduleList, selectedTask, visibleActions]);
+  const selectedTaskActionTriggers = useMemo(
+    () => visibleActions.filter((action) => Boolean(action.nextWakeupAt)),
+    [visibleActions]
+  );
   const loading = isLoading ?? internalLoading;
   const errorMessage = error ?? internalError;
 
@@ -419,7 +435,7 @@ export default function TasksPage({
   }, [loadTasks, onRefresh]);
 
   const runTaskOperation = useCallback(
-    async (taskId: string, operation: "confirm" | "run" | "cancel") => {
+    async (taskId: string, operation: "confirm" | "run" | "cancel" | "delete") => {
       setPendingAction(`${operation}:${taskId}`);
       try {
         if (operation === "confirm") {
@@ -428,18 +444,31 @@ export default function TasksPage({
         } else if (operation === "run") {
           onRunTaskNow?.(taskId);
           if (!isControlled) await runTaskNow(taskId);
+        } else if (operation === "delete") {
+          onDeleteTask?.(taskId);
+          if (!isControlled) await deleteTask(taskId);
         } else {
           onCancelTask?.(taskId);
           if (!isControlled) await cancelTask(taskId);
         }
-        await loadTasks();
+        await loadTasks(operation === "delete" && selectedId === taskId ? null : selectedId);
       } catch (caught) {
         handleError(caught, t("tasks.actionFailed"));
       } finally {
         setPendingAction(null);
       }
     },
-    [handleError, isControlled, loadTasks, onCancelTask, onConfirmTask, onRunTaskNow, t]
+    [
+      handleError,
+      isControlled,
+      loadTasks,
+      onCancelTask,
+      onConfirmTask,
+      onDeleteTask,
+      onRunTaskNow,
+      selectedId,
+      t,
+    ]
   );
 
   const filterButtonClass = (filter: TaskFilter) =>
@@ -676,6 +705,19 @@ export default function TasksPage({
                         <span>{t("tasks.cancel")}</span>
                       </button>
                     ) : null}
+                    <button
+                      type="button"
+                      onClick={() => void runTaskOperation(selectedTask.taskId, "delete")}
+                      className={`${WORKBENCH_DANGER_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                      disabled={pendingAction !== null}
+                    >
+                      {pendingAction === `delete:${selectedTask.taskId}` ? (
+                        <Loader2 size={14} className="animate-spin" />
+                      ) : (
+                        <Trash2 size={14} />
+                      )}
+                      <span>{t("tasks.delete")}</span>
+                    </button>
                   </div>
 
                   <div className="grid gap-2">
@@ -721,6 +763,12 @@ export default function TasksPage({
                             {statusLabel(action.status, t)}
                           </span>
                         </div>
+                        {action.nextWakeupAt ? (
+                          <div className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
+                            {t("tasks.plannedAt")}:{" "}
+                            {formatDate(action.nextWakeupAt, locale, t("tasks.unknown"))}
+                          </div>
+                        ) : null}
                         {actionFollowUpText(action, t) || action.lastRunId ? (
                           <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
                             {actionFollowUpText(action, t) ? (
@@ -749,13 +797,45 @@ export default function TasksPage({
                     <h3 className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#1F2329]`}>
                       {t("tasks.triggers")}
                     </h3>
-                    {selectedTaskSchedules.length === 0 ? (
+                    {selectedTaskActionTriggers.length === 0 &&
+                    selectedTaskSchedules.length === 0 ? (
                       <div
                         className={`${TYPOGRAPHY_BODY_CLASS} rounded-lg border border-dashed border-[#D0D3D6] px-3 py-4 text-center text-[#646A73]`}
                       >
                         {t("tasks.noTriggers")}
                       </div>
                     ) : null}
+                    {selectedTaskActionTriggers.map((action) => (
+                      <div
+                        key={`task-action-trigger-${action.actionId}`}
+                        className="grid gap-1.5 rounded-lg border border-[#EFF0F1] bg-[#F8F9FA] px-3 py-2"
+                      >
+                        <div className="flex min-w-0 items-center justify-between gap-2">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <Clock3 size={15} className="shrink-0 text-[#1456F0]" />
+                            <span className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} truncate`}>
+                              {action.title}
+                            </span>
+                          </div>
+                          <span
+                            className={`${WORKBENCH_STATUS_NEUTRAL_CLASS} shrink-0 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}
+                          >
+                            {t("tasks.actionTrigger")}
+                          </span>
+                        </div>
+                        <div className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
+                          {t("tasks.triggerNext")}:{" "}
+                          {formatDate(action.nextWakeupAt, locale, t("tasks.unknown"))}
+                        </div>
+                        {action.lastRunId ? (
+                          <span
+                            className={`w-fit rounded-md border border-[#DEE0E3] bg-white px-1.5 py-0.5 font-[family-name:var(--font-mono)] ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} text-[#646A73]`}
+                          >
+                            {t("tasks.lastRun")}: {action.lastRunId}
+                          </span>
+                        ) : null}
+                      </div>
+                    ))}
                     {selectedTaskSchedules.map((schedule) => (
                       <div
                         key={schedule.schedule_id}

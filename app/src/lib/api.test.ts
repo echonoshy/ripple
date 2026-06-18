@@ -11,6 +11,7 @@ import {
   createSchedule,
   createSession,
   createTaskAction,
+  deleteTask,
   deleteUserAvatar,
   deleteSchedule,
   deleteScheduleRun,
@@ -1197,7 +1198,7 @@ async function testTaskApisUseExpectedBackendShape() {
         status: "in_progress",
         assignee: "codex",
         requires_confirmation: false,
-        next_wakeup_at: "2026-06-18T09:00:00.000Z",
+        due_at: "2026-06-18T09:00:00.000Z",
         result_summary: "已完成报价草案。",
         created_at: "2026-06-17T08:30:00.000Z",
         updated_at: "2026-06-17T09:00:00.000Z",
@@ -1288,6 +1289,7 @@ async function testTaskApisUseExpectedBackendShape() {
       assert.equal((await confirmTask("task/with space")).task.status, "in_progress");
       assert.equal((await runTaskNow("task/with space")).job_id, "job-1");
       assert.equal((await cancelTask("task/with space")).task.taskId, "task/with space");
+      assert.equal((await deleteTask("task/with space")).taskId, "task/with space");
       const taskEvents = await fetchTaskEvents("task/with space");
       assert.equal(taskEvents[0]?.eventType, "task_action_started");
       assert.deepEqual(taskEvents[0]?.payload, { action_id: "act/1" });
@@ -1322,17 +1324,18 @@ async function testTaskApisUseExpectedBackendShape() {
       "POST /v1/tasks/task%2Fwith%20space/confirm",
       "POST /v1/tasks/task%2Fwith%20space/run-now",
       "DELETE /v1/tasks/task%2Fwith%20space",
+      "POST /v1/tasks/task%2Fwith%20space/delete",
       "GET /v1/tasks/task%2Fwith%20space/events",
       "POST /v1/tasks/task%2Fwith%20space/actions",
       "PATCH /v1/tasks/task%2Fwith%20space/actions/act%2F1",
     ]
   );
-  assert.deepEqual(requests[7]?.body, {
+  assert.deepEqual(requests[8]?.body, {
     title: "等用户确认",
     kind: "waiting_user",
     next_wakeup_at: "2026-06-18T09:00:00.000Z",
   });
-  assert.deepEqual(requests[8]?.body, {
+  assert.deepEqual(requests[9]?.body, {
     status: "completed",
     result_summary: "已完成报价草案。",
   });

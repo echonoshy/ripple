@@ -134,6 +134,7 @@ pub fn router(state: AppState) -> Router {
                 .patch(tasks::update_task)
                 .delete(tasks::cancel_task),
         )
+        .route("/tasks/:task_id/delete", post(tasks::delete_task))
         .route("/tasks/:task_id/confirm", post(tasks::confirm_task))
         .route("/tasks/:task_id/run-now", post(tasks::run_task_now))
         .route(

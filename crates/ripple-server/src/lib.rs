@@ -67,6 +67,7 @@ where
         );
     }
     let schedule_task = tokio::spawn(api::schedules::schedule_trigger_loop(state.clone()));
+    let task_action_task = tokio::spawn(api::tasks::task_action_trigger_loop(state.clone()));
     let session_maintenance_task = tokio::spawn(state.sessions.clone().maintenance_loop());
     let app = router(state)
         .layer(cors_layer(&config))
@@ -77,6 +78,7 @@ where
         .with_graceful_shutdown(shutdown)
         .await;
     schedule_task.abort();
+    task_action_task.abort();
     session_maintenance_task.abort();
     result?;
     Ok(())

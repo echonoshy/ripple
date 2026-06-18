@@ -284,6 +284,11 @@ export interface TaskActionUpdateResponse extends TaskDetailResponse {
   action: TaskActionInfo;
 }
 
+export interface TaskDeleteResponse {
+  ok: boolean;
+  taskId: string;
+}
+
 interface LocalDateTimeParts {
   year: number;
   month: number;
@@ -765,6 +770,7 @@ interface RawTaskAction {
   assignee?: string | null;
   requires_confirmation?: boolean;
   source_session_id?: string | null;
+  due_at?: string | null;
   next_wakeup_at?: string | null;
   result_summary?: string | null;
   last_run_id?: string | null;
@@ -828,7 +834,7 @@ function normalizeTaskAction(raw: RawTaskAction): TaskActionInfo {
     assignee: raw.assignee ?? null,
     requiresConfirmation: raw.requires_confirmation === true,
     sourceSessionId: raw.source_session_id ?? null,
-    nextWakeupAt: raw.next_wakeup_at ?? null,
+    nextWakeupAt: raw.next_wakeup_at ?? raw.due_at ?? null,
     resultSummary: raw.result_summary ?? null,
     lastRunId: raw.last_run_id ?? null,
     lastError: raw.last_error ?? null,
@@ -964,6 +970,23 @@ export async function cancelTask(taskId: string): Promise<TaskDetailResponse> {
   return normalizeTaskDetailResponse(
     (await res.json()) as { task?: RawTask; actions?: RawTaskAction[] }
   );
+}
+
+export async function deleteTask(taskId: string): Promise<TaskDeleteResponse> {
+  const res = await fetch(`${API_URL}/tasks/${encodeURIComponent(taskId)}/delete`, {
+    method: "POST",
+    headers: { ...authHeaders() },
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to delete task (${res.status})`);
+  }
+  const data = (await res.json()) as { ok?: boolean; task_id?: string };
+  return {
+    ok: data.ok === true,
+    taskId: data.task_id || taskId,
+  };
 }
 
 export async function runTaskNow(taskId: string): Promise<AgentRunInfo> {

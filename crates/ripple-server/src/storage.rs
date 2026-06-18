@@ -801,6 +801,28 @@ impl Storage {
         .transpose()
     }
 
+    pub async fn delete_task(&self, user_id: &str, task_id: &str) -> anyhow::Result<bool> {
+        self.initialize().await?;
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("DELETE FROM task_events WHERE user_id = ? AND task_id = ?")
+            .bind(user_id)
+            .bind(task_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM task_actions WHERE user_id = ? AND task_id = ?")
+            .bind(user_id)
+            .bind(task_id)
+            .execute(&mut *tx)
+            .await?;
+        let result = sqlx::query("DELETE FROM tasks WHERE user_id = ? AND task_id = ?")
+            .bind(user_id)
+            .bind(task_id)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(result.rows_affected() > 0)
+    }
+
     pub async fn list_tasks(&self, user_id: &str) -> anyhow::Result<Vec<Value>> {
         self.initialize().await?;
         let rows = sqlx::query(
@@ -816,6 +838,17 @@ impl Storage {
         rows.into_iter()
             .map(|row| json_from_text(row.get::<String, _>("record_json").as_str()))
             .collect()
+    }
+
+    pub async fn list_task_user_ids(&self) -> anyhow::Result<Vec<String>> {
+        self.initialize().await?;
+        let rows = sqlx::query("SELECT DISTINCT user_id FROM tasks ORDER BY user_id ASC")
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(rows
+            .into_iter()
+            .map(|row| row.get::<String, _>("user_id"))
+            .collect())
     }
 
     pub async fn list_tasks_for_session(

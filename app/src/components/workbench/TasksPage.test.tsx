@@ -54,6 +54,7 @@ const actions: TaskActionInfo[] = [
     status: "in_progress",
     assignee: "codex",
     requiresConfirmation: false,
+    nextWakeupAt: "2026-06-18T09:00:00.000Z",
     lastRunId: "job-quote-1",
     lastError: "缺少客户预算信息",
     createdAt: "2026-06-17T08:30:00.000Z",
@@ -69,6 +70,14 @@ const events: TaskEventInfo[] = [
     eventType: "task_action_started",
     payload: { action_id: "act-quote" },
     createdAt: "2026-06-17T09:00:00.000Z",
+  },
+  {
+    eventId: "evt-3",
+    taskId: "task-client-plan",
+    userId: "default",
+    eventType: "task_action_due_triggered",
+    payload: { action_id: "act-quote" },
+    createdAt: "2026-06-17T09:03:00.000Z",
   },
   {
     eventId: "evt-2",
@@ -146,10 +155,14 @@ function testTasksPageRendersTaskListAndDetail() {
   assert.match(html, /查看来源会话/);
   assert.match(html, /缺少客户预算信息/);
   assert.match(html, /job-quote-1/);
+  assert.match(html, /删除/);
+  assert.match(html, /计划/);
+  assert.match(html, /步骤计划/);
   assert.match(html, /触发器/);
   assert.match(html, /明早提醒/);
   assert.match(html, /job-sch-trip/);
   assert.match(html, /步骤受阻/);
+  assert.match(html, /到期执行步骤/);
   assert.match(html, /开始执行步骤/);
   assert.ok(html.indexOf("步骤受阻") < html.indexOf("开始执行步骤"));
 }

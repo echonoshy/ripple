@@ -20,6 +20,8 @@ use ripple_server::services::{
 use ripple_server::sessions::CreateSessionInput;
 use ripple_server::state::AppState;
 use serde_json::{json, Value};
+use time::format_description::well_known::Rfc3339;
+use time::{Duration as TimeDuration, OffsetDateTime};
 use tokio::net::TcpListener;
 use tower::ServiceExt;
 use uuid::Uuid;
@@ -433,7 +435,7 @@ fn emit_runtime_events(thread_id: &str, turn_id: &str) {
 }
 
 fn schedule_extraction_text() -> &'static str {
-    "{\"is_schedule_request\":true,\"missing_fields\":[],\"clarification_question\":null,\"schedule\":{\"title\":\"Check build\",\"prompt\":\"Check the build status\",\"kind\":\"interval\",\"timezone\":\"UTC\",\"run_at\":null,\"interval_seconds\":3600,\"enabled\":false,\"cwd\":null,\"model\":null,\"effort\":null,\"summary\":null,\"output_schema\":null,\"max_runtime_seconds\":60,\"max_runs\":null}}"
+    "{\"is_schedule_request\":true,\"missing_fields\":[],\"clarification_question\":null,\"schedule\":{\"title\":\"Check build\",\"prompt\":\"Check the build status\",\"kind\":\"interval\",\"timezone\":\"UTC\",\"run_at\":null,\"interval_seconds\":3600,\"enabled\":false,\"cwd\":null,\"model\":null,\"effort\":null,\"summary\":null,\"output_schema\":null,\"max_runtime_seconds\":60,\"max_runs\":null,\"phases\":[]}}"
 }
 
 fn schedule_clarification_text() -> &'static str {
@@ -441,11 +443,11 @@ fn schedule_clarification_text() -> &'static str {
 }
 
 fn news_feishu_schedule_extraction_text() -> &'static str {
-    "{\"is_schedule_request\":true,\"missing_fields\":[],\"clarification_question\":null,\"schedule\":{\"title\":\"每日 AI 新闻飞书发送\",\"prompt\":\"每天早上9点搜集一下 ai 相关的新闻，并且在飞书上给胡胖发消息，把新闻发给他。\",\"kind\":\"interval\",\"timezone\":\"Asia/Shanghai\",\"run_at\":\"2026-06-08T01:00:00Z\",\"interval_seconds\":86400,\"enabled\":true,\"cwd\":null,\"model\":null,\"effort\":null,\"summary\":null,\"output_schema\":null,\"max_runtime_seconds\":60,\"max_runs\":null}}"
+    "{\"is_schedule_request\":true,\"missing_fields\":[],\"clarification_question\":null,\"schedule\":{\"title\":\"每日 AI 新闻飞书发送\",\"prompt\":\"每天早上9点搜集一下 ai 相关的新闻，并且在飞书上给胡胖发消息，把新闻发给他。\",\"kind\":\"interval\",\"timezone\":\"Asia/Shanghai\",\"run_at\":\"2026-06-08T01:00:00Z\",\"interval_seconds\":86400,\"enabled\":true,\"cwd\":null,\"model\":null,\"effort\":null,\"summary\":null,\"output_schema\":null,\"max_runtime_seconds\":60,\"max_runs\":null,\"phases\":[]}}"
 }
 
 fn weekly_price_schedule_extraction_text() -> &'static str {
-    "{\"is_schedule_request\":true,\"missing_fields\":[],\"clarification_question\":null,\"schedule\":{\"title\":\"Monitor used MacBook Pro prices\",\"prompt\":\"监控二手 M4 Pro 和 M5 Pro MacBook Pro 的价格。\",\"kind\":\"interval\",\"timezone\":\"Asia/Shanghai\",\"run_at\":null,\"interval_seconds\":604800,\"enabled\":false,\"cwd\":null,\"model\":null,\"effort\":null,\"summary\":null,\"output_schema\":null,\"max_runtime_seconds\":60,\"max_runs\":null}}"
+    "{\"is_schedule_request\":true,\"missing_fields\":[],\"clarification_question\":null,\"schedule\":{\"title\":\"Monitor used MacBook Pro prices\",\"prompt\":\"监控二手 M4 Pro 和 M5 Pro MacBook Pro 的价格。\",\"kind\":\"interval\",\"timezone\":\"Asia/Shanghai\",\"run_at\":null,\"interval_seconds\":604800,\"enabled\":false,\"cwd\":null,\"model\":null,\"effort\":null,\"summary\":null,\"output_schema\":null,\"max_runtime_seconds\":60,\"max_runs\":null,\"phases\":[]}}"
 }
 
 fn title_generation_text() -> &'static str {
@@ -458,6 +460,17 @@ fn task_tool_arguments() -> &'static str {
 
 fn task_tool_complete_action_arguments() -> &'static str {
     "{\"mode\":\"complete_action\",\"target\":\"task\",\"task_id\":\"task-progress\",\"action_id\":\"act-draft\",\"result_summary\":\"已整理出客户预算范围和报价假设。\"}"
+}
+
+fn recurring_task_tool_complete_action_arguments() -> &'static str {
+    "{\"mode\":\"complete_action\",\"target\":\"task\",\"task_id\":\"task-recurring-session-output\",\"action_id\":\"act-recurring-session-output\",\"result_summary\":\"已完成本次定时任务。\"}"
+}
+
+fn series_task_tool_complete_action_arguments(action_id: &str) -> String {
+    format!(
+        "{{\"mode\":\"complete_action\",\"target\":\"task\",\"task_id\":\"task-series-phases\",\"action_id\":\"{}\",\"result_summary\":\"已完成当前阶段。\"}}",
+        action_id
+    )
 }
 
 fn task_tool_reminder_arguments() -> &'static str {
@@ -692,6 +705,72 @@ fn main() {
                         json_string(&thread_id),
                         json_string(&turn_id),
                         task_tool_complete_action_arguments()
+                    ));
+                    continue;
+                }
+
+                if line.contains("[tool-recurring-complete]") {
+                    if !thread_has_task_tool.get(&thread_id).copied().unwrap_or(false) {
+                        complete_turn(
+                            &thread_id,
+                            &turn_id,
+                            &item_id,
+                            "task_update dynamic tool missing",
+                        );
+                        continue;
+                    }
+                    let dynamic_request_id = format!("dynamic-recurring-complete-{turn_counter}");
+                    pending_dynamic_tools.insert(
+                        dynamic_request_id.clone(),
+                        (
+                            thread_id.clone(),
+                            turn_id.clone(),
+                            item_id.clone(),
+                            "recurring task action completed".to_string(),
+                        ),
+                    );
+                    send(format!(
+                        "{{\"id\":{},\"method\":\"item/tool/call\",\"params\":{{\"threadId\":{},\"turnId\":{},\"callId\":\"call-recurring-task-complete\",\"namespace\":\"codex_app\",\"tool\":\"task_update\",\"arguments\":{}}}}}",
+                        json_string(&dynamic_request_id),
+                        json_string(&thread_id),
+                        json_string(&turn_id),
+                        recurring_task_tool_complete_action_arguments()
+                    ));
+                    continue;
+                }
+
+                if line.contains("[tool-series-complete]") {
+                    if !thread_has_task_tool.get(&thread_id).copied().unwrap_or(false) {
+                        complete_turn(
+                            &thread_id,
+                            &turn_id,
+                            &item_id,
+                            "task_update dynamic tool missing",
+                        );
+                        continue;
+                    }
+                    let action_id = if line.contains("act-series-b") {
+                        "act-series-b"
+                    } else {
+                        "act-series-a"
+                    };
+                    let dynamic_request_id = format!("dynamic-series-complete-{turn_counter}");
+                    pending_dynamic_tools.insert(
+                        dynamic_request_id.clone(),
+                        (
+                            thread_id.clone(),
+                            turn_id.clone(),
+                            item_id.clone(),
+                            format!("series task action completed {action_id}"),
+                        ),
+                    );
+                    let arguments = series_task_tool_complete_action_arguments(action_id);
+                    send(format!(
+                        "{{\"id\":{},\"method\":\"item/tool/call\",\"params\":{{\"threadId\":{},\"turnId\":{},\"callId\":\"call-series-task-complete\",\"namespace\":\"codex_app\",\"tool\":\"task_update\",\"arguments\":{}}}}}",
+                        json_string(&dynamic_request_id),
+                        json_string(&thread_id),
+                        json_string(&turn_id),
+                        arguments
                     ));
                     continue;
                 }
@@ -4718,6 +4797,388 @@ async fn task_linked_trigger_run_records_task_events_and_session_output() {
     );
 
     let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn recurring_due_task_trigger_appends_each_run_to_source_session() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+
+    let (status, session) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/sessions",
+        json!({"model": "codex-test"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let session_id = session
+        .get("session_id")
+        .and_then(Value::as_str)
+        .expect("session id")
+        .to_string();
+
+    let (status, created) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/tasks",
+        json!({
+            "task_id": "task-recurring-session-output",
+            "title": "多次检查指数",
+            "objective": "每次执行都把结果写回 session。[ids] [tool-recurring-complete]",
+            "status": "active",
+            "source_session_id": session_id,
+            "actions": [
+                {
+                    "action_id": "act-recurring-session-output",
+                    "title": "检查指数",
+                    "objective": "检查一次指数并汇报。[ids] [tool-recurring-complete]",
+                    "kind": "execute",
+                    "status": "confirmed"
+                }
+            ]
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+
+    let (status, trigger) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/tasks/task-recurring-session-output/actions/act-recurring-session-output/triggers",
+        json!({
+            "title": "每分钟检查指数",
+            "prompt": "检查指数并汇报。[ids] [tool-recurring-complete]",
+            "kind": "interval",
+            "interval_seconds": 60,
+            "enabled": true,
+            "max_runtime_seconds": 5,
+            "max_runs": 2
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{trigger}");
+    let trigger_id = trigger
+        .get("trigger_id")
+        .and_then(Value::as_str)
+        .expect("trigger id")
+        .to_string();
+
+    for expected_run_count in 1..=2 {
+        mark_task_trigger_due(&state, "smoke-user", &trigger_id).await;
+        let triggered = trigger_due_task_triggers(&state)
+            .await
+            .expect("trigger due");
+        assert_eq!(
+            triggered.get("smoke-user").map(Vec::len),
+            Some(1),
+            "expected due trigger to run: {triggered:?}"
+        );
+
+        let (status, triggers) = call(
+            app.clone(),
+            Method::GET,
+            "/v1/tasks/task-recurring-session-output/triggers",
+            Value::Null,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{triggers}");
+        assert_eq!(
+            triggers
+                .pointer("/triggers/0/run_count")
+                .and_then(Value::as_u64),
+            Some(expected_run_count),
+            "{triggers}"
+        );
+        let expected_enabled = expected_run_count < 2;
+        assert_eq!(
+            triggers
+                .pointer("/triggers/0/enabled")
+                .and_then(Value::as_bool),
+            Some(expected_enabled),
+            "{triggers}"
+        );
+        if expected_run_count == 1 {
+            let (status, task_detail) = call(
+                app.clone(),
+                Method::GET,
+                "/v1/tasks/task-recurring-session-output",
+                Value::Null,
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{task_detail}");
+            assert_eq!(
+                task_detail.pointer("/task/status").and_then(Value::as_str),
+                Some("active"),
+                "{task_detail}"
+            );
+            assert_eq!(
+                task_detail
+                    .pointer("/actions/0/status")
+                    .and_then(Value::as_str),
+                Some("confirmed"),
+                "{task_detail}"
+            );
+        }
+    }
+
+    let (status, session_detail) = call(
+        app,
+        Method::GET,
+        &format!("/v1/sessions/{session_id}"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session_detail}");
+    let completion_messages = session_detail
+        .get("messages")
+        .and_then(Value::as_array)
+        .unwrap_or(&Vec::new())
+        .iter()
+        .filter(|message| format!("{message}").contains("recurring task action completed"))
+        .count();
+    assert_eq!(
+        completion_messages, 2,
+        "each recurring run should append a session message: {session_detail}"
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn task_level_trigger_advances_ordered_actions_after_each_phase_run_limit() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+
+    let (status, session) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/sessions",
+        json!({"model": "codex-test"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let session_id = session
+        .get("session_id")
+        .and_then(Value::as_str)
+        .expect("session id")
+        .to_string();
+
+    let (status, created) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/tasks",
+        json!({
+            "task_id": "task-series-phases",
+            "title": "分阶段查价",
+            "objective": "先查 iPhone 两次，再查 Mac mini 一次。[ids] [tool-series-complete]",
+            "status": "active",
+            "source_session_id": session_id,
+            "trigger": {
+                "title": "每分钟分阶段查价",
+                "prompt": "按当前阶段查询价格并汇报。[ids] [tool-series-complete]",
+                "kind": "interval",
+                "interval_seconds": 60,
+                "enabled": true,
+                "max_runtime_seconds": 5,
+                "max_runs": 3
+            },
+            "actions": [
+                {
+                    "action_id": "act-series-a",
+                    "title": "查询 iPhone 价格",
+                    "objective": "查询 iPhone 价格并汇报。[ids] [tool-series-complete]",
+                    "kind": "execute",
+                    "status": "confirmed",
+                    "sequence_index": 1,
+                    "max_runs": 2
+                },
+                {
+                    "action_id": "act-series-b",
+                    "title": "查询 Mac mini 价格",
+                    "objective": "查询 Mac mini 价格并汇报。[ids] [tool-series-complete]",
+                    "kind": "execute",
+                    "status": "confirmed",
+                    "sequence_index": 2,
+                    "depends_on_action_ids": ["act-series-a"],
+                    "max_runs": 1
+                }
+            ]
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+
+    let (status, triggers) = call(
+        app.clone(),
+        Method::GET,
+        "/v1/tasks/task-series-phases/triggers",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{triggers}");
+    assert_eq!(
+        triggers.get("count").and_then(Value::as_u64),
+        Some(1),
+        "{triggers}"
+    );
+    assert!(
+        triggers.pointer("/triggers/0/task_action_id").is_none()
+            || triggers.pointer("/triggers/0/task_action_id") == Some(&Value::Null),
+        "task-level trigger should not bind to a single action: {triggers}"
+    );
+    let trigger_id = triggers
+        .pointer("/triggers/0/trigger_id")
+        .and_then(Value::as_str)
+        .expect("trigger id")
+        .to_string();
+
+    for expected in [
+        (
+            "act-series-a",
+            1_u64,
+            "confirmed",
+            0_u64,
+            "confirmed",
+            "active",
+            true,
+        ),
+        (
+            "act-series-b",
+            2,
+            "completed",
+            0,
+            "confirmed",
+            "active",
+            true,
+        ),
+        ("", 2, "completed", 1, "completed", "completed", false),
+    ] {
+        mark_task_trigger_due(&state, "smoke-user", &trigger_id).await;
+        let triggered = trigger_due_task_triggers(&state)
+            .await
+            .expect("trigger due");
+        assert_eq!(
+            triggered.get("smoke-user").map(Vec::len),
+            Some(1),
+            "expected due trigger to run: {triggered:?}"
+        );
+
+        let (status, task_detail) = call(
+            app.clone(),
+            Method::GET,
+            "/v1/tasks/task-series-phases",
+            Value::Null,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{task_detail}");
+        assert_eq!(
+            task_detail.pointer("/task/status").and_then(Value::as_str),
+            Some(expected.5),
+            "{task_detail}"
+        );
+        if !expected.0.is_empty() {
+            assert_eq!(
+                task_detail
+                    .pointer("/task/progress/current_action_id")
+                    .and_then(Value::as_str),
+                Some(expected.0),
+                "{task_detail}"
+            );
+        }
+        assert_eq!(
+            task_detail
+                .pointer("/actions/0/run_count")
+                .and_then(Value::as_u64),
+            Some(expected.1),
+            "{task_detail}"
+        );
+        assert_eq!(
+            task_detail
+                .pointer("/actions/0/status")
+                .and_then(Value::as_str),
+            Some(expected.2),
+            "{task_detail}"
+        );
+        assert_eq!(
+            task_detail
+                .pointer("/actions/1/run_count")
+                .and_then(Value::as_u64),
+            Some(expected.3),
+            "{task_detail}"
+        );
+        assert_eq!(
+            task_detail
+                .pointer("/actions/1/status")
+                .and_then(Value::as_str),
+            Some(expected.4),
+            "{task_detail}"
+        );
+
+        let (status, triggers) = call(
+            app.clone(),
+            Method::GET,
+            "/v1/tasks/task-series-phases/triggers",
+            Value::Null,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{triggers}");
+        assert_eq!(
+            triggers
+                .pointer("/triggers/0/enabled")
+                .and_then(Value::as_bool),
+            Some(expected.6),
+            "{triggers}"
+        );
+    }
+
+    let (status, session_detail) = call(
+        app,
+        Method::GET,
+        &format!("/v1/sessions/{session_id}"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session_detail}");
+    let series_messages = session_detail
+        .get("messages")
+        .and_then(Value::as_array)
+        .unwrap_or(&Vec::new())
+        .iter()
+        .filter(|message| format!("{message}").contains("series task action completed"))
+        .count();
+    assert_eq!(series_messages, 3, "{session_detail}");
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+async fn mark_task_trigger_due(state: &AppState, user_id: &str, trigger_id: &str) {
+    let due_at = (OffsetDateTime::now_utc() - TimeDuration::seconds(1))
+        .format(&Rfc3339)
+        .expect("format due time");
+    let mut trigger = state
+        .storage
+        .list_task_triggers(user_id)
+        .await
+        .expect("list task triggers")
+        .into_iter()
+        .find(|trigger| trigger.get("trigger_id").and_then(Value::as_str) == Some(trigger_id))
+        .expect("task trigger");
+    if let Some(object) = trigger.as_object_mut() {
+        object.insert("enabled".to_string(), json!(true));
+        object.insert("status".to_string(), json!("active"));
+        object.insert("next_run_at".to_string(), json!(due_at));
+        object.insert("updated_at".to_string(), json!(due_at));
+    }
+    state
+        .storage
+        .upsert_task_trigger(user_id, &trigger)
+        .await
+        .expect("upsert due task trigger");
 }
 
 #[tokio::test]

@@ -151,7 +151,7 @@ pub fn router(state: AppState) -> Router {
         )
         .route(
             "/tasks/:task_id/triggers",
-            get(task_triggers::list_task_triggers),
+            get(task_triggers::list_task_triggers).post(task_triggers::create_task_trigger),
         )
         .route(
             "/tasks/:task_id/triggers/:trigger_id/run-now",

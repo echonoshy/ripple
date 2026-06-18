@@ -54,6 +54,14 @@ pub(crate) struct ScheduleChatDecision {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
+struct SchedulePhaseDraft {
+    title: Option<String>,
+    prompt: Option<String>,
+    max_runs: Option<u64>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 struct ScheduleDraft {
     title: Option<String>,
     prompt: Option<String>,
@@ -69,6 +77,8 @@ struct ScheduleDraft {
     output_schema: Option<Value>,
     max_runtime_seconds: Option<u64>,
     max_runs: Option<u64>,
+    #[serde(default)]
+    phases: Vec<SchedulePhaseDraft>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -362,37 +372,78 @@ async fn create_task_for_schedule_input(
 fn task_payload_from_schedule_input(input: TaskTriggerCreateInput) -> Value {
     let title = input.title;
     let prompt = input.prompt;
+    let trigger = json!({
+        "title": title.clone(),
+        "prompt": prompt.clone(),
+        "kind": input.kind,
+        "timezone": input.timezone,
+        "run_at": input.run_at,
+        "interval_seconds": input.interval_seconds,
+        "enabled": input.enabled,
+        "cwd": input.cwd,
+        "model": input.model,
+        "effort": input.effort,
+        "summary": input.summary,
+        "output_schema": input.output_schema,
+        "max_runtime_seconds": input.max_runtime_seconds,
+        "max_runs": input.max_runs,
+        "missed_run_policy": input.missed_run_policy,
+        "overlap_policy": input.overlap_policy,
+        "failure_policy": input.failure_policy
+    });
+    if input.phases.is_empty() {
+        return json!({
+            "title": title.clone(),
+            "objective": prompt.clone(),
+            "status": "active",
+            "actions": [
+                {
+                    "title": title,
+                    "objective": prompt,
+                    "kind": "execute",
+                    "status": "confirmed",
+                    "trigger": trigger
+                }
+            ]
+        });
+    }
+
+    let mut previous_action_id: Option<String> = None;
+    let actions = input
+        .phases
+        .into_iter()
+        .enumerate()
+        .map(|(index, phase)| {
+            let action_id = format!("act-phase-{}", index + 1);
+            let mut action = json!({
+                "action_id": action_id,
+                "title": phase.title,
+                "objective": phase.prompt,
+                "kind": "execute",
+                "status": "confirmed",
+                "sequence_index": index + 1,
+                "max_runs": phase.max_runs.unwrap_or(1).max(1),
+                "run_count": 0
+            });
+            if let Some(previous) = previous_action_id.take() {
+                if let Some(object) = action.as_object_mut() {
+                    object.insert("depends_on_action_ids".to_string(), json!([previous]));
+                }
+            }
+            previous_action_id = action
+                .get("action_id")
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            action
+        })
+        .collect::<Vec<_>>();
+
     json!({
         "title": title,
         "objective": prompt,
         "status": "active",
-        "actions": [
-            {
-                "title": title,
-                "objective": prompt,
-                "kind": "execute",
-                "status": "confirmed",
-                "trigger": {
-                    "title": title,
-                    "prompt": prompt,
-                    "kind": input.kind,
-                    "timezone": input.timezone,
-                    "run_at": input.run_at,
-                    "interval_seconds": input.interval_seconds,
-                    "enabled": input.enabled,
-                    "cwd": input.cwd,
-                    "model": input.model,
-                    "effort": input.effort,
-                    "summary": input.summary,
-                    "output_schema": input.output_schema,
-                    "max_runtime_seconds": input.max_runtime_seconds,
-                    "max_runs": input.max_runs,
-                    "missed_run_policy": input.missed_run_policy,
-                    "overlap_policy": input.overlap_policy,
-                    "failure_policy": input.failure_policy
-                }
-            }
-        ]
+        "trigger": trigger,
+        "actions": actions
     })
 }
 
@@ -409,14 +460,22 @@ async fn task_trigger_for_task_action(
         .and_then(|action| action.get("action_id"))
         .and_then(Value::as_str);
     let triggers = state.storage.list_task_triggers(user_id).await?;
-    Ok(triggers.into_iter().find(|trigger| {
-        trigger.get("task_id").and_then(Value::as_str) == Some(task_id)
-            && match action_id {
-                Some(action_id) => {
-                    trigger.get("task_action_id").and_then(Value::as_str) == Some(action_id)
-                }
-                None => true,
-            }
+    let task_triggers = triggers
+        .into_iter()
+        .filter(|trigger| trigger.get("task_id").and_then(Value::as_str) == Some(task_id))
+        .collect::<Vec<_>>();
+    if let Some(action_id) = action_id {
+        if let Some(trigger) = task_triggers.iter().find(|trigger| {
+            trigger.get("task_action_id").and_then(Value::as_str) == Some(action_id)
+        }) {
+            return Ok(Some(trigger.clone()));
+        }
+    }
+    Ok(task_triggers.into_iter().find(|trigger| {
+        trigger
+            .get("task_action_id")
+            .and_then(Value::as_str)
+            .is_none()
     }))
 }
 
@@ -536,7 +595,8 @@ fn schedule_extraction_output_schema() -> Value {
                     "summary",
                     "output_schema",
                     "max_runtime_seconds",
-                    "max_runs"
+                    "max_runs",
+                    "phases"
                 ],
                 "properties": {
                     "title": {"type": ["string", "null"]},
@@ -552,7 +612,20 @@ fn schedule_extraction_output_schema() -> Value {
                     "summary": {"type": "null"},
                     "output_schema": {"type": "null"},
                     "max_runtime_seconds": {"type": ["integer", "null"], "minimum": 1, "maximum": 86400},
-                    "max_runs": {"type": ["integer", "null"], "minimum": 1}
+                    "max_runs": {"type": ["integer", "null"], "minimum": 1},
+                    "phases": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": ["title", "prompt", "max_runs"],
+                            "properties": {
+                                "title": {"type": ["string", "null"]},
+                                "prompt": {"type": ["string", "null"]},
+                                "max_runs": {"type": ["integer", "null"], "minimum": 1}
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -574,6 +647,8 @@ Rules:\n\
 - For weekly requests such as '一周一次', '每周一次', '每星期一次', or 'weekly', use kind='interval' and interval_seconds=604800. If no start day/time is provided, leave run_at=null.\n\
 - If the user writes in Chinese and omits a timezone, prefer Asia/Shanghai for daily clock-time requests.\n\
 - If the user says to run a recurring task a fixed number of times, set schedule.max_runs to that count.\n\
+- If the user describes ordered phases such as 'A 做完再做 B', 'first A then B', or different instructions for run 1..N versus later runs, put each phase in schedule.phases with its own prompt and max_runs. Set schedule.max_runs to the sum of phase max_runs when every phase has a fixed count.\n\
+- For non-phased schedules, set schedule.phases=[] rather than duplicating schedule.prompt.\n\
 - If the user asks to run more than once but does not provide a recurrence interval, set schedule=null, include interval_seconds in missing_fields, and ask how often it should repeat.\n\
 - Always set schedule.summary=null. It is an internal Codex configuration field, not a free-form task description.\n\
 - Always set schedule.output_schema=null.\n\
@@ -897,6 +972,21 @@ fn normalize_schedule_payload(draft: &ScheduleDraft) -> Result<Value, String> {
     if kind != "interval" && draft.max_runs.is_some() {
         return Err("max_runs is only supported for interval schedules".to_string());
     }
+    let phases = normalize_schedule_phases(&draft.phases)?;
+    if !phases.is_empty() && kind != "interval" {
+        return Err("phased schedules require interval schedules".to_string());
+    }
+    let phase_total_runs = if phases.is_empty() {
+        None
+    } else {
+        Some(
+            phases
+                .iter()
+                .filter_map(|phase| phase.get("max_runs").and_then(Value::as_u64))
+                .sum::<u64>(),
+        )
+    };
+    let max_runs = draft.max_runs.or(phase_total_runs);
 
     let mut payload = Map::new();
     payload.insert("title".to_string(), json!(title));
@@ -931,12 +1021,32 @@ fn normalize_schedule_payload(draft: &ScheduleDraft) -> Result<Value, String> {
         "max_runtime_seconds".to_string(),
         json!(draft.max_runtime_seconds.unwrap_or(1800).clamp(1, 86_400)),
     );
-    payload.insert("max_runs".to_string(), option_u64(draft.max_runs));
+    payload.insert("max_runs".to_string(), option_u64(max_runs));
+    payload.insert("phases".to_string(), Value::Array(phases));
 
     let value = Value::Object(payload);
     serde_json::from_value::<TaskTriggerCreateInput>(value.clone())
         .map_err(|err| err.to_string())?;
     Ok(value)
+}
+
+fn normalize_schedule_phases(draft_phases: &[SchedulePhaseDraft]) -> Result<Vec<Value>, String> {
+    draft_phases
+        .iter()
+        .enumerate()
+        .filter(|(_, phase)| phase.title.is_some() || phase.prompt.is_some())
+        .map(|(index, phase)| {
+            let prompt = clean_optional_string(phase.prompt.as_deref())
+                .ok_or_else(|| "phase prompt is required".to_string())?;
+            let title = clean_optional_string(phase.title.as_deref())
+                .unwrap_or_else(|| format!("阶段 {}", index + 1));
+            Ok(json!({
+                "title": title,
+                "prompt": prompt,
+                "max_runs": phase.max_runs.unwrap_or(1).max(1)
+            }))
+        })
+        .collect()
 }
 
 fn clean_optional_string(value: Option<&str>) -> Option<String> {
@@ -1199,6 +1309,7 @@ fn awaiting_decision(
 fn build_schedule_confirmation_message(payload: &Value) -> String {
     let title = value_string(payload, "title");
     let prompt = value_string(payload, "prompt");
+    let phases = phase_summary(payload);
     let timezone_name = value_string(payload, "timezone");
     let kind = value_string(payload, "kind");
     let timing = if kind == "interval" {
@@ -1230,7 +1341,7 @@ fn build_schedule_confirmation_message(payload: &Value) -> String {
 - 类型：{}\n\
 - 时间：{timing}（时区：{}）\n\
 - 次数：{}\n\
-- 执行内容：{prompt}\n\n\
+- 执行内容：{prompt}{phases}\n\n\
 回复“确认创建”来创建，或回复“取消”放弃。",
         if kind == "interval" {
             "周期任务"
@@ -1244,6 +1355,25 @@ fn build_schedule_confirmation_message(payload: &Value) -> String {
         },
         run_limit_label(payload)
     )
+}
+
+fn phase_summary(payload: &Value) -> String {
+    let Some(phases) = payload.get("phases").and_then(Value::as_array) else {
+        return String::new();
+    };
+    if phases.is_empty() {
+        return String::new();
+    }
+    let lines = phases
+        .iter()
+        .enumerate()
+        .map(|(index, phase)| {
+            let title = phase.get("title").and_then(Value::as_str).unwrap_or("阶段");
+            let max_runs = phase.get("max_runs").and_then(Value::as_u64).unwrap_or(1);
+            format!("\n  {}. {}（{} 次）", index + 1, title, max_runs)
+        })
+        .collect::<String>();
+    format!("\n- 阶段：{lines}")
 }
 
 fn build_task_schedule_created_message(task: &Value, schedule: Option<&Value>) -> String {
@@ -1425,6 +1555,7 @@ mod tests {
             output_schema: None,
             max_runtime_seconds: None,
             max_runs: Some(3),
+            phases: Vec::new(),
         };
 
         let payload = normalize_schedule_payload(&draft).expect("payload");
@@ -1435,6 +1566,104 @@ mod tests {
             Some(86_400)
         );
         assert_eq!(payload.get("max_runs").and_then(Value::as_u64), Some(3));
+    }
+
+    #[test]
+    fn normalizes_phased_schedule_payload_and_sums_runs() {
+        let draft = ScheduleDraft {
+            title: Some("京东价格定时查询".to_string()),
+            prompt: Some("分阶段查询价格并告知用户。".to_string()),
+            kind: Some("interval".to_string()),
+            timezone: Some("Asia/Shanghai".to_string()),
+            run_at: None,
+            interval_seconds: Some(60),
+            enabled: Some(true),
+            cwd: None,
+            model: None,
+            effort: None,
+            summary: None,
+            output_schema: None,
+            max_runtime_seconds: None,
+            max_runs: None,
+            phases: vec![
+                SchedulePhaseDraft {
+                    title: Some("查询 iPhone 价格".to_string()),
+                    prompt: Some("去京东查询 iPhone 17 Pro Max 官方店铺价格。".to_string()),
+                    max_runs: Some(5),
+                },
+                SchedulePhaseDraft {
+                    title: Some("查询 Mac mini 价格".to_string()),
+                    prompt: Some("去京东查询 Mac mini M4 价格。".to_string()),
+                    max_runs: Some(2),
+                },
+            ],
+        };
+
+        let payload = normalize_schedule_payload(&draft).expect("payload");
+
+        assert_eq!(payload.get("max_runs").and_then(Value::as_u64), Some(7));
+        assert_eq!(
+            payload
+                .pointer("/phases/0/max_runs")
+                .and_then(Value::as_u64),
+            Some(5)
+        );
+        assert_eq!(
+            payload
+                .pointer("/phases/1/max_runs")
+                .and_then(Value::as_u64),
+            Some(2)
+        );
+    }
+
+    #[test]
+    fn phased_schedule_input_builds_task_level_trigger_and_action_dependencies() {
+        let input = serde_json::from_value::<TaskTriggerCreateInput>(json!({
+            "title": "京东价格定时查询",
+            "prompt": "分阶段查询价格并告知用户。",
+            "kind": "interval",
+            "timezone": "Asia/Shanghai",
+            "run_at": null,
+            "interval_seconds": 60,
+            "enabled": true,
+            "cwd": null,
+            "model": null,
+            "effort": null,
+            "summary": null,
+            "output_schema": null,
+            "max_runtime_seconds": 60,
+            "max_runs": 7,
+            "phases": [
+                {
+                    "title": "查询 iPhone 价格",
+                    "prompt": "去京东查询 iPhone 17 Pro Max 官方店铺价格。",
+                    "max_runs": 5
+                },
+                {
+                    "title": "查询 Mac mini 价格",
+                    "prompt": "去京东查询 Mac mini M4 价格。",
+                    "max_runs": 2
+                }
+            ]
+        }))
+        .expect("input");
+
+        let payload = task_payload_from_schedule_input(input);
+
+        assert!(payload.get("trigger").is_some(), "{payload}");
+        assert!(payload.pointer("/actions/0/trigger").is_none(), "{payload}");
+        assert_eq!(
+            payload
+                .pointer("/actions/0/max_runs")
+                .and_then(Value::as_u64),
+            Some(5)
+        );
+        assert_eq!(
+            payload
+                .pointer("/actions/1/depends_on_action_ids/0")
+                .and_then(Value::as_str),
+            Some("act-phase-1")
+        );
     }
 
     #[test]
@@ -1457,6 +1686,7 @@ mod tests {
             output_schema: None,
             max_runtime_seconds: None,
             max_runs: None,
+            phases: Vec::new(),
         };
 
         let payload = normalize_schedule_payload(&draft).expect("payload");
@@ -1498,6 +1728,7 @@ mod tests {
             output_schema: None,
             max_runtime_seconds: None,
             max_runs: None,
+            phases: Vec::new(),
         };
 
         let payload = normalize_schedule_payload(&draft).expect("payload");
@@ -1525,6 +1756,7 @@ mod tests {
             output_schema: None,
             max_runtime_seconds: None,
             max_runs: None,
+            phases: Vec::new(),
         };
 
         let payload = normalize_schedule_payload(&draft).expect("payload");
@@ -1549,6 +1781,7 @@ mod tests {
             output_schema: None,
             max_runtime_seconds: None,
             max_runs: None,
+            phases: Vec::new(),
         };
 
         let payload = normalize_schedule_payload(&draft).expect("payload");

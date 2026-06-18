@@ -24,6 +24,7 @@ pub(crate) struct TaskRunTriggerContext {
     pub(crate) trigger_id: String,
     pub(crate) task_trigger_title: String,
     pub(crate) task_trigger_reason: String,
+    pub(crate) complete_action_on_success: Option<bool>,
 }
 
 pub async fn list_tasks(
@@ -71,7 +72,8 @@ pub async fn get_task(
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
     let task = load_task(&state.storage, &user_id, &task_id).await?;
-    let actions = state.storage.list_task_actions(&user_id, &task_id).await?;
+    let actions =
+        sort_task_actions_for_execution(state.storage.list_task_actions(&user_id, &task_id).await?);
     Ok(Json(json!({
         "task": public_task_value(&state, &user_id, task),
         "actions": public_task_action_values(&state, &user_id, actions)
@@ -96,7 +98,8 @@ pub async fn update_task(
         json!({"updates": input}),
     )
     .await?;
-    let actions = state.storage.list_task_actions(&user_id, &task_id).await?;
+    let actions =
+        sort_task_actions_for_execution(state.storage.list_task_actions(&user_id, &task_id).await?);
     Ok(Json(json!({
         "task": public_task_value(&state, &user_id, task),
         "actions": public_task_action_values(&state, &user_id, actions)
@@ -121,7 +124,8 @@ pub async fn cancel_task(
         json!({}),
     )
     .await?;
-    let actions = state.storage.list_task_actions(&user_id, &task_id).await?;
+    let actions =
+        sort_task_actions_for_execution(state.storage.list_task_actions(&user_id, &task_id).await?);
     Ok(Json(json!({
         "task": public_task_value(&state, &user_id, task),
         "actions": public_task_action_values(&state, &user_id, actions)
@@ -157,7 +161,8 @@ pub async fn confirm_task(
     set_field(&mut task, "updated_at", json!(now_iso()));
     state.storage.upsert_task(&user_id, &task).await?;
 
-    let mut actions = state.storage.list_task_actions(&user_id, &task_id).await?;
+    let mut actions =
+        sort_task_actions_for_execution(state.storage.list_task_actions(&user_id, &task_id).await?);
     for action in &mut actions {
         if action.get("status").and_then(Value::as_str) == Some("candidate") {
             set_field(action, "status", json!("confirmed"));
@@ -178,7 +183,8 @@ pub async fn confirm_task(
         json!({}),
     )
     .await?;
-    let actions = state.storage.list_task_actions(&user_id, &task_id).await?;
+    let actions =
+        sort_task_actions_for_execution(state.storage.list_task_actions(&user_id, &task_id).await?);
     Ok(Json(json!({
         "task": public_task_value(&state, &user_id, task),
         "actions": public_task_action_values(&state, &user_id, actions)
@@ -204,7 +210,8 @@ pub async fn list_task_actions(
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
     let _ = load_task(&state.storage, &user_id, &task_id).await?;
-    let actions = state.storage.list_task_actions(&user_id, &task_id).await?;
+    let actions =
+        sort_task_actions_for_execution(state.storage.list_task_actions(&user_id, &task_id).await?);
     let count = actions.len();
     Ok(Json(json!({
         "actions": public_task_action_values(&state, &user_id, actions),
@@ -221,7 +228,7 @@ pub async fn create_task_action(
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
     let task = load_task(&state.storage, &user_id, &task_id).await?;
     let now = now_iso();
-    let action = action_record_from_payload(&input, &user_id, &task_id, &task, &now)?;
+    let action = action_record_from_payload(&input, &user_id, &task_id, &task, &now, None)?;
     let trigger_records =
         task_trigger_records_from_actions(&user_id, &task, std::slice::from_ref(&action), &now)?;
     state
@@ -363,9 +370,15 @@ pub async fn trigger_due_task_actions(
             let Some(task_id) = task.get("task_id").and_then(Value::as_str) else {
                 continue;
             };
-            let actions = state.storage.list_task_actions(&user_id, task_id).await?;
+            let actions = sort_task_actions_for_execution(
+                state.storage.list_task_actions(&user_id, task_id).await?,
+            );
+            let all_actions = actions.clone();
             for mut action in actions {
                 if action.get("status").and_then(Value::as_str) != Some("confirmed") {
+                    continue;
+                }
+                if !action_dependencies_satisfied(&action, &all_actions) {
                     continue;
                 }
                 let had_next_wakeup_at = action
@@ -459,9 +472,21 @@ pub(crate) async fn create_task_from_payload(
         .cloned()
         .unwrap_or_default()
         .into_iter()
-        .map(|action| action_record_from_payload(&action, user_id, &task_id, &task, &now))
+        .enumerate()
+        .map(|(index, action)| {
+            action_record_from_payload(
+                &action,
+                user_id,
+                &task_id,
+                &task,
+                &now,
+                Some((index + 1) as u64),
+            )
+        })
         .collect::<Result<Vec<_>, _>>()?;
-    let trigger_records = task_trigger_records_from_actions(user_id, &task, &actions, &now)?;
+    let actions = sort_task_actions_for_execution(actions);
+    let trigger_records =
+        task_trigger_records_from_task_and_actions(user_id, &task, &actions, &now)?;
 
     storage.upsert_task(user_id, &task).await?;
     for action in &actions {
@@ -523,7 +548,8 @@ async fn persist_task_update_mutation(
                 json!({"updates": updates}),
             )
             .await?;
-            let actions = storage.list_task_actions(user_id, task_id).await?;
+            let actions =
+                sort_task_actions_for_execution(storage.list_task_actions(user_id, task_id).await?);
             Ok(json!({
                 "ok": true,
                 "mode": mode,
@@ -542,7 +568,7 @@ async fn persist_task_update_mutation(
                 .ok_or_else(|| ApiError::bad_request("task_update create_action missing action"))?;
             let now = now_iso();
             let action =
-                action_record_from_payload(&action_payload, user_id, task_id, &task, &now)?;
+                action_record_from_payload(&action_payload, user_id, task_id, &task, &now, None)?;
             let trigger_records = task_trigger_records_from_actions(
                 user_id,
                 &task,
@@ -564,7 +590,8 @@ async fn persist_task_update_mutation(
             )
             .await?;
             let task = refresh_task_progress(storage, user_id, task_id).await?;
-            let actions = storage.list_task_actions(user_id, task_id).await?;
+            let actions =
+                sort_task_actions_for_execution(storage.list_task_actions(user_id, task_id).await?);
             Ok(json!({
                 "ok": true,
                 "mode": mode,
@@ -606,7 +633,8 @@ async fn persist_task_update_mutation(
             set_field(&mut task, "updated_at", json!(now_iso()));
             storage.upsert_task(user_id, &task).await?;
             append_task_event(storage, user_id, task_id, "task_completed", json!({})).await?;
-            let actions = storage.list_task_actions(user_id, task_id).await?;
+            let actions =
+                sort_task_actions_for_execution(storage.list_task_actions(user_id, task_id).await?);
             Ok(json!({
                 "ok": true,
                 "mode": mode,
@@ -661,7 +689,8 @@ async fn update_task_action_record(
         .await?;
     }
     let task = refresh_task_progress(storage, user_id, task_id).await?;
-    let actions = storage.list_task_actions(user_id, task_id).await?;
+    let actions =
+        sort_task_actions_for_execution(storage.list_task_actions(user_id, task_id).await?);
     Ok((task, action, actions))
 }
 
@@ -811,6 +840,99 @@ fn action_wakeup_at(action: &Value) -> Option<&str> {
         })
 }
 
+fn sort_task_actions_for_execution(mut actions: Vec<Value>) -> Vec<Value> {
+    actions.sort_by(|a, b| action_execution_key(a).cmp(&action_execution_key(b)));
+    actions
+}
+
+fn action_execution_key(action: &Value) -> (u64, String, String, String) {
+    (
+        action_sequence_index(action),
+        action_text_field(action, "created_at"),
+        action_text_field(action, "updated_at"),
+        action_text_field(action, "action_id"),
+    )
+}
+
+fn action_sequence_index(action: &Value) -> u64 {
+    action_u64_field(action, "sequence_index")
+        .or_else(|| action_u64_field(action, "sequence"))
+        .unwrap_or(u64::MAX)
+}
+
+fn action_text_field(action: &Value, key: &str) -> String {
+    action
+        .get(key)
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string()
+}
+
+fn action_u64_field(action: &Value, key: &str) -> Option<u64> {
+    action.get(key).and_then(|value| {
+        value.as_u64().or_else(|| {
+            value
+                .as_str()
+                .and_then(|text| text.trim().parse::<u64>().ok())
+        })
+    })
+}
+
+fn action_run_count(action: &Value) -> u64 {
+    action_u64_field(action, "run_count").unwrap_or(0)
+}
+
+fn action_max_runs(action: &Value) -> Option<u64> {
+    action_u64_field(action, "max_runs").map(|value| value.max(1))
+}
+
+fn should_complete_action_after_run(action: &Value, next_run_count: u64) -> bool {
+    action_max_runs(action).map_or(true, |max_runs| next_run_count >= max_runs)
+}
+
+fn action_dependency_ids(action: &Value) -> Vec<String> {
+    let Some(value) = action
+        .get("depends_on_action_ids")
+        .or_else(|| action.get("depends_on"))
+        .or_else(|| action.get("dependencies"))
+    else {
+        return Vec::new();
+    };
+    if let Some(items) = value.as_array() {
+        return items
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::trim)
+            .filter(|item| !item.is_empty())
+            .map(str::to_string)
+            .collect();
+    }
+    value
+        .as_str()
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+        .map(|item| vec![item.to_string()])
+        .unwrap_or_default()
+}
+
+fn action_dependencies_satisfied(action: &Value, actions: &[Value]) -> bool {
+    let dependencies = action_dependency_ids(action);
+    dependencies.is_empty()
+        || dependencies.iter().all(|dependency_id| {
+            actions.iter().any(|candidate| {
+                candidate.get("action_id").and_then(Value::as_str) == Some(dependency_id.as_str())
+                    && candidate.get("status").and_then(Value::as_str) == Some("completed")
+            })
+        })
+}
+
+fn action_is_runnable(action: &Value, actions: &[Value]) -> bool {
+    !matches!(
+        action.get("status").and_then(Value::as_str),
+        Some("candidate" | "completed" | "cancelled")
+    ) && action_dependencies_satisfied(action, actions)
+}
+
 fn parse_datetime(value: &str) -> Result<OffsetDateTime, ApiError> {
     OffsetDateTime::parse(value, &Rfc3339)
         .map(|value| value.to_offset(time::UtcOffset::UTC))
@@ -834,7 +956,8 @@ async fn refresh_task_progress(
         .and_then(Value::as_str)
         .unwrap_or("active")
         .to_string();
-    let actions = storage.list_task_actions(user_id, task_id).await?;
+    let actions =
+        sort_task_actions_for_execution(storage.list_task_actions(user_id, task_id).await?);
     let total = actions.len() as u64;
     let completed = actions
         .iter()
@@ -881,6 +1004,11 @@ async fn refresh_task_progress(
         .any(|action| action.get("status").and_then(Value::as_str) == Some("blocked"))
     {
         set_task_status_internal(&mut task, "blocked");
+    } else if !matches!(
+        previous_status.as_str(),
+        "candidate" | "cancelled" | "archived"
+    ) {
+        set_task_status_internal(&mut task, "active");
     }
     set_field(&mut task, "updated_at", json!(now_iso()));
     storage.upsert_task(user_id, &task).await?;
@@ -893,6 +1021,8 @@ async fn refresh_task_progress(
 }
 
 fn current_action_for_progress(actions: &[Value]) -> Option<&Value> {
+    let mut action_refs = actions.iter().collect::<Vec<_>>();
+    action_refs.sort_by(|a, b| action_execution_key(a).cmp(&action_execution_key(b)));
     for status in [
         "in_progress",
         "waiting_user",
@@ -900,8 +1030,9 @@ fn current_action_for_progress(actions: &[Value]) -> Option<&Value> {
         "confirmed",
         "candidate",
     ] {
-        if let Some(action) = actions
+        if let Some(action) = action_refs
             .iter()
+            .copied()
             .find(|action| action.get("status").and_then(Value::as_str) == Some(status))
         {
             return Some(action);
@@ -992,6 +1123,7 @@ fn action_record_from_payload(
     task_id: &str,
     task: &Value,
     now: &str,
+    default_sequence_index: Option<u64>,
 ) -> Result<Value, ApiError> {
     let Some(input) = payload.as_object() else {
         return Err(ApiError::bad_request(
@@ -1046,6 +1178,17 @@ fn action_record_from_payload(
     record
         .entry("requires_confirmation".to_string())
         .or_insert_with(|| json!(requires_confirmation));
+    if let Some(sequence_index) = default_sequence_index {
+        record
+            .entry("sequence_index".to_string())
+            .or_insert_with(|| json!(sequence_index));
+    }
+    if let Some(max_runs) = action_max_runs(&Value::Object(record.clone())) {
+        record.insert("max_runs".to_string(), json!(max_runs));
+    }
+    record
+        .entry("run_count".to_string())
+        .or_insert_with(|| json!(0));
     if !record.contains_key("source_session_id") {
         if let Some(session_id) = task.get("source_session_id").and_then(Value::as_str) {
             record.insert("source_session_id".to_string(), json!(session_id));
@@ -1060,6 +1203,24 @@ fn action_record_from_payload(
     Ok(record)
 }
 
+fn task_trigger_records_from_task_and_actions(
+    user_id: &str,
+    task: &Value,
+    actions: &[Value],
+    now: &str,
+) -> Result<Vec<Value>, ApiError> {
+    let mut records = Vec::new();
+    for trigger in task_trigger_values(task) {
+        records.push(task_trigger_record_from_payload(
+            user_id, task, None, trigger, now,
+        )?);
+    }
+    records.extend(task_trigger_records_from_actions(
+        user_id, task, actions, now,
+    )?);
+    Ok(records)
+}
+
 fn task_trigger_records_from_actions(
     user_id: &str,
     task: &Value,
@@ -1070,11 +1231,26 @@ fn task_trigger_records_from_actions(
     for action in actions {
         for trigger in action_trigger_values(action) {
             records.push(task_trigger_record_from_payload(
-                user_id, task, action, trigger, now,
+                user_id,
+                task,
+                Some(action),
+                trigger,
+                now,
             )?);
         }
     }
     Ok(records)
+}
+
+fn task_trigger_values(task: &Value) -> Vec<&Value> {
+    let mut triggers = Vec::new();
+    if let Some(trigger) = task.get("trigger").filter(|value| value.is_object()) {
+        triggers.push(trigger);
+    }
+    if let Some(values) = task.get("triggers").and_then(Value::as_array) {
+        triggers.extend(values.iter().filter(|value| value.is_object()));
+    }
+    triggers
 }
 
 fn action_trigger_values(action: &Value) -> Vec<&Value> {
@@ -1091,7 +1267,7 @@ fn action_trigger_values(action: &Value) -> Vec<&Value> {
 fn task_trigger_record_from_payload(
     user_id: &str,
     task: &Value,
-    action: &Value,
+    action: Option<&Value>,
     trigger: &Value,
     now: &str,
 ) -> Result<Value, ApiError> {
@@ -1099,10 +1275,7 @@ fn task_trigger_record_from_payload(
         .get("task_id")
         .and_then(Value::as_str)
         .ok_or_else(|| ApiError::bad_request("task trigger missing task_id"))?;
-    let action_id = action
-        .get("action_id")
-        .and_then(Value::as_str)
-        .ok_or_else(|| ApiError::bad_request("task trigger missing action_id"))?;
+    let action_id = action.and_then(|action| action.get("action_id").and_then(Value::as_str));
     let kind = trigger
         .get("kind")
         .and_then(Value::as_str)
@@ -1161,11 +1334,13 @@ fn task_trigger_record_from_payload(
             .get("requires_confirmation")
             .and_then(Value::as_bool)
             .unwrap_or(false)
-        || action.get("status").and_then(Value::as_str) == Some("candidate")
-        || action
-            .get("requires_confirmation")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
+        || action.is_some_and(|action| {
+            action.get("status").and_then(Value::as_str) == Some("candidate")
+                || action
+                    .get("requires_confirmation")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+        });
     let enabled = requested_enabled && !needs_confirmation;
     let now_dt = parse_datetime(now)?;
     let next_run_at = if enabled {
@@ -1176,7 +1351,7 @@ fn task_trigger_record_from_payload(
     let title = trigger
         .get("title")
         .and_then(Value::as_str)
-        .or_else(|| action.get("title").and_then(Value::as_str))
+        .or_else(|| action.and_then(|action| action.get("title").and_then(Value::as_str)))
         .or_else(|| task.get("title").and_then(Value::as_str))
         .map(str::trim)
         .filter(|value| !value.is_empty())
@@ -1184,9 +1359,10 @@ fn task_trigger_record_from_payload(
     let prompt = trigger
         .get("prompt")
         .and_then(Value::as_str)
-        .or_else(|| action.get("objective").and_then(Value::as_str))
-        .or_else(|| action.get("description").and_then(Value::as_str))
-        .or_else(|| action.get("title").and_then(Value::as_str))
+        .or_else(|| action.and_then(|action| action.get("objective").and_then(Value::as_str)))
+        .or_else(|| action.and_then(|action| action.get("description").and_then(Value::as_str)))
+        .or_else(|| action.and_then(|action| action.get("title").and_then(Value::as_str)))
+        .or_else(|| task.get("objective").and_then(Value::as_str))
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .ok_or_else(|| ApiError::bad_request("task trigger prompt is required"))?;
@@ -1486,6 +1662,7 @@ fn allowed_action_transition(current: &str, next: &str) -> bool {
             | ("confirmed", "blocked")
             | ("confirmed", "cancelled")
             | ("in_progress", "completed")
+            | ("in_progress", "confirmed")
             | ("in_progress", "waiting_user")
             | ("in_progress", "blocked")
             | ("in_progress", "cancelled")
@@ -1571,10 +1748,10 @@ pub(crate) async fn execute_task_action_for_trigger(
     state: &AppState,
     user_id: &str,
     task_id: &str,
-    action_id: &str,
+    action_id: Option<&str>,
     trigger: TaskRunTriggerContext,
 ) -> Result<AgentRunInfo, ApiError> {
-    execute_task_action_inner(state, user_id, task_id, Some(action_id), Some(&trigger)).await
+    execute_task_action_inner(state, user_id, task_id, action_id, Some(&trigger)).await
 }
 
 async fn execute_task_action_inner(
@@ -1691,23 +1868,43 @@ async fn execute_task_action_inner(
             append_assistant_message(&mut session, &result_summary);
             session_changed = true;
         }
-        let mut updates = json!({
-            "status": "completed",
-            "last_run_id": final_info.job_id,
-            "result_summary": result_summary
-        });
-        if output_text.trim().is_empty() {
-            set_field(&mut updates, "result_summary", json!("Task run completed."));
+        let next_action_run_count = action_run_count(&action).saturating_add(1);
+        let complete_action_on_success = trigger
+            .and_then(|trigger| trigger.complete_action_on_success)
+            .unwrap_or_else(|| should_complete_action_after_run(&action, next_action_run_count));
+        let action_result_summary = if output_text.trim().is_empty() {
+            "Task run completed.".to_string()
+        } else {
+            result_summary
+        };
+        if complete_action_on_success {
+            let updates = json!({
+                "status": "completed",
+                "last_run_id": final_info.job_id,
+                "run_count": next_action_run_count,
+                "result_summary": action_result_summary
+            });
+            let _ = update_task_action_record(
+                &state.storage,
+                user_id,
+                task_id,
+                &action_id,
+                &updates,
+                Some("complete_action"),
+            )
+            .await?;
+        } else {
+            requeue_task_action_after_recurring_iteration(
+                &state.storage,
+                user_id,
+                task_id,
+                &action_id,
+                &final_info.job_id,
+                &action_result_summary,
+                next_action_run_count,
+            )
+            .await?;
         }
-        let _ = update_task_action_record(
-            &state.storage,
-            user_id,
-            task_id,
-            &action_id,
-            &updates,
-            Some("complete_action"),
-        )
-        .await?;
     } else {
         let error = final_info
             .error
@@ -1733,13 +1930,58 @@ async fn execute_task_action_inner(
     Ok(final_info)
 }
 
+async fn requeue_task_action_after_recurring_iteration(
+    storage: &Storage,
+    user_id: &str,
+    task_id: &str,
+    action_id: &str,
+    run_id: &str,
+    result_summary: &str,
+    run_count: u64,
+) -> Result<(), ApiError> {
+    let mut action = load_task_action(storage, user_id, task_id, action_id).await?;
+    set_field(&mut action, "status", json!("confirmed"));
+    set_field(&mut action, "last_run_id", json!(run_id));
+    set_field(&mut action, "run_count", json!(run_count));
+    set_field(&mut action, "result_summary", json!(result_summary));
+    set_field(&mut action, "updated_at", json!(now_iso()));
+    storage
+        .upsert_task_action(user_id, task_id, &action)
+        .await?;
+    append_task_event(
+        storage,
+        user_id,
+        task_id,
+        "task_action_updated",
+        json!({
+            "action_id": action_id,
+            "status": "confirmed",
+            "updates": {
+                "status": "confirmed",
+                "last_run_id": run_id,
+                "run_count": run_count,
+                "result_summary": result_summary
+            }
+        }),
+    )
+    .await?;
+    let _ = refresh_task_progress(storage, user_id, task_id).await?;
+    Ok(())
+}
+
 async fn load_runnable_task_action(
     storage: &Storage,
     user_id: &str,
     task_id: &str,
     action_id: &str,
 ) -> Result<Value, ApiError> {
-    let action = load_task_action(storage, user_id, task_id, action_id).await?;
+    let actions =
+        sort_task_actions_for_execution(storage.list_task_actions(user_id, task_id).await?);
+    let action = actions
+        .iter()
+        .find(|record| record.get("action_id").and_then(Value::as_str) == Some(action_id))
+        .cloned()
+        .ok_or_else(|| ApiError::not_found("Task action not found"))?;
     let status = action
         .get("status")
         .and_then(Value::as_str)
@@ -1748,6 +1990,11 @@ async fn load_runnable_task_action(
         return Err(ApiError::bad_request(format!(
             "Task action cannot run while status is {status}."
         )));
+    }
+    if !action_dependencies_satisfied(&action, &actions) {
+        return Err(ApiError::bad_request(
+            "Task action cannot run before its dependencies complete.",
+        ));
     }
     Ok(action)
 }
@@ -1758,14 +2005,17 @@ async fn ensure_runnable_action(
     task_id: &str,
     task: &Value,
 ) -> Result<Value, ApiError> {
-    let actions = storage.list_task_actions(user_id, task_id).await?;
-    if let Some(action) = actions.into_iter().find(|action| {
-        !matches!(
-            action.get("status").and_then(Value::as_str),
-            Some("completed" | "cancelled")
-        )
-    }) {
+    let actions =
+        sort_task_actions_for_execution(storage.list_task_actions(user_id, task_id).await?);
+    if let Some(action) = actions
+        .iter()
+        .find(|action| action_is_runnable(action, &actions))
+        .cloned()
+    {
         return Ok(action);
+    }
+    if !actions.is_empty() {
+        return Err(ApiError::bad_request("No task action is ready to run yet."));
     }
     let now = now_iso();
     let action = action_record_from_payload(
@@ -1779,6 +2029,7 @@ async fn ensure_runnable_action(
         task_id,
         task,
         &now,
+        Some(1),
     )?;
     storage
         .upsert_task_action(user_id, task_id, &action)
@@ -1813,12 +2064,16 @@ fn task_run_prompt(task: &Value, action: &Value) -> String {
         .get("objective")
         .and_then(Value::as_str)
         .unwrap_or(action_title);
+    let next_action_run_count = action_run_count(action).saturating_add(1);
+    let action_run_limit = action_max_runs(action)
+        .map(|max_runs| max_runs.to_string())
+        .unwrap_or_else(|| "unlimited".to_string());
     let source = task
         .get("source_summary")
         .and_then(Value::as_str)
         .unwrap_or("");
     format!(
-        "Run this Ripple task.\nTask ID: {task_id}\nTask title: {task_title}\nTask objective: {task_objective}\nCurrent action ID: {action_id}\nCurrent action: {action_title}\nAction objective: {action_objective}\nSource context:\n{source}\n\nUse `codex_app.task_update` to update this task's progress. Call start_action when beginning, complete_action when done, wait_user when user input is needed, and block_action if blocked. Return a concise update for the user in the same language as the task."
+        "Run this Ripple task.\nTask ID: {task_id}\nTask title: {task_title}\nTask objective: {task_objective}\nCurrent action ID: {action_id}\nCurrent action: {action_title}\nAction objective: {action_objective}\nCurrent action run: {next_action_run_count}/{action_run_limit}\nSource context:\n{source}\n\nUse `codex_app.task_update` to update this task's progress. Call start_action when beginning, complete_action when done, wait_user when user input is needed, and block_action if blocked. Return a concise update for the user in the same language as the task."
     )
 }
 
@@ -1960,7 +2215,7 @@ fn public_task_action_value(state: &AppState, user_id: &str, mut action: Value) 
 }
 
 fn public_task_action_values(state: &AppState, user_id: &str, actions: Vec<Value>) -> Vec<Value> {
-    actions
+    sort_task_actions_for_execution(actions)
         .into_iter()
         .map(|action| public_task_action_value(state, user_id, action))
         .collect()
@@ -2002,4 +2257,70 @@ fn now_iso() -> String {
     OffsetDateTime::now_utc()
         .format(&Rfc3339)
         .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recurring_action_can_return_to_confirmed_after_iteration() {
+        assert!(allowed_action_transition("in_progress", "confirmed"));
+    }
+
+    #[tokio::test]
+    async fn refresh_progress_marks_task_active_when_actions_are_ready() -> anyhow::Result<()> {
+        let root = std::env::temp_dir().join(format!("ripple-tasks-test-{}", uuid::Uuid::new_v4()));
+        let storage = Storage::open(root.join(".ripple/ripple.sqlite"))?;
+        let user_id = "alice";
+        let task_id = "task-recurring";
+
+        storage
+            .upsert_task(
+                user_id,
+                &json!({
+                    "task_id": task_id,
+                    "user_id": user_id,
+                    "title": "Check index",
+                    "objective": "Check the index repeatedly",
+                    "status": "in_progress",
+                    "created_at": "2026-06-18T00:00:00Z",
+                    "updated_at": "2026-06-18T00:00:00Z"
+                }),
+            )
+            .await?;
+        storage
+            .upsert_task_action(
+                user_id,
+                task_id,
+                &json!({
+                    "action_id": "act-check",
+                    "task_id": task_id,
+                    "user_id": user_id,
+                    "title": "Check index",
+                    "objective": "Check the index once",
+                    "status": "confirmed",
+                    "created_at": "2026-06-18T00:00:00Z",
+                    "updated_at": "2026-06-18T00:00:00Z"
+                }),
+            )
+            .await?;
+
+        let task = refresh_task_progress(&storage, user_id, task_id)
+            .await
+            .expect("refresh task progress");
+
+        assert_eq!(task.get("status").and_then(Value::as_str), Some("active"));
+        assert_eq!(
+            task.pointer("/progress/completed").and_then(Value::as_u64),
+            Some(0)
+        );
+        assert_eq!(
+            task.pointer("/progress/total").and_then(Value::as_u64),
+            Some(1)
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
 }

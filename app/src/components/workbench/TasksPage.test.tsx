@@ -161,6 +161,7 @@ function testTasksPageRendersTaskListAndDetail() {
   assert.match(html, /步骤计划/);
   assert.match(html, /触发器/);
   assert.match(html, /明早提醒/);
+  assert.match(html, /运行 1\/1/);
   assert.match(html, /job-sch-trip/);
   assert.match(html, /步骤受阻/);
   assert.match(html, /到期执行步骤/);

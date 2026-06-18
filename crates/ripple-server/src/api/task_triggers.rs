@@ -70,6 +70,14 @@ struct TaskTriggerRecord {
 }
 
 #[derive(Debug, Deserialize)]
+pub(crate) struct TaskTriggerPhaseInput {
+    pub(crate) title: String,
+    pub(crate) prompt: String,
+    #[serde(default)]
+    pub(crate) max_runs: Option<u64>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct TaskTriggerCreateInput {
     pub(crate) title: String,
     pub(crate) prompt: String,
@@ -97,6 +105,8 @@ pub struct TaskTriggerCreateInput {
     pub(crate) max_runtime_seconds: u64,
     #[serde(default)]
     pub(crate) max_runs: Option<u64>,
+    #[serde(default)]
+    pub(crate) phases: Vec<TaskTriggerPhaseInput>,
     #[serde(default)]
     pub(crate) task_id: Option<String>,
     #[serde(default)]
@@ -203,6 +213,50 @@ pub async fn create_task_action_trigger(
     Ok(Json(public_task_trigger_from_record_value(trigger)))
 }
 
+pub async fn create_task_trigger(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(task_id): Path<String>,
+    Json(mut input): Json<TaskTriggerCreateInput>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
+    state.sandboxes.ensure_sandbox(&user_id)?;
+    let task = state
+        .storage
+        .get_task(&user_id, &task_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("Task not found"))?;
+    let enable_on_confirm = input.enabled;
+    let needs_confirmation = task.get("status").and_then(Value::as_str) == Some("candidate")
+        || task
+            .get("requires_confirmation")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+    if needs_confirmation {
+        input.enabled = false;
+    }
+    input.task_id = Some(task_id);
+    input.task_action_id = None;
+    let mut trigger = create_task_trigger_for_user(&state, &user_id, input).await?;
+    if needs_confirmation {
+        if let Some(object) = trigger.as_object_mut() {
+            object.insert("enabled".to_string(), json!(false));
+            object.insert("status".to_string(), json!("pending_confirmation"));
+            object.insert("next_run_at".to_string(), Value::Null);
+            object.insert("enable_on_confirm".to_string(), json!(enable_on_confirm));
+            object.insert(
+                "updated_at".to_string(),
+                json!(iso(OffsetDateTime::now_utc())),
+            );
+        }
+        state
+            .storage
+            .upsert_task_trigger(&user_id, &trigger)
+            .await?;
+    }
+    Ok(Json(public_task_trigger_from_record_value(trigger)))
+}
+
 pub(crate) async fn create_task_trigger_for_user(
     state: &AppState,
     user_id: &str,
@@ -288,7 +342,11 @@ pub async fn run_task_trigger_now(
         }
     };
     apply_latest_run_to_task_trigger(&mut record, Some(&info));
-    if record.enabled && record.status != "completed" {
+    if task_trigger_target_completed(&state, &user_id, &record).await? {
+        record.enabled = false;
+        record.status = "completed".to_string();
+        record.next_run_at = None;
+    } else if record.enabled && record.status != "completed" {
         record.status = "active".to_string();
     }
     record.updated_at = iso(now);
@@ -313,6 +371,14 @@ pub async fn trigger_due_task_triggers(
                 continue;
             }
             if task_trigger_limit_reached(&record) {
+                record.enabled = false;
+                record.status = "completed".to_string();
+                record.next_run_at = None;
+                record.updated_at = iso(now);
+                persist_task_trigger_record(state, &user_id, &record).await?;
+                continue;
+            }
+            if task_trigger_target_completed(state, &user_id, &record).await? {
                 record.enabled = false;
                 record.status = "completed".to_string();
                 record.next_run_at = None;
@@ -360,7 +426,10 @@ pub async fn trigger_due_task_triggers(
                 Ok(info) => {
                     apply_latest_run_to_task_trigger(&mut record, Some(&info));
                     record.run_count += 1;
-                    if record.kind == "once" || task_trigger_limit_reached(&record) {
+                    if record.kind == "once"
+                        || task_trigger_limit_reached(&record)
+                        || task_trigger_target_completed(state, &user_id, &record).await?
+                    {
                         record.enabled = false;
                         record.status = "completed".to_string();
                         record.next_run_at = None;
@@ -412,19 +481,19 @@ async fn start_task_trigger_run(
         .task_id
         .as_deref()
         .ok_or_else(|| ApiError::bad_request("Task trigger missing task_id"))?;
-    let action_id = record
-        .task_action_id
-        .as_deref()
-        .ok_or_else(|| ApiError::bad_request("Task trigger missing task_action_id"))?;
     let info = execute_task_action_for_trigger(
         state,
         user_id,
         task_id,
-        action_id,
+        record.task_action_id.as_deref(),
         TaskRunTriggerContext {
             trigger_id: record.trigger_id.clone(),
             task_trigger_title: record.title.clone(),
             task_trigger_reason: trigger.to_string(),
+            complete_action_on_success: record
+                .task_action_id
+                .as_ref()
+                .map(|_| should_complete_task_trigger_action(record, trigger)),
         },
     )
     .await?;
@@ -971,6 +1040,31 @@ fn task_trigger_limit_reached(record: &TaskTriggerRecord) -> bool {
             .is_some_and(|max_runs| record.run_count >= max_runs)
 }
 
+async fn task_trigger_target_completed(
+    state: &AppState,
+    user_id: &str,
+    record: &TaskTriggerRecord,
+) -> Result<bool, ApiError> {
+    let Some(task_id) = record.task_id.as_deref() else {
+        return Ok(false);
+    };
+    let Some(task) = state.storage.get_task(user_id, task_id).await? else {
+        return Ok(false);
+    };
+    Ok(task.get("status").and_then(Value::as_str) == Some("completed"))
+}
+
+fn should_complete_task_trigger_action(record: &TaskTriggerRecord, trigger: &str) -> bool {
+    if trigger != "scheduled" {
+        return false;
+    }
+    record.kind == "once"
+        || (record.kind == "interval"
+            && record
+                .max_runs
+                .is_some_and(|max_runs| record.run_count.saturating_add(1) >= max_runs))
+}
+
 fn iso(value: OffsetDateTime) -> String {
     value
         .format(&Rfc3339)
@@ -1171,5 +1265,27 @@ mod tests {
 
         assert_eq!(run_at.as_deref(), Some("2026-05-28T02:00:00Z"));
         Ok(())
+    }
+
+    #[test]
+    fn recurring_task_trigger_completes_action_only_on_final_scheduled_run() {
+        let mut record = task_trigger_record();
+        record.max_runs = Some(5);
+        record.run_count = 3;
+
+        assert!(!should_complete_task_trigger_action(&record, "scheduled"));
+
+        record.run_count = 4;
+        assert!(should_complete_task_trigger_action(&record, "scheduled"));
+        assert!(!should_complete_task_trigger_action(&record, "manual"));
+    }
+
+    #[test]
+    fn one_shot_task_trigger_completes_action_on_scheduled_run() {
+        let mut record = task_trigger_record();
+        record.kind = "once".to_string();
+        record.max_runs = None;
+
+        assert!(should_complete_task_trigger_action(&record, "scheduled"));
     }
 }

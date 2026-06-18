@@ -146,6 +146,17 @@ function progressText(task: TaskInfo): string {
   return `${progress.completed}/${progress.total}`;
 }
 
+function triggerRunProgressText(
+  trigger: TaskTriggerInfo,
+  t: ReturnType<typeof useI18n>["t"]
+): string {
+  const maxRuns = trigger.kind === "once" ? trigger.max_runs ?? 1 : trigger.max_runs;
+  if (typeof maxRuns === "number" && maxRuns > 0) {
+    return t("tasks.triggerRuns", { count: trigger.run_count, max: maxRuns });
+  }
+  return t("tasks.triggerRunsUnlimited", { count: trigger.run_count });
+}
+
 function canConfirm(task: TaskInfo): boolean {
   return task.status === "candidate" || task.requiresConfirmation;
 }
@@ -864,6 +875,9 @@ export default function TasksPage({
                         <div className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
                           {t("tasks.triggerNext")}:{" "}
                           {formatDate(trigger.next_run_at, locale, t("tasks.unknown"))}
+                        </div>
+                        <div className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
+                          {triggerRunProgressText(trigger, t)}
                         </div>
                         {trigger.last_run_id || trigger.last_run_status ? (
                           <div className="flex min-w-0 flex-wrap items-center gap-2">

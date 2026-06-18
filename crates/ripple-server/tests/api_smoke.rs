@@ -1835,6 +1835,357 @@ async fn removed_schedules_api_leaves_task_triggers_as_the_public_surface() {
 }
 
 #[tokio::test]
+async fn candidate_task_trigger_waits_for_confirmation_before_activation() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let (state, app) = test_state_and_app(&root);
+
+    let (status, created) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/tasks",
+        json!({
+            "task_id": "task-proactive-candidate",
+            "title": "预测补充客户预算",
+            "objective": "根据历史会话推测用户可能需要补充客户预算。",
+            "status": "candidate",
+            "requires_confirmation": true,
+            "actions": [
+                {
+                    "action_id": "act-proactive-budget",
+                    "title": "提醒补充客户预算",
+                    "kind": "reminder",
+                    "trigger": {
+                        "title": "稍后提醒补充预算",
+                        "prompt": "提醒用户补充客户预算信息。",
+                        "kind": "once",
+                        "run_at": "2020-01-01T00:00:00Z",
+                        "enabled": true
+                    }
+                }
+            ]
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+
+    let (status, triggers) = call(
+        app.clone(),
+        Method::GET,
+        "/v1/tasks/task-proactive-candidate/triggers",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{triggers}");
+    assert_eq!(triggers.get("count").and_then(Value::as_u64), Some(1));
+    assert_eq!(
+        triggers
+            .pointer("/triggers/0/status")
+            .and_then(Value::as_str),
+        Some("pending_confirmation"),
+        "{triggers}"
+    );
+    assert_eq!(
+        triggers
+            .pointer("/triggers/0/enabled")
+            .and_then(Value::as_bool),
+        Some(false),
+        "{triggers}"
+    );
+    assert!(
+        triggers
+            .pointer("/triggers/0/next_run_at")
+            .is_some_and(Value::is_null),
+        "{triggers}"
+    );
+    let trigger_id = triggers
+        .pointer("/triggers/0/trigger_id")
+        .and_then(Value::as_str)
+        .expect("trigger id")
+        .to_string();
+
+    let triggered = trigger_due_task_triggers(&state)
+        .await
+        .expect("trigger task triggers");
+    assert!(
+        !triggered
+            .get("smoke-user")
+            .is_some_and(|ids| !ids.is_empty()),
+        "{triggered:?}"
+    );
+    let (status, still_pending) = call(
+        app.clone(),
+        Method::GET,
+        "/v1/tasks/task-proactive-candidate/triggers",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{still_pending}");
+    assert_eq!(
+        still_pending
+            .pointer("/triggers/0/status")
+            .and_then(Value::as_str),
+        Some("pending_confirmation"),
+        "{still_pending}"
+    );
+    assert!(
+        still_pending
+            .pointer("/triggers/0/last_run_status")
+            .is_some_and(Value::is_null),
+        "{still_pending}"
+    );
+
+    let (status, manual_run) = call(
+        app.clone(),
+        Method::POST,
+        &format!("/v1/tasks/task-proactive-candidate/triggers/{trigger_id}/run-now"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{manual_run}");
+    let (status, still_pending) = call(
+        app.clone(),
+        Method::GET,
+        "/v1/tasks/task-proactive-candidate/triggers",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{still_pending}");
+    assert_eq!(
+        still_pending
+            .pointer("/triggers/0/status")
+            .and_then(Value::as_str),
+        Some("pending_confirmation"),
+        "{still_pending}"
+    );
+
+    let (status, confirmed) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/tasks/task-proactive-candidate/confirm",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{confirmed}");
+
+    let (status, active) = call(
+        app,
+        Method::GET,
+        "/v1/tasks/task-proactive-candidate/triggers",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{active}");
+    assert_eq!(
+        active.pointer("/triggers/0/status").and_then(Value::as_str),
+        Some("active"),
+        "{active}"
+    );
+    assert_eq!(
+        active
+            .pointer("/triggers/0/enabled")
+            .and_then(Value::as_bool),
+        Some(true),
+        "{active}"
+    );
+    assert!(
+        active
+            .pointer("/triggers/0/next_run_at")
+            .and_then(Value::as_str)
+            .is_some(),
+        "{active}"
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn create_task_action_with_embedded_trigger_persists_task_trigger() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let (_state, app) = test_state_and_app(&root);
+
+    let (status, created) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/tasks",
+        json!({
+            "task_id": "task-action-trigger",
+            "title": "跟进报价方案",
+            "objective": "跟进报价方案。",
+            "status": "active"
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+
+    let (status, action) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/tasks/task-action-trigger/actions",
+        json!({
+            "action_id": "act-action-trigger",
+            "title": "提醒补充预算",
+            "kind": "reminder",
+            "status": "confirmed",
+            "trigger": {
+                "title": "明天补预算提醒",
+                "prompt": "提醒用户补充预算。",
+                "kind": "once",
+                "run_at": "2026-06-19T02:00:00Z",
+                "enabled": false
+            }
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{action}");
+
+    let (status, triggers) = call(
+        app,
+        Method::GET,
+        "/v1/tasks/task-action-trigger/triggers",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{triggers}");
+    assert_eq!(triggers.get("count").and_then(Value::as_u64), Some(1));
+    assert_eq!(
+        triggers
+            .pointer("/triggers/0/task_action_id")
+            .and_then(Value::as_str),
+        Some("act-action-trigger"),
+        "{triggers}"
+    );
+    assert_eq!(
+        triggers
+            .pointer("/triggers/0/status")
+            .and_then(Value::as_str),
+        Some("paused"),
+        "{triggers}"
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn action_trigger_endpoint_respects_candidate_confirmation_gate() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let (_state, app) = test_state_and_app(&root);
+
+    let (status, created) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/tasks",
+        json!({
+            "task_id": "task-endpoint-candidate",
+            "title": "预测检查合同",
+            "objective": "根据历史会话推测可能要检查合同。",
+            "status": "candidate",
+            "requires_confirmation": true,
+            "actions": [
+                {
+                    "action_id": "act-endpoint-candidate",
+                    "title": "检查合同缺口",
+                    "kind": "execute"
+                }
+            ]
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+
+    let (status, trigger) = call(
+        app,
+        Method::POST,
+        "/v1/tasks/task-endpoint-candidate/actions/act-endpoint-candidate/triggers",
+        json!({
+            "title": "稍后检查合同",
+            "prompt": "检查合同是否还缺信息。",
+            "kind": "once",
+            "run_at": "2020-01-01T00:00:00Z",
+            "enabled": true
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{trigger}");
+    assert_eq!(
+        trigger.get("status").and_then(Value::as_str),
+        Some("pending_confirmation"),
+        "{trigger}"
+    );
+    assert_eq!(
+        trigger.get("enabled").and_then(Value::as_bool),
+        Some(false),
+        "{trigger}"
+    );
+    assert!(
+        trigger.get("next_run_at").is_some_and(Value::is_null),
+        "{trigger}"
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn deleting_task_removes_task_linked_triggers() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let (state, app) = test_state_and_app(&root);
+
+    let (status, created) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/tasks",
+        json!({
+            "task_id": "task-delete-trigger",
+            "title": "删除时清理触发器",
+            "objective": "删除任务时应清理关联触发器。",
+            "status": "active",
+            "actions": [
+                {
+                    "action_id": "act-delete-trigger",
+                    "title": "检查触发器清理",
+                    "kind": "execute",
+                    "status": "confirmed",
+                    "trigger": {
+                        "title": "清理检查",
+                        "prompt": "检查触发器清理。",
+                        "kind": "interval",
+                        "interval_seconds": 3600,
+                        "enabled": true
+                    }
+                }
+            ]
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+    assert_eq!(
+        state
+            .storage
+            .list_task_triggers("smoke-user")
+            .await
+            .expect("list triggers")
+            .len(),
+        1
+    );
+
+    let (status, deleted) = call(
+        app,
+        Method::POST,
+        "/v1/tasks/task-delete-trigger/delete",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{deleted}");
+    assert!(state
+        .storage
+        .list_task_triggers("smoke-user")
+        .await
+        .expect("list triggers")
+        .is_empty());
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
 async fn task_trigger_resolves_session_model_alias_before_codex_run() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let fake_codex = write_fake_codex_app_server(&root);

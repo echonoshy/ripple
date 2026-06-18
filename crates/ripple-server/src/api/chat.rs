@@ -1655,6 +1655,9 @@ mod tests {
         assert!(prompt.contains("<ripple_connector_auth_request>"));
         assert!(prompt.contains("task_update"));
         assert!(prompt.contains("Task actions may have triggers"));
+        assert!(prompt.contains(
+            "Tasks inferred from prior session context, memories, or recent work must use `mode=\"propose\"`"
+        ));
         assert!(!prompt.contains("two related control-plane concepts"));
         assert!(!prompt.contains("automations are explicit standalone"));
         assert!(!prompt.contains("automation_update"));

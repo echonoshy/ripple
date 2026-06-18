@@ -157,19 +157,49 @@ pub async fn create_task_action_trigger(
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
     state.sandboxes.ensure_sandbox(&user_id)?;
-    if state.storage.get_task(&user_id, &task_id).await?.is_none() {
-        return Err(ApiError::not_found("Task not found"));
-    }
+    let task = state
+        .storage
+        .get_task(&user_id, &task_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("Task not found"))?;
     let actions = state.storage.list_task_actions(&user_id, &task_id).await?;
-    if !actions
+    let action = actions
         .iter()
-        .any(|action| action.get("action_id").and_then(Value::as_str) == Some(action_id.as_str()))
-    {
-        return Err(ApiError::not_found("Task action not found"));
+        .find(|action| action.get("action_id").and_then(Value::as_str) == Some(action_id.as_str()))
+        .ok_or_else(|| ApiError::not_found("Task action not found"))?;
+    let enable_on_confirm = input.enabled;
+    let needs_confirmation = task.get("status").and_then(Value::as_str) == Some("candidate")
+        || task
+            .get("requires_confirmation")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        || action.get("status").and_then(Value::as_str) == Some("candidate")
+        || action
+            .get("requires_confirmation")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+    if needs_confirmation {
+        input.enabled = false;
     }
     input.task_id = Some(task_id);
     input.task_action_id = Some(action_id);
-    let trigger = create_task_trigger_for_user(&state, &user_id, input).await?;
+    let mut trigger = create_task_trigger_for_user(&state, &user_id, input).await?;
+    if needs_confirmation {
+        if let Some(object) = trigger.as_object_mut() {
+            object.insert("enabled".to_string(), json!(false));
+            object.insert("status".to_string(), json!("pending_confirmation"));
+            object.insert("next_run_at".to_string(), Value::Null);
+            object.insert("enable_on_confirm".to_string(), json!(enable_on_confirm));
+            object.insert(
+                "updated_at".to_string(),
+                json!(iso(OffsetDateTime::now_utc())),
+            );
+        }
+        state
+            .storage
+            .upsert_task_trigger(&user_id, &trigger)
+            .await?;
+    }
     Ok(Json(public_task_trigger_from_record_value(trigger)))
 }
 
@@ -239,6 +269,11 @@ pub async fn run_task_trigger_now(
         return Err(ApiError::not_found("Task trigger not found"));
     }
     reconcile_task_trigger_record(&state, &user_id, &mut record).await?;
+    if record.status == "pending_confirmation" {
+        return Err(ApiError::bad_request(
+            "Task trigger must be confirmed before it can run.",
+        ));
+    }
     let now = OffsetDateTime::now_utc();
     let info = match start_task_trigger_run(&state, &user_id, &record, "manual").await {
         Ok(info) => info,
@@ -449,6 +484,7 @@ fn public_task_trigger_value(state: &AppState, user_id: &str, record: &TaskTrigg
 
 fn public_task_trigger_from_record_value(mut value: Value) -> Value {
     if let Some(object) = value.as_object_mut() {
+        object.remove("enable_on_confirm");
         object.insert("trigger_type".to_string(), json!("time"));
     }
     value

@@ -169,6 +169,7 @@ pub async fn confirm_task(
                 .await?;
         }
     }
+    activate_pending_task_triggers(&state.storage, &user_id, &task_id).await?;
     append_task_event(
         &state.storage,
         &user_id,
@@ -221,10 +222,15 @@ pub async fn create_task_action(
     let task = load_task(&state.storage, &user_id, &task_id).await?;
     let now = now_iso();
     let action = action_record_from_payload(&input, &user_id, &task_id, &task, &now)?;
+    let trigger_records =
+        task_trigger_records_from_actions(&user_id, &task, std::slice::from_ref(&action), &now)?;
     state
         .storage
         .upsert_task_action(&user_id, &task_id, &action)
         .await?;
+    for trigger in &trigger_records {
+        state.storage.upsert_task_trigger(&user_id, trigger).await?;
+    }
     let _ = refresh_task_progress(&state.storage, &user_id, &task_id).await?;
     append_task_event(
         &state.storage,
@@ -537,9 +543,18 @@ async fn persist_task_update_mutation(
             let now = now_iso();
             let action =
                 action_record_from_payload(&action_payload, user_id, task_id, &task, &now)?;
+            let trigger_records = task_trigger_records_from_actions(
+                user_id,
+                &task,
+                std::slice::from_ref(&action),
+                &now,
+            )?;
             storage
                 .upsert_task_action(user_id, task_id, &action)
                 .await?;
+            for trigger in &trigger_records {
+                storage.upsert_task_trigger(user_id, trigger).await?;
+            }
             append_task_event(
                 storage,
                 user_id,
@@ -1137,10 +1152,21 @@ fn task_trigger_record_from_payload(
             "interval_seconds is required for interval task triggers",
         ));
     }
-    let enabled = trigger
+    let requested_enabled = trigger
         .get("enabled")
         .and_then(Value::as_bool)
         .unwrap_or(true);
+    let needs_confirmation = task.get("status").and_then(Value::as_str) == Some("candidate")
+        || task
+            .get("requires_confirmation")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        || action.get("status").and_then(Value::as_str) == Some("candidate")
+        || action
+            .get("requires_confirmation")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+    let enabled = requested_enabled && !needs_confirmation;
     let now_dt = parse_datetime(now)?;
     let next_run_at = if enabled {
         compute_task_trigger_next_run_at(kind, run_at.as_deref(), interval_seconds, now_dt)?
@@ -1186,7 +1212,13 @@ fn task_trigger_record_from_payload(
         "run_at": run_at,
         "interval_seconds": interval_seconds,
         "enabled": enabled,
-        "status": if enabled { "active" } else { "paused" },
+        "status": if needs_confirmation {
+            "pending_confirmation"
+        } else if enabled {
+            "active"
+        } else {
+            "paused"
+        },
         "next_run_at": next_run_at,
         "last_run_at": Value::Null,
         "last_run_id": Value::Null,
@@ -1205,10 +1237,67 @@ fn task_trigger_record_from_payload(
         "max_runs": max_runs,
         "task_id": task_id,
         "task_action_id": action_id,
+        "enable_on_confirm": requested_enabled,
         "run_count": 0,
         "created_at": now,
         "updated_at": now
     }))
+}
+
+async fn activate_pending_task_triggers(
+    storage: &Storage,
+    user_id: &str,
+    task_id: &str,
+) -> Result<(), ApiError> {
+    let now = now_iso();
+    let now_dt = parse_datetime(&now)?;
+    for mut trigger in storage.list_task_triggers(user_id).await? {
+        if trigger.get("task_id").and_then(Value::as_str) != Some(task_id) {
+            continue;
+        }
+        if trigger.get("status").and_then(Value::as_str) != Some("pending_confirmation") {
+            continue;
+        }
+        let enable_on_confirm = trigger
+            .get("enable_on_confirm")
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
+        if enable_on_confirm {
+            let kind = trigger
+                .get("kind")
+                .and_then(Value::as_str)
+                .unwrap_or("once");
+            let run_at = trigger.get("run_at").and_then(Value::as_str);
+            let interval_seconds = trigger
+                .get("interval_seconds")
+                .and_then(Value::as_u64)
+                .or_else(|| {
+                    trigger
+                        .get("interval_seconds")
+                        .and_then(Value::as_str)
+                        .and_then(|value| value.trim().parse::<u64>().ok())
+                });
+            let next_run_at =
+                compute_task_trigger_next_run_at(kind, run_at, interval_seconds, now_dt)?;
+            set_field(&mut trigger, "enabled", json!(true));
+            set_field(&mut trigger, "status", json!("active"));
+            set_field(
+                &mut trigger,
+                "next_run_at",
+                next_run_at.map(Value::String).unwrap_or(Value::Null),
+            );
+        } else {
+            set_field(&mut trigger, "enabled", json!(false));
+            set_field(&mut trigger, "status", json!("paused"));
+            set_field(&mut trigger, "next_run_at", Value::Null);
+        }
+        if let Some(object) = trigger.as_object_mut() {
+            object.remove("enable_on_confirm");
+        }
+        set_field(&mut trigger, "updated_at", json!(now));
+        storage.upsert_task_trigger(user_id, &trigger).await?;
+    }
+    Ok(())
 }
 
 fn compute_task_trigger_next_run_at(

@@ -55,7 +55,31 @@ impl Storage {
 
     pub async fn delete_task(&self, user_id: &str, task_id: &str) -> anyhow::Result<bool> {
         self.initialize().await?;
+        let trigger_rows = sqlx::query(
+            r#"
+            SELECT trigger_id, record_json FROM task_triggers
+            WHERE user_id = ?
+            "#,
+        )
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await?;
+        let trigger_ids = trigger_rows
+            .into_iter()
+            .filter_map(|row| {
+                let record = json_from_text(row.get::<String, _>("record_json").as_str()).ok()?;
+                (record.get("task_id").and_then(Value::as_str) == Some(task_id))
+                    .then(|| row.get::<String, _>("trigger_id"))
+            })
+            .collect::<Vec<_>>();
         let mut tx = self.pool.begin().await?;
+        for trigger_id in trigger_ids {
+            sqlx::query("DELETE FROM task_triggers WHERE user_id = ? AND trigger_id = ?")
+                .bind(user_id)
+                .bind(trigger_id)
+                .execute(&mut *tx)
+                .await?;
+        }
         sqlx::query("DELETE FROM task_events WHERE user_id = ? AND task_id = ?")
             .bind(user_id)
             .bind(task_id)

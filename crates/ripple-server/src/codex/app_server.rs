@@ -1538,6 +1538,15 @@ fn task_update_input_schema() -> Value {
             "updates": {
                 "type": "object",
                 "additionalProperties": true
+            },
+            "missing_fields": {
+                "type": "array",
+                "items": {
+                    "type": "string"
+                }
+            },
+            "clarification_question": {
+                "type": "string"
             }
         },
         "required": ["mode", "target"],
@@ -1768,6 +1777,11 @@ mod tests {
             Some("task_update")
         );
         assert!(tool.get("inputSchema").is_some());
+        let schema = tool.get("inputSchema").expect("input schema");
+        assert!(schema.pointer("/properties/missing_fields").is_some());
+        assert!(schema
+            .pointer("/properties/clarification_question")
+            .is_some());
         assert!(tool.get("tools").is_none());
         assert!(tool.get("type").is_none());
     }

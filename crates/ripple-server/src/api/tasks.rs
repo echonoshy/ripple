@@ -345,6 +345,9 @@ pub(crate) async fn persist_task_update(
                 .or_insert_with(|| json!(true));
         }
     }
+    if let Some(clarification) = task_update_clarification_response(target, mode, &payload) {
+        return Ok(clarification);
+    }
     let (task, actions) = create_task_from_payload(storage, user_id, session_id, &payload).await?;
     Ok(json!({
         "ok": true,
@@ -354,6 +357,325 @@ pub(crate) async fn persist_task_update(
         "actions": actions,
         "message": "Task saved."
     }))
+}
+
+fn task_update_clarification_response(target: &str, mode: &str, payload: &Value) -> Option<Value> {
+    let missing_fields = task_update_missing_clarity_fields(payload);
+    if missing_fields.is_empty() {
+        return None;
+    }
+    let question = task_update_clarification_question(&missing_fields);
+    Some(json!({
+        "ok": false,
+        "target": target,
+        "mode": mode,
+        "code": "task_needs_clarification",
+        "missing_fields": missing_fields,
+        "clarification_question": question,
+        "message": question
+    }))
+}
+
+fn task_update_missing_clarity_fields(payload: &Value) -> Vec<String> {
+    let mut missing = Vec::new();
+    if clean_value_text(payload.get("title"))
+        .or_else(|| clean_value_text(payload.get("objective")))
+        .is_none()
+    {
+        push_missing_field(&mut missing, "title");
+    }
+
+    let actions = payload.get("actions").and_then(Value::as_array);
+    if actions
+        .map(|actions| actions.iter().any(task_update_action_has_next_step))
+        .unwrap_or(false)
+        == false
+    {
+        push_missing_field(&mut missing, "actions");
+    }
+
+    collect_missing_trigger_time_fields(payload, &mut missing);
+    if let Some(actions) = actions {
+        for action in actions {
+            collect_missing_trigger_time_fields(action, &mut missing);
+        }
+    }
+
+    collect_missing_external_detail_fields(payload, &mut missing);
+    missing
+}
+
+fn task_update_action_has_next_step(action: &Value) -> bool {
+    action.is_object()
+        && clean_value_text(action.get("title"))
+            .or_else(|| clean_value_text(action.get("objective")))
+            .or_else(|| clean_value_text(action.get("description")))
+            .is_some()
+}
+
+fn collect_missing_trigger_time_fields(value: &Value, missing: &mut Vec<String>) {
+    if let Some(trigger) = value.get("trigger").filter(|value| value.is_object()) {
+        collect_missing_single_trigger_time_field(trigger, missing);
+    }
+    if let Some(triggers) = value.get("triggers").and_then(Value::as_array) {
+        for trigger in triggers.iter().filter(|value| value.is_object()) {
+            collect_missing_single_trigger_time_field(trigger, missing);
+        }
+    }
+}
+
+fn collect_missing_single_trigger_time_field(trigger: &Value, missing: &mut Vec<String>) {
+    let kind = clean_value_text(trigger.get("kind")).unwrap_or_else(|| {
+        if trigger.get("interval_seconds").is_some() {
+            "interval".to_string()
+        } else {
+            "once".to_string()
+        }
+    });
+    match kind.as_str() {
+        "once" => {
+            if clean_value_text(trigger.get("run_at")).is_none() {
+                push_missing_field(missing, "run_at");
+            }
+        }
+        "interval" => {
+            if trigger_u64_field(trigger, "interval_seconds").is_none() {
+                push_missing_field(missing, "interval_seconds");
+            }
+        }
+        _ => push_missing_field(missing, "trigger_kind"),
+    }
+}
+
+fn collect_missing_external_detail_fields(payload: &Value, missing: &mut Vec<String>) {
+    let text = task_update_clarity_text(payload).to_ascii_lowercase();
+    let gathers_information = task_update_contains_any(
+        &text,
+        &[
+            "新闻",
+            "资讯",
+            "搜索",
+            "搜集",
+            "收集",
+            "查找",
+            "检索",
+            "摘要",
+            "监控",
+            "news",
+            "latest",
+            "search",
+            "collect",
+            "digest",
+            "summarize",
+            "monitor",
+        ],
+    );
+    let updates_external_service = task_update_contains_any(
+        &text,
+        &[
+            "飞书",
+            "feishu",
+            "lark",
+            "发消息",
+            "发给",
+            "发送",
+            "通知",
+            "推送",
+            "webhook",
+            "email",
+            "gmail",
+            "mail",
+            "send",
+            "notify",
+            "message",
+            "更新",
+            "写入",
+            "写到",
+            "同步",
+            "追加",
+            "表格",
+            "飞书文档",
+            "google sheet",
+            "google sheets",
+            "sheet",
+            "sheets",
+            "spreadsheet",
+            "docs",
+            "notion",
+            "database",
+            "update",
+            "write",
+            "append",
+            "sync",
+        ],
+    );
+    if !(gathers_information && updates_external_service) {
+        return;
+    }
+
+    if !task_update_contains_any(
+        &text,
+        &[
+            "来源",
+            "范围",
+            "新闻源",
+            "source",
+            "site:",
+            "rss",
+            "网站",
+            "媒体",
+            "公众号",
+            "关键词",
+            "排除",
+            "语言",
+            "时间范围",
+        ],
+    ) {
+        push_missing_field(missing, "source_scope");
+    }
+    if !task_update_contains_any(
+        &text,
+        &[
+            "几条", "条", "top", "最多", "摘要", "链接", "格式", "markdown", "列表", "筛选",
+            "标准", "重要",
+        ],
+    ) {
+        push_missing_field(missing, "output_format");
+    }
+    if !task_update_contains_any(
+        &text,
+        &[
+            "群",
+            "群聊",
+            "机器人",
+            "webhook",
+            "open_id",
+            "user_id",
+            "chat_id",
+            "union_id",
+            "邮箱",
+            "账号",
+            "联系人",
+            "目标",
+            "表格",
+            "飞书文档",
+            "google sheet",
+            "google sheets",
+            "sheet",
+            "sheets",
+            "spreadsheet",
+            "docs",
+            "notion",
+            "database",
+            "@",
+        ],
+    ) {
+        push_missing_field(missing, "delivery_target");
+    }
+    if !task_update_contains_any(
+        &text,
+        &[
+            "失败",
+            "重试",
+            "暂停",
+            "跳过",
+            "空结果",
+            "没有新闻",
+            "找不到",
+            "保存",
+            "文件",
+            "输出",
+            "日志",
+            "retry",
+            "failure",
+        ],
+    ) {
+        push_missing_field(missing, "failure_behavior");
+    }
+}
+
+fn task_update_clarity_text(payload: &Value) -> String {
+    let mut parts = Vec::new();
+    collect_task_update_text(payload, &mut parts);
+    parts.join("\n")
+}
+
+fn collect_task_update_text(value: &Value, parts: &mut Vec<String>) {
+    if let Some(object) = value.as_object() {
+        for key in [
+            "title",
+            "objective",
+            "description",
+            "prompt",
+            "source_summary",
+        ] {
+            if let Some(text) = clean_value_text(object.get(key)) {
+                parts.push(text);
+            }
+        }
+        for key in ["actions", "triggers"] {
+            if let Some(items) = object.get(key).and_then(Value::as_array) {
+                for item in items {
+                    collect_task_update_text(item, parts);
+                }
+            }
+        }
+        if let Some(trigger) = object.get("trigger") {
+            collect_task_update_text(trigger, parts);
+        }
+    }
+}
+
+fn task_update_clarification_question(missing_fields: &[String]) -> String {
+    if missing_fields.iter().any(|field| field == "actions") {
+        return "这个任务还缺少明确的下一步。请补充希望我具体执行哪一步，以及完成后要产出什么。"
+            .to_string();
+    }
+    if missing_fields
+        .iter()
+        .any(|field| field == "run_at" || field == "interval_seconds")
+    {
+        return "这个任务需要未来或重复执行，但还缺少明确的运行时间或频率。请补充什么时候执行，或多久重复一次。"
+            .to_string();
+    }
+    if missing_fields.iter().any(|field| {
+        matches!(
+            field.as_str(),
+            "source_scope" | "output_format" | "delivery_target" | "failure_behavior"
+        )
+    }) {
+        return "这个任务涉及搜集信息并发送或更新外部服务。请补充来源范围、输出格式、发送或更新目标，以及空结果或失败时怎么处理。"
+            .to_string();
+    }
+    "这个任务还缺少关键信息。请补充任务目标和你希望我执行的下一步。".to_string()
+}
+
+fn clean_value_text(value: Option<&Value>) -> Option<String> {
+    value
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn trigger_u64_field(value: &Value, key: &str) -> Option<u64> {
+    value.get(key).and_then(|value| {
+        value.as_u64().or_else(|| {
+            value
+                .as_str()
+                .and_then(|text| text.trim().parse::<u64>().ok())
+        })
+    })
+}
+
+fn task_update_contains_any(text: &str, markers: &[&str]) -> bool {
+    markers.iter().any(|marker| text.contains(marker))
+}
+
+fn push_missing_field(missing: &mut Vec<String>, field: &str) {
+    if !missing.iter().any(|existing| existing == field) {
+        missing.push(field.to_string());
+    }
 }
 
 pub async fn trigger_due_task_actions(
@@ -1004,6 +1326,8 @@ async fn refresh_task_progress(
         .any(|action| action.get("status").and_then(Value::as_str) == Some("blocked"))
     {
         set_task_status_internal(&mut task, "blocked");
+    } else if completed > 0 && completed < total && task_trigger_values(&task).is_empty() {
+        set_task_status_internal(&mut task, "in_progress");
     } else if !matches!(
         previous_status.as_str(),
         "candidate" | "cancelled" | "archived"
@@ -2263,15 +2587,274 @@ fn now_iso() -> String {
 mod tests {
     use super::*;
 
+    fn temp_storage() -> anyhow::Result<(Storage, std::path::PathBuf)> {
+        let root = std::env::temp_dir().join(format!("ripple-tasks-test-{}", Uuid::new_v4()));
+        let storage = Storage::open(root.join(".ripple/ripple.sqlite"))?;
+        Ok((storage, root))
+    }
+
     #[test]
     fn recurring_action_can_return_to_confirmed_after_iteration() {
         assert!(allowed_action_transition("in_progress", "confirmed"));
     }
 
     #[tokio::test]
+    async fn task_update_create_without_action_asks_clarification_without_persisting(
+    ) -> anyhow::Result<()> {
+        let (storage, root) = temp_storage()?;
+
+        let output = persist_task_update(
+            &storage,
+            "alice",
+            Some("session-1"),
+            &json!({
+                "mode": "create",
+                "target": "task",
+                "task": {
+                    "task_id": "task-needs-next-step",
+                    "title": "跟进项目进展",
+                    "objective": "跟进项目进展"
+                }
+            }),
+        )
+        .await
+        .unwrap_or_else(|err| panic!("task_update should return clarification: {err:?}"));
+
+        assert_eq!(output.get("ok").and_then(Value::as_bool), Some(false));
+        assert_eq!(
+            output.get("code").and_then(Value::as_str),
+            Some("task_needs_clarification")
+        );
+        assert!(
+            output
+                .get("missing_fields")
+                .and_then(Value::as_array)
+                .is_some_and(|fields| fields.iter().any(|field| field == "actions")),
+            "expected missing actions in {output}"
+        );
+        assert!(storage
+            .get_task("alice", "task-needs-next-step")
+            .await?
+            .is_none());
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn task_update_propose_with_trigger_missing_time_asks_clarification_without_persisting(
+    ) -> anyhow::Result<()> {
+        let (storage, root) = temp_storage()?;
+
+        let output = persist_task_update(
+            &storage,
+            "alice",
+            Some("session-1"),
+            &json!({
+                "mode": "propose",
+                "target": "task",
+                "task": {
+                    "task_id": "task-trigger-missing-time",
+                    "title": "检查构建",
+                    "objective": "检查构建状态并总结结果",
+                    "actions": [
+                        {
+                            "title": "检查构建状态",
+                            "objective": "检查构建状态并总结结果",
+                            "trigger": {
+                                "kind": "once"
+                            }
+                        }
+                    ]
+                }
+            }),
+        )
+        .await
+        .unwrap_or_else(|err| panic!("task_update should return clarification: {err:?}"));
+
+        assert_eq!(output.get("ok").and_then(Value::as_bool), Some(false));
+        assert_eq!(
+            output.get("code").and_then(Value::as_str),
+            Some("task_needs_clarification")
+        );
+        assert!(
+            output
+                .get("missing_fields")
+                .and_then(Value::as_array)
+                .is_some_and(|fields| fields.iter().any(|field| field == "run_at")),
+            "expected missing run_at in {output}"
+        );
+        assert!(storage
+            .get_task("alice", "task-trigger-missing-time")
+            .await?
+            .is_none());
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn task_update_create_without_goal_asks_clarification_without_persisting(
+    ) -> anyhow::Result<()> {
+        let (storage, root) = temp_storage()?;
+
+        let output = persist_task_update(
+            &storage,
+            "alice",
+            Some("session-1"),
+            &json!({
+                "mode": "create",
+                "target": "task",
+                "task": {
+                    "task_id": "task-needs-goal",
+                    "actions": [
+                        {
+                            "title": "检查状态",
+                            "objective": "检查状态并总结"
+                        }
+                    ]
+                }
+            }),
+        )
+        .await
+        .unwrap_or_else(|err| panic!("task_update should return clarification: {err:?}"));
+
+        assert_eq!(output.get("ok").and_then(Value::as_bool), Some(false));
+        assert_eq!(
+            output.get("code").and_then(Value::as_str),
+            Some("task_needs_clarification")
+        );
+        assert!(
+            output
+                .get("missing_fields")
+                .and_then(Value::as_array)
+                .is_some_and(|fields| fields.iter().any(|field| field == "title")),
+            "expected missing title in {output}"
+        );
+        assert!(storage
+            .get_task("alice", "task-needs-goal")
+            .await?
+            .is_none());
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn task_update_create_external_monitor_update_without_details_asks_clarification(
+    ) -> anyhow::Result<()> {
+        let (storage, root) = temp_storage()?;
+
+        let output = persist_task_update(
+            &storage,
+            "alice",
+            Some("session-1"),
+            &json!({
+                "mode": "create",
+                "target": "task",
+                "task": {
+                    "task_id": "task-external-update-needs-details",
+                    "title": "每日 issue 表格更新",
+                    "objective": "每天监控 GitHub issue，如果有新条目就更新 Google Sheets。",
+                    "actions": [
+                        {
+                            "title": "监控 issue 并更新表格",
+                            "objective": "每天监控 GitHub issue，如果有新条目就更新 Google Sheets。"
+                        }
+                    ]
+                }
+            }),
+        )
+        .await
+        .unwrap_or_else(|err| panic!("task_update should return clarification: {err:?}"));
+
+        assert_eq!(output.get("ok").and_then(Value::as_bool), Some(false));
+        assert!(
+            output
+                .get("missing_fields")
+                .and_then(Value::as_array)
+                .is_some_and(|fields| fields.iter().any(|field| field == "source_scope")),
+            "expected missing source_scope in {output}"
+        );
+        assert!(storage
+            .get_task("alice", "task-external-update-needs-details")
+            .await?
+            .is_none());
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn task_update_create_with_clear_action_still_persists() -> anyhow::Result<()> {
+        let (storage, root) = temp_storage()?;
+
+        let output = persist_task_update(
+            &storage,
+            "alice",
+            Some("session-1"),
+            &json!({
+                "mode": "create",
+                "target": "task",
+                "task": {
+                    "task_id": "task-clear",
+                    "title": "检查构建",
+                    "objective": "检查构建状态并总结结果",
+                    "actions": [
+                        {
+                            "action_id": "act-check-build",
+                            "title": "检查构建状态",
+                            "objective": "检查构建状态并总结结果"
+                        }
+                    ]
+                }
+            }),
+        )
+        .await
+        .unwrap_or_else(|err| panic!("task_update should persist clear task: {err:?}"));
+
+        assert_eq!(output.get("ok").and_then(Value::as_bool), Some(true));
+        let task = storage
+            .get_task("alice", "task-clear")
+            .await?
+            .expect("task should persist");
+        assert_eq!(task.get("status").and_then(Value::as_str), Some("active"));
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn direct_task_creation_can_still_create_task_without_actions() -> anyhow::Result<()> {
+        let (storage, root) = temp_storage()?;
+
+        let (task, actions) = create_task_from_payload(
+            &storage,
+            "alice",
+            Some("session-1"),
+            &json!({
+                "task_id": "task-direct",
+                "title": "直接创建任务",
+                "objective": "直接创建一个没有预设 action 的任务"
+            }),
+        )
+        .await
+        .unwrap_or_else(|err| panic!("direct create should still work: {err:?}"));
+
+        assert_eq!(
+            task.get("task_id").and_then(Value::as_str),
+            Some("task-direct")
+        );
+        assert!(actions.is_empty());
+        assert!(storage.get_task("alice", "task-direct").await?.is_some());
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn refresh_progress_marks_task_active_when_actions_are_ready() -> anyhow::Result<()> {
-        let root = std::env::temp_dir().join(format!("ripple-tasks-test-{}", uuid::Uuid::new_v4()));
-        let storage = Storage::open(root.join(".ripple/ripple.sqlite"))?;
+        let (storage, root) = temp_storage()?;
         let user_id = "alice";
         let task_id = "task-recurring";
 

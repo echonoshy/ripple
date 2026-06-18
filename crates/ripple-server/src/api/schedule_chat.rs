@@ -773,9 +773,9 @@ fn schedule_detail_clarification(payload: &Value) -> Option<String> {
 
     Some(
         "这个自动化还需要补充一些执行细节后再创建，避免运行时找错来源或发错对象。请一次性补充：\n\
-- 新闻来源或范围：例如指定网站、关键词、语言、时间范围，或排除哪些来源。\n\
+- 新闻来源或信息范围：例如指定网站、关键词、语言、时间范围，或排除哪些来源。\n\
 - 筛选和输出：每次发几条、按什么标准选、是否要摘要、链接和格式。\n\
-- 飞书发送方式：发给联系人、群、机器人还是 Webhook，以及可识别的账号、群名或 ID。\n\
+- 飞书发送或外部更新方式：发给联系人、群、机器人还是 Webhook，或更新哪个表格、文档、数据库、服务，以及可识别的账号、群名或 ID。\n\
 - 空结果或发送失败时怎么处理，是否需要保存运行输出。"
             .to_string(),
     )
@@ -799,7 +799,6 @@ fn should_request_schedule_details(payload: &Value) -> bool {
             "收集",
             "查找",
             "检索",
-            "整理",
             "摘要",
             "监控",
             "news",
@@ -811,7 +810,7 @@ fn should_request_schedule_details(payload: &Value) -> bool {
             "monitor",
         ],
     );
-    let sends_external_message = contains_any(
+    let updates_external_service = contains_any(
         &text,
         &[
             "飞书",
@@ -829,10 +828,29 @@ fn should_request_schedule_details(payload: &Value) -> bool {
             "send",
             "notify",
             "message",
+            "更新",
+            "写入",
+            "写到",
+            "同步",
+            "追加",
+            "表格",
+            "飞书文档",
+            "google sheet",
+            "google sheets",
+            "sheet",
+            "sheets",
+            "spreadsheet",
+            "docs",
+            "notion",
+            "database",
+            "update",
+            "write",
+            "append",
+            "sync",
         ],
     );
 
-    if !(gathers_information && sends_external_message) {
+    if !(gathers_information && updates_external_service) {
         return false;
     }
 
@@ -875,6 +893,17 @@ fn should_request_schedule_details(payload: &Value) -> bool {
                 "邮箱",
                 "账号",
                 "联系人",
+                "目标",
+                "表格",
+                "飞书文档",
+                "google sheet",
+                "google sheets",
+                "sheet",
+                "sheets",
+                "spreadsheet",
+                "docs",
+                "notion",
+                "database",
                 "@",
             ],
         ),
@@ -1736,6 +1765,36 @@ mod tests {
 
         assert!(clarification.contains("新闻来源"));
         assert!(clarification.contains("飞书"));
+        assert!(clarification.contains("失败"));
+    }
+
+    #[test]
+    fn asks_for_more_details_before_external_monitor_update_schedule() {
+        let draft = ScheduleDraft {
+            title: Some("每日 issue 表格更新".to_string()),
+            prompt: Some(
+                "每天早上9点监控 GitHub issue，如果有新条目就更新 Google Sheets。".to_string(),
+            ),
+            kind: Some("interval".to_string()),
+            timezone: Some("Asia/Shanghai".to_string()),
+            run_at: Some("2026-06-08T01:00:00Z".to_string()),
+            interval_seconds: Some(86_400),
+            enabled: Some(true),
+            cwd: None,
+            model: None,
+            effort: None,
+            summary: None,
+            output_schema: None,
+            max_runtime_seconds: None,
+            max_runs: None,
+            phases: Vec::new(),
+        };
+
+        let payload = normalize_schedule_payload(&draft).expect("payload");
+        let clarification = schedule_detail_clarification(&payload).expect("clarification");
+
+        assert!(clarification.contains("来源"));
+        assert!(clarification.contains("更新"));
         assert!(clarification.contains("失败"));
     }
 

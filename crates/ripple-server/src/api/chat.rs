@@ -1658,6 +1658,13 @@ mod tests {
         assert!(prompt.contains(
             "Tasks inferred from prior session context, memories, or recent work must use `mode=\"propose\"`"
         ));
+        assert!(prompt.contains(
+            "If the task goal, next action, timing, scope, or delivery target is unclear"
+        ));
+        assert!(prompt.contains(
+            "ask one concise clarification question and do not call `codex_app.task_update` yet"
+        ));
+        assert!(prompt.contains("If `codex_app.task_update` returns `ok=false` with `code=\"task_needs_clarification\"`"));
         assert!(!prompt.contains("two related control-plane concepts"));
         assert!(!prompt.contains("automations are explicit standalone"));
         assert!(!prompt.contains("automation_update"));

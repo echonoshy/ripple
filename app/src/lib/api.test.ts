@@ -8,26 +8,19 @@ import {
   changePassword,
   compactSessionContext,
   confirmTask,
-  createSchedule,
   createSession,
   createTaskAction,
   deleteTask,
   deleteUserAvatar,
-  deleteSchedule,
-  deleteScheduleRun,
   deleteSession,
-  downloadRunOutput,
   downloadWorkspaceFile,
   fetchTask,
   fetchTaskEvents,
+  fetchTaskTriggers,
   fetchTasks,
   fetchSessionTasks,
-  fetchSchedules,
-  fetchScheduleRuns,
   fetchSessions,
   fetchSessionDetails,
-  fetchRun,
-  fetchRunOutputText,
   fetchUserAvatarImage,
   fetchModels,
   fetchWorkspaceDocumentPreview,
@@ -37,15 +30,15 @@ import {
   renameWorkspaceEntry,
   resolveSessionPermissionRequest,
   resolveApiUrl,
-  runScheduleNow,
+  runTaskTriggerNow,
   runTaskNow,
   searchWorkspaceFiles,
   sendChatMessage,
   sendSessionControlAction,
   stopSession,
-  updateSchedule,
   updateSession,
   updateTaskAction,
+  createTaskActionTrigger,
   updateUserProfile,
   uploadUserAvatar,
   disconnectConnector,
@@ -171,143 +164,63 @@ async function testSessionIdIsEncodedInPath() {
   ]);
 }
 
-async function testScheduleIdIsEncodedInPath() {
-  const urls: string[] = [];
-  const scheduleId = "schedule/with space";
-
-  await withFetch(
-    async (input) => {
-      urls.push(String(input));
-      return new Response(JSON.stringify({ schedule_id: scheduleId }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      });
-    },
-    async () => {
-      await updateSchedule(scheduleId, { enabled: false });
-      await deleteSchedule(scheduleId);
-      await runScheduleNow(scheduleId);
-    }
-  );
-
-  assert.deepEqual(urls, [
-    "http://140.143.229.103:8810/v1/schedules/schedule%2Fwith%20space",
-    "http://140.143.229.103:8810/v1/schedules/schedule%2Fwith%20space",
-    "http://140.143.229.103:8810/v1/schedules/schedule%2Fwith%20space/run-now",
-  ]);
-}
-
-async function testScheduleRunApisEncodeIdsAndDownloadOutput() {
-  const requests: Array<{ url: string; method: string; body?: string }> = [];
-  const scheduleId = "schedule/with space";
-  const jobId = "agent/with space";
+async function testTaskTriggerApisUseTaskScopedRoutes() {
+  const requests: Array<{ method: string; path: string; body: unknown }> = [];
 
   await withFetch(
     async (input, init) => {
-      const url = String(input);
+      const url = new URL(String(input));
       requests.push({
-        url,
         method: init?.method || "GET",
-        body: typeof init?.body === "string" ? init.body : undefined,
+        path: url.pathname,
+        body: init?.body ? JSON.parse(String(init.body)) : null,
       });
-      if (init?.method === "DELETE") {
-        return new Response(JSON.stringify({ ok: true, job_id: jobId, deleted: true }), {
+      if (url.pathname.endsWith("/run-now")) {
+        return new Response(JSON.stringify({ job_id: "job-trigger", status: "completed" }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         });
       }
-      if (url.endsWith("/output")) {
-        return new Response("finished output", {
-          status: 200,
-          headers: {
-            "Content-Type": "text/plain; charset=utf-8",
-            "Content-Disposition": 'attachment; filename="agent-output.txt"',
-          },
-        });
-      }
-      if (url.includes("/schedules/")) {
+      if (init?.method === "POST") {
         return new Response(
           JSON.stringify({
-            runs: [
-              {
-                job_id: jobId,
-                provider: "codex",
-                status: "completed",
-                output_file: null,
-                events_file: null,
-                output_available: true,
-                events_available: false,
-                created_at: "2026-05-30T00:00:00Z",
-                updated_at: "2026-05-30T00:00:10Z",
-                exit_code: 0,
-                prompt_preview: "say hi",
-                sandbox_cwd: "/workspace",
-                stdout_tail: "",
-                stderr_tail: "",
-                error: null,
-              },
-            ],
+            trigger_id: "trg-linked",
+            trigger_type: "time",
+            user_id: "default",
+            title: "明早提醒",
+            prompt: "提醒准备材料",
+            kind: "once",
+            timezone: "Asia/Shanghai",
+            run_at: "2026-06-18T07:30:00+08:00",
+            interval_seconds: null,
+            enabled: true,
+            status: "active",
+            next_run_at: "2026-06-17T23:30:00Z",
+            last_run_at: null,
+            last_run_id: null,
+            last_error: null,
+            cwd: null,
+            model: null,
+            effort: null,
+            summary: null,
+            output_schema: null,
+            max_runtime_seconds: 1800,
+            max_runs: 1,
+            task_id: "task-trip",
+            task_action_id: "act-remind",
+            run_count: 0,
+            created_at: "2026-06-17T10:00:00Z",
+            updated_at: "2026-06-17T10:00:00Z",
           }),
           { status: 200, headers: { "Content-Type": "application/json" } }
         );
       }
       return new Response(
         JSON.stringify({
-          job_id: jobId,
-          provider: "codex",
-          status: "completed",
-          output_file: null,
-          events_file: null,
-          output_available: true,
-          events_available: false,
-          created_at: "2026-05-30T00:00:00Z",
-          updated_at: "2026-05-30T00:00:10Z",
-          exit_code: 0,
-          prompt_preview: "say hi",
-          sandbox_cwd: "/workspace",
-          stdout_tail: "",
-          stderr_tail: "",
-          error: null,
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } }
-      );
-    },
-    async () => {
-      const scheduleRun = (await fetchScheduleRuns(scheduleId))[0];
-      assert.equal(scheduleRun?.job_id, jobId);
-      assert.equal(scheduleRun?.output_available, true);
-      const run = await fetchRun(jobId);
-      assert.equal(run.job_id, jobId);
-      assert.equal(run.output_available, true);
-      const downloaded = await downloadRunOutput(jobId);
-      assert.equal(downloaded.filename, "agent-output.txt");
-      assert.equal(await downloaded.blob.text(), "finished output");
-      assert.equal(await fetchRunOutputText(jobId), "finished output");
-      assert.equal(await deleteScheduleRun(scheduleId, jobId), true);
-    }
-  );
-
-  assert.deepEqual(
-    requests.map((request) => `${request.method} ${request.url}`),
-    [
-      "GET http://140.143.229.103:8810/v1/schedules/schedule%2Fwith%20space/runs?limit=5",
-      "GET http://140.143.229.103:8810/v1/runs/agent%2Fwith%20space",
-      "GET http://140.143.229.103:8810/v1/runs/agent%2Fwith%20space/output",
-      "GET http://140.143.229.103:8810/v1/runs/agent%2Fwith%20space/output",
-      "DELETE http://140.143.229.103:8810/v1/schedules/schedule%2Fwith%20space/runs/agent%2Fwith%20space",
-    ]
-  );
-  assert.equal(requests.at(-1)?.body, JSON.stringify({ confirm: true }));
-}
-
-async function testFetchSchedulesKeepsTaskLinks() {
-  await withFetch(
-    async () =>
-      new Response(
-        JSON.stringify({
-          schedules: [
+          triggers: [
             {
-              schedule_id: "sch-linked",
+              trigger_id: "trg-linked",
+              trigger_type: "time",
               user_id: "default",
               title: "明早提醒",
               prompt: "提醒准备材料",
@@ -337,13 +250,38 @@ async function testFetchSchedulesKeepsTaskLinks() {
           ],
         }),
         { status: 200, headers: { "Content-Type": "application/json" } }
-      ),
+      );
+    },
     async () => {
-      const schedules = await fetchSchedules();
-      assert.equal(schedules[0]?.task_id, "task-trip");
-      assert.equal(schedules[0]?.task_action_id, "act-remind");
+      const triggers = await fetchTaskTriggers("task/trip");
+      assert.equal(triggers[0]?.trigger_id, "trg-linked");
+      const created = await createTaskActionTrigger("task/trip", "act/remind", {
+        title: "明早提醒",
+        prompt: "提醒准备材料",
+        kind: "once",
+        timezone: "Asia/Shanghai",
+        run_at: "2026-06-18T07:30",
+      });
+      assert.equal(created.task_action_id, "act-remind");
+      assert.equal((await runTaskTriggerNow("task/trip", "trg/linked")).job_id, "job-trigger");
     }
   );
+
+  assert.deepEqual(
+    requests.map((request) => `${request.method} ${request.path}`),
+    [
+      "GET /v1/tasks/task%2Ftrip/triggers",
+      "POST /v1/tasks/task%2Ftrip/actions/act%2Fremind/triggers",
+      "POST /v1/tasks/task%2Ftrip/triggers/trg%2Flinked/run-now",
+    ]
+  );
+  assert.deepEqual(requests[1]?.body, {
+    title: "明早提醒",
+    prompt: "提醒准备材料",
+    kind: "once",
+    timezone: "Asia/Shanghai",
+    run_at: "2026-06-18T07:30:00+08:00",
+  });
 }
 
 function testApiClientDoesNotExposeMemoryEndpointsOnMainline() {
@@ -810,71 +748,7 @@ async function testWorkspaceDownloadDecodesUtf8ContentDispositionFilename() {
   );
 }
 
-async function testScheduleApiUsesExpectedBackendShape() {
-  const urls: string[] = [];
-  const methods: string[] = [];
-
-  await withFetch(
-    async (input, init) => {
-      urls.push(String(input));
-      methods.push(init?.method || "GET");
-      if (String(input).endsWith("/schedules") && init?.method === "POST") {
-        return new Response(
-          JSON.stringify({
-            schedule_id: "sch-created",
-            user_id: "alice",
-            title: "Digest",
-            prompt: "Summarize",
-            kind: "once",
-            timezone: "UTC",
-            run_at: "2026-05-19T00:00:00+00:00",
-            interval_seconds: null,
-            enabled: true,
-            status: "active",
-            next_run_at: "2026-05-19T00:00:00+00:00",
-            last_run_at: null,
-            last_run_id: null,
-            last_error: null,
-            cwd: null,
-            model: "codex-medium",
-            effort: null,
-            summary: null,
-            output_schema: null,
-            max_runtime_seconds: 1800,
-            max_runs: null,
-            run_count: 0,
-            created_at: "2026-05-18T00:00:00+00:00",
-            updated_at: "2026-05-18T00:00:00+00:00",
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        );
-      }
-      return new Response(JSON.stringify({ schedules: [] }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      });
-    },
-    async () => {
-      assert.deepEqual(await fetchSchedules(), []);
-      const created = await createSchedule({
-        title: "Digest",
-        prompt: "Summarize",
-        kind: "once",
-        timezone: "UTC",
-        run_at: "2026-05-19T00:00",
-      });
-      assert.equal(created.schedule_id, "sch-created");
-    }
-  );
-
-  assert.deepEqual(methods, ["GET", "POST"]);
-  assert.deepEqual(urls, [
-    "http://140.143.229.103:8810/v1/schedules",
-    "http://140.143.229.103:8810/v1/schedules",
-  ]);
-}
-
-async function testCreateScheduleAddsOffsetForNonUtcRunAt() {
+async function testCreateTaskTriggerAddsOffsetForNonUtcRunAt() {
   let body: unknown = null;
 
   await withFetch(
@@ -882,7 +756,8 @@ async function testCreateScheduleAddsOffsetForNonUtcRunAt() {
       body = init?.body ? JSON.parse(String(init.body)) : null;
       return new Response(
         JSON.stringify({
-          schedule_id: "sch-created",
+          trigger_id: "trg-created",
+          trigger_type: "time",
           user_id: "alice",
           title: "Ping",
           prompt: "Say hi",
@@ -911,7 +786,7 @@ async function testCreateScheduleAddsOffsetForNonUtcRunAt() {
       );
     },
     async () => {
-      await createSchedule({
+      await createTaskActionTrigger("task-time", "act-time", {
         title: "Ping",
         prompt: "Say hi",
         kind: "once",
@@ -1553,9 +1428,7 @@ test("api client behavior", async () => {
   await testRenamePathNotFoundStaysFileSpecific();
   await testRenameConflictUsesFriendlyMessage();
   await testSessionIdIsEncodedInPath();
-  await testScheduleIdIsEncodedInPath();
-  await testScheduleRunApisEncodeIdsAndDownloadOutput();
-  await testFetchSchedulesKeepsTaskLinks();
+  await testTaskTriggerApisUseTaskScopedRoutes();
   testApiClientDoesNotExposeMemoryEndpointsOnMainline();
   await testConnectorManagementApisEncodeNamesAndPayloads();
   await testCapabilityApisUseUnifiedCatalogAndSkillPatch();
@@ -1570,8 +1443,7 @@ test("api client behavior", async () => {
   await testWorkspaceFilePreviewPathNotFoundStaysFileSpecific();
   await testWorkspaceDocumentPreviewUsesPreviewEndpoint();
   await testWorkspaceDownloadDecodesUtf8ContentDispositionFilename();
-  await testScheduleApiUsesExpectedBackendShape();
-  await testCreateScheduleAddsOffsetForNonUtcRunAt();
+  await testCreateTaskTriggerAddsOffsetForNonUtcRunAt();
   await testFetchSessionsNormalizesBackendShape();
   await testCreateSessionNormalizesBackendShape();
   await testCreateSessionPostsSelectedModel();

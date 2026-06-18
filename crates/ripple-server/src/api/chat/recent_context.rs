@@ -6,9 +6,9 @@ use crate::state::AppState;
 
 const RECENT_DISPLAY_CONTEXT_MESSAGES: usize = 20;
 const RECENT_DISPLAY_CONTEXT_MAX_CHARS: usize = 16_000;
-const RECENT_AUTOMATIONS_CONTEXT_LIMIT: usize = 10;
-const RECENT_AUTOMATIONS_CONTEXT_MAX_CHARS: usize = 16_000;
-const RECENT_AUTOMATION_PROMPT_MAX_CHARS: usize = 1_200;
+const RECENT_TASK_TRIGGERS_CONTEXT_LIMIT: usize = 10;
+const RECENT_TASK_TRIGGERS_CONTEXT_MAX_CHARS: usize = 16_000;
+const RECENT_TASK_TRIGGER_PROMPT_MAX_CHARS: usize = 1_200;
 
 pub(super) fn recent_display_context(messages: &[Value]) -> Option<String> {
     let mut lines = messages
@@ -71,81 +71,79 @@ fn truncate_display_context(value: &str) -> String {
     truncate_context(value, RECENT_DISPLAY_CONTEXT_MAX_CHARS)
 }
 
-pub(super) async fn recent_automations_context(
+pub(super) async fn recent_task_triggers_context(
     state: &AppState,
     user_id: &str,
 ) -> Result<Option<String>, ApiError> {
-    let schedules = state
+    let records = state
         .storage
-        .list_schedules(user_id)
+        .list_task_triggers(user_id)
         .await?
         .into_iter()
-        .map(|schedule| sanitize_user_visible_value(state, user_id, &schedule))
+        .map(|record| sanitize_user_visible_value(state, user_id, &record))
         .collect::<Vec<_>>();
-    Ok(recent_automations_context_from_schedules(schedules))
+    Ok(recent_task_triggers_context_from_records(records))
 }
 
-pub(super) fn recent_automations_context_from_schedules(
-    mut schedules: Vec<Value>,
-) -> Option<String> {
-    schedules.sort_by(|left, right| {
-        let right_key = schedule_recency_key(right);
-        let left_key = schedule_recency_key(left);
+pub(super) fn recent_task_triggers_context_from_records(mut records: Vec<Value>) -> Option<String> {
+    records.sort_by(|left, right| {
+        let right_key = trigger_recency_key(right);
+        let left_key = trigger_recency_key(left);
         right_key.cmp(&left_key)
     });
-    let automations = schedules
+    let triggers = records
         .into_iter()
-        .filter_map(recent_automation_context_value)
-        .take(RECENT_AUTOMATIONS_CONTEXT_LIMIT)
+        .filter_map(recent_task_trigger_context_value)
+        .take(RECENT_TASK_TRIGGERS_CONTEXT_LIMIT)
         .collect::<Vec<_>>();
-    if automations.is_empty() {
+    if triggers.is_empty() {
         return None;
     }
-    let context = serde_json::to_string_pretty(&automations).ok()?;
+    let context = serde_json::to_string_pretty(&triggers).ok()?;
     Some(truncate_context(
         &context,
-        RECENT_AUTOMATIONS_CONTEXT_MAX_CHARS,
+        RECENT_TASK_TRIGGERS_CONTEXT_MAX_CHARS,
     ))
 }
 
-fn schedule_recency_key(schedule: &Value) -> Option<String> {
-    schedule
+fn trigger_recency_key(record: &Value) -> Option<String> {
+    record
         .get("updated_at")
-        .or_else(|| schedule.get("created_at"))
+        .or_else(|| record.get("created_at"))
         .and_then(Value::as_str)
         .filter(|value| !value.trim().is_empty())
         .map(str::to_string)
 }
 
-fn recent_automation_context_value(schedule: Value) -> Option<Value> {
-    let schedule_id = clean_value_string(schedule.get("schedule_id")?)?;
-    let title = clean_value_string(schedule.get("title")?)?;
-    let prompt = clean_value_string(schedule.get("prompt")?)?;
+fn recent_task_trigger_context_value(record: Value) -> Option<Value> {
+    let trigger_id = clean_value_string(record.get("trigger_id")?)?;
+    let title = clean_value_string(record.get("title")?)?;
+    let prompt = clean_value_string(record.get("prompt")?)?;
     let mut object = serde_json::Map::new();
-    object.insert("schedule_id".to_string(), json!(schedule_id));
+    object.insert("trigger_id".to_string(), json!(trigger_id));
     object.insert("title".to_string(), json!(title));
     object.insert(
         "prompt".to_string(),
         json!(truncate_context(
             &prompt,
-            RECENT_AUTOMATION_PROMPT_MAX_CHARS
+            RECENT_TASK_TRIGGER_PROMPT_MAX_CHARS
         )),
     );
-    copy_schedule_field(&schedule, &mut object, "kind");
-    copy_schedule_field(&schedule, &mut object, "timezone");
-    copy_schedule_field(&schedule, &mut object, "run_at");
-    copy_schedule_field(&schedule, &mut object, "interval_seconds");
-    copy_schedule_field(&schedule, &mut object, "enabled");
-    copy_schedule_field(&schedule, &mut object, "status");
-    copy_schedule_field(&schedule, &mut object, "next_run_at");
-    copy_schedule_field(&schedule, &mut object, "last_run_at");
-    copy_schedule_field(&schedule, &mut object, "last_run_status");
-    copy_schedule_field(&schedule, &mut object, "updated_at");
+    copy_trigger_field(&record, &mut object, "kind");
+    copy_trigger_field(&record, &mut object, "timezone");
+    copy_trigger_field(&record, &mut object, "run_at");
+    copy_trigger_field(&record, &mut object, "interval_seconds");
+    copy_trigger_field(&record, &mut object, "enabled");
+    copy_trigger_field(&record, &mut object, "status");
+    copy_trigger_field(&record, &mut object, "next_run_at");
+    copy_trigger_field(&record, &mut object, "last_run_at");
+    copy_trigger_field(&record, &mut object, "last_run_status");
+    copy_trigger_field(&record, &mut object, "updated_at");
     Some(Value::Object(object))
 }
 
-fn copy_schedule_field(schedule: &Value, object: &mut serde_json::Map<String, Value>, key: &str) {
-    if let Some(value) = schedule.get(key).filter(|value| !value.is_null()) {
+fn copy_trigger_field(record: &Value, object: &mut serde_json::Map<String, Value>, key: &str) {
+    if let Some(value) = record.get(key).filter(|value| !value.is_null()) {
         object.insert(key.to_string(), value.clone());
     }
 }

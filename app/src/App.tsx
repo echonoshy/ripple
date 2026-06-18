@@ -77,7 +77,6 @@ import {
   useSessionRail,
 } from "@/hooks/workbenchLayout";
 
-const AutomationsPage = lazy(() => import("@/components/workbench/AutomationsPage"));
 const TasksPage = lazy(() => import("@/components/workbench/TasksPage"));
 const FilesPage = lazy(() => import("@/components/workbench/FilesPage"));
 const InspectorPanel = lazy(() => import("@/components/workbench/InspectorPanel"));
@@ -728,9 +727,12 @@ export default function Home() {
       setActiveView(view);
       if (view === "sessions") {
         setMobileSessionMode("list");
+        if (sessionId) {
+          void handleSwitchSession(sessionId);
+        }
       }
     },
-    [activeView]
+    [activeView, handleSwitchSession, sessionId]
   );
   const handleReturnFromMobileFiles = useCallback(() => {
     setPendingMobileSession(null);
@@ -1114,15 +1116,6 @@ export default function Home() {
         userId={userId}
         onAuthExpired={handleAuthExpired}
         onOpenSession={handleOpenTaskSession}
-      />
-    ) : activeView === "automations" ? (
-      <AutomationsPage
-        key={`automations:${userId}`}
-        userId={userId}
-        selectedModel={defaultModel}
-        models={models}
-        onAuthExpired={handleAuthExpired}
-        onOpenChat={handleOpenChatWithPrompt}
       />
     ) : activeView === "skills" || activeView === "connectors" ? (
       <SkillsPage

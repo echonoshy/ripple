@@ -26,7 +26,7 @@ Codex app-server worker pool
 
 ## Lightweight User Auth
 
-轻量用户体系是一个可开关的外层产品壳。启用后，浏览器用户可以用邀请码认领账号并登录；后端仍然按 token 绑定的 `user_id` 隔离 sandbox、session、connector credential、runs 和 schedules。原有 service API key + `X-Ripple-User-Id` 可信上游模式继续可用。
+轻量用户体系是一个可开关的外层产品壳。启用后，浏览器用户可以用邀请码认领账号并登录；后端仍然按 token 绑定的 `user_id` 隔离 sandbox、session、connector credential、runs 和 task triggers。原有 service API key + `X-Ripple-User-Id` 可信上游模式继续可用。
 
 启用配置：
 
@@ -206,15 +206,15 @@ Codex auth 建议恢复后重新登录服务端专用 `CODEX_HOME`，不要把 a
 - 服务启动时，旧的 `queued/running` jobs 会标记为 `interrupted_by_restart`，客户端可重试。
 - Run output 下载使用 `/v1/runs/:job_id/output`，不要依赖 host path。
 
-## Tasks And Schedules
+## Tasks And Triggers
 
 默认策略：
 
-- `missed_run_policy=run_once`：服务恢复后对错过的 due schedule 补跑一次。
+- `missed_run_policy=run_once`：服务恢复后对错过的 due time trigger 补跑一次。
 - `overlap_policy=skip`：上一轮仍在运行时跳过本轮。
 - `failure_policy=pause`：启动失败时暂停并记录 `failure_reason`。
 
-前端 Tasks 页面是当前 follow-up 中心，展示 task、actions、trigger、run history、事件和 result writeback。独立 schedules 仍通过兼容管理界面保留，可展示这些 policy、last run status、failure reason 和 retry/run-now。
+前端 Tasks 页面是当前 follow-up 中心，展示 task、actions、trigger、run history、事件和 result writeback。旧 standalone schedules 已移除；time trigger 是 Task Trigger 的一种 driver，后续 hook/event/webhook 触发器也应进入同一模型。
 
 ## Diagnostics
 

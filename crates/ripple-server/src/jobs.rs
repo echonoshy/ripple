@@ -47,11 +47,11 @@ pub struct AgentRunCreateRequest {
     #[serde(default = "default_max_runtime")]
     pub max_runtime_seconds: u64,
     #[serde(default)]
-    pub schedule_id: Option<String>,
+    pub task_trigger_id: Option<String>,
     #[serde(default)]
-    pub schedule_title: Option<String>,
+    pub task_trigger_title: Option<String>,
     #[serde(default)]
-    pub schedule_trigger: Option<String>,
+    pub task_trigger_reason: Option<String>,
     #[serde(default)]
     pub codex_thread_id: Option<String>,
     #[serde(default)]
@@ -152,14 +152,17 @@ impl JobManager {
             if let Some(session_id) = &session_id {
                 object.insert("session_id".to_string(), json!(session_id));
             }
-            if let Some(schedule_id) = &create.schedule_id {
-                object.insert("schedule_id".to_string(), json!(schedule_id));
+            if let Some(task_trigger_id) = &create.task_trigger_id {
+                object.insert("task_trigger_id".to_string(), json!(task_trigger_id));
             }
-            if let Some(schedule_title) = &create.schedule_title {
-                object.insert("schedule_title".to_string(), json!(schedule_title));
+            if let Some(task_trigger_title) = &create.task_trigger_title {
+                object.insert("task_trigger_title".to_string(), json!(task_trigger_title));
             }
-            if let Some(schedule_trigger) = &create.schedule_trigger {
-                object.insert("schedule_trigger".to_string(), json!(schedule_trigger));
+            if let Some(task_trigger_reason) = &create.task_trigger_reason {
+                object.insert(
+                    "task_trigger_reason".to_string(),
+                    json!(task_trigger_reason),
+                );
             }
             if let Some(codex_thread_id) = &create.codex_thread_id {
                 object.insert("codex_thread_id".to_string(), json!(codex_thread_id));
@@ -431,12 +434,13 @@ impl JobManager {
         false
     }
 
-    pub async fn has_active_schedule_run(&self, user_id: &str, schedule_id: &str) -> bool {
+    pub async fn has_active_task_trigger_run(&self, user_id: &str, task_trigger_id: &str) -> bool {
         let jobs = self.jobs.read().await;
         for job in jobs.values() {
             let job = job.read().await;
             if job.user_id.as_deref() == Some(user_id)
-                && job.metadata.get("schedule_id").and_then(Value::as_str) == Some(schedule_id)
+                && job.metadata.get("task_trigger_id").and_then(Value::as_str)
+                    == Some(task_trigger_id)
                 && matches!(
                     job.status,
                     AgentRunnerStatus::Queued | AgentRunnerStatus::Running
@@ -762,7 +766,11 @@ impl StoredJobRecord {
             "error": job.error.as_deref().map(redact_text),
         });
         if let Some(object) = record.as_object_mut() {
-            for key in ["schedule_id", "schedule_title", "schedule_trigger"] {
+            for key in [
+                "task_trigger_id",
+                "task_trigger_title",
+                "task_trigger_reason",
+            ] {
                 if let Some(value) = job.metadata.get(key).and_then(Value::as_str) {
                     object.insert(key.to_string(), json!(value));
                 }

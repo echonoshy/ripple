@@ -15,8 +15,8 @@ use crate::sessions::SessionRecord;
 
 mod auth;
 mod jobs;
-mod schedules;
 mod schema;
+mod task_triggers;
 mod tasks;
 
 pub use auth::{
@@ -130,7 +130,7 @@ impl Storage {
                 total_input_tokens, total_output_tokens, last_input_tokens,
                 created_at, last_active, status, message_count,
                 pending_question, pending_options_json, pending_permission_request_json,
-                pending_connector_auth_json, pending_schedule_request_json, codex_thread_id,
+                pending_connector_auth_json, pending_control_request_json, codex_thread_id,
                 memory_disabled, plan_steps_json, plan_progress_json
             )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -155,7 +155,7 @@ impl Storage {
                 pending_options_json = excluded.pending_options_json,
                 pending_permission_request_json = excluded.pending_permission_request_json,
                 pending_connector_auth_json = excluded.pending_connector_auth_json,
-                pending_schedule_request_json = excluded.pending_schedule_request_json,
+                pending_control_request_json = excluded.pending_control_request_json,
                 codex_thread_id = excluded.codex_thread_id,
                 memory_disabled = excluded.memory_disabled,
                 plan_steps_json = excluded.plan_steps_json,
@@ -231,7 +231,7 @@ impl Storage {
                    total_input_tokens, total_output_tokens, last_input_tokens,
                    created_at, last_active, status, message_count,
                    pending_question, pending_options_json, pending_permission_request_json,
-                   pending_connector_auth_json, pending_schedule_request_json, codex_thread_id,
+                   pending_connector_auth_json, pending_control_request_json, codex_thread_id,
                    memory_disabled, plan_steps_json, plan_progress_json
             FROM sessions
             WHERE user_id = ? AND session_id = ?
@@ -257,7 +257,7 @@ impl Storage {
                    total_input_tokens, total_output_tokens, last_input_tokens,
                    created_at, last_active, status, message_count,
                    pending_question, pending_options_json, pending_permission_request_json,
-                   pending_connector_auth_json, pending_schedule_request_json, codex_thread_id,
+                   pending_connector_auth_json, pending_control_request_json, codex_thread_id,
                    memory_disabled, plan_steps_json, plan_progress_json
             FROM sessions
             WHERE user_id = ?
@@ -410,7 +410,7 @@ impl Storage {
             "session_messages",
             "sessions",
             "jobs",
-            "schedules",
+            "task_triggers",
             "documents",
             "file_refs",
             "user_profiles",
@@ -618,7 +618,7 @@ impl Storage {
                 row.get::<Option<String>, _>("pending_connector_auth_json"),
             )?,
             pending_schedule_request: json_option_from_text(
-                row.get::<Option<String>, _>("pending_schedule_request_json"),
+                row.get::<Option<String>, _>("pending_control_request_json"),
             )?,
             codex_thread_id: row.get("codex_thread_id"),
             memory_disabled: row.get::<i64, _>("memory_disabled") != 0,
@@ -1162,16 +1162,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn upsert_schedule_preserves_other_schedule_records() -> anyhow::Result<()> {
+    async fn upsert_task_trigger_preserves_other_trigger_records() -> anyhow::Result<()> {
         let root =
             std::env::temp_dir().join(format!("ripple-storage-test-{}", uuid::Uuid::new_v4()));
         let storage = Storage::open(root.join(".ripple/ripple.sqlite"))?;
 
         storage
-            .upsert_schedule(
+            .upsert_task_trigger(
                 "alice",
                 &serde_json::json!({
-                    "schedule_id": "sch-one",
+                    "trigger_id": "trg-one",
                     "status": "active",
                     "next_run_at": "2026-05-28T00:00:00Z",
                     "updated_at": "2026-05-28T00:00:00Z"
@@ -1179,10 +1179,10 @@ mod tests {
             )
             .await?;
         storage
-            .upsert_schedule(
+            .upsert_task_trigger(
                 "alice",
                 &serde_json::json!({
-                    "schedule_id": "sch-two",
+                    "trigger_id": "trg-two",
                     "status": "active",
                     "next_run_at": "2026-05-28T01:00:00Z",
                     "updated_at": "2026-05-28T00:00:00Z"
@@ -1190,10 +1190,10 @@ mod tests {
             )
             .await?;
         storage
-            .upsert_schedule(
+            .upsert_task_trigger(
                 "alice",
                 &serde_json::json!({
-                    "schedule_id": "sch-one",
+                    "trigger_id": "trg-one",
                     "status": "paused",
                     "next_run_at": null,
                     "updated_at": "2026-05-28T00:01:00Z"
@@ -1201,17 +1201,151 @@ mod tests {
             )
             .await?;
 
-        let schedules = storage.list_schedules("alice").await?;
+        let triggers = storage.list_task_triggers("alice").await?;
 
-        assert_eq!(schedules.len(), 2);
-        assert!(schedules.iter().any(|record| {
-            record.get("schedule_id").and_then(Value::as_str) == Some("sch-one")
+        assert_eq!(triggers.len(), 2);
+        assert!(triggers.iter().any(|record| {
+            record.get("trigger_id").and_then(Value::as_str) == Some("trg-one")
                 && record.get("status").and_then(Value::as_str) == Some("paused")
         }));
-        assert!(schedules.iter().any(|record| {
-            record.get("schedule_id").and_then(Value::as_str) == Some("sch-two")
+        assert!(triggers.iter().any(|record| {
+            record.get("trigger_id").and_then(Value::as_str) == Some("trg-two")
                 && record.get("status").and_then(Value::as_str) == Some("active")
         }));
+
+        let table_rows = sqlx::query(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('schedules', 'task_triggers') ORDER BY name",
+        )
+        .fetch_all(&storage.pool)
+        .await?;
+        let table_names = table_rows
+            .into_iter()
+            .map(|row| row.get::<String, _>("name"))
+            .collect::<Vec<_>>();
+        assert_eq!(table_names, vec!["task_triggers"]);
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn initialize_removes_legacy_schedule_schema() -> anyhow::Result<()> {
+        let root =
+            std::env::temp_dir().join(format!("ripple-storage-test-{}", uuid::Uuid::new_v4()));
+        let storage = Storage::open(root.join(".ripple/ripple.sqlite"))?;
+
+        sqlx::query(
+            r#"
+            CREATE TABLE jobs (
+                job_id TEXT PRIMARY KEY NOT NULL,
+                user_id TEXT NOT NULL,
+                session_id TEXT,
+                provider TEXT NOT NULL,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                schedule_id TEXT,
+                events_file TEXT,
+                output_file TEXT,
+                record_json TEXT NOT NULL
+            )
+            "#,
+        )
+        .execute(&storage.pool)
+        .await?;
+        sqlx::query("CREATE INDEX idx_jobs_user_schedule ON jobs(user_id, schedule_id)")
+            .execute(&storage.pool)
+            .await?;
+        sqlx::query(
+            r#"
+            INSERT INTO jobs (
+                job_id, user_id, session_id, provider, status, created_at, updated_at,
+                schedule_id, events_file, output_file, record_json
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind("agent-legacy")
+        .bind("alice")
+        .bind(Option::<String>::None)
+        .bind("codex")
+        .bind("completed")
+        .bind("2026-05-28T00:00:00Z")
+        .bind("2026-05-28T00:01:00Z")
+        .bind("sch-legacy")
+        .bind(Option::<String>::None)
+        .bind(Option::<String>::None)
+        .bind(
+            serde_json::json!({
+                "job_id": "agent-legacy",
+                "user_id": "alice",
+                "provider": "codex",
+                "status": "completed",
+                "created_at": "2026-05-28T00:00:00Z",
+                "updated_at": "2026-05-28T00:01:00Z",
+                "schedule_id": "sch-legacy",
+                "schedule_title": "legacy",
+                "schedule_trigger": "scheduled"
+            })
+            .to_string(),
+        )
+        .execute(&storage.pool)
+        .await?;
+        sqlx::query(
+            r#"
+            CREATE TABLE schedules (
+                user_id TEXT NOT NULL,
+                schedule_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                next_run_at TEXT,
+                updated_at TEXT NOT NULL,
+                record_json TEXT NOT NULL,
+                PRIMARY KEY (user_id, schedule_id)
+            )
+            "#,
+        )
+        .execute(&storage.pool)
+        .await?;
+        sqlx::query(
+            "CREATE INDEX idx_schedules_user_status_next ON schedules(user_id, status, next_run_at)",
+        )
+        .execute(&storage.pool)
+        .await?;
+
+        storage.initialize().await?;
+
+        let job_columns = sqlx::query("PRAGMA table_info(jobs)")
+            .fetch_all(&storage.pool)
+            .await?
+            .into_iter()
+            .map(|row| row.get::<String, _>("name"))
+            .collect::<Vec<_>>();
+        assert!(job_columns.iter().any(|column| column == "task_trigger_id"));
+        assert!(!job_columns.iter().any(|column| column == "schedule_id"));
+
+        let legacy_table = sqlx::query(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'schedules'",
+        )
+        .fetch_optional(&storage.pool)
+        .await?;
+        assert!(legacy_table.is_none());
+
+        let legacy_indexes = sqlx::query(
+            "SELECT name FROM sqlite_master WHERE type = 'index' AND name IN ('idx_jobs_user_schedule', 'idx_schedules_user_status_next')",
+        )
+        .fetch_all(&storage.pool)
+        .await?;
+        assert!(legacy_indexes.is_empty());
+
+        let record_json = sqlx::query("SELECT record_json FROM jobs WHERE job_id = ?")
+            .bind("agent-legacy")
+            .fetch_one(&storage.pool)
+            .await?
+            .get::<String, _>("record_json");
+        let record: Value = serde_json::from_str(&record_json)?;
+        assert!(record.get("schedule_id").is_none());
+        assert!(record.get("schedule_title").is_none());
+        assert!(record.get("schedule_trigger").is_none());
 
         let _ = std::fs::remove_dir_all(root);
         Ok(())

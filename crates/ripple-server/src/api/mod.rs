@@ -11,10 +11,10 @@ pub(crate) mod run_public;
 pub mod runs;
 pub mod sandboxes;
 pub mod schedule_chat;
-pub mod schedules;
 pub mod sessions;
 pub mod skill_chat;
 pub mod skills;
+pub mod task_triggers;
 pub mod tasks;
 pub mod users;
 pub mod workspace;
@@ -24,7 +24,7 @@ use axum::extract::{DefaultBodyLimit, State};
 use axum::http::{HeaderValue, Request, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{delete, get, patch, post};
+use axum::routing::{get, patch, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -144,6 +144,18 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/tasks/:task_id/actions/:action_id",
             patch(tasks::update_task_action),
+        )
+        .route(
+            "/tasks/:task_id/actions/:action_id/triggers",
+            post(task_triggers::create_task_action_trigger),
+        )
+        .route(
+            "/tasks/:task_id/triggers",
+            get(task_triggers::list_task_triggers),
+        )
+        .route(
+            "/tasks/:task_id/triggers/:trigger_id/run-now",
+            post(task_triggers::run_task_trigger_now),
         )
         .route("/tasks/:task_id/events", get(tasks::list_task_events))
         .routes(utoipa_axum::routes!(chat::chat_completions))
@@ -283,28 +295,6 @@ pub fn router(state: AppState) -> Router {
             get(documents::get_document)
                 .patch(documents::update_document)
                 .delete(documents::delete_document),
-        )
-        .route(
-            "/schedules",
-            get(schedules::list_schedules).post(schedules::create_schedule),
-        )
-        .route(
-            "/schedules/:schedule_id",
-            get(schedules::get_schedule)
-                .patch(schedules::update_schedule)
-                .delete(schedules::delete_schedule),
-        )
-        .route(
-            "/schedules/:schedule_id/runs",
-            get(schedules::schedule_runs),
-        )
-        .route(
-            "/schedules/:schedule_id/runs/:job_id",
-            delete(schedules::delete_schedule_run),
-        )
-        .route(
-            "/schedules/:schedule_id/run-now",
-            post(schedules::run_schedule_now),
         )
         .route_layer(middleware::from_fn_with_state(
             state.clone(),

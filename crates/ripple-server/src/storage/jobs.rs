@@ -21,14 +21,14 @@ impl Storage {
         let status = record_str(record, "status");
         let created_at = record_str(record, "created_at");
         let updated_at = record_str(record, "updated_at");
-        let schedule_id = record.get("schedule_id").and_then(Value::as_str);
+        let task_trigger_id = record.get("task_trigger_id").and_then(Value::as_str);
         let events_file = record.get("events_file").and_then(Value::as_str);
         let output_file = record.get("output_file").and_then(Value::as_str);
         sqlx::query(
             r#"
             INSERT INTO jobs (
                 job_id, user_id, session_id, provider, status, created_at, updated_at,
-                schedule_id, events_file, output_file, record_json
+                task_trigger_id, events_file, output_file, record_json
             )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(job_id) DO UPDATE SET
@@ -38,7 +38,7 @@ impl Storage {
                 status = excluded.status,
                 created_at = excluded.created_at,
                 updated_at = excluded.updated_at,
-                schedule_id = excluded.schedule_id,
+                task_trigger_id = excluded.task_trigger_id,
                 events_file = excluded.events_file,
                 output_file = excluded.output_file,
                 record_json = excluded.record_json
@@ -51,7 +51,7 @@ impl Storage {
         .bind(status)
         .bind(created_at)
         .bind(updated_at)
-        .bind(schedule_id)
+        .bind(task_trigger_id)
         .bind(events_file)
         .bind(output_file)
         .bind(json_text(record)?)
@@ -109,21 +109,21 @@ impl Storage {
         Ok(result.rows_affected() > 0)
     }
 
-    pub async fn list_jobs_for_schedule(
+    pub async fn list_jobs_for_task_trigger(
         &self,
         user_id: &str,
-        schedule_id: &str,
+        task_trigger_id: &str,
     ) -> anyhow::Result<Vec<Value>> {
         self.initialize().await?;
         let rows = sqlx::query(
             r#"
             SELECT record_json FROM jobs
-            WHERE user_id = ? AND schedule_id = ?
+            WHERE user_id = ? AND task_trigger_id = ?
             ORDER BY updated_at DESC
             "#,
         )
         .bind(user_id)
-        .bind(schedule_id)
+        .bind(task_trigger_id)
         .fetch_all(&self.pool)
         .await?;
         rows.into_iter()

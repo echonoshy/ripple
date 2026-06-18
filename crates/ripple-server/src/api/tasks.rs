@@ -5,7 +5,7 @@ use axum::http::HeaderMap;
 use axum::Json;
 use serde_json::{json, Value};
 use time::format_description::well_known::Rfc3339;
-use time::OffsetDateTime;
+use time::{Duration as TimeDuration, OffsetDateTime};
 use tokio::time::{sleep, Duration, Instant};
 use uuid::Uuid;
 
@@ -18,6 +18,13 @@ use crate::sessions::SessionRecord;
 use crate::state::AppState;
 use crate::storage::Storage;
 use crate::user::user_id_from_headers;
+
+#[derive(Debug, Clone)]
+pub(crate) struct TaskRunTriggerContext {
+    pub(crate) trigger_id: String,
+    pub(crate) task_trigger_title: String,
+    pub(crate) task_trigger_reason: String,
+}
 
 pub async fn list_tasks(
     State(state): State<AppState>,
@@ -440,8 +447,6 @@ pub(crate) async fn create_task_from_payload(
         .and_then(Value::as_str)
         .ok_or_else(|| ApiError::bad_request("task missing task_id"))?
         .to_string();
-    storage.upsert_task(user_id, &task).await?;
-
     let actions = payload
         .get("actions")
         .and_then(Value::as_array)
@@ -450,10 +455,16 @@ pub(crate) async fn create_task_from_payload(
         .into_iter()
         .map(|action| action_record_from_payload(&action, user_id, &task_id, &task, &now))
         .collect::<Result<Vec<_>, _>>()?;
+    let trigger_records = task_trigger_records_from_actions(user_id, &task, &actions, &now)?;
+
+    storage.upsert_task(user_id, &task).await?;
     for action in &actions {
         storage
             .upsert_task_action(user_id, &task_id, action)
             .await?;
+    }
+    for trigger in &trigger_records {
+        storage.upsert_task_trigger(user_id, trigger).await?;
     }
     let task = refresh_task_progress(storage, user_id, &task_id).await?;
     append_task_event(
@@ -461,7 +472,10 @@ pub(crate) async fn create_task_from_payload(
         user_id,
         &task_id,
         "task_created",
-        json!({"action_count": actions.len()}),
+        json!({
+            "action_count": actions.len(),
+            "trigger_count": trigger_records.len()
+        }),
     )
     .await?;
     Ok((task, actions))
@@ -788,6 +802,12 @@ fn parse_datetime(value: &str) -> Result<OffsetDateTime, ApiError> {
         .map_err(|_| ApiError::bad_request("invalid datetime"))
 }
 
+fn iso_datetime(value: OffsetDateTime) -> Result<String, ApiError> {
+    value
+        .format(&Rfc3339)
+        .map_err(|_| ApiError::bad_request("invalid datetime"))
+}
+
 async fn refresh_task_progress(
     storage: &Storage,
     user_id: &str,
@@ -979,13 +999,18 @@ fn action_record_from_payload(
         .and_then(Value::as_bool)
         .unwrap_or(false);
     let task_is_candidate = task.get("status").and_then(Value::as_str) == Some("candidate");
-    let status = input.get("status").and_then(Value::as_str).unwrap_or(
-        if requires_confirmation || task_is_candidate {
-            "candidate"
-        } else {
-            "confirmed"
-        },
-    );
+    let default_status = if requires_confirmation || task_is_candidate {
+        "candidate"
+    } else {
+        "confirmed"
+    };
+    let status = input
+        .get("status")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .filter(|value| *value != "pending")
+        .unwrap_or(default_status);
     validate_action_status(status)?;
 
     let mut record = input.clone();
@@ -1018,6 +1043,219 @@ fn action_record_from_payload(
     let mut record = Value::Object(record);
     normalize_action_wakeup_fields(&mut record);
     Ok(record)
+}
+
+fn task_trigger_records_from_actions(
+    user_id: &str,
+    task: &Value,
+    actions: &[Value],
+    now: &str,
+) -> Result<Vec<Value>, ApiError> {
+    let mut records = Vec::new();
+    for action in actions {
+        for trigger in action_trigger_values(action) {
+            records.push(task_trigger_record_from_payload(
+                user_id, task, action, trigger, now,
+            )?);
+        }
+    }
+    Ok(records)
+}
+
+fn action_trigger_values(action: &Value) -> Vec<&Value> {
+    let mut triggers = Vec::new();
+    if let Some(trigger) = action.get("trigger").filter(|value| value.is_object()) {
+        triggers.push(trigger);
+    }
+    if let Some(values) = action.get("triggers").and_then(Value::as_array) {
+        triggers.extend(values.iter().filter(|value| value.is_object()));
+    }
+    triggers
+}
+
+fn task_trigger_record_from_payload(
+    user_id: &str,
+    task: &Value,
+    action: &Value,
+    trigger: &Value,
+    now: &str,
+) -> Result<Value, ApiError> {
+    let task_id = task
+        .get("task_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| ApiError::bad_request("task trigger missing task_id"))?;
+    let action_id = action
+        .get("action_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| ApiError::bad_request("task trigger missing action_id"))?;
+    let kind = trigger
+        .get("kind")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| {
+            if trigger.get("interval_seconds").is_some() {
+                "interval"
+            } else {
+                "once"
+            }
+        });
+    if !matches!(kind, "once" | "interval") {
+        return Err(ApiError::bad_request(
+            "task trigger kind must be one of: once, interval",
+        ));
+    }
+    let timezone = trigger
+        .get("timezone")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("UTC");
+    let run_at = trigger
+        .get("run_at")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| parse_datetime(value).and_then(|parsed| iso_datetime(parsed)))
+        .transpose()?;
+    let interval_seconds = trigger
+        .get("interval_seconds")
+        .and_then(Value::as_u64)
+        .or_else(|| {
+            trigger
+                .get("interval_seconds")
+                .and_then(Value::as_str)
+                .and_then(|value| value.trim().parse::<u64>().ok())
+        });
+    if kind == "once" && run_at.is_none() {
+        return Err(ApiError::bad_request(
+            "run_at is required for once task triggers",
+        ));
+    }
+    if kind == "interval" && interval_seconds.is_none() {
+        return Err(ApiError::bad_request(
+            "interval_seconds is required for interval task triggers",
+        ));
+    }
+    let enabled = trigger
+        .get("enabled")
+        .and_then(Value::as_bool)
+        .unwrap_or(true);
+    let now_dt = parse_datetime(now)?;
+    let next_run_at = if enabled {
+        compute_task_trigger_next_run_at(kind, run_at.as_deref(), interval_seconds, now_dt)?
+    } else {
+        None
+    };
+    let title = trigger
+        .get("title")
+        .and_then(Value::as_str)
+        .or_else(|| action.get("title").and_then(Value::as_str))
+        .or_else(|| task.get("title").and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| ApiError::bad_request("task trigger title is required"))?;
+    let prompt = trigger
+        .get("prompt")
+        .and_then(Value::as_str)
+        .or_else(|| action.get("objective").and_then(Value::as_str))
+        .or_else(|| action.get("description").and_then(Value::as_str))
+        .or_else(|| action.get("title").and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| ApiError::bad_request("task trigger prompt is required"))?;
+    let max_runtime_seconds = trigger
+        .get("max_runtime_seconds")
+        .and_then(Value::as_u64)
+        .unwrap_or(1800)
+        .clamp(1, 86_400);
+    let max_runs = trigger.get("max_runs").and_then(Value::as_u64);
+    let output_schema = trigger
+        .get("output_schema")
+        .or_else(|| trigger.get("outputSchema"))
+        .cloned()
+        .unwrap_or(Value::Null);
+
+    Ok(json!({
+        "trigger_id": generated_id("trg"),
+        "user_id": user_id,
+        "title": title,
+        "prompt": prompt,
+        "kind": kind,
+        "timezone": timezone,
+        "run_at": run_at,
+        "interval_seconds": interval_seconds,
+        "enabled": enabled,
+        "status": if enabled { "active" } else { "paused" },
+        "next_run_at": next_run_at,
+        "last_run_at": Value::Null,
+        "last_run_id": Value::Null,
+        "last_error": Value::Null,
+        "failure_reason": Value::Null,
+        "last_run_status": Value::Null,
+        "missed_run_policy": trigger_string(trigger, "missed_run_policy", "run_once"),
+        "overlap_policy": trigger_string(trigger, "overlap_policy", "skip"),
+        "failure_policy": trigger_string(trigger, "failure_policy", "pause"),
+        "cwd": trigger_optional_string_value(trigger, "cwd"),
+        "model": trigger_optional_string_value(trigger, "model"),
+        "effort": trigger_optional_string_value(trigger, "effort"),
+        "summary": trigger_optional_string_value(trigger, "summary"),
+        "output_schema": output_schema,
+        "max_runtime_seconds": max_runtime_seconds,
+        "max_runs": max_runs,
+        "task_id": task_id,
+        "task_action_id": action_id,
+        "run_count": 0,
+        "created_at": now,
+        "updated_at": now
+    }))
+}
+
+fn compute_task_trigger_next_run_at(
+    kind: &str,
+    run_at: Option<&str>,
+    interval_seconds: Option<u64>,
+    now: OffsetDateTime,
+) -> Result<Option<String>, ApiError> {
+    if kind == "once" {
+        let Some(run_at) = run_at else {
+            return Err(ApiError::bad_request(
+                "run_at is required for once task triggers",
+            ));
+        };
+        return Ok(Some(run_at.to_string()));
+    }
+    let interval_seconds = interval_seconds.ok_or_else(|| {
+        ApiError::bad_request("interval_seconds is required for interval task triggers")
+    })?;
+    let mut next = match run_at {
+        Some(run_at) => parse_datetime(run_at)?,
+        None => now + TimeDuration::seconds(interval_seconds as i64),
+    };
+    while next <= now {
+        next += TimeDuration::seconds(interval_seconds as i64);
+    }
+    Ok(Some(iso_datetime(next)?))
+}
+
+fn trigger_string(trigger: &Value, key: &str, fallback: &str) -> String {
+    trigger
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(fallback)
+        .to_string()
+}
+
+fn trigger_optional_string_value(trigger: &Value, key: &str) -> Value {
+    trigger
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| json!(value))
+        .unwrap_or(Value::Null)
 }
 
 fn merge_task_updates(task: &mut Value, input: &Value) -> Result<(), ApiError> {
@@ -1237,6 +1475,26 @@ async fn execute_task_action(
     task_id: &str,
     action_id: Option<&str>,
 ) -> Result<AgentRunInfo, ApiError> {
+    execute_task_action_inner(state, user_id, task_id, action_id, None).await
+}
+
+pub(crate) async fn execute_task_action_for_trigger(
+    state: &AppState,
+    user_id: &str,
+    task_id: &str,
+    action_id: &str,
+    trigger: TaskRunTriggerContext,
+) -> Result<AgentRunInfo, ApiError> {
+    execute_task_action_inner(state, user_id, task_id, Some(action_id), Some(&trigger)).await
+}
+
+async fn execute_task_action_inner(
+    state: &AppState,
+    user_id: &str,
+    task_id: &str,
+    action_id: Option<&str>,
+    trigger: Option<&TaskRunTriggerContext>,
+) -> Result<AgentRunInfo, ApiError> {
     let task = load_task(&state.storage, user_id, task_id).await?;
     let status = task
         .get("status")
@@ -1288,6 +1546,7 @@ async fn execute_task_action(
     let prompt = task_run_prompt(&task, &action);
     let max_runtime_seconds = state.config.codex.max_runtime_seconds;
     assert_can_create_run(state, user_id, max_runtime_seconds).await?;
+    let (model, effort) = state.config.resolve_model(Some(session.model.as_str()));
     let create = AgentRunCreateRequest {
         prompt: prompt.clone(),
         provider: "codex".to_string(),
@@ -1295,14 +1554,14 @@ async fn execute_task_action(
         turn_context: None,
         cwd: Some("/workspace".to_string()),
         input_items: vec![json!({"type": "text", "text": prompt})],
-        model: Some(session.model.clone()),
-        effort: None,
+        model: Some(model),
+        effort,
         summary: None,
         output_schema: None,
         max_runtime_seconds,
-        schedule_id: None,
-        schedule_title: None,
-        schedule_trigger: None,
+        task_trigger_id: trigger.map(|trigger| trigger.trigger_id.clone()),
+        task_trigger_title: trigger.map(|trigger| trigger.task_trigger_title.clone()),
+        task_trigger_reason: trigger.map(|trigger| trigger.task_trigger_reason.clone()),
         codex_thread_id: session.codex_thread_id.clone(),
         codex_persistent_thread: true,
         chat_user_input: Some(task_run_prompt(&task, &action)),

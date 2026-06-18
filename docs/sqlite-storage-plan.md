@@ -10,7 +10,7 @@ SQLite 是 `ripple-server` 当前控制面状态存储。它不替代用户 work
 - sessions
 - session messages
 - runs/jobs metadata
-- schedules
+- task triggers
 - tasks、task actions、task events
 - documents index
 - pending approval / pending question / pending connector auth 状态
@@ -48,7 +48,7 @@ linked_session_id
 - SQLite 使用 WAL，运行时会同时出现 `.ripple/ripple.sqlite-wal` 和 `.ripple/ripple.sqlite-shm`。
 - 表内统一带 `user_id`，查询和写入都必须保持 user scope。
 - `Storage::open` 负责初始化表结构、补齐必要 schema column，并记录 `schema_migrations`。
-- session message append + session meta update、run status 更新、schedule trigger/update 这类状态变化应保持短事务。
+- session message append + session meta update、run status 更新、task trigger/update 这类状态变化应保持短事务。
 - `/v1` response shape 不因 SQLite 存储改变而破坏旧客户端。
 
 ## Filesystem Responsibilities
@@ -78,7 +78,6 @@ ripple-server migrate-files-to-sqlite --config config/settings.yaml
 - sessions/<session_id>/messages.jsonl
 - agent-runs/external-agents/*/meta.json
 - sessions/<session_id>/external-agents/*/meta.json
-- schedules/schedules.json
 - documents/index.json
 
 迁移要求：
@@ -99,7 +98,7 @@ auth_sessions
 sessions
 session_messages
 jobs
-schedules
+task_triggers
 tasks
 task_actions
 task_events
@@ -117,7 +116,8 @@ session_messages(user_id, session_id, seq)
 jobs(user_id, updated_at)
 jobs(user_id, session_id)
 jobs(user_id, status)
-schedules(user_id, status, next_run_at)
+jobs(user_id, task_trigger_id)
+task_triggers(user_id, status, next_run_at)
 tasks(user_id, status, due_at)
 tasks(user_id, source_session_id, status)
 task_actions(user_id, task_id, status, next_wakeup_at)
@@ -143,7 +143,7 @@ cargo test -p ripple-server migration
 cargo check -p ripple-server
 ```
 
-涉及 API response、session/job/schedule 行为时，再补充对应 route tests 或：
+涉及 API response、session/job/task trigger 行为时，再补充对应 route tests 或：
 
 ```bash
 bash scripts/smoke-rust-server.sh

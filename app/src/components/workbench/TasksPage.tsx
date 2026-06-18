@@ -18,13 +18,13 @@ import {
   cancelTask,
   confirmTask,
   deleteTask,
-  fetchSchedules,
   fetchTask,
   fetchTaskEvents,
+  fetchTaskTriggers,
   fetchTasks,
   runTaskNow,
 } from "@/lib/api";
-import type { ScheduleInfo, TaskActionInfo, TaskEventInfo, TaskInfo } from "@/types";
+import type { TaskActionInfo, TaskEventInfo, TaskInfo, TaskTriggerInfo } from "@/types";
 import { useI18n } from "@/i18n";
 import {
   LUCIDE_NAV_STROKE_WIDTH,
@@ -56,7 +56,7 @@ interface TasksPageProps {
   tasks?: TaskInfo[];
   actions?: TaskActionInfo[];
   events?: TaskEventInfo[];
-  schedules?: ScheduleInfo[];
+  triggers?: TaskTriggerInfo[];
   isLoading?: boolean;
   error?: string | null;
   onAuthExpired?: (message: string) => void;
@@ -267,7 +267,7 @@ export default function TasksPage({
   tasks,
   actions,
   events,
-  schedules,
+  triggers,
   isLoading,
   error,
   onAuthExpired,
@@ -287,7 +287,7 @@ export default function TasksPage({
   );
   const [detailActions, setDetailActions] = useState<TaskActionInfo[]>(() => actions || []);
   const [taskEvents, setTaskEvents] = useState<TaskEventInfo[]>(() => events || []);
-  const [scheduleList, setScheduleList] = useState<ScheduleInfo[]>(() => schedules || []);
+  const [triggerList, setTriggerList] = useState<TaskTriggerInfo[]>(() => triggers || []);
   const [internalLoading, setInternalLoading] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [internalError, setInternalError] = useState<string | null>(null);
@@ -307,8 +307,8 @@ export default function TasksPage({
   }, [events]);
 
   useEffect(() => {
-    if (schedules) setScheduleList(schedules);
-  }, [schedules]);
+    if (triggers) setTriggerList(triggers);
+  }, [triggers]);
 
   const handleError = useCallback(
     (caught: unknown, fallback: string) => {
@@ -349,9 +349,12 @@ export default function TasksPage({
     if (isControlled) return;
     setInternalLoading(true);
     try {
-      const [nextTasks, nextSchedules] = await Promise.all([fetchTasks(), fetchSchedules()]);
+      const nextTasks = await fetchTasks();
+      const triggerGroups = await Promise.all(
+        nextTasks.map((task) => fetchTaskTriggers(task.taskId))
+      );
       setTaskList(nextTasks);
-      setScheduleList(nextSchedules);
+      setTriggerList(triggerGroups.flat());
       const nextSelectedId =
         preferredSelectedId && nextTasks.some((task) => task.taskId === preferredSelectedId)
           ? preferredSelectedId
@@ -404,15 +407,15 @@ export default function TasksPage({
         : [],
     [selectedTask, taskEvents]
   );
-  const selectedTaskSchedules = useMemo(() => {
+  const selectedTaskTriggers = useMemo(() => {
     if (!selectedTask) return [];
     const actionIds = new Set(visibleActions.map((action) => action.actionId));
-    return scheduleList.filter(
-      (schedule) =>
-        schedule.task_id === selectedTask.taskId ||
-        (schedule.task_action_id ? actionIds.has(schedule.task_action_id) : false)
+    return triggerList.filter(
+      (trigger) =>
+        trigger.task_id === selectedTask.taskId ||
+        (trigger.task_action_id ? actionIds.has(trigger.task_action_id) : false)
     );
-  }, [scheduleList, selectedTask, visibleActions]);
+  }, [triggerList, selectedTask, visibleActions]);
   const selectedTaskActionTriggers = useMemo(
     () => visibleActions.filter((action) => Boolean(action.nextWakeupAt)),
     [visibleActions]
@@ -798,7 +801,7 @@ export default function TasksPage({
                       {t("tasks.triggers")}
                     </h3>
                     {selectedTaskActionTriggers.length === 0 &&
-                    selectedTaskSchedules.length === 0 ? (
+                    selectedTaskTriggers.length === 0 ? (
                       <div
                         className={`${TYPOGRAPHY_BODY_CLASS} rounded-lg border border-dashed border-[#D0D3D6] px-3 py-4 text-center text-[#646A73]`}
                       >
@@ -836,44 +839,44 @@ export default function TasksPage({
                         ) : null}
                       </div>
                     ))}
-                    {selectedTaskSchedules.map((schedule) => (
+                    {selectedTaskTriggers.map((trigger) => (
                       <div
-                        key={schedule.schedule_id}
+                        key={trigger.trigger_id}
                         className="grid gap-1.5 rounded-lg border border-[#EFF0F1] bg-[#F8F9FA] px-3 py-2"
                       >
                         <div className="flex min-w-0 items-center justify-between gap-2">
                           <div className="flex min-w-0 items-center gap-2">
                             <Clock3 size={15} className="shrink-0 text-[#1456F0]" />
                             <span className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} truncate`}>
-                              {schedule.title}
+                              {trigger.title}
                             </span>
                           </div>
                           <span
                             className={`${
-                              schedule.enabled
+                              trigger.enabled
                                 ? WORKBENCH_STATUS_NEUTRAL_CLASS
                                 : WORKBENCH_STATUS_WARNING_CLASS
                             } shrink-0 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}
                           >
-                            {schedule.enabled ? t("tasks.triggerActive") : t("tasks.triggerPaused")}
+                            {trigger.enabled ? t("tasks.triggerActive") : t("tasks.triggerPaused")}
                           </span>
                         </div>
                         <div className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
                           {t("tasks.triggerNext")}:{" "}
-                          {formatDate(schedule.next_run_at, locale, t("tasks.unknown"))}
+                          {formatDate(trigger.next_run_at, locale, t("tasks.unknown"))}
                         </div>
-                        {schedule.last_run_id || schedule.last_run_status ? (
+                        {trigger.last_run_id || trigger.last_run_status ? (
                           <div className="flex min-w-0 flex-wrap items-center gap-2">
-                            {schedule.last_run_id ? (
+                            {trigger.last_run_id ? (
                               <span
                                 className={`shrink-0 rounded-md border border-[#DEE0E3] bg-white px-1.5 py-0.5 font-[family-name:var(--font-mono)] ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} text-[#646A73]`}
                               >
-                                {t("tasks.lastRun")}: {schedule.last_run_id}
+                                {t("tasks.lastRun")}: {trigger.last_run_id}
                               </span>
                             ) : null}
-                            {schedule.last_run_status ? (
+                            {trigger.last_run_status ? (
                               <span className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
-                                {schedule.last_run_status}
+                                {trigger.last_run_status}
                               </span>
                             ) : null}
                           </div>

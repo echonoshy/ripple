@@ -187,7 +187,7 @@ export function useSessionLifecycle({
 
   const switchSession = useCallback(
     async (targetSessionId: string): Promise<boolean> => {
-      if (targetSessionId === sessionId) {
+      if (targetSessionId === sessionId && isGenerating) {
         onSessionActivated();
         return true;
       }
@@ -202,7 +202,7 @@ export function useSessionLifecycle({
         return false;
       }
     },
-    [applySessionDetails, onSessionActivated, sessionId]
+    [applySessionDetails, isGenerating, onSessionActivated, sessionId]
   );
 
   const deleteSessionById = useCallback(

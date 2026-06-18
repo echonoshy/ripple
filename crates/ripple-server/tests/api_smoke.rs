@@ -10,10 +10,13 @@ use axum::http::{header, Method, Request, StatusCode};
 use ripple_server::api::{auth::AuthClaimRequest, router};
 use ripple_server::config::{
     ApiDocsConfig, AppConfig, CodexConfig, CorsConfig, DocumentPreviewConfig, FeishuConfig,
-    GogcliOAuthConfig, LoggingConfig, SandboxConfig, SecurityConfig, SkillsConfig, UserAuthConfig,
+    GogcliOAuthConfig, LoggingConfig, ModelPreset, SandboxConfig, SecurityConfig, SkillsConfig,
+    UserAuthConfig,
 };
 use ripple_server::jobs::AgentRunCreateRequest;
-use ripple_server::services::{schedules::trigger_due_schedules, tasks::trigger_due_task_actions};
+use ripple_server::services::{
+    task_triggers::trigger_due_task_triggers, tasks::trigger_due_task_actions,
+};
 use ripple_server::sessions::CreateSessionInput;
 use ripple_server::state::AppState;
 use serde_json::{json, Value};
@@ -457,6 +460,10 @@ fn task_tool_complete_action_arguments() -> &'static str {
     "{\"mode\":\"complete_action\",\"target\":\"task\",\"task_id\":\"task-progress\",\"action_id\":\"act-draft\",\"result_summary\":\"已整理出客户预算范围和报价假设。\"}"
 }
 
+fn task_tool_reminder_arguments() -> &'static str {
+    "{\"mode\":\"create\",\"target\":\"task\",\"reason\":\"用户明确要求在2分钟以后提醒设置闹铃，属于需要未来触发的提醒。\",\"task\":{\"title\":\"提醒设置闹铃\",\"description\":\"在 2 分钟后提醒用户设置一个闹铃。\"},\"actions\":[{\"title\":\"提醒用户设置闹铃\",\"description\":\"提醒用户：该设置一个闹铃了。\",\"status\":\"pending\",\"trigger\":{\"kind\":\"once\",\"run_at\":\"2026-06-18T11:32:11+08:00\",\"timezone\":\"Asia/Shanghai\"}}]}"
+}
+
 fn main() {
     let stdin = io::stdin();
     let mut thread_counter = 0_u64;
@@ -531,6 +538,10 @@ fn main() {
                 turn_counter += 1;
                 let thread_id = extract_string_field(&line, "threadId")
                     .unwrap_or_else(|| "thread-unknown".to_string());
+                let request_model =
+                    extract_string_field(&line, "model").unwrap_or_else(|| "none".to_string());
+                let request_effort =
+                    extract_string_field(&line, "effort").unwrap_or_else(|| "none".to_string());
                 let turn_id = format!("turn-{turn_counter}");
                 let item_id = format!("item-{turn_counter}");
                 send(format!(
@@ -563,6 +574,8 @@ fn main() {
                     }
                 } else if line.contains("[model-auth-alpha]") {
                     "<ripple_connector_auth_request>{\"connector\":\"google_workspace\",\"force_reauth\":false,\"reason\":\"needs Gmail access\"}</ripple_connector_auth_request>".to_string()
+                } else if line.contains("[model-alias-check]") {
+                    format!("model seen: {request_model}; effort seen: {request_effort}")
                 } else if line.contains("## Context Folder")
                     && line.contains("Context folder: /workspace/demo")
                 {
@@ -619,6 +632,36 @@ fn main() {
                         json_string(&thread_id),
                         json_string(&turn_id),
                         task_tool_arguments()
+                    ));
+                    continue;
+                }
+
+                if line.contains("[tool-reminder]") {
+                    if !thread_has_task_tool.get(&thread_id).copied().unwrap_or(false) {
+                        complete_turn(
+                            &thread_id,
+                            &turn_id,
+                            &item_id,
+                            "task_update dynamic tool missing",
+                        );
+                        continue;
+                    }
+                    let dynamic_request_id = format!("dynamic-reminder-{turn_counter}");
+                    pending_dynamic_tools.insert(
+                        dynamic_request_id.clone(),
+                        (
+                            thread_id.clone(),
+                            turn_id.clone(),
+                            item_id.clone(),
+                            "reminder tool saved".to_string(),
+                        ),
+                    );
+                    send(format!(
+                        "{{\"id\":{},\"method\":\"item/tool/call\",\"params\":{{\"threadId\":{},\"turnId\":{},\"callId\":\"call-reminder-update\",\"namespace\":\"codex_app\",\"tool\":\"task_update\",\"arguments\":{}}}}}",
+                        json_string(&dynamic_request_id),
+                        json_string(&thread_id),
+                        json_string(&turn_id),
+                        task_tool_reminder_arguments()
                     ));
                     continue;
                 }
@@ -1355,6 +1398,42 @@ async fn task_actions_drive_status_machine_progress_and_events() {
 }
 
 #[tokio::test]
+async fn task_create_rejects_invalid_action_without_partial_task() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let (_state, app) = test_state_and_app(&root);
+
+    let (status, created) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/tasks",
+        json!({
+            "task_id": "task-invalid-action",
+            "title": "提醒设置闹铃",
+            "status": "active",
+            "actions": [
+                {
+                    "action_id": "act-invalid",
+                    "title": "提醒用户设置闹铃",
+                    "status": "not_a_task_action_status"
+                }
+            ]
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{created}");
+
+    let (status, tasks) = call(app, Method::GET, "/v1/tasks", Value::Null).await;
+    assert_eq!(status, StatusCode::OK, "{tasks}");
+    assert_eq!(
+        tasks.get("count").and_then(Value::as_u64),
+        Some(0),
+        "{tasks}"
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
 async fn due_task_action_trigger_runs_due_action_and_returns_result_to_session() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let fake_codex = write_fake_codex_app_server(&root);
@@ -1655,7 +1734,7 @@ async fn task_action_with_wakeup_stays_in_task_action_storage() {
 }
 
 #[tokio::test]
-async fn automation_schedule_can_link_to_task_action() {
+async fn removed_schedules_api_leaves_task_triggers_as_the_public_surface() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let (_state, app) = test_state_and_app(&root);
 
@@ -1681,41 +1760,273 @@ async fn automation_schedule_can_link_to_task_action() {
     .await;
     assert_eq!(status, StatusCode::OK, "{created}");
 
-    let (status, schedule) = call(
+    let (status, removed) = call(
         app.clone(),
         Method::POST,
         "/v1/schedules",
+        json!({
+            "title": "旧定时任务入口",
+            "prompt": "不应该再通过 schedules 创建",
+            "kind": "interval",
+            "interval_seconds": 86400
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{removed}");
+
+    let (status, trigger) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/tasks/task-auto/actions/act-auto-check/triggers",
         json!({
             "title": "每天检查报价材料",
             "prompt": "检查报价材料是否有更新",
             "kind": "interval",
             "interval_seconds": 86400,
-            "enabled": false,
-            "task_id": "task-auto",
-            "task_action_id": "act-auto-check"
+            "enabled": false
         }),
     )
     .await;
-    assert_eq!(status, StatusCode::OK, "{schedule}");
+    assert_eq!(status, StatusCode::OK, "{trigger}");
     assert_eq!(
-        schedule.get("task_id").and_then(Value::as_str),
+        trigger.get("task_id").and_then(Value::as_str),
         Some("task-auto"),
-        "{schedule}"
+        "{trigger}"
     );
     assert_eq!(
-        schedule.get("task_action_id").and_then(Value::as_str),
+        trigger.get("task_action_id").and_then(Value::as_str),
         Some("act-auto-check"),
-        "{schedule}"
+        "{trigger}"
+    );
+    assert_eq!(
+        trigger.get("trigger_id").and_then(Value::as_str).is_some(),
+        true,
+        "{trigger}"
+    );
+    assert!(
+        trigger.get("schedule_id").is_none(),
+        "task trigger response should not expose legacy schedule_id: {trigger}"
     );
 
-    let (status, schedules) = call(app, Method::GET, "/v1/schedules", Value::Null).await;
-    assert_eq!(status, StatusCode::OK, "{schedules}");
+    let (status, triggers) = call(
+        app,
+        Method::GET,
+        "/v1/tasks/task-auto/triggers",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{triggers}");
     assert_eq!(
-        schedules
-            .pointer("/schedules/0/task_id")
+        triggers
+            .pointer("/triggers/0/trigger_id")
             .and_then(Value::as_str),
-        Some("task-auto"),
-        "{schedules}"
+        trigger.get("trigger_id").and_then(Value::as_str),
+        "{triggers}"
+    );
+    assert_eq!(
+        triggers
+            .pointer("/triggers/0/task_action_id")
+            .and_then(Value::as_str),
+        Some("act-auto-check"),
+        "{triggers}"
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn task_trigger_resolves_session_model_alias_before_codex_run() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let mut config = test_config_with_codex_executable(&root, fake_codex);
+    config.model_presets.insert(
+        "codex-low".to_string(),
+        ModelPreset {
+            model: "gpt-5.5-test".to_string(),
+            reasoning_effort: Some("low".to_string()),
+        },
+    );
+    let (state, app) = test_state_and_app_with_config(config);
+
+    let (status, session) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/sessions",
+        json!({"model": "codex-low"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let session_id = session
+        .get("session_id")
+        .and_then(Value::as_str)
+        .expect("session id");
+
+    let (status, created) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/tasks",
+        json!({
+            "task_id": "task-model-alias",
+            "title": "检查触发器模型别名",
+            "objective": "触发器执行任务步骤时应解析 session 模型别名。",
+            "status": "active",
+            "source_session_id": session_id,
+            "actions": [
+                {
+                    "action_id": "act-model-alias",
+                    "title": "[model-alias-check] 执行提醒",
+                    "kind": "execute",
+                    "status": "confirmed"
+                }
+            ]
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+
+    let (status, trigger) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/tasks/task-model-alias/actions/act-model-alias/triggers",
+        json!({
+            "title": "立即检查模型别名",
+            "prompt": "检查模型别名",
+            "kind": "once",
+            "run_at": "2020-01-01T00:00:00Z",
+            "enabled": true
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{trigger}");
+
+    let triggered = trigger_due_task_triggers(&state)
+        .await
+        .expect("trigger task triggers");
+    assert!(
+        triggered.get("smoke-user").is_some_and(|ids| ids
+            .iter()
+            .any(|id| id == trigger["trigger_id"].as_str().unwrap())),
+        "{triggered:?}"
+    );
+
+    let (status, detail) = call(app, Method::GET, "/v1/tasks/task-model-alias", Value::Null).await;
+    assert_eq!(status, StatusCode::OK, "{detail}");
+    let summary = detail
+        .pointer("/actions/0/result_summary")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    assert!(summary.contains("model seen: gpt-5.5-test"), "{detail}");
+    assert!(summary.contains("effort seen: low"), "{detail}");
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn task_trigger_executes_task_action_and_updates_original_session() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+
+    let (status, session) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/sessions",
+        json!({"model": "codex-test"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let session_id = session
+        .get("session_id")
+        .and_then(Value::as_str)
+        .expect("session id");
+
+    let (status, created) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/tasks",
+        json!({
+            "task_id": "task-progress",
+            "title": "定时整理客户报价方案",
+            "objective": "通过触发器执行任务步骤并回写原会话",
+            "status": "active",
+            "source_session_id": session_id,
+            "actions": [
+                {
+                    "action_id": "act-draft",
+                    "title": "[tool-task-complete] 执行报价方案整理",
+                    "kind": "execute",
+                    "status": "confirmed"
+                }
+            ]
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+
+    let (status, trigger) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/tasks/task-progress/actions/act-draft/triggers",
+        json!({
+            "title": "立即整理报价方案",
+            "prompt": "[tool-task-complete] 执行报价方案整理",
+            "kind": "once",
+            "run_at": "2020-01-01T00:00:00Z",
+            "enabled": true
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{trigger}");
+
+    let triggered = trigger_due_task_triggers(&state)
+        .await
+        .expect("trigger task triggers");
+    assert!(
+        triggered.get("smoke-user").is_some_and(|ids| ids
+            .iter()
+            .any(|id| id == trigger["trigger_id"].as_str().unwrap())),
+        "{triggered:?}"
+    );
+
+    let (status, detail) = call(
+        app.clone(),
+        Method::GET,
+        "/v1/tasks/task-progress",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{detail}");
+    assert_eq!(
+        detail.pointer("/actions/0/status").and_then(Value::as_str),
+        Some("completed"),
+        "{detail}"
+    );
+    assert!(
+        detail
+            .pointer("/actions/0/result_summary")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .contains("task action completed"),
+        "{detail}"
+    );
+
+    let (status, session_detail) = call(
+        app,
+        Method::GET,
+        &format!("/v1/sessions/{session_id}"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session_detail}");
+    assert!(
+        session_detail
+            .get("messages")
+            .and_then(Value::as_array)
+            .unwrap_or(&Vec::new())
+            .iter()
+            .any(|message| format!("{message}").contains("task action completed")),
+        "{session_detail}"
     );
 
     let _ = std::fs::remove_dir_all(root);
@@ -1924,6 +2235,107 @@ async fn chat_dynamic_task_tool_creates_task_and_action() {
         actions.pointer("/actions/0/status").and_then(Value::as_str),
         Some("candidate"),
         "{actions}"
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn chat_dynamic_task_tool_creates_single_reminder_task_trigger() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (_state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+
+    let (status, chat) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/chat/completions",
+        json!({
+            "model": "codex-test",
+            "messages": [{"role": "user", "content": "[tool-reminder] 提醒我，2分钟以后设置一个闹铃。"}],
+            "stream": false
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{chat}");
+    let content = chat
+        .pointer("/choices/0/message/content")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    assert!(
+        content.contains("reminder tool saved"),
+        "assistant should continue after reminder task_update: {chat}"
+    );
+
+    let (status, tasks) = call(app.clone(), Method::GET, "/v1/tasks", Value::Null).await;
+    assert_eq!(status, StatusCode::OK, "{tasks}");
+    assert_eq!(
+        tasks.get("count").and_then(Value::as_u64),
+        Some(1),
+        "{tasks}"
+    );
+    let task_id = tasks
+        .pointer("/tasks/0/task_id")
+        .and_then(Value::as_str)
+        .expect("task id")
+        .to_string();
+    assert_eq!(
+        tasks.pointer("/tasks/0/title").and_then(Value::as_str),
+        Some("提醒设置闹铃"),
+        "{tasks}"
+    );
+
+    let (status, actions) = call(
+        app.clone(),
+        Method::GET,
+        &format!("/v1/tasks/{task_id}/actions"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{actions}");
+    assert_eq!(
+        actions.get("count").and_then(Value::as_u64),
+        Some(1),
+        "{actions}"
+    );
+    assert_eq!(
+        actions.pointer("/actions/0/status").and_then(Value::as_str),
+        Some("confirmed"),
+        "{actions}"
+    );
+    let action_id = actions
+        .pointer("/actions/0/action_id")
+        .and_then(Value::as_str)
+        .expect("action id")
+        .to_string();
+
+    let (status, triggers) = call(
+        app,
+        Method::GET,
+        &format!("/v1/tasks/{task_id}/triggers"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{triggers}");
+    assert_eq!(
+        triggers.get("count").and_then(Value::as_u64),
+        Some(1),
+        "{triggers}"
+    );
+    assert_eq!(
+        triggers
+            .pointer("/triggers/0/task_action_id")
+            .and_then(Value::as_str),
+        Some(action_id.as_str()),
+        "{triggers}"
+    );
+    assert_eq!(
+        triggers
+            .pointer("/triggers/0/run_at")
+            .and_then(Value::as_str),
+        Some("2026-06-18T03:32:11Z"),
+        "{triggers}"
     );
 
     let _ = std::fs::remove_dir_all(root);
@@ -2214,9 +2626,9 @@ async fn session_overview_groups_sessions_and_enriches_linked_runs() {
                 summary: None,
                 output_schema: None,
                 max_runtime_seconds: 5,
-                schedule_id: None,
-                schedule_title: None,
-                schedule_trigger: None,
+                task_trigger_id: None,
+                task_trigger_title: None,
+                task_trigger_reason: None,
                 codex_thread_id: None,
                 codex_persistent_thread: false,
                 chat_user_input: None,
@@ -2244,9 +2656,9 @@ async fn session_overview_groups_sessions_and_enriches_linked_runs() {
                 summary: None,
                 output_schema: None,
                 max_runtime_seconds: 5,
-                schedule_id: None,
-                schedule_title: None,
-                schedule_trigger: None,
+                task_trigger_id: None,
+                task_trigger_title: None,
+                task_trigger_reason: None,
                 codex_thread_id: None,
                 codex_persistent_thread: false,
                 chat_user_input: None,
@@ -2523,331 +2935,6 @@ async fn api_errors_keep_detail_and_include_structured_error_envelope() {
     assert_eq!(
         body.pointer("/error/details").and_then(Value::as_str),
         Some("Invalid or missing API key")
-    );
-
-    let _ = std::fs::remove_dir_all(root);
-}
-
-#[tokio::test]
-async fn risky_delete_apis_require_confirm_true_and_audit() {
-    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
-    let (_state, app) = test_state_and_app(&root);
-
-    let (status, schedule) = call(
-        app.clone(),
-        Method::POST,
-        "/v1/schedules",
-        json!({
-            "title": "one shot",
-            "prompt": "say hi",
-            "kind": "once",
-            "timezone": "UTC",
-            "run_at": "2026-06-01T00:00:00Z"
-        }),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    let schedule_id = schedule
-        .get("schedule_id")
-        .and_then(Value::as_str)
-        .expect("schedule id");
-
-    let (status, body) = call(
-        app.clone(),
-        Method::DELETE,
-        &format!("/v1/schedules/{schedule_id}"),
-        Value::Null,
-    )
-    .await;
-    assert_eq!(status, StatusCode::PRECONDITION_REQUIRED);
-    assert_eq!(
-        body.pointer("/detail/code").and_then(Value::as_str),
-        Some("confirmation_required")
-    );
-
-    let (status, deleted) = call(
-        app.clone(),
-        Method::DELETE,
-        &format!("/v1/schedules/{schedule_id}"),
-        json!({ "confirm": true }),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(deleted.get("ok").and_then(Value::as_bool), Some(true));
-
-    let audit = fs::read_to_string(root.join(".ripple/audit.jsonl")).expect("audit log");
-    assert!(audit.contains("\"action\":\"schedule.delete\""));
-    assert!(audit.contains("\"confirmed\":true"));
-
-    let _ = std::fs::remove_dir_all(root);
-}
-
-#[tokio::test]
-async fn list_schedules_support_limit_cursor_pagination() {
-    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
-    let (_state, app) = test_state_and_app(&root);
-
-    for index in 0..3 {
-        let (status, _schedule) = call(
-            app.clone(),
-            Method::POST,
-            "/v1/schedules",
-            json!({
-                "title": format!("schedule {index}"),
-                "prompt": "say hi",
-                "kind": "once",
-                "timezone": "UTC",
-                "run_at": format!("2026-06-0{}T00:00:00Z", index + 1)
-            }),
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK);
-    }
-
-    let (status, first_page) = call(
-        app.clone(),
-        Method::GET,
-        "/v1/schedules?limit=1",
-        Value::Null,
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(
-        first_page
-            .get("schedules")
-            .and_then(Value::as_array)
-            .map(Vec::len),
-        Some(1)
-    );
-    let cursor = first_page
-        .get("next_cursor")
-        .and_then(Value::as_str)
-        .expect("next cursor");
-
-    let (status, second_page) = call(
-        app,
-        Method::GET,
-        &format!("/v1/schedules?limit=2&cursor={cursor}"),
-        Value::Null,
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(
-        second_page
-            .get("schedules")
-            .and_then(Value::as_array)
-            .map(Vec::len),
-        Some(2)
-    );
-    assert_eq!(second_page.get("next_cursor").and_then(Value::as_str), None);
-
-    let _ = std::fs::remove_dir_all(root);
-}
-
-#[tokio::test]
-async fn schedule_runs_support_limit_cursor_pagination() {
-    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
-    let (state, app) = test_state_and_app(&root);
-
-    let (status, schedule) = call(
-        app.clone(),
-        Method::POST,
-        "/v1/schedules",
-        json!({
-            "title": "Paged runs",
-            "prompt": "say hi",
-            "kind": "interval",
-            "interval_seconds": 3600,
-            "enabled": true
-        }),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    let schedule_id = schedule
-        .get("schedule_id")
-        .and_then(Value::as_str)
-        .expect("schedule id")
-        .to_string();
-
-    for index in 0..3 {
-        let job_id = format!("agent-page-{index}");
-        state
-            .storage
-            .upsert_job(&json!({
-                "version": 1,
-                "job_id": job_id,
-                "provider": "codex",
-                "user_id": "smoke-user",
-                "session_id": null,
-                "schedule_id": schedule_id,
-                "schedule_title": "Paged runs",
-                "schedule_trigger": "scheduled",
-                "prompt_preview": "say hi",
-                "cwd": "/workspace",
-                "sandbox_cwd": "/workspace",
-                "status": "completed",
-                "created_at": format!("2026-05-30T00:0{index}:00Z"),
-                "updated_at": format!("2026-05-30T00:0{index}:30Z"),
-                "events_file": null,
-                "output_file": null,
-                "exit_code": 0,
-                "stdout_tail": "",
-                "stderr_tail": "",
-                "error": null
-            }))
-            .await
-            .unwrap();
-    }
-
-    let (status, first_page) = call(
-        app.clone(),
-        Method::GET,
-        &format!("/v1/schedules/{schedule_id}/runs?limit=1"),
-        Value::Null,
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(first_page.get("count").and_then(Value::as_u64), Some(1));
-    assert_eq!(first_page.get("total").and_then(Value::as_u64), Some(3));
-    assert_eq!(
-        first_page.pointer("/runs/0/job_id").and_then(Value::as_str),
-        Some("agent-page-2")
-    );
-    let cursor = first_page
-        .get("next_cursor")
-        .and_then(Value::as_str)
-        .expect("next cursor");
-
-    let (status, second_page) = call(
-        app,
-        Method::GET,
-        &format!("/v1/schedules/{schedule_id}/runs?limit=2&cursor={cursor}"),
-        Value::Null,
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(second_page.get("count").and_then(Value::as_u64), Some(2));
-    assert_eq!(second_page.get("total").and_then(Value::as_u64), Some(3));
-    assert_eq!(second_page.get("next_cursor").and_then(Value::as_str), None);
-
-    let _ = std::fs::remove_dir_all(root);
-}
-
-#[tokio::test]
-async fn schedule_run_delete_removes_history_record_and_reconciles_latest_run() {
-    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
-    let (state, app) = test_state_and_app(&root);
-    let user_id = "smoke-user";
-    let sandbox = state.sandboxes.sandbox_dir(user_id).unwrap();
-
-    let (status, schedule) = call(
-        app.clone(),
-        Method::POST,
-        "/v1/schedules",
-        json!({
-            "title": "Delete run history",
-            "prompt": "say hi",
-            "kind": "interval",
-            "interval_seconds": 3600,
-            "enabled": true
-        }),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    let schedule_id = schedule
-        .get("schedule_id")
-        .and_then(Value::as_str)
-        .expect("schedule id")
-        .to_string();
-
-    for (job_id, updated_at) in [
-        ("agent-delete-old", "2026-05-30T00:00:30Z"),
-        ("agent-delete-new", "2026-05-30T00:01:30Z"),
-    ] {
-        let job_dir = sandbox.join("agent-runs/external-agents").join(job_id);
-        fs::create_dir_all(&job_dir).unwrap();
-        let output_file = job_dir.join("output.txt");
-        let events_file = job_dir.join("events.jsonl");
-        fs::write(&output_file, format!("{job_id} output")).unwrap();
-        fs::write(&events_file, "{}\n").unwrap();
-        state
-            .storage
-            .upsert_job(&json!({
-                "version": 1,
-                "job_id": job_id,
-                "provider": "codex",
-                "user_id": user_id,
-                "session_id": null,
-                "schedule_id": schedule_id,
-                "schedule_title": "Delete run history",
-                "schedule_trigger": "scheduled",
-                "prompt_preview": "say hi",
-                "cwd": "/workspace",
-                "sandbox_cwd": "/workspace",
-                "status": "completed",
-                "created_at": updated_at,
-                "updated_at": updated_at,
-                "events_file": events_file,
-                "output_file": output_file,
-                "exit_code": 0,
-                "stdout_tail": "",
-                "stderr_tail": "",
-                "error": null
-            }))
-            .await
-            .unwrap();
-    }
-
-    let deleted_output = sandbox
-        .join("agent-runs/external-agents")
-        .join("agent-delete-new")
-        .join("output.txt");
-    assert!(deleted_output.is_file());
-
-    let (status, deleted) = call(
-        app.clone(),
-        Method::DELETE,
-        &format!("/v1/schedules/{schedule_id}/runs/agent-delete-new"),
-        json!({ "confirm": true }),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(deleted.get("ok").and_then(Value::as_bool), Some(true));
-    assert_eq!(
-        deleted.get("job_id").and_then(Value::as_str),
-        Some("agent-delete-new")
-    );
-    assert!(!deleted_output.exists());
-
-    let (status, history) = call(
-        app.clone(),
-        Method::GET,
-        &format!("/v1/schedules/{schedule_id}/runs"),
-        Value::Null,
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(history.get("total").and_then(Value::as_u64), Some(1));
-    assert_eq!(
-        history.pointer("/runs/0/job_id").and_then(Value::as_str),
-        Some("agent-delete-old")
-    );
-
-    let (status, schedule) = call(
-        app,
-        Method::GET,
-        &format!("/v1/schedules/{schedule_id}"),
-        Value::Null,
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(
-        schedule.get("last_run_id").and_then(Value::as_str),
-        Some("agent-delete-old")
-    );
-    assert_eq!(
-        schedule.get("last_run_status").and_then(Value::as_str),
-        Some("completed")
     );
 
     let _ = std::fs::remove_dir_all(root);
@@ -3464,107 +3551,6 @@ async fn stopping_stale_running_session_clears_running_status() {
 }
 
 #[tokio::test]
-async fn router_serves_schedule_crud_routes_without_starting_codex() {
-    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
-    let (_state, app) = test_state_and_app(&root);
-
-    let (status, created) = call(
-        app.clone(),
-        Method::POST,
-        "/v1/schedules",
-        json!({
-            "title": "Check build",
-            "prompt": "Check the build status",
-            "kind": "interval",
-            "interval_seconds": 3600,
-            "enabled": true,
-            "max_runtime_seconds": 60
-        }),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    let schedule_id = created
-        .get("schedule_id")
-        .and_then(Value::as_str)
-        .expect("schedule id")
-        .to_string();
-    assert_eq!(
-        created.get("status").and_then(Value::as_str),
-        Some("active")
-    );
-
-    let (status, list) = call(app.clone(), Method::GET, "/v1/schedules", Value::Null).await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(list.get("count").and_then(Value::as_u64), Some(1));
-
-    let (status, runs) = call(
-        app.clone(),
-        Method::GET,
-        &format!("/v1/schedules/{schedule_id}/runs"),
-        Value::Null,
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(runs.get("count").and_then(Value::as_u64), Some(0));
-
-    let (status, updated) = call(
-        app.clone(),
-        Method::PATCH,
-        &format!("/v1/schedules/{schedule_id}"),
-        json!({
-            "title": "Paused build check",
-            "enabled": false,
-            "cwd": "/workspace",
-            "model": "codex-test",
-            "max_runs": 5
-        }),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(
-        updated.get("title").and_then(Value::as_str),
-        Some("Paused build check")
-    );
-    assert_eq!(
-        updated.get("status").and_then(Value::as_str),
-        Some("paused")
-    );
-    assert_eq!(
-        updated.get("cwd").and_then(Value::as_str),
-        Some("/workspace")
-    );
-    assert_eq!(updated.get("max_runs").and_then(Value::as_u64), Some(5));
-
-    let (status, cleared) = call(
-        app.clone(),
-        Method::PATCH,
-        &format!("/v1/schedules/{schedule_id}"),
-        json!({"cwd": null, "model": null, "max_runs": null, "run_at": null}),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    assert!(cleared.get("cwd").is_some_and(Value::is_null));
-    assert!(cleared.get("model").is_some_and(Value::is_null));
-    assert!(cleared.get("max_runs").is_some_and(Value::is_null));
-
-    let (status, deleted) = call(
-        app.clone(),
-        Method::DELETE,
-        &format!("/v1/schedules/{schedule_id}"),
-        json!({ "confirm": true }),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(deleted.get("ok").and_then(Value::as_bool), Some(true));
-
-    let (status, list) = call(app, Method::GET, "/v1/schedules", Value::Null).await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(list.get("count").and_then(Value::as_u64), Some(0));
-
-    let _ = std::fs::remove_dir_all(root);
-}
-
-#[tokio::test]
 async fn runs_route_completes_with_fake_codex_app_server() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let fake_codex = write_fake_codex_app_server(&root);
@@ -3712,7 +3698,7 @@ async fn wait_for_completed_run(app: axum::Router, job_id: &str) -> Value {
 }
 
 #[tokio::test]
-async fn run_public_apis_hide_host_paths_from_metadata_output_events_and_schedule_history() {
+async fn run_public_apis_hide_host_paths_from_metadata_output_and_events() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let (state, app) = test_state_and_app(&root);
     let user_id = "smoke-user";
@@ -3749,24 +3735,6 @@ async fn run_public_apis_hide_host_paths_from_metadata_output_events_and_schedul
     )
     .unwrap();
 
-    let (status, schedule) = call(
-        app.clone(),
-        Method::POST,
-        "/v1/schedules",
-        json!({
-            "title": "Path report",
-            "prompt": "write report",
-            "kind": "interval",
-            "interval_seconds": 3600
-        }),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    let schedule_id = schedule
-        .get("schedule_id")
-        .and_then(Value::as_str)
-        .expect("schedule id");
-
     state
         .storage
         .upsert_job(&json!({
@@ -3775,8 +3743,8 @@ async fn run_public_apis_hide_host_paths_from_metadata_output_events_and_schedul
             "provider": "codex",
             "user_id": user_id,
             "session_id": null,
-            "schedule_id": schedule_id,
-            "schedule_trigger": "manual",
+            "task_trigger_id": "trg-paths",
+            "task_trigger_reason": "manual",
             "prompt_preview": "write report",
             "cwd": workspace,
             "sandbox_cwd": "/workspace",
@@ -3857,21 +3825,6 @@ async fn run_public_apis_hide_host_paths_from_metadata_output_events_and_schedul
         "run events leaked runtime path: {events_text}"
     );
     assert!(events_text.contains("outputs/report.md"));
-
-    let (status, history) = call(
-        app.clone(),
-        Method::GET,
-        &format!("/v1/schedules/{schedule_id}/runs?limit=5"),
-        Value::Null,
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    let history_text = serde_json::to_string(&history).unwrap();
-    assert!(
-        !history_text.contains(root.to_string_lossy().as_ref()),
-        "schedule history leaked host path: {history_text}"
-    );
-    assert!(history_text.contains("outputs/report.md"));
 
     let _ = std::fs::remove_dir_all(root);
 }
@@ -4259,80 +4212,7 @@ async fn delete_sandbox_cancels_live_user_runs_before_teardown() {
 }
 
 #[tokio::test]
-async fn schedule_run_now_completes_with_fake_codex_app_server() {
-    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
-    let fake_codex = write_fake_codex_app_server(&root);
-    let (_state, app) =
-        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
-
-    let (status, schedule) = call(
-        app.clone(),
-        Method::POST,
-        "/v1/schedules",
-        json!({
-            "title": "Manual check",
-            "prompt": "Run the manual check",
-            "kind": "interval",
-            "interval_seconds": 3600,
-            "enabled": true,
-            "max_runtime_seconds": 5
-        }),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    let schedule_id = schedule
-        .get("schedule_id")
-        .and_then(Value::as_str)
-        .expect("schedule id")
-        .to_string();
-
-    let (status, run) = call(
-        app.clone(),
-        Method::POST,
-        &format!("/v1/schedules/{schedule_id}/run-now"),
-        Value::Null,
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    let job_id = run
-        .get("job_id")
-        .and_then(Value::as_str)
-        .expect("job id")
-        .to_string();
-
-    let mut completed = false;
-    for _ in 0..40 {
-        let (status, run) = call(
-            app.clone(),
-            Method::GET,
-            &format!("/v1/runs/{job_id}"),
-            Value::Null,
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK);
-        if run.get("status").and_then(Value::as_str) == Some("completed") {
-            completed = true;
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(25)).await;
-    }
-    assert!(completed, "manual schedule run should complete");
-
-    let (status, runs) = call(
-        app,
-        Method::GET,
-        &format!("/v1/schedules/{schedule_id}/runs"),
-        Value::Null,
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(runs.get("count").and_then(Value::as_u64), Some(1));
-
-    let _ = std::fs::remove_dir_all(root);
-}
-
-#[tokio::test]
-async fn task_linked_schedule_run_records_task_events_and_session_output() {
+async fn task_linked_trigger_run_records_task_events_and_session_output() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let fake_codex = write_fake_codex_app_server(&root);
     let (_state, app) =
@@ -4357,14 +4237,14 @@ async fn task_linked_schedule_run_records_task_events_and_session_output() {
         Method::POST,
         "/v1/tasks",
         json!({
-            "task_id": "task-linked-schedule",
+            "task_id": "task-linked-trigger",
             "title": "准备明天汇报",
             "objective": "整理 ripple 最近更新",
             "status": "active",
             "source_session_id": session_id,
             "actions": [
                 {
-                    "action_id": "act-linked-schedule",
+                    "action_id": "act-linked-trigger",
                     "title": "整理 git 更新",
                     "kind": "execute",
                     "status": "confirmed"
@@ -4375,33 +4255,31 @@ async fn task_linked_schedule_run_records_task_events_and_session_output() {
     .await;
     assert_eq!(status, StatusCode::OK, "{created}");
 
-    let (status, schedule) = call(
+    let (status, trigger) = call(
         app.clone(),
         Method::POST,
-        "/v1/schedules",
+        "/v1/tasks/task-linked-trigger/actions/act-linked-trigger/triggers",
         json!({
             "title": "提醒整理 git 更新",
             "prompt": "整理 ripple 最近 git 更新",
             "kind": "interval",
             "interval_seconds": 3600,
             "enabled": true,
-            "max_runtime_seconds": 5,
-            "task_id": "task-linked-schedule",
-            "task_action_id": "act-linked-schedule"
+            "max_runtime_seconds": 5
         }),
     )
     .await;
-    assert_eq!(status, StatusCode::OK, "{schedule}");
-    let schedule_id = schedule
-        .get("schedule_id")
+    assert_eq!(status, StatusCode::OK, "{trigger}");
+    let trigger_id = trigger
+        .get("trigger_id")
         .and_then(Value::as_str)
-        .expect("schedule id")
+        .expect("trigger id")
         .to_string();
 
     let (status, run) = call(
         app.clone(),
         Method::POST,
-        &format!("/v1/schedules/{schedule_id}/run-now"),
+        &format!("/v1/tasks/task-linked-trigger/triggers/{trigger_id}/run-now"),
         Value::Null,
     )
     .await;
@@ -4430,26 +4308,26 @@ async fn task_linked_schedule_run_records_task_events_and_session_output() {
     }
     assert!(completed, "manual linked schedule run should complete");
 
-    let (status, schedule_detail) = call(
+    let (status, triggers) = call(
         app.clone(),
         Method::GET,
-        &format!("/v1/schedules/{schedule_id}"),
+        "/v1/tasks/task-linked-trigger/triggers",
         Value::Null,
     )
     .await;
-    assert_eq!(status, StatusCode::OK, "{schedule_detail}");
+    assert_eq!(status, StatusCode::OK, "{triggers}");
     assert_eq!(
-        schedule_detail
-            .get("last_run_status")
+        triggers
+            .pointer("/triggers/0/last_run_status")
             .and_then(Value::as_str),
         Some("completed"),
-        "{schedule_detail}"
+        "{triggers}"
     );
 
     let (status, events) = call(
         app.clone(),
         Method::GET,
-        "/v1/tasks/task-linked-schedule/events",
+        "/v1/tasks/task-linked-trigger/events",
         Value::Null,
     )
     .await;
@@ -4487,364 +4365,6 @@ async fn task_linked_schedule_run_records_task_events_and_session_output() {
             .any(|message| format!("{message}").contains("fake codex completed")),
         "{session_detail}"
     );
-
-    let _ = std::fs::remove_dir_all(root);
-}
-
-#[tokio::test]
-async fn running_schedule_run_does_not_expose_missing_output_file() {
-    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
-    let fake_codex = write_fake_codex_app_server(&root);
-    let (_state, app) =
-        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
-
-    let (status, schedule) = call(
-        app.clone(),
-        Method::POST,
-        "/v1/schedules",
-        json!({
-            "title": "Manual slow check",
-            "prompt": "[slow] Run the manual check",
-            "kind": "interval",
-            "interval_seconds": 3600,
-            "enabled": true,
-            "max_runtime_seconds": 5
-        }),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    let schedule_id = schedule
-        .get("schedule_id")
-        .and_then(Value::as_str)
-        .expect("schedule id")
-        .to_string();
-
-    let (status, run) = call(
-        app.clone(),
-        Method::POST,
-        &format!("/v1/schedules/{schedule_id}/run-now"),
-        Value::Null,
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    assert!(matches!(
-        run.get("status").and_then(Value::as_str),
-        Some("queued" | "running")
-    ));
-    assert_eq!(
-        run.get("output_available").and_then(Value::as_bool),
-        Some(false)
-    );
-    let job_id = run
-        .get("job_id")
-        .and_then(Value::as_str)
-        .expect("job id")
-        .to_string();
-
-    let response = app
-        .clone()
-        .oneshot(request(
-            Method::GET,
-            &format!("/v1/runs/{job_id}/output"),
-            Value::Null,
-            true,
-        ))
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::NOT_FOUND);
-    let body = response_json(response).await;
-    assert_eq!(
-        body.pointer("/error/message").and_then(Value::as_str),
-        Some("Agent run output not found")
-    );
-
-    let mut completed = false;
-    for _ in 0..40 {
-        let (status, run) = call(
-            app.clone(),
-            Method::GET,
-            &format!("/v1/runs/{job_id}"),
-            Value::Null,
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK);
-        if run.get("status").and_then(Value::as_str) == Some("completed") {
-            completed = true;
-            assert_eq!(
-                run.get("output_available").and_then(Value::as_bool),
-                Some(true)
-            );
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(25)).await;
-    }
-    assert!(completed, "manual schedule run should complete");
-
-    let _ = std::fs::remove_dir_all(root);
-}
-
-#[tokio::test]
-async fn schedule_create_rejects_cwd_outside_workspace() {
-    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
-    let (_state, app) = test_state_and_app(&root);
-
-    let (status, body) = call(
-        app,
-        Method::POST,
-        "/v1/schedules",
-        json!({
-            "title": "Bad cwd",
-            "prompt": "This should not start",
-            "kind": "once",
-            "run_at": "2099-01-01T00:00:00Z",
-            "cwd": "/etc",
-            "max_runtime_seconds": 60
-        }),
-    )
-    .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert!(body
-        .get("detail")
-        .and_then(Value::as_str)
-        .is_some_and(|detail| detail.contains("cwd must stay inside")));
-
-    let _ = std::fs::remove_dir_all(root);
-}
-
-#[tokio::test]
-async fn schedule_due_trigger_starts_fake_codex_app_server_run() {
-    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
-    let fake_codex = write_fake_codex_app_server(&root);
-    let (state, app) =
-        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
-
-    let (status, schedule) = call(
-        app.clone(),
-        Method::POST,
-        "/v1/schedules",
-        json!({
-            "title": "Due check",
-            "prompt": "Run the due check",
-            "kind": "interval",
-            "interval_seconds": 3600,
-            "enabled": true,
-            "max_runtime_seconds": 5
-        }),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    let schedule_id = schedule
-        .get("schedule_id")
-        .and_then(Value::as_str)
-        .expect("schedule id")
-        .to_string();
-
-    let mut schedule_records = state.storage.list_schedules("smoke-user").await.unwrap();
-    for record in &mut schedule_records {
-        if record.get("schedule_id").and_then(Value::as_str) == Some(schedule_id.as_str()) {
-            record["next_run_at"] = json!("2000-01-01T00:00:00Z");
-        }
-    }
-    state
-        .storage
-        .replace_schedules("smoke-user", &schedule_records)
-        .await
-        .unwrap();
-
-    let triggered = trigger_due_schedules(&state)
-        .await
-        .expect("trigger due schedules");
-    assert_eq!(
-        triggered
-            .get("smoke-user")
-            .and_then(|ids| ids.first())
-            .map(String::as_str),
-        Some(schedule_id.as_str())
-    );
-
-    let (status, schedule) = call(
-        app.clone(),
-        Method::GET,
-        &format!("/v1/schedules/{schedule_id}"),
-        Value::Null,
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(schedule.get("run_count").and_then(Value::as_u64), Some(1));
-    let job_id = schedule
-        .get("last_run_id")
-        .and_then(Value::as_str)
-        .expect("last run id")
-        .to_string();
-
-    let mut completed = false;
-    for _ in 0..40 {
-        let (status, run) = call(
-            app.clone(),
-            Method::GET,
-            &format!("/v1/runs/{job_id}"),
-            Value::Null,
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK);
-        if run.get("status").and_then(Value::as_str) == Some("completed") {
-            completed = true;
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(25)).await;
-    }
-    assert!(completed, "due schedule run should complete");
-
-    let _ = std::fs::remove_dir_all(root);
-}
-
-#[tokio::test]
-async fn schedule_due_trigger_skips_missed_interval_when_policy_is_skip() {
-    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
-    let fake_codex = write_fake_codex_app_server(&root);
-    let (state, app) =
-        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
-
-    let (status, schedule) = call(
-        app.clone(),
-        Method::POST,
-        "/v1/schedules",
-        json!({
-            "title": "Skip missed",
-            "prompt": "Run only current checks",
-            "kind": "interval",
-            "interval_seconds": 3600,
-            "enabled": true,
-            "missed_run_policy": "skip",
-            "max_runtime_seconds": 5
-        }),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    let schedule_id = schedule
-        .get("schedule_id")
-        .and_then(Value::as_str)
-        .expect("schedule id")
-        .to_string();
-
-    let mut schedule_records = state.storage.list_schedules("smoke-user").await.unwrap();
-    for record in &mut schedule_records {
-        if record.get("schedule_id").and_then(Value::as_str) == Some(schedule_id.as_str()) {
-            record["next_run_at"] = json!("2000-01-01T00:00:00Z");
-        }
-    }
-    state
-        .storage
-        .replace_schedules("smoke-user", &schedule_records)
-        .await
-        .unwrap();
-
-    let triggered = trigger_due_schedules(&state)
-        .await
-        .expect("trigger due schedules");
-    assert!(triggered.get("smoke-user").is_none(), "{triggered:?}");
-
-    let (status, reloaded) = call(
-        app.clone(),
-        Method::GET,
-        &format!("/v1/schedules/{schedule_id}"),
-        Value::Null,
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK, "{reloaded}");
-    assert_eq!(
-        reloaded.get("status").and_then(Value::as_str),
-        Some("active")
-    );
-    assert_eq!(
-        reloaded.get("last_run_status").and_then(Value::as_str),
-        Some("skipped_missed")
-    );
-    assert!(reloaded
-        .get("next_run_at")
-        .and_then(Value::as_str)
-        .is_some_and(|value| value > "2000-01-01T00:00:00Z"));
-
-    let (status, runs) = call(
-        app,
-        Method::GET,
-        &format!("/v1/schedules/{schedule_id}/runs"),
-        Value::Null,
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(runs.get("count").and_then(Value::as_u64), Some(0));
-
-    let _ = std::fs::remove_dir_all(root);
-}
-
-#[tokio::test]
-async fn schedule_due_trigger_keeps_interval_active_after_start_failure_when_configured() {
-    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
-    let mut config = test_config(&root);
-    config.codex.enabled = false;
-    let (state, app) = test_state_and_app_with_config(config);
-
-    let (status, schedule) = call(
-        app.clone(),
-        Method::POST,
-        "/v1/schedules",
-        json!({
-            "title": "Keep active",
-            "prompt": "Retry next interval",
-            "kind": "interval",
-            "interval_seconds": 3600,
-            "enabled": true,
-            "failure_policy": "keep_active",
-            "max_runtime_seconds": 5
-        }),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK, "{schedule}");
-    let schedule_id = schedule
-        .get("schedule_id")
-        .and_then(Value::as_str)
-        .expect("schedule id")
-        .to_string();
-
-    let mut schedule_records = state.storage.list_schedules("smoke-user").await.unwrap();
-    for record in &mut schedule_records {
-        if record.get("schedule_id").and_then(Value::as_str) == Some(schedule_id.as_str()) {
-            record["next_run_at"] = json!("2000-01-01T00:00:00Z");
-        }
-    }
-    state
-        .storage
-        .replace_schedules("smoke-user", &schedule_records)
-        .await
-        .unwrap();
-
-    let triggered = trigger_due_schedules(&state)
-        .await
-        .expect("trigger due schedules");
-    assert!(triggered.get("smoke-user").is_none(), "{triggered:?}");
-
-    let (status, reloaded) = call(
-        app,
-        Method::GET,
-        &format!("/v1/schedules/{schedule_id}"),
-        Value::Null,
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK, "{reloaded}");
-    assert_eq!(reloaded.get("enabled").and_then(Value::as_bool), Some(true));
-    assert_eq!(
-        reloaded.get("status").and_then(Value::as_str),
-        Some("active")
-    );
-    assert_eq!(
-        reloaded.get("last_run_status").and_then(Value::as_str),
-        Some("failed")
-    );
-    assert!(reloaded
-        .get("next_run_at")
-        .and_then(Value::as_str)
-        .is_some_and(|value| value > "2000-01-01T00:00:00Z"));
 
     let _ = std::fs::remove_dir_all(root);
 }
@@ -5455,11 +4975,10 @@ async fn chat_route_confirms_pending_schedule_without_starting_codex() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
         chat.pointer("/event/type").and_then(Value::as_str),
-        Some("schedule_created")
+        Some("task_created")
     );
     assert_eq!(
-        chat.pointer("/event/schedule/title")
-            .and_then(Value::as_str),
+        chat.pointer("/event/task/title").and_then(Value::as_str),
         Some("Check build")
     );
 
@@ -5476,9 +4995,47 @@ async fn chat_route_confirms_pending_schedule_without_starting_codex() {
     assert!(reloaded.pending_schedule_request.is_none());
     assert_eq!(reloaded.message_count, 2);
 
-    let (status, schedules) = call(app, Method::GET, "/v1/schedules", Value::Null).await;
+    let (status, tasks) = call(app.clone(), Method::GET, "/v1/tasks", Value::Null).await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(schedules.get("count").and_then(Value::as_u64), Some(1));
+    assert_eq!(tasks.get("count").and_then(Value::as_u64), Some(1));
+    assert_eq!(
+        tasks.pointer("/tasks/0/title").and_then(Value::as_str),
+        Some("Check build"),
+        "{tasks}"
+    );
+    let task_id = tasks
+        .pointer("/tasks/0/task_id")
+        .and_then(Value::as_str)
+        .expect("task id")
+        .to_string();
+
+    let (status, triggers) = call(
+        app.clone(),
+        Method::GET,
+        &format!("/v1/tasks/{task_id}/triggers"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(triggers.get("count").and_then(Value::as_u64), Some(1));
+    assert_eq!(
+        triggers
+            .pointer("/triggers/0/interval_seconds")
+            .and_then(Value::as_u64),
+        Some(3600),
+        "{triggers}"
+    );
+    assert_eq!(
+        triggers
+            .pointer("/triggers/0/task_id")
+            .and_then(Value::as_str),
+        Some(task_id.as_str()),
+        "{triggers}"
+    );
+    assert!(
+        triggers.pointer("/triggers/0/schedule_id").is_none(),
+        "chat-created task trigger should not expose legacy schedule_id: {triggers}"
+    );
 
     let _ = std::fs::remove_dir_all(root);
 }
@@ -5620,7 +5177,7 @@ async fn chat_route_asks_details_before_complex_external_schedule_proposal() {
             .and_then(Value::as_array)
             .and_then(|fields| fields.first())
             .and_then(Value::as_str),
-        Some("automation_details")
+        Some("trigger_details")
     );
     assert_eq!(
         pending

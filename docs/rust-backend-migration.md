@@ -7,7 +7,7 @@ Ripple 的 Rust 后端已经是当前控制面主链路。本文保留“迁移�
 - `ripple-server` 是独立 Linux 后端服务，Web、Tauri 和 Mobile 都只是 `/v1` API 客户端。
 - 后端保持多用户模型。默认可信上游通过 `X-Ripple-User-Id` 注入隔离身份；启用 `server.user_auth.enabled` 后，浏览器用户也可以通过邀请制账号登录，后端使用 session token 绑定的 `user_id`。
 - sandbox 以 `user_id` 为单位，一个 user 拥有长期 workspace，多个 session 和 `/v1/runs` 共享该 workspace。
-- 控制面状态使用 SQLite：session、messages、jobs、schedules、documents、auth user/session/invite 和索引 metadata 存在 `.ripple/ripple.sqlite`。
+- 控制面状态使用 SQLite：session、messages、jobs、task triggers、documents、auth user/session/invite 和索引 metadata 存在 `.ripple/ripple.sqlite`。
 - Codex app-server 是执行面。Rust 后端维护按 `user_id + workspace_root + generation` 隔离的 app-server worker pool，job 运行时借用 worker，完成后释放为 idle worker。
 - Skills 继续使用 Markdown/YAML frontmatter；Python 只允许作为 `skills` 下的 helper。
 
@@ -29,8 +29,8 @@ crates/ripple-server/
 - Codex app-server JSON-RPC provider、worker pool、session 级 chat/compaction 互斥、`/v1/runs`、`/v1/chat/completions`。
 - OpenAI-compatible 非流式和 SSE 响应、Codex event 映射、token usage 持久化、workspace attachment 和 image 事件导入。
 - Codex approval bridge、session stop/delete/context clear/suspend/resume、sandbox teardown cancellation。
-- Schedule CRUD、run history、run-now、due schedule trigger、chat-side schedule proposal/confirmation。
-- Tasks / TaskActions CRUD、session task listing、task event/progress、run-now、due task action trigger、schedule-task link，以及 chat-side `codex_app.task_update` 动态工具。
+- Tasks / TaskActions CRUD、session task listing、task event/progress、run-now、Task Trigger API、due time trigger loop，以及 chat-side `codex_app.task_update` 动态工具。time trigger 是 Task Trigger 的一种触发器 driver，到期后走 TaskAction 执行链路并回写原 session。
+- Chat-side schedule proposal/confirmation 只创建 Task + Task Trigger，不再创建 standalone schedule；`/v1/schedules` 已移除。
 - Codex managed permissions profile、服务端 Codex auth deny-read、skill manifest rendering。
 - OpenAPI/Swagger 文档入口、doctor/ready diagnostics、backup posture 检查。
 - Rust route smoke coverage 覆盖主要 `/v1` API、fake Codex app-server、fake nsjail connector CLI 边界和 server listener 启动。
@@ -43,9 +43,9 @@ crates/ripple-server/
    - 用真实 Codex streaming 事件补充端到端 fixtures。
    - 覆盖真实上传 image/file attachment 的 follow-up turns。
 
-2. Chat-side schedule creation
-   - 用真实 Codex extraction 输出验证 schedule proposal/confirmation。
-   - 覆盖老客户端 UI flow。
+2. Chat-side time trigger creation
+   - 用真实 Codex extraction 输出验证 task trigger proposal/confirmation。
+   - 覆盖客户端确认 flow。
 
 3. Session/job/task lifecycle
    - 用真实 Codex `codex_app.task_update` 输出补充 task proposal、progress、run-now 和 source-session writeback fixtures。

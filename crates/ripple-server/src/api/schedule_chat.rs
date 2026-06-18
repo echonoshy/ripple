@@ -6,7 +6,8 @@ use time::format_description::well_known::Rfc3339;
 use time::{Duration as TimeDuration, OffsetDateTime, Time, UtcOffset};
 use tokio::time::{sleep, Duration, Instant};
 
-use crate::api::schedules::{create_schedule_for_user, ScheduleCreateInput};
+use crate::api::task_triggers::TaskTriggerCreateInput;
+use crate::api::tasks::create_task_from_payload;
 use crate::api::users::assert_can_create_run;
 use crate::api::ApiError;
 use crate::jobs::{AgentRunCreateRequest, AgentRunInfo};
@@ -41,7 +42,7 @@ const CANCEL_WORDS: &[&str] = &[
     "不用",
     "先不要",
 ];
-const AUTOMATION_DETAILS_MISSING_FIELD: &str = "automation_details";
+const TRIGGER_DETAILS_MISSING_FIELD: &str = "trigger_details";
 
 #[derive(Debug)]
 pub(crate) struct ScheduleChatDecision {
@@ -113,7 +114,8 @@ pub(crate) async fn maybe_handle_schedule_chat(
             )
             .await;
         }
-        return handle_pending_schedule_confirmation(state, user_id, pending, user_input).await;
+        return handle_pending_schedule_confirmation(state, user_id, session, pending, user_input)
+            .await;
     }
 
     if !is_schedule_intent(user_input) {
@@ -288,7 +290,7 @@ async fn handle_pending_schedule_draft(
         }
     };
 
-    if !pending_requested_automation_details(pending) {
+    if !pending_requested_trigger_details(pending) {
         if let Some(clarification) = schedule_detail_clarification(&proposal.payload) {
             return Ok(Some(awaiting_decision(
                 schedule_clarification_event(&clarification),
@@ -313,6 +315,7 @@ async fn handle_pending_schedule_draft(
 async fn handle_pending_schedule_confirmation(
     state: &AppState,
     user_id: &str,
+    session: &SessionRecord,
     pending: &Value,
     user_input: &str,
 ) -> Result<Option<ScheduleChatDecision>, ApiError> {
@@ -326,12 +329,14 @@ async fn handle_pending_schedule_confirmation(
     }
 
     if is_schedule_confirmation(user_input) {
-        let input = serde_json::from_value::<ScheduleCreateInput>(pending.clone())
+        let input = serde_json::from_value::<TaskTriggerCreateInput>(pending.clone())
             .map_err(|err| ApiError::bad_request(err.to_string()))?;
-        let record = create_schedule_for_user(state, user_id, input).await?;
-        let message = build_schedule_created_message(&record);
+        let (task, actions) =
+            create_task_for_schedule_input(state, user_id, &session.session_id, input).await?;
+        let trigger = task_trigger_for_task_action(state, user_id, &task, actions.first()).await?;
+        let message = build_task_schedule_created_message(&task, trigger.as_ref());
         return Ok(Some(ScheduleChatDecision {
-            event: schedule_created_event(record, &message),
+            event: task_created_event(task, trigger, &message),
             status: "idle".to_string(),
             clear_pending_schedule: true,
             pending_schedule_request: None,
@@ -342,6 +347,77 @@ async fn handle_pending_schedule_confirmation(
         schedule_pending_event(&build_schedule_pending_message(pending), pending.clone()),
         None,
     )))
+}
+
+async fn create_task_for_schedule_input(
+    state: &AppState,
+    user_id: &str,
+    session_id: &str,
+    input: TaskTriggerCreateInput,
+) -> Result<(Value, Vec<Value>), ApiError> {
+    let task_payload = task_payload_from_schedule_input(input);
+    create_task_from_payload(&state.storage, user_id, Some(session_id), &task_payload).await
+}
+
+fn task_payload_from_schedule_input(input: TaskTriggerCreateInput) -> Value {
+    let title = input.title;
+    let prompt = input.prompt;
+    json!({
+        "title": title,
+        "objective": prompt,
+        "status": "active",
+        "actions": [
+            {
+                "title": title,
+                "objective": prompt,
+                "kind": "execute",
+                "status": "confirmed",
+                "trigger": {
+                    "title": title,
+                    "prompt": prompt,
+                    "kind": input.kind,
+                    "timezone": input.timezone,
+                    "run_at": input.run_at,
+                    "interval_seconds": input.interval_seconds,
+                    "enabled": input.enabled,
+                    "cwd": input.cwd,
+                    "model": input.model,
+                    "effort": input.effort,
+                    "summary": input.summary,
+                    "output_schema": input.output_schema,
+                    "max_runtime_seconds": input.max_runtime_seconds,
+                    "max_runs": input.max_runs,
+                    "missed_run_policy": input.missed_run_policy,
+                    "overlap_policy": input.overlap_policy,
+                    "failure_policy": input.failure_policy
+                }
+            }
+        ]
+    })
+}
+
+async fn task_trigger_for_task_action(
+    state: &AppState,
+    user_id: &str,
+    task: &Value,
+    action: Option<&Value>,
+) -> Result<Option<Value>, ApiError> {
+    let Some(task_id) = task.get("task_id").and_then(Value::as_str) else {
+        return Ok(None);
+    };
+    let action_id = action
+        .and_then(|action| action.get("action_id"))
+        .and_then(Value::as_str);
+    let triggers = state.storage.list_task_triggers(user_id).await?;
+    Ok(triggers.into_iter().find(|trigger| {
+        trigger.get("task_id").and_then(Value::as_str) == Some(task_id)
+            && match action_id {
+                Some(action_id) => {
+                    trigger.get("task_action_id").and_then(Value::as_str) == Some(action_id)
+                }
+                None => true,
+            }
+    }))
 }
 
 async fn extract_schedule_with_codex(
@@ -374,9 +450,9 @@ async fn extract_schedule_with_codex(
         summary: None,
         output_schema: Some(schedule_extraction_output_schema()),
         max_runtime_seconds,
-        schedule_id: None,
-        schedule_title: None,
-        schedule_trigger: None,
+        task_trigger_id: None,
+        task_trigger_title: None,
+        task_trigger_reason: None,
         codex_thread_id: None,
         codex_persistent_thread: false,
         chat_user_input: None,
@@ -503,7 +579,7 @@ Rules:\n\
 - Always set schedule.output_schema=null.\n\
 - schedule.prompt is the exact instruction Codex should receive when the schedule fires.\n\
 - Preserve execution-time intent in schedule.prompt. For example, if the user asks for a filename based on the execution date/time, say to compute it at execution time rather than hard-coding the extraction time.\n\
-- For automations that gather, search, summarize, or monitor information and then send/update an external service such as Feishu/Lark, Gmail, email, webhook, or chat, treat sources/scope, item count or output format, delivery target/method, and empty-result/failure behavior as important details. If they are absent, ask one concise clarification instead of proposing immediately.\n\
+- For task triggers that gather, search, summarize, or monitor information and then send/update an external service such as Feishu/Lark, Gmail, email, webhook, or chat, treat sources/scope, item count or output format, delivery target/method, and empty-result/failure behavior as important details. If they are absent, ask one concise clarification instead of proposing immediately.\n\
 - Do not execute the task now. Do not create timers, cron jobs, sleep loops, or background daemons.\n\
 - If required information is missing, set schedule=null, list missing_fields, and provide one concise clarification_question.\n\n\
 User request:\n{}\n",
@@ -538,20 +614,20 @@ fn schedule_detail_pending_value(
     json!({
         "type": "schedule_draft",
         "original_user_input": original_user_input.trim(),
-        "missing_fields": [AUTOMATION_DETAILS_MISSING_FIELD],
+        "missing_fields": [TRIGGER_DETAILS_MISSING_FIELD],
         "clarification_question": clarification,
         "partial_schedule": payload
     })
 }
 
-fn pending_requested_automation_details(pending: &Value) -> bool {
+fn pending_requested_trigger_details(pending: &Value) -> bool {
     pending
         .get("missing_fields")
         .and_then(Value::as_array)
         .is_some_and(|fields| {
             fields
                 .iter()
-                .any(|field| field.as_str() == Some(AUTOMATION_DETAILS_MISSING_FIELD))
+                .any(|field| field.as_str() == Some(TRIGGER_DETAILS_MISSING_FIELD))
         })
 }
 
@@ -858,7 +934,8 @@ fn normalize_schedule_payload(draft: &ScheduleDraft) -> Result<Value, String> {
     payload.insert("max_runs".to_string(), option_u64(draft.max_runs));
 
     let value = Value::Object(payload);
-    serde_json::from_value::<ScheduleCreateInput>(value.clone()).map_err(|err| err.to_string())?;
+    serde_json::from_value::<TaskTriggerCreateInput>(value.clone())
+        .map_err(|err| err.to_string())?;
     Ok(value)
 }
 
@@ -1075,8 +1152,13 @@ fn schedule_extraction_failed_event(message: &str) -> Value {
     json!({"type": "schedule_extraction_failed", "message": message})
 }
 
-fn schedule_created_event(record: Value, message: &str) -> Value {
-    json!({"type": "schedule_created", "message": message, "schedule": record})
+fn task_created_event(task: Value, schedule: Option<Value>, message: &str) -> Value {
+    json!({
+        "type": "task_created",
+        "message": message,
+        "task": task,
+        "schedule": schedule
+    })
 }
 
 fn schedule_cancelled_event(message: &str) -> Value {
@@ -1164,15 +1246,15 @@ fn build_schedule_confirmation_message(payload: &Value) -> String {
     )
 }
 
-fn build_schedule_created_message(record: &Value) -> String {
-    let next_line = record
-        .get("next_run_at")
+fn build_task_schedule_created_message(task: &Value, schedule: Option<&Value>) -> String {
+    let next_line = schedule
+        .and_then(|record| record.get("next_run_at"))
         .and_then(Value::as_str)
         .map(|next| format!("下一次运行时间：{next}"))
         .unwrap_or_else(|| "当前没有下一次运行时间。".to_string());
     format!(
-        "已创建定时任务「{}」。{next_line}",
-        value_string(record, "title")
+        "已创建任务「{}」，并添加定时触发器。{next_line}",
+        value_string(task, "title")
     )
 }
 

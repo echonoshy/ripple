@@ -269,10 +269,11 @@ function testAndroidBackGestureExclusionAppliesToMobileSwipeBackSurfaces() {
   assert.doesNotMatch(source, /onBackButtonPress/);
 }
 
-function testAutomationsPageReceivesChatOpenHandler() {
+function testAutomationsPageIsNotAWorkspaceView() {
   const source = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /<AutomationsPage[\s\S]*onOpenChat=\{handleOpenChatWithPrompt\}/);
+  assert.doesNotMatch(source, /AutomationsPage/);
+  assert.doesNotMatch(source, /activeView === "automations"/);
 }
 
 function testTasksPageIsAFirstClassWorkspaceView() {
@@ -309,7 +310,7 @@ testSessionRailOnlyLivesInsideSessionsView();
 testDesktopSessionRailCanResizeAndCollapse();
 testCollapsedSessionRailUsesEdgeHandle();
 testAndroidBackGestureExclusionAppliesToMobileSwipeBackSurfaces();
-testAutomationsPageReceivesChatOpenHandler();
+testAutomationsPageIsNotAWorkspaceView();
 testTasksPageIsAFirstClassWorkspaceView();
 
 console.log("app tests passed");

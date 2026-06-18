@@ -128,7 +128,6 @@ const sharedWidthPageSources = [
   "./FilesPage.tsx",
   "./SkillsPage.tsx",
   "./ConnectorsPage.tsx",
-  "./AutomationsPage.tsx",
 ];
 
 for (const sourcePath of sharedWidthPageSources) {
@@ -159,7 +158,6 @@ const mobileReadableSources = [
   "./WorkspaceNav.tsx",
   "./SkillsPage.tsx",
   "./ConnectorsPage.tsx",
-  "./AutomationsPage.tsx",
   "./SettingsPage.tsx",
   "../WorkspaceExplorer.tsx",
 ];

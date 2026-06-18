@@ -47,11 +47,11 @@
 
 ## Pagination
 
-列表接口开始支持 `limit` 和 `cursor`。Sessions、runs 和 schedules 返回 `count`、`total`、`next_cursor`；tasks 为兼容当前客户端 response shape，返回 `count` 和 `next_cursor`，其中 `count` 是分页前当前 user 匹配的 task 数量：
+列表接口开始支持 `limit` 和 `cursor`。Sessions、runs 和 task triggers 返回 `count`、`total`、`next_cursor`；tasks 为兼容当前客户端 response shape，返回 `count` 和 `next_cursor`，其中 `count` 是分页前当前 user 匹配的 task 数量：
 
 - `GET /v1/sessions?limit=50&cursor=50`
 - `GET /v1/runs?limit=50&cursor=50`
-- `GET /v1/schedules?limit=50&cursor=50`
+- `GET /v1/tasks/:task_id/triggers?limit=50&cursor=50`
 - `GET /v1/tasks?limit=50&cursor=50`
 
 `cursor` 当前是稳定的 offset 字符串，客户端应只把它当 opaque token 传回。
@@ -73,12 +73,15 @@ Tasks 是当前持久 follow-up 和多步工作状态的主 API，不是旧兼�
 - `POST /v1/tasks/:task_id/confirm` 将 candidate task/action 确认为可执行状态。
 - `POST /v1/tasks/:task_id/run-now` 从 task 的 `source_session_id` 构建一次 Codex run，并把进展写回 task events/actions。
 - `GET /v1/tasks/:task_id/actions`、`POST /v1/tasks/:task_id/actions`、`PATCH /v1/tasks/:task_id/actions/:action_id` 管理 task actions。
+- `GET /v1/tasks/:task_id/triggers` 返回 task-scoped triggers。当前 time trigger 使用 `task_triggers` 存储，并在 response 中提供 `trigger_id` / `trigger_type`。
+- `POST /v1/tasks/:task_id/actions/:action_id/triggers` 为指定 action 创建 future/recurring trigger。
+- `POST /v1/tasks/:task_id/triggers/:trigger_id/run-now` 立即触发 task-linked trigger。
 - `GET /v1/tasks/:task_id/events` 返回 task timeline。
 - `GET /v1/sessions/:session_id/tasks` 返回与 session 关联的 tasks。
 
 Chat 主链路会向 Codex 暴露 `codex_app.task_update` 动态工具。它只写 Ripple 控制面 task/action 状态，不要求 Codex 反向调用 Ripple HTTP API。支持 `propose`、`create`、`update_task`、`create_action`、`update_action`、`start_action`、`complete_action`、`block_action`、`wait_user` 和 `complete_task` 等模式。
 
-Schedule records 可以通过 `task_id` / `task_action_id` 连接到 task/action。task action 自身也支持 `next_wakeup_at`，后台 due task action trigger 会按确认后的 action 触发 run 并追加 task events。
+Task 是唯一任务语义。旧 standalone schedule API 和 `schedules` 表已移除；time trigger 统一作为 Task Trigger 的一种 driver 存在。Task-linked trigger 到期时会走 TaskAction 执行链路，复用原 session/Codex thread，并把结果写回 task events/actions 和 source session。后续 hook/event/webhook 类触发器也应挂在同一 task trigger 模型下。
 
 ## Risk Confirmation
 
@@ -87,7 +90,7 @@ Schedule records 可以通过 `task_id` / `task_action_id` 连接到 task/action
 - `DELETE /v1/sandboxes`
 - `POST /v1/workspace/delete`
 - `POST /v1/connectors/:connector_name/disconnect`
-- `DELETE /v1/schedules/:schedule_id`
+- `DELETE /v1/skills/:skill_id`
 
 缺少确认时返回 `428 confirmation_required`。
 

@@ -10,13 +10,13 @@ import {
   ConnectorStatus,
   AgentRunInfo,
   GogcliAccountsResponse,
-  ScheduleInfo,
   SessionDetail,
   SessionControlAction,
   SessionSummary,
   TaskActionInfo,
   TaskEventInfo,
   TaskInfo,
+  TaskTriggerInfo,
   SkillDraftInput,
   SkillInfo,
   SkillUpdateInput,
@@ -150,7 +150,7 @@ export class WorkspaceUploadConflictError extends Error {
   }
 }
 
-export interface ScheduleCreateInput {
+export interface TaskTriggerCreateInput {
   title: string;
   prompt: string;
   kind: "once" | "interval";
@@ -166,11 +166,7 @@ export interface ScheduleCreateInput {
   missed_run_policy?: string;
   overlap_policy?: string;
   failure_policy?: string;
-  task_id?: string | null;
-  task_action_id?: string | null;
 }
-
-export type ScheduleUpdateInput = Partial<ScheduleCreateInput>;
 
 export interface TaskActionCreateInput {
   title: string;
@@ -347,7 +343,7 @@ function localDateTimeText(parts: LocalDateTimeParts): string {
   return `${year}-${month}-${day}T${hour}:${minute}:${second}${parts.fractional}`;
 }
 
-function normalizeScheduleRunAtForRequest(
+function normalizeTaskTriggerRunAtForRequest(
   runAt: string | null | undefined,
   timezone: string | null | undefined
 ): string | null | undefined {
@@ -361,8 +357,8 @@ function normalizeScheduleRunAtForRequest(
   return `${localDateTimeText(localParts)}${timezoneOffsetText(offsetMinutes)}`;
 }
 
-function scheduleInputForRequest<T extends ScheduleCreateInput | ScheduleUpdateInput>(input: T): T {
-  const runAt = normalizeScheduleRunAtForRequest(input.run_at, input.timezone);
+function taskTriggerInputForRequest<T extends TaskTriggerCreateInput>(input: T): T {
+  const runAt = normalizeTaskTriggerRunAtForRequest(input.run_at, input.timezone);
   if (runAt === input.run_at) return input;
   return { ...input, run_at: runAt };
 }
@@ -903,89 +899,57 @@ export async function updateTaskAction(
   };
 }
 
-export async function fetchSchedules(): Promise<ScheduleInfo[]> {
-  const res = await fetch(`${API_URL}/schedules`, { headers: { ...authHeaders() } });
-  if (res.status === 401) throw new AuthError();
-  if (!res.ok) {
-    const detail = await responseDetail(res);
-    throw new Error(detail || `Failed to fetch schedules (${res.status})`);
-  }
-  const data = (await res.json()) as { schedules?: ScheduleInfo[] };
-  return data.schedules || [];
-}
-
-export async function createSchedule(input: ScheduleCreateInput): Promise<ScheduleInfo> {
-  const res = await fetch(`${API_URL}/schedules`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
-    body: JSON.stringify(scheduleInputForRequest(input)),
-  });
-  if (res.status === 401) throw new AuthError();
-  if (!res.ok) {
-    const detail = await responseDetail(res);
-    throw new Error(detail || `Failed to create schedule (${res.status})`);
-  }
-  return (await res.json()) as ScheduleInfo;
-}
-
-export async function updateSchedule(
-  scheduleId: string,
-  input: ScheduleUpdateInput
-): Promise<ScheduleInfo> {
-  const res = await fetch(`${API_URL}/schedules/${encodeURIComponent(scheduleId)}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
-    body: JSON.stringify(scheduleInputForRequest(input)),
-  });
-  if (res.status === 401) throw new AuthError();
-  if (!res.ok) {
-    const detail = await responseDetail(res);
-    throw new Error(detail || `Failed to update schedule (${res.status})`);
-  }
-  return (await res.json()) as ScheduleInfo;
-}
-
-export async function deleteSchedule(scheduleId: string): Promise<boolean> {
-  const res = await fetch(`${API_URL}/schedules/${encodeURIComponent(scheduleId)}`, {
-    method: "DELETE",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
-    body: JSON.stringify({ confirm: true }),
-  });
-  if (res.status === 401) throw new AuthError();
-  return res.ok;
-}
-
-export async function runScheduleNow(scheduleId: string): Promise<AgentRunInfo> {
-  const res = await fetch(`${API_URL}/schedules/${encodeURIComponent(scheduleId)}/run-now`, {
-    method: "POST",
+export async function fetchTaskTriggers(taskId: string): Promise<TaskTriggerInfo[]> {
+  const res = await fetch(`${API_URL}/tasks/${encodeURIComponent(taskId)}/triggers`, {
     headers: { ...authHeaders() },
   });
   if (res.status === 401) throw new AuthError();
   if (!res.ok) {
     const detail = await responseDetail(res);
-    throw new Error(detail || `Failed to run schedule (${res.status})`);
+    throw new Error(detail || `Failed to fetch task triggers (${res.status})`);
   }
-  return (await res.json()) as AgentRunInfo;
+  const data = (await res.json()) as { triggers?: TaskTriggerInfo[] };
+  return data.triggers || [];
 }
 
-export async function fetchScheduleRuns(
-  scheduleId: string,
-  limit: number = 5,
-  cursor?: string
-): Promise<AgentRunInfo[]> {
-  const qs = new URLSearchParams({ limit: String(limit) });
-  if (cursor) qs.set("cursor", cursor);
+export async function createTaskActionTrigger(
+  taskId: string,
+  actionId: string,
+  input: TaskTriggerCreateInput
+): Promise<TaskTriggerInfo> {
   const res = await fetch(
-    `${API_URL}/schedules/${encodeURIComponent(scheduleId)}/runs?${qs.toString()}`,
-    { headers: { ...authHeaders() } }
+    `${API_URL}/tasks/${encodeURIComponent(taskId)}/actions/${encodeURIComponent(actionId)}/triggers`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(taskTriggerInputForRequest(input)),
+    }
   );
   if (res.status === 401) throw new AuthError();
   if (!res.ok) {
     const detail = await responseDetail(res);
-    throw new Error(detail || `Failed to fetch schedule runs (${res.status})`);
+    throw new Error(detail || `Failed to create task trigger (${res.status})`);
   }
-  const data = (await res.json()) as { runs?: AgentRunInfo[] };
-  return data.runs || [];
+  return (await res.json()) as TaskTriggerInfo;
+}
+
+export async function runTaskTriggerNow(
+  taskId: string,
+  triggerId: string
+): Promise<AgentRunInfo> {
+  const res = await fetch(
+    `${API_URL}/tasks/${encodeURIComponent(taskId)}/triggers/${encodeURIComponent(triggerId)}/run-now`,
+    {
+      method: "POST",
+      headers: { ...authHeaders() },
+    }
+  );
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to run task trigger (${res.status})`);
+  }
+  return (await res.json()) as AgentRunInfo;
 }
 
 export async function fetchRun(jobId: string): Promise<AgentRunInfo> {
@@ -1021,23 +985,6 @@ export async function downloadRunOutput(jobId: string): Promise<{ blob: Blob; fi
 export async function fetchRunOutputText(jobId: string): Promise<string> {
   const { blob } = await downloadRunOutput(jobId);
   return blob.text();
-}
-
-export async function deleteScheduleRun(scheduleId: string, jobId: string): Promise<boolean> {
-  const res = await fetch(
-    `${API_URL}/schedules/${encodeURIComponent(scheduleId)}/runs/${encodeURIComponent(jobId)}`,
-    {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json", ...authHeaders() },
-      body: JSON.stringify({ confirm: true }),
-    }
-  );
-  if (res.status === 401) throw new AuthError();
-  if (!res.ok) {
-    const detail = await responseDetail(res);
-    throw new Error(detail || `Failed to delete run (${res.status})`);
-  }
-  return true;
 }
 
 export interface SessionCreateInput {

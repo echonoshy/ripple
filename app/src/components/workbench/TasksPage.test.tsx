@@ -4,7 +4,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { I18nProvider, type LocalePreference } from "@/i18n";
-import type { ScheduleInfo, TaskActionInfo, TaskEventInfo, TaskInfo } from "@/types";
+import type { TaskActionInfo, TaskEventInfo, TaskInfo, TaskTriggerInfo } from "@/types";
 import TasksPage from "./TasksPage";
 
 const noop = () => {};
@@ -89,9 +89,10 @@ const events: TaskEventInfo[] = [
   },
 ];
 
-const schedules: ScheduleInfo[] = [
+const triggers: TaskTriggerInfo[] = [
   {
-    schedule_id: "sch-trip",
+    trigger_id: "trg-trip",
+    trigger_type: "time",
     user_id: "default",
     title: "明早提醒",
     prompt: "提醒准备材料",
@@ -129,7 +130,7 @@ function renderTasksPage(locale: LocalePreference = "zh-CN") {
         tasks={[task]}
         actions={actions}
         events={events}
-        schedules={schedules}
+        triggers={triggers}
         isLoading={false}
         error={null}
         onRefresh={noop}
@@ -184,6 +185,8 @@ function testTasksPageKeepsAutomationOutOfPrimaryNavigation() {
   assert.match(source, /data-ripple-task-page/);
   assert.match(source, /data-ripple-task-list/);
   assert.match(source, /data-ripple-task-detail/);
+  assert.match(source, /fetchTaskTriggers/);
+  assert.doesNotMatch(source, /fetchSchedules/);
   assert.doesNotMatch(source, /disconnectConnector/);
 }
 

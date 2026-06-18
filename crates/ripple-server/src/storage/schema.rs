@@ -1,6 +1,7 @@
+use serde_json::Value;
 use sqlx::{Row, SqlitePool};
 
-pub const CURRENT_SCHEMA_VERSION: i64 = 8;
+pub const CURRENT_SCHEMA_VERSION: i64 = 9;
 
 const SCHEMA_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS sessions (
@@ -26,7 +27,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     pending_options_json TEXT,
     pending_permission_request_json TEXT,
     pending_connector_auth_json TEXT,
-    pending_schedule_request_json TEXT,
+    pending_control_request_json TEXT,
     codex_thread_id TEXT,
     memory_disabled INTEGER NOT NULL DEFAULT 0,
     plan_steps_json TEXT NOT NULL DEFAULT '[]',
@@ -53,20 +54,20 @@ CREATE TABLE IF NOT EXISTS jobs (
     status TEXT NOT NULL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    schedule_id TEXT,
+    task_trigger_id TEXT,
     events_file TEXT,
     output_file TEXT,
     record_json TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS schedules (
+CREATE TABLE IF NOT EXISTS task_triggers (
     user_id TEXT NOT NULL,
-    schedule_id TEXT NOT NULL,
+    trigger_id TEXT NOT NULL,
     status TEXT NOT NULL,
     next_run_at TEXT,
     updated_at TEXT NOT NULL,
     record_json TEXT NOT NULL,
-    PRIMARY KEY (user_id, schedule_id)
+    PRIMARY KEY (user_id, trigger_id)
 );
 
 CREATE TABLE IF NOT EXISTS tasks (
@@ -185,10 +186,8 @@ CREATE INDEX IF NOT EXISTS idx_jobs_user_session
     ON jobs(user_id, session_id);
 CREATE INDEX IF NOT EXISTS idx_jobs_user_status
     ON jobs(user_id, status);
-CREATE INDEX IF NOT EXISTS idx_jobs_user_schedule
-    ON jobs(user_id, schedule_id);
-CREATE INDEX IF NOT EXISTS idx_schedules_user_status_next
-    ON schedules(user_id, status, next_run_at);
+CREATE INDEX IF NOT EXISTS idx_task_triggers_user_status_next
+    ON task_triggers(user_id, status, next_run_at);
 CREATE INDEX IF NOT EXISTS idx_tasks_user_status_due
     ON tasks(user_id, status, due_at);
 CREATE INDEX IF NOT EXISTS idx_tasks_user_session_status
@@ -218,14 +217,31 @@ pub(super) async fn initialize_schema(pool: &SqlitePool) -> anyhow::Result<()> {
         sqlx::query(statement).execute(pool).await?;
     }
     ensure_schema_columns(pool).await?;
+    ensure_legacy_schedule_schema_removed(pool).await?;
     ensure_schema_migrations(pool).await?;
     Ok(())
 }
 
 async fn ensure_schema_columns(pool: &SqlitePool) -> anyhow::Result<()> {
-    let rows = sqlx::query("PRAGMA table_info(sessions)")
+    let mut rows = sqlx::query("PRAGMA table_info(sessions)")
         .fetch_all(pool)
         .await?;
+    let has_pending_schedule_request = rows
+        .iter()
+        .any(|row| row.get::<String, _>("name") == "pending_schedule_request_json");
+    let has_pending_control_request = rows
+        .iter()
+        .any(|row| row.get::<String, _>("name") == "pending_control_request_json");
+    if has_pending_schedule_request && !has_pending_control_request {
+        sqlx::query(
+            "ALTER TABLE sessions RENAME COLUMN pending_schedule_request_json TO pending_control_request_json",
+        )
+        .execute(pool)
+        .await?;
+        rows = sqlx::query("PRAGMA table_info(sessions)")
+            .fetch_all(pool)
+            .await?;
+    }
     for (column, ddl) in [
         (
             "pinned",
@@ -250,6 +266,10 @@ async fn ensure_schema_columns(pool: &SqlitePool) -> anyhow::Result<()> {
         (
             "memory_disabled",
             "ALTER TABLE sessions ADD COLUMN memory_disabled INTEGER NOT NULL DEFAULT 0",
+        ),
+        (
+            "pending_control_request_json",
+            "ALTER TABLE sessions ADD COLUMN pending_control_request_json TEXT",
         ),
     ] {
         let exists = rows
@@ -283,6 +303,126 @@ async fn ensure_schema_columns(pool: &SqlitePool) -> anyhow::Result<()> {
     Ok(())
 }
 
+async fn ensure_legacy_schedule_schema_removed(pool: &SqlitePool) -> anyhow::Result<()> {
+    rebuild_jobs_without_schedule_columns(pool).await?;
+    for statement in [
+        "DROP INDEX IF EXISTS idx_jobs_user_schedule",
+        "DROP INDEX IF EXISTS idx_jobs_user_schedule_id",
+        "DROP INDEX IF EXISTS idx_schedules_user_status_next",
+        "DROP TABLE IF EXISTS schedules",
+    ] {
+        sqlx::query(statement).execute(pool).await?;
+    }
+    ensure_current_job_indexes(pool).await?;
+    Ok(())
+}
+
+async fn rebuild_jobs_without_schedule_columns(pool: &SqlitePool) -> anyhow::Result<()> {
+    let rows = sqlx::query("PRAGMA table_info(jobs)")
+        .fetch_all(pool)
+        .await?;
+    let columns = rows
+        .iter()
+        .map(|row| row.get::<String, _>("name"))
+        .collect::<Vec<_>>();
+    let has_schedule_id = columns.iter().any(|column| column == "schedule_id");
+    let has_task_trigger_id = columns.iter().any(|column| column == "task_trigger_id");
+    if !has_schedule_id && has_task_trigger_id {
+        return Ok(());
+    }
+
+    let job_rows = sqlx::query(
+        r#"
+        SELECT job_id, user_id, session_id, provider, status, created_at, updated_at,
+               events_file, output_file, record_json
+        FROM jobs
+        "#,
+    )
+    .fetch_all(pool)
+    .await?;
+
+    sqlx::query("DROP TABLE IF EXISTS jobs_legacy_schedule_rebuild")
+        .execute(pool)
+        .await?;
+    sqlx::query("ALTER TABLE jobs RENAME TO jobs_legacy_schedule_rebuild")
+        .execute(pool)
+        .await?;
+    sqlx::query(
+        r#"
+        CREATE TABLE jobs (
+            job_id TEXT PRIMARY KEY NOT NULL,
+            user_id TEXT NOT NULL,
+            session_id TEXT,
+            provider TEXT NOT NULL,
+            status TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            task_trigger_id TEXT,
+            events_file TEXT,
+            output_file TEXT,
+            record_json TEXT NOT NULL
+        )
+        "#,
+    )
+    .execute(pool)
+    .await?;
+
+    for row in job_rows {
+        let record_json = strip_legacy_schedule_metadata(&row.get::<String, _>("record_json"));
+        sqlx::query(
+            r#"
+            INSERT INTO jobs (
+                job_id, user_id, session_id, provider, status, created_at, updated_at,
+                task_trigger_id, events_file, output_file, record_json
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
+            "#,
+        )
+        .bind(row.get::<String, _>("job_id"))
+        .bind(row.get::<String, _>("user_id"))
+        .bind(row.get::<Option<String>, _>("session_id"))
+        .bind(row.get::<String, _>("provider"))
+        .bind(row.get::<String, _>("status"))
+        .bind(row.get::<String, _>("created_at"))
+        .bind(row.get::<String, _>("updated_at"))
+        .bind(row.get::<Option<String>, _>("events_file"))
+        .bind(row.get::<Option<String>, _>("output_file"))
+        .bind(record_json)
+        .execute(pool)
+        .await?;
+    }
+
+    sqlx::query("DROP TABLE IF EXISTS jobs_legacy_schedule_rebuild")
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+async fn ensure_current_job_indexes(pool: &SqlitePool) -> anyhow::Result<()> {
+    for statement in [
+        "CREATE INDEX IF NOT EXISTS idx_jobs_user_updated ON jobs(user_id, updated_at)",
+        "CREATE INDEX IF NOT EXISTS idx_jobs_user_session ON jobs(user_id, session_id)",
+        "CREATE INDEX IF NOT EXISTS idx_jobs_user_status ON jobs(user_id, status)",
+        "CREATE INDEX IF NOT EXISTS idx_jobs_user_task_trigger ON jobs(user_id, task_trigger_id)",
+    ] {
+        sqlx::query(statement).execute(pool).await?;
+    }
+    Ok(())
+}
+
+fn strip_legacy_schedule_metadata(record_json: &str) -> String {
+    let Ok(mut value) = serde_json::from_str::<Value>(record_json) else {
+        return record_json.to_string();
+    };
+    let Some(object) = value.as_object_mut() else {
+        return record_json.to_string();
+    };
+    for key in ["schedule_id", "schedule_title", "schedule_trigger"] {
+        object.remove(key);
+    }
+    serde_json::to_string(&value).unwrap_or_else(|_| record_json.to_string())
+}
+
 async fn ensure_schema_migrations(pool: &SqlitePool) -> anyhow::Result<()> {
     for (version, name) in [
         (1_i64, "initial_sqlite_control_plane"),
@@ -291,6 +431,7 @@ async fn ensure_schema_migrations(pool: &SqlitePool) -> anyhow::Result<()> {
         (4_i64, "user_profile_avatar_uri"),
         (5_i64, "session_context_folder_scope"),
         (8_i64, "task_system_v1"),
+        (9_i64, "task_triggers_replace_schedules"),
     ] {
         sqlx::query("INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (?, ?)")
             .bind(version)

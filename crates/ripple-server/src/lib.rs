@@ -67,7 +67,7 @@ where
             recovered
         );
     }
-    let schedule_task = tokio::spawn(services::schedules::schedule_trigger_loop(state.clone()));
+    let task_trigger_task = tokio::spawn(services::task_triggers::task_trigger_loop(state.clone()));
     let task_action_task = tokio::spawn(services::tasks::task_action_trigger_loop(state.clone()));
     let session_maintenance_task = tokio::spawn(state.sessions.clone().maintenance_loop());
     let app = router(state)
@@ -78,7 +78,7 @@ where
     let result = axum::serve(listener, app)
         .with_graceful_shutdown(shutdown)
         .await;
-    schedule_task.abort();
+    task_trigger_task.abort();
     task_action_task.abort();
     session_maintenance_task.abort();
     result?;

@@ -4,7 +4,6 @@ use std::path::Path as FsPath;
 use axum::extract::{Path, Query, State};
 use axum::http::HeaderMap;
 use axum::Json;
-use serde::de::Error as DeError;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use time::format_description::well_known::Rfc3339;
@@ -14,22 +13,23 @@ use uuid::Uuid;
 use crate::api::run_public::{
     public_run_value, sanitize_user_visible_text, sanitize_user_visible_value,
 };
-use crate::api::tasks::append_task_event;
-use crate::api::users::assert_can_create_run;
-use crate::api::{audit_event, paginate, require_confirm, ApiError, ListQuery};
-use crate::jobs::{resolve_workspace_cwd, AgentRunCreateRequest, AgentRunInfo};
+use crate::api::tasks::{
+    append_task_event, execute_task_action_for_trigger, TaskRunTriggerContext,
+};
+use crate::api::{paginate, ApiError, ListQuery};
+use crate::jobs::{resolve_workspace_cwd, AgentRunInfo};
 use crate::state::AppState;
 use crate::user::user_id_from_headers;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct ScheduleState {
+struct TaskTriggerState {
     version: u32,
-    schedules: BTreeMap<String, ScheduleRecord>,
+    triggers: BTreeMap<String, TaskTriggerRecord>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-struct ScheduleRecord {
-    schedule_id: String,
+struct TaskTriggerRecord {
+    trigger_id: String,
     user_id: String,
     title: String,
     prompt: String,
@@ -70,7 +70,7 @@ struct ScheduleRecord {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct ScheduleCreateInput {
+pub struct TaskTriggerCreateInput {
     pub(crate) title: String,
     pub(crate) prompt: String,
     #[serde(default = "default_kind")]
@@ -109,55 +109,25 @@ pub struct ScheduleCreateInput {
     pub(crate) failure_policy: String,
 }
 
-#[derive(Debug, Deserialize, Default)]
-pub struct ScheduleUpdateInput {
-    title: Option<String>,
-    prompt: Option<String>,
-    kind: Option<String>,
-    timezone: Option<String>,
-    #[serde(default, deserialize_with = "nullable_field")]
-    run_at: Option<Option<String>>,
-    #[serde(default, deserialize_with = "nullable_field")]
-    interval_seconds: Option<Option<u64>>,
-    enabled: Option<bool>,
-    #[serde(default, deserialize_with = "nullable_field")]
-    cwd: Option<Option<String>>,
-    #[serde(default, deserialize_with = "nullable_field")]
-    model: Option<Option<String>>,
-    #[serde(default, deserialize_with = "nullable_field")]
-    effort: Option<Option<String>>,
-    #[serde(default, deserialize_with = "nullable_field")]
-    summary: Option<Option<String>>,
-    #[serde(
-        default,
-        rename = "outputSchema",
-        alias = "output_schema",
-        deserialize_with = "nullable_field"
-    )]
-    output_schema: Option<Option<Value>>,
-    max_runtime_seconds: Option<u64>,
-    #[serde(default, deserialize_with = "nullable_field")]
-    max_runs: Option<Option<u64>>,
-    #[serde(default, deserialize_with = "nullable_field")]
-    task_id: Option<Option<String>>,
-    #[serde(default, deserialize_with = "nullable_field")]
-    task_action_id: Option<Option<String>>,
-    missed_run_policy: Option<String>,
-    overlap_policy: Option<String>,
-    failure_policy: Option<String>,
-}
-
-pub async fn list_schedules(
+pub async fn list_task_triggers(
     State(state): State<AppState>,
     headers: HeaderMap,
+    Path(task_id): Path<String>,
     Query(query): Query<ListQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
     state.sandboxes.ensure_sandbox(&user_id)?;
-    let schedules = load_schedule_state(&state, &user_id).await?.schedules;
-    let mut records = schedules.values().cloned().collect::<Vec<_>>();
+    if state.storage.get_task(&user_id, &task_id).await?.is_none() {
+        return Err(ApiError::not_found("Task not found"));
+    }
+    let triggers = load_task_trigger_state(&state, &user_id).await?.triggers;
+    let mut records = triggers
+        .values()
+        .filter(|record| record.task_id.as_deref() == Some(task_id.as_str()))
+        .cloned()
+        .collect::<Vec<_>>();
     for record in &mut records {
-        reconcile_schedule_record(&state, &user_id, record).await?;
+        reconcile_task_trigger_record(&state, &user_id, record).await?;
     }
     records.sort_by(|a, b| {
         a.next_run_at
@@ -167,33 +137,46 @@ pub async fn list_schedules(
     });
     let total = records.len();
     let (records, next_cursor) = paginate(records, &query);
-    let records = records
+    let triggers = records
         .iter()
-        .map(|record| public_schedule_value(&state, &user_id, record))
+        .map(|record| public_task_trigger_value(&state, &user_id, record))
         .collect::<Vec<_>>();
     Ok(Json(json!({
-        "schedules": records,
-        "count": records.len(),
+        "triggers": triggers,
+        "count": triggers.len(),
         "total": total,
         "next_cursor": next_cursor
     })))
 }
 
-pub async fn create_schedule(
+pub async fn create_task_action_trigger(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Json(input): Json<ScheduleCreateInput>,
+    Path((task_id, action_id)): Path<(String, String)>,
+    Json(mut input): Json<TaskTriggerCreateInput>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
-    Ok(Json(
-        create_schedule_for_user(&state, &user_id, input).await?,
-    ))
+    state.sandboxes.ensure_sandbox(&user_id)?;
+    if state.storage.get_task(&user_id, &task_id).await?.is_none() {
+        return Err(ApiError::not_found("Task not found"));
+    }
+    let actions = state.storage.list_task_actions(&user_id, &task_id).await?;
+    if !actions
+        .iter()
+        .any(|action| action.get("action_id").and_then(Value::as_str) == Some(action_id.as_str()))
+    {
+        return Err(ApiError::not_found("Task action not found"));
+    }
+    input.task_id = Some(task_id);
+    input.task_action_id = Some(action_id);
+    let trigger = create_task_trigger_for_user(&state, &user_id, input).await?;
+    Ok(Json(public_task_trigger_from_record_value(trigger)))
 }
 
-pub(crate) async fn create_schedule_for_user(
+pub(crate) async fn create_task_trigger_for_user(
     state: &AppState,
     user_id: &str,
-    input: ScheduleCreateInput,
+    input: TaskTriggerCreateInput,
 ) -> Result<Value, ApiError> {
     let workspace_root = state.sandboxes.ensure_sandbox(user_id)?;
     let now = OffsetDateTime::now_utc();
@@ -204,9 +187,9 @@ pub(crate) async fn create_schedule_for_user(
     let next_run_at = compute_initial_next_run_at(kind, run_at.as_deref(), interval_seconds, now)?;
     let title = clean_required(&input.title, "title")?;
     let prompt = clean_required(&input.prompt, "prompt")?;
-    validate_schedule_cwd(&workspace_root, input.cwd.as_deref())?;
-    let record = ScheduleRecord {
-        schedule_id: format!("sch-{}", &Uuid::new_v4().simple().to_string()[..10]),
+    validate_task_trigger_cwd(&workspace_root, input.cwd.as_deref())?;
+    let record = TaskTriggerRecord {
+        trigger_id: format!("trg-{}", &Uuid::new_v4().simple().to_string()[..10]),
         user_id: user_id.to_string(),
         title,
         prompt,
@@ -238,247 +221,26 @@ pub(crate) async fn create_schedule_for_user(
         created_at: iso(now),
         updated_at: iso(now),
     };
-    persist_schedule_record(state, user_id, &record).await?;
-    Ok(public_schedule_value(state, user_id, &record))
+    persist_task_trigger_record(state, user_id, &record).await?;
+    Ok(public_task_trigger_record_value(state, user_id, &record))
 }
 
-pub async fn get_schedule(
+pub async fn run_task_trigger_now(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Path(schedule_id): Path<String>,
+    Path((task_id, trigger_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
-    let Some(mut record) = load_schedule_state(&state, &user_id)
-        .await?
-        .schedules
-        .get(&schedule_id)
-        .cloned()
-    else {
-        return Err(ApiError::not_found("Schedule not found"));
+    let trigger_state = load_task_trigger_state(&state, &user_id).await?;
+    let Some(mut record) = trigger_state.triggers.get(&trigger_id).cloned() else {
+        return Err(ApiError::not_found("Task trigger not found"));
     };
-    reconcile_schedule_record(&state, &user_id, &mut record).await?;
-    Ok(Json(public_schedule_value(&state, &user_id, &record)))
-}
-
-pub async fn update_schedule(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Path(schedule_id): Path<String>,
-    Json(input): Json<ScheduleUpdateInput>,
-) -> Result<Json<Value>, ApiError> {
-    let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
-    let schedule_state = load_schedule_state(&state, &user_id).await?;
-    let Some(mut record) = schedule_state.schedules.get(&schedule_id).cloned() else {
-        return Err(ApiError::not_found("Schedule not found"));
-    };
+    if record.task_id.as_deref() != Some(task_id.as_str()) {
+        return Err(ApiError::not_found("Task trigger not found"));
+    }
+    reconcile_task_trigger_record(&state, &user_id, &mut record).await?;
     let now = OffsetDateTime::now_utc();
-    let timing_changed = input.kind.is_some()
-        || input.timezone.is_some()
-        || input.run_at.is_some()
-        || input.interval_seconds.is_some();
-
-    if let Some(title) = input.title {
-        record.title = clean_required(&title, "title")?;
-    }
-    if let Some(prompt) = input.prompt {
-        record.prompt = clean_required(&prompt, "prompt")?;
-    }
-    if let Some(kind) = input.kind {
-        record.kind = normalize_kind(&kind)?.to_string();
-    }
-    if let Some(timezone) = input.timezone {
-        record.timezone = timezone.trim().to_string();
-    }
-    if let Some(interval_seconds) = input.interval_seconds {
-        record.interval_seconds = interval_seconds.map(|value| value.max(1));
-    }
-    if let Some(run_at) = input.run_at {
-        record.run_at = normalize_run_at(run_at.as_deref(), &record.timezone)?;
-    }
-    if let Some(enabled) = input.enabled {
-        record.enabled = enabled;
-    }
-    if let Some(cwd) = input.cwd {
-        record.cwd = cwd;
-    }
-    if let Some(model) = input.model {
-        record.model = model;
-    }
-    if let Some(effort) = input.effort {
-        record.effort = effort;
-    }
-    if let Some(summary) = input.summary {
-        record.summary = summary;
-    }
-    if let Some(output_schema) = input.output_schema {
-        record.output_schema = output_schema;
-    }
-    if let Some(max_runtime_seconds) = input.max_runtime_seconds {
-        record.max_runtime_seconds = max_runtime_seconds.clamp(1, 86_400);
-    }
-    if let Some(max_runs) = input.max_runs {
-        record.max_runs = normalize_max_runs(&record.kind, max_runs)?;
-    }
-    if let Some(task_id) = input.task_id {
-        record.task_id = clean_optional_link_id(task_id);
-    }
-    if let Some(task_action_id) = input.task_action_id {
-        record.task_action_id = clean_optional_link_id(task_action_id);
-    }
-    if let Some(policy) = input.missed_run_policy {
-        record.missed_run_policy = normalize_missed_run_policy(&policy)?.to_string();
-    }
-    if let Some(policy) = input.overlap_policy {
-        record.overlap_policy = normalize_overlap_policy(&policy)?.to_string();
-    }
-    if let Some(policy) = input.failure_policy {
-        record.failure_policy = normalize_failure_policy(&policy)?.to_string();
-    }
-    if record.kind != "interval" {
-        record.max_runs = None;
-    }
-    record.interval_seconds = normalize_interval(&record.kind, record.interval_seconds)?;
-    let workspace_root = state.sandboxes.ensure_sandbox(&user_id)?;
-    validate_schedule_cwd(&workspace_root, record.cwd.as_deref())?;
-    if timing_changed || (record.enabled && record.next_run_at.is_none()) {
-        record.next_run_at = compute_initial_next_run_at(
-            &record.kind,
-            record.run_at.as_deref(),
-            record.interval_seconds,
-            now,
-        )?;
-    }
-    if schedule_limit_reached(&record) {
-        record.enabled = false;
-        record.status = "completed".to_string();
-        record.next_run_at = None;
-    } else if record.enabled {
-        record.status = "active".to_string();
-    } else if record.status != "completed" {
-        record.status = "paused".to_string();
-        record.next_run_at = None;
-    }
-    record.updated_at = iso(now);
-    persist_schedule_record(&state, &user_id, &record).await?;
-    Ok(Json(public_schedule_value(&state, &user_id, &record)))
-}
-
-pub async fn delete_schedule(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Path(schedule_id): Path<String>,
-    body: Option<Json<Value>>,
-) -> Result<Json<Value>, ApiError> {
-    let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
-    let payload = body.map(|Json(value)| value).unwrap_or_else(|| json!({}));
-    if state.config.security.require_confirm_for_risky_api {
-        require_confirm(Some(&payload), "schedule.delete")?;
-    }
-    if !state
-        .storage
-        .delete_schedule(&user_id, &schedule_id)
-        .await?
-    {
-        return Err(ApiError::not_found("Schedule not found"));
-    }
-    audit_event(
-        &state,
-        &user_id,
-        "schedule.delete",
-        true,
-        json!({"schedule_id": schedule_id}),
-    )
-    .await?;
-    Ok(Json(json!({ "ok": true, "schedule_id": schedule_id })))
-}
-
-pub async fn schedule_runs(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Path(schedule_id): Path<String>,
-    Query(query): Query<ListQuery>,
-) -> Result<Json<Value>, ApiError> {
-    let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
-    let Some(mut record) = load_schedule_state(&state, &user_id)
-        .await?
-        .schedules
-        .get(&schedule_id)
-        .cloned()
-    else {
-        return Err(ApiError::not_found("Schedule not found"));
-    };
-    reconcile_schedule_record(&state, &user_id, &mut record).await?;
-    let records = list_schedule_job_records(&state, &user_id, &schedule_id).await?;
-    let total = records.len();
-    let (records, next_cursor) = paginate(records, &query);
-    let records = records
-        .iter()
-        .map(|run| public_run_value(&state, &user_id, run))
-        .collect::<Vec<_>>();
-    Ok(Json(json!({
-        "runs": records,
-        "count": records.len(),
-        "total": total,
-        "next_cursor": next_cursor
-    })))
-}
-
-pub async fn delete_schedule_run(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Path((schedule_id, job_id)): Path<(String, String)>,
-    body: Option<Json<Value>>,
-) -> Result<Json<Value>, ApiError> {
-    let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
-    let payload = body.map(|Json(value)| value).unwrap_or_else(|| json!({}));
-    if state.config.security.require_confirm_for_risky_api {
-        require_confirm(Some(&payload), "schedule.run.delete")?;
-    }
-    let Some(mut record) = load_schedule_state(&state, &user_id)
-        .await?
-        .schedules
-        .get(&schedule_id)
-        .cloned()
-    else {
-        return Err(ApiError::not_found("Schedule not found"));
-    };
-    let Some(info) = state.jobs.info_for_user(&job_id, &user_id).await? else {
-        return Err(ApiError::not_found("Agent run not found"));
-    };
-    if info.metadata.get("schedule_id").and_then(Value::as_str) != Some(schedule_id.as_str()) {
-        return Err(ApiError::not_found("Agent run not found"));
-    }
-    if state.jobs.is_live_for_user(&job_id, &user_id).await {
-        return Err(ApiError::conflict(
-            "Active runs must be cancelled before deletion",
-        ));
-    }
-    let Some(info) = state.jobs.delete_for_user(&job_id, &user_id).await? else {
-        return Err(ApiError::not_found("Agent run not found"));
-    };
-    remove_run_files(&state, &user_id, &info).await?;
-    reconcile_schedule_record(&state, &user_id, &mut record).await?;
-    Ok(Json(json!({
-        "ok": true,
-        "deleted": true,
-        "schedule_id": schedule_id,
-        "job_id": job_id
-    })))
-}
-
-pub async fn run_schedule_now(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Path(schedule_id): Path<String>,
-) -> Result<Json<Value>, ApiError> {
-    let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
-    let schedule_state = load_schedule_state(&state, &user_id).await?;
-    let Some(mut record) = schedule_state.schedules.get(&schedule_id).cloned() else {
-        return Err(ApiError::not_found("Schedule not found"));
-    };
-    reconcile_schedule_record(&state, &user_id, &mut record).await?;
-    let now = OffsetDateTime::now_utc();
-    let info = match start_schedule_run(&state, &user_id, &record, "manual").await {
+    let info = match start_task_trigger_run(&state, &user_id, &record, "manual").await {
         Ok(info) => info,
         Err(err) => {
             record.status = "error".to_string();
@@ -486,41 +248,41 @@ pub async fn run_schedule_now(
             record.failure_reason = record.last_error.clone();
             record.last_run_status = Some("failed".to_string());
             record.updated_at = iso(now);
-            persist_schedule_record(&state, &user_id, &record).await?;
+            persist_task_trigger_record(&state, &user_id, &record).await?;
             return Err(err);
         }
     };
-    apply_latest_run_to_schedule(&mut record, Some(&info));
+    apply_latest_run_to_task_trigger(&mut record, Some(&info));
     if record.enabled && record.status != "completed" {
         record.status = "active".to_string();
     }
     record.updated_at = iso(now);
-    persist_schedule_record(&state, &user_id, &record).await?;
+    persist_task_trigger_record(&state, &user_id, &record).await?;
     Ok(Json(public_run_value(&state, &user_id, &info)))
 }
 
-pub async fn trigger_due_schedules(
+pub async fn trigger_due_task_triggers(
     state: &AppState,
 ) -> Result<BTreeMap<String, Vec<String>>, ApiError> {
     let now = OffsetDateTime::now_utc();
     let mut triggered = BTreeMap::<String, Vec<String>>::new();
-    for user_id in state.storage.list_schedule_user_ids().await? {
-        let schedule_state = load_schedule_state(state, &user_id).await?;
-        let schedule_ids = schedule_state.schedules.keys().cloned().collect::<Vec<_>>();
-        for schedule_id in schedule_ids {
-            let Some(mut record) = schedule_state.schedules.get(&schedule_id).cloned() else {
+    for user_id in state.storage.list_task_trigger_user_ids().await? {
+        let trigger_state = load_task_trigger_state(state, &user_id).await?;
+        let trigger_ids = trigger_state.triggers.keys().cloned().collect::<Vec<_>>();
+        for trigger_id in trigger_ids {
+            let Some(mut record) = trigger_state.triggers.get(&trigger_id).cloned() else {
                 continue;
             };
-            reconcile_schedule_record(state, &user_id, &mut record).await?;
+            reconcile_task_trigger_record(state, &user_id, &mut record).await?;
             if !record.enabled || record.status != "active" {
                 continue;
             }
-            if schedule_limit_reached(&record) {
+            if task_trigger_limit_reached(&record) {
                 record.enabled = false;
                 record.status = "completed".to_string();
                 record.next_run_at = None;
                 record.updated_at = iso(now);
-                persist_schedule_record(state, &user_id, &record).await?;
+                persist_task_trigger_record(state, &user_id, &record).await?;
                 continue;
             }
             let Some(next_run_at) = record.next_run_at.as_deref() else {
@@ -542,13 +304,13 @@ pub async fn trigger_due_schedules(
                 record.status = "active".to_string();
                 record.next_run_at = advance_next_run_at(&record, now)?;
                 record.updated_at = iso(now);
-                persist_schedule_record(state, &user_id, &record).await?;
+                persist_task_trigger_record(state, &user_id, &record).await?;
                 continue;
             }
             if record.overlap_policy == "skip"
                 && state
                     .jobs
-                    .has_active_schedule_run(&user_id, &record.schedule_id)
+                    .has_active_task_trigger_run(&user_id, &record.trigger_id)
                     .await
             {
                 record.last_error =
@@ -556,18 +318,14 @@ pub async fn trigger_due_schedules(
                 record.last_run_status = Some("skipped_overlap".to_string());
                 record.next_run_at = advance_next_run_at(&record, now)?;
                 record.updated_at = iso(now);
-                persist_schedule_record(state, &user_id, &record).await?;
+                persist_task_trigger_record(state, &user_id, &record).await?;
                 continue;
             }
-            match start_schedule_run(state, &user_id, &record, "scheduled").await {
+            match start_task_trigger_run(state, &user_id, &record, "scheduled").await {
                 Ok(info) => {
-                    record.last_run_at = Some(iso(now));
-                    record.last_run_id = Some(info.job_id);
-                    record.last_error = None;
-                    record.failure_reason = None;
-                    record.last_run_status = Some("started".to_string());
+                    apply_latest_run_to_task_trigger(&mut record, Some(&info));
                     record.run_count += 1;
-                    if record.kind == "once" || schedule_limit_reached(&record) {
+                    if record.kind == "once" || task_trigger_limit_reached(&record) {
                         record.enabled = false;
                         record.status = "completed".to_string();
                         record.next_run_at = None;
@@ -576,11 +334,11 @@ pub async fn trigger_due_schedules(
                         record.next_run_at = advance_next_run_at(&record, now)?;
                     }
                     record.updated_at = iso(now);
-                    persist_schedule_record(state, &user_id, &record).await?;
+                    persist_task_trigger_record(state, &user_id, &record).await?;
                     triggered
                         .entry(user_id.clone())
                         .or_default()
-                        .push(schedule_id);
+                        .push(trigger_id);
                 }
                 Err(err) => {
                     let summary = format!("{err:?}");
@@ -601,7 +359,7 @@ pub async fn trigger_due_schedules(
                         record.next_run_at = None;
                     }
                     record.updated_at = iso(now);
-                    persist_schedule_record(state, &user_id, &record).await?;
+                    persist_task_trigger_record(state, &user_id, &record).await?;
                 }
             }
         }
@@ -609,47 +367,32 @@ pub async fn trigger_due_schedules(
     Ok(triggered)
 }
 
-async fn start_schedule_run(
+async fn start_task_trigger_run(
     state: &AppState,
     user_id: &str,
-    record: &ScheduleRecord,
+    record: &TaskTriggerRecord,
     trigger: &str,
 ) -> Result<AgentRunInfo, ApiError> {
-    let workspace_root = state.sandboxes.ensure_sandbox(user_id)?;
-    let runtime_dir = state.sandboxes.sandbox_dir(user_id)?.join("agent-runs");
-    let (model, preset_effort) = resolve_schedule_run_model(&state.config, record);
-    let create = AgentRunCreateRequest {
-        prompt: record.prompt.clone(),
-        provider: "codex".to_string(),
-        base_instructions: None,
-        turn_context: None,
-        cwd: record.cwd.clone(),
-        input_items: Vec::new(),
-        model: Some(model),
-        effort: record.effort.clone().or(preset_effort),
-        summary: record.summary.clone(),
-        output_schema: record.output_schema.clone(),
-        max_runtime_seconds: record.max_runtime_seconds,
-        schedule_id: Some(record.schedule_id.clone()),
-        schedule_title: Some(record.title.clone()),
-        schedule_trigger: Some(trigger.to_string()),
-        codex_thread_id: None,
-        codex_persistent_thread: false,
-        chat_user_input: None,
-        chat_user_content: None,
-    };
-    assert_can_create_run(state, user_id, create.max_runtime_seconds).await?;
-    let info = state
-        .jobs
-        .start(
-            create,
-            user_id.to_string(),
-            None,
-            workspace_root,
-            runtime_dir,
-        )
-        .await
-        .map_err(|err| ApiError::bad_request(err.to_string()))?;
+    let task_id = record
+        .task_id
+        .as_deref()
+        .ok_or_else(|| ApiError::bad_request("Task trigger missing task_id"))?;
+    let action_id = record
+        .task_action_id
+        .as_deref()
+        .ok_or_else(|| ApiError::bad_request("Task trigger missing task_action_id"))?;
+    let info = execute_task_action_for_trigger(
+        state,
+        user_id,
+        task_id,
+        action_id,
+        TaskRunTriggerContext {
+            trigger_id: record.trigger_id.clone(),
+            task_trigger_title: record.title.clone(),
+            task_trigger_reason: trigger.to_string(),
+        },
+    )
+    .await?;
     append_task_trigger_run_event(
         state,
         user_id,
@@ -659,47 +402,68 @@ async fn start_schedule_run(
         trigger,
     )
     .await?;
+    if let Some(event_type) = task_trigger_terminal_event_type(&info.status) {
+        append_task_trigger_run_event(state, user_id, record, event_type, &info, trigger).await?;
+    }
     Ok(info)
 }
 
-async fn load_schedule_state(state: &AppState, user_id: &str) -> Result<ScheduleState, ApiError> {
-    let mut schedules = BTreeMap::new();
-    for value in state.storage.list_schedules(user_id).await? {
-        if let Ok(record) = serde_json::from_value::<ScheduleRecord>(value) {
-            schedules.insert(record.schedule_id.clone(), record);
+async fn load_task_trigger_state(
+    state: &AppState,
+    user_id: &str,
+) -> Result<TaskTriggerState, ApiError> {
+    let mut triggers = BTreeMap::new();
+    for value in state.storage.list_task_triggers(user_id).await? {
+        if let Ok(record) = serde_json::from_value::<TaskTriggerRecord>(value) {
+            triggers.insert(record.trigger_id.clone(), record);
         }
     }
-    Ok(ScheduleState {
+    Ok(TaskTriggerState {
         version: 1,
-        schedules,
+        triggers,
     })
 }
 
-async fn persist_schedule_record(
+async fn persist_task_trigger_record(
     state: &AppState,
     user_id: &str,
-    record: &ScheduleRecord,
+    record: &TaskTriggerRecord,
 ) -> Result<(), ApiError> {
     let value = serde_json::to_value(record).map_err(anyhow::Error::from)?;
-    state.storage.upsert_schedule(user_id, &value).await?;
+    state.storage.upsert_task_trigger(user_id, &value).await?;
     Ok(())
 }
 
-fn public_schedule_value(state: &AppState, user_id: &str, record: &ScheduleRecord) -> Value {
+fn public_task_trigger_record_value(
+    state: &AppState,
+    user_id: &str,
+    record: &TaskTriggerRecord,
+) -> Value {
     let value = serde_json::to_value(record).unwrap_or_else(|_| json!({}));
     sanitize_user_visible_value(state, user_id, &value)
 }
 
-async fn reconcile_schedule_record(
+fn public_task_trigger_value(state: &AppState, user_id: &str, record: &TaskTriggerRecord) -> Value {
+    public_task_trigger_from_record_value(public_task_trigger_record_value(state, user_id, record))
+}
+
+fn public_task_trigger_from_record_value(mut value: Value) -> Value {
+    if let Some(object) = value.as_object_mut() {
+        object.insert("trigger_type".to_string(), json!("time"));
+    }
+    value
+}
+
+async fn reconcile_task_trigger_record(
     state: &AppState,
     user_id: &str,
-    record: &mut ScheduleRecord,
+    record: &mut TaskTriggerRecord,
 ) -> Result<(), ApiError> {
-    let records = list_schedule_job_records(state, user_id, &record.schedule_id).await?;
+    let records = list_task_trigger_job_records(state, user_id, &record.trigger_id).await?;
     let previous_run_id = record.last_run_id.clone();
     let previous_run_status = record.last_run_status.clone();
     let latest = records.first();
-    if apply_latest_run_to_schedule(record, latest) {
+    if apply_latest_run_to_task_trigger(record, latest) {
         if let Some(run) = latest {
             append_task_trigger_terminal_event_if_needed(
                 state,
@@ -712,7 +476,7 @@ async fn reconcile_schedule_record(
             .await?;
         }
         record.updated_at = iso(OffsetDateTime::now_utc());
-        persist_schedule_record(state, user_id, record).await?;
+        persist_task_trigger_record(state, user_id, record).await?;
     }
     Ok(())
 }
@@ -720,7 +484,7 @@ async fn reconcile_schedule_record(
 async fn append_task_trigger_run_event(
     state: &AppState,
     user_id: &str,
-    record: &ScheduleRecord,
+    record: &TaskTriggerRecord,
     event_type: &str,
     run: &AgentRunInfo,
     trigger: &str,
@@ -734,7 +498,7 @@ async fn append_task_trigger_run_event(
         task_id,
         event_type,
         json!({
-            "schedule_id": record.schedule_id,
+            "trigger_id": record.trigger_id,
             "task_action_id": record.task_action_id,
             "run_id": run.job_id,
             "status": run.status,
@@ -747,7 +511,7 @@ async fn append_task_trigger_run_event(
 async fn append_task_trigger_terminal_event_if_needed(
     state: &AppState,
     user_id: &str,
-    record: &ScheduleRecord,
+    record: &TaskTriggerRecord,
     run: &AgentRunInfo,
     previous_run_id: Option<&str>,
     previous_run_status: Option<&str>,
@@ -762,7 +526,7 @@ async fn append_task_trigger_terminal_event_if_needed(
     }
     let trigger = run
         .metadata
-        .get("schedule_trigger")
+        .get("task_trigger_reason")
         .and_then(Value::as_str)
         .unwrap_or("scheduled");
     append_task_trigger_run_event(state, user_id, record, event_type, run, trigger).await?;
@@ -780,10 +544,18 @@ fn task_trigger_terminal_event_type(status: &str) -> Option<&'static str> {
 async fn append_task_trigger_session_update_if_needed(
     state: &AppState,
     user_id: &str,
-    record: &ScheduleRecord,
+    record: &TaskTriggerRecord,
     run: &AgentRunInfo,
 ) -> Result<(), ApiError> {
     if run.status != "completed" {
+        return Ok(());
+    }
+    if run
+        .metadata
+        .get("session_id")
+        .and_then(Value::as_str)
+        .is_some()
+    {
         return Ok(());
     }
     let Some(task_id) = record.task_id.as_deref() else {
@@ -802,7 +574,7 @@ async fn append_task_trigger_session_update_if_needed(
     let Some(mut session) = state.sessions.load(user_id, &session_id).await? else {
         return Ok(());
     };
-    let output_text = read_schedule_run_output(run).await;
+    let output_text = read_task_trigger_run_output(run).await;
     let result_summary = sanitize_user_visible_text(state, user_id, &output_text);
     if result_summary.trim().is_empty() {
         return Ok(());
@@ -818,7 +590,7 @@ async fn append_task_trigger_session_update_if_needed(
     Ok(())
 }
 
-async fn read_schedule_run_output(run: &AgentRunInfo) -> String {
+async fn read_task_trigger_run_output(run: &AgentRunInfo) -> String {
     if let Some(output_file) = run.output_file.as_deref() {
         if let Ok(text) = tokio::fs::read_to_string(output_file).await {
             return text;
@@ -827,14 +599,14 @@ async fn read_schedule_run_output(run: &AgentRunInfo) -> String {
     run.stdout_tail.clone()
 }
 
-async fn list_schedule_job_records(
+async fn list_task_trigger_job_records(
     state: &AppState,
     user_id: &str,
-    schedule_id: &str,
+    trigger_id: &str,
 ) -> Result<Vec<AgentRunInfo>, ApiError> {
     let mut out = state
         .storage
-        .list_jobs_for_schedule(user_id, schedule_id)
+        .list_jobs_for_task_trigger(user_id, trigger_id)
         .await?
         .into_iter()
         .filter_map(|value| agent_run_info_from_record(&value))
@@ -889,8 +661,8 @@ fn record_string(record: &Value, key: &str) -> String {
         .to_string()
 }
 
-fn apply_latest_run_to_schedule(
-    record: &mut ScheduleRecord,
+fn apply_latest_run_to_task_trigger(
+    record: &mut TaskTriggerRecord,
     latest: Option<&AgentRunInfo>,
 ) -> bool {
     let before = record.clone();
@@ -920,7 +692,11 @@ fn apply_latest_run_to_schedule(
             let summary = run_failure_summary(run);
             record.last_error = Some(summary.clone());
             record.failure_reason = Some(summary);
-            if run.metadata.get("schedule_trigger").and_then(Value::as_str) == Some("scheduled")
+            if run
+                .metadata
+                .get("task_trigger_reason")
+                .and_then(Value::as_str)
+                == Some("scheduled")
                 && record.failure_policy == "pause"
             {
                 record.enabled = false;
@@ -932,37 +708,6 @@ fn apply_latest_run_to_schedule(
     }
 
     *record != before
-}
-
-async fn remove_run_files(
-    state: &AppState,
-    user_id: &str,
-    run: &AgentRunInfo,
-) -> Result<(), ApiError> {
-    let sandbox_dir = state.sandboxes.sandbox_dir(user_id)?;
-    let sandbox_dir = sandbox_dir.canonicalize().map_err(ApiError::from)?;
-    for path in [run.output_file.as_deref(), run.events_file.as_deref()]
-        .into_iter()
-        .flatten()
-    {
-        remove_sandbox_file(&sandbox_dir, path).await?;
-    }
-    Ok(())
-}
-
-async fn remove_sandbox_file(sandbox_dir: &FsPath, path: &str) -> Result<(), ApiError> {
-    let path = FsPath::new(path);
-    let Ok(resolved) = path.canonicalize() else {
-        return Ok(());
-    };
-    if !resolved.starts_with(sandbox_dir) || !resolved.is_file() {
-        return Ok(());
-    }
-    match tokio::fs::remove_file(&resolved).await {
-        Ok(()) => Ok(()),
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(err) => Err(ApiError::from(err)),
-    }
 }
 
 fn run_timestamp(run: &AgentRunInfo) -> String {
@@ -987,28 +732,6 @@ fn run_failure_summary(run: &AgentRunInfo) -> String {
         })
         .map(str::to_string)
         .unwrap_or_else(|| format!("Run {}", run.status))
-}
-
-fn resolve_schedule_run_model(
-    config: &crate::config::AppConfig,
-    record: &ScheduleRecord,
-) -> (String, Option<String>) {
-    config.resolve_model(record.model.as_deref())
-}
-
-fn nullable_field<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-    T: Deserialize<'de>,
-{
-    let value = Value::deserialize(deserializer)?;
-    if value.is_null() {
-        return Ok(Some(None));
-    }
-    T::deserialize(value)
-        .map(Some)
-        .map(Some)
-        .map_err(DeError::custom)
 }
 
 fn clean_required(value: &str, field: &str) -> Result<String, ApiError> {
@@ -1040,7 +763,7 @@ fn normalize_interval(kind: &str, value: Option<u64>) -> Result<Option<u64>, Api
     if kind == "interval" {
         let Some(value) = value else {
             return Err(ApiError::bad_request(
-                "interval_seconds is required for interval schedules",
+                "interval_seconds is required for interval task triggers",
             ));
         };
         Ok(Some(value.max(1)))
@@ -1052,7 +775,7 @@ fn normalize_interval(kind: &str, value: Option<u64>) -> Result<Option<u64>, Api
 fn normalize_max_runs(kind: &str, value: Option<u64>) -> Result<Option<u64>, ApiError> {
     if kind != "interval" && value.is_some() {
         return Err(ApiError::bad_request(
-            "max_runs is only supported for interval schedules",
+            "max_runs is only supported for interval task triggers",
         ));
     }
     Ok(value.map(|value| value.max(1)))
@@ -1088,7 +811,7 @@ fn normalize_failure_policy(value: &str) -> Result<&'static str, ApiError> {
     }
 }
 
-fn validate_schedule_cwd(workspace_root: &FsPath, cwd: Option<&str>) -> Result<(), ApiError> {
+fn validate_task_trigger_cwd(workspace_root: &FsPath, cwd: Option<&str>) -> Result<(), ApiError> {
     resolve_workspace_cwd(cwd, workspace_root)
         .map(|_| ())
         .map_err(|err| ApiError::bad_request(err.to_string()))
@@ -1115,13 +838,13 @@ fn compute_initial_next_run_at(
     if kind == "once" {
         let Some(run_at) = run_at else {
             return Err(ApiError::bad_request(
-                "run_at is required for once schedules",
+                "run_at is required for one-shot task triggers",
             ));
         };
         return Ok(Some(iso(parse_datetime(run_at)?)));
     }
     let interval_seconds = interval_seconds.ok_or_else(|| {
-        ApiError::bad_request("interval_seconds is required for interval schedules")
+        ApiError::bad_request("interval_seconds is required for interval task triggers")
     })?;
     let mut next = match run_at {
         Some(run_at) => parse_datetime(run_at)?,
@@ -1134,7 +857,7 @@ fn compute_initial_next_run_at(
 }
 
 fn advance_next_run_at(
-    record: &ScheduleRecord,
+    record: &TaskTriggerRecord,
     now: OffsetDateTime,
 ) -> Result<Option<String>, ApiError> {
     if record.kind != "interval" {
@@ -1193,7 +916,7 @@ fn has_datetime_offset(value: &str) -> bool {
 }
 
 fn should_skip_missed_run(
-    record: &ScheduleRecord,
+    record: &TaskTriggerRecord,
     next_run_at: OffsetDateTime,
     now: OffsetDateTime,
     poll_interval_seconds: u64,
@@ -1205,7 +928,7 @@ fn should_skip_missed_run(
     next_run_at + tolerance < now
 }
 
-fn schedule_limit_reached(record: &ScheduleRecord) -> bool {
+fn task_trigger_limit_reached(record: &TaskTriggerRecord) -> bool {
     record.kind == "interval"
         && record
             .max_runs
@@ -1249,14 +972,10 @@ fn default_failure_policy() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{
-        AppConfig, CodexConfig, CorsConfig, FeishuConfig, GogcliOAuthConfig, LoggingConfig,
-        ModelPreset, SandboxConfig, SecurityConfig, SkillsConfig, UserAuthConfig,
-    };
 
-    fn schedule_record() -> ScheduleRecord {
-        ScheduleRecord {
-            schedule_id: "sch-test".to_string(),
+    fn task_trigger_record() -> TaskTriggerRecord {
+        TaskTriggerRecord {
+            trigger_id: "trg-test".to_string(),
             user_id: "alice".to_string(),
             title: "Daily report".to_string(),
             prompt: "Write a report".to_string(),
@@ -1290,87 +1009,6 @@ mod tests {
         }
     }
 
-    fn test_config_with_model_preset() -> AppConfig {
-        let root = std::env::temp_dir().join("ripple-schedule-model-test");
-        let mut model_presets = BTreeMap::new();
-        model_presets.insert(
-            "codex-medium".to_string(),
-            ModelPreset {
-                model: "gpt-5.5".to_string(),
-                reasoning_effort: Some("medium".to_string()),
-            },
-        );
-        AppConfig {
-            repo_root: root.clone(),
-            host: "127.0.0.1".to_string(),
-            port: 0,
-            api_keys: vec!["test-key".to_string()],
-            security: SecurityConfig::default(),
-            user_auth: UserAuthConfig::default(),
-            api_docs: crate::config::ApiDocsConfig::default(),
-            cors: CorsConfig::default(),
-            default_model: "codex-medium".to_string(),
-            model_presets,
-            logging: LoggingConfig {
-                level: "debug".to_string(),
-            },
-            sandbox: SandboxConfig {
-                sandboxes_root: root.join("sandboxes"),
-                workspaces_root: None,
-                caches_root: root.join("cache"),
-                idle_suspend_seconds: 1800,
-                retention_seconds: 604_800,
-                max_workspace_mb: 2048,
-                tmpfs_size_mb: 64,
-                nsjail_path: "nsjail".to_string(),
-                python_envs_root: root.join("cache/python-envs"),
-                python_env_uv_cache: root.join("cache/uv-cache"),
-                python_env_max_packages: 20,
-                uv_bin_dir: None,
-                node_dir: None,
-                lark_cli_install_root: None,
-                notion_cli_install_root: None,
-                gogcli_cli_install_root: None,
-                cli_tools: Vec::new(),
-                pypi_mirror_url: None,
-                npm_registry_url: None,
-            },
-            codex: CodexConfig {
-                enabled: true,
-                codex_executable: "codex".to_string(),
-                app_server_args: Vec::new(),
-                codex_home: None,
-                approval_policy: "never".to_string(),
-                sandbox_type: "workspace-write".to_string(),
-                network_access: true,
-                idle_timeout_seconds: 1800,
-                max_workers_per_pool: 8,
-                max_total_pool_workers: 256,
-                max_runtime_seconds: 3600,
-            },
-            schedule_extraction_max_runtime_seconds: 120,
-            schedule_poll_interval_seconds: 15,
-            document_preview: crate::config::DocumentPreviewConfig {
-                cache_root: root.join("cache/previews"),
-                libreoffice_path: "soffice".to_string(),
-                max_source_bytes: 64 * 1024 * 1024,
-                conversion_timeout_seconds: 120,
-            },
-            skills: SkillsConfig {
-                shared_dirs: Vec::new(),
-            },
-            public_base_url: None,
-            feishu: FeishuConfig::default(),
-            gogcli_oauth: GogcliOAuthConfig {
-                auto_register_client: true,
-                auto_from_request: true,
-                callback_url: None,
-                client_secret_json: None,
-                client: None,
-            },
-        }
-    }
-
     fn run_info(status: &str, trigger: &str) -> AgentRunInfo {
         AgentRunInfo {
             job_id: format!("agent-{status}-{trigger}"),
@@ -1392,29 +1030,18 @@ mod tests {
             error: None,
             pending_approval: None,
             metadata: json!({
-                "schedule_id": "sch-test",
-                "schedule_trigger": trigger
+                "trigger_id": "trg-test",
+                "task_trigger_reason": trigger
             }),
         }
     }
 
     #[test]
-    fn schedule_without_explicit_model_uses_resolved_default_preset() {
-        let record = schedule_record();
-        let config = test_config_with_model_preset();
-
-        let (model, effort) = resolve_schedule_run_model(&config, &record);
-
-        assert_eq!(model, "gpt-5.5");
-        assert_eq!(effort.as_deref(), Some("medium"));
-    }
-
-    #[test]
-    fn apply_latest_completed_run_clears_schedule_error() {
-        let mut record = schedule_record();
+    fn apply_latest_completed_run_clears_task_trigger_error() {
+        let mut record = task_trigger_record();
         let run = run_info("completed", "scheduled");
 
-        assert!(apply_latest_run_to_schedule(&mut record, Some(&run)));
+        assert!(apply_latest_run_to_task_trigger(&mut record, Some(&run)));
 
         assert_eq!(
             record.last_run_id.as_deref(),
@@ -1429,11 +1056,11 @@ mod tests {
     }
 
     #[test]
-    fn apply_latest_failed_scheduled_run_pauses_schedule() {
-        let mut record = schedule_record();
+    fn apply_latest_failed_scheduled_run_pauses_task_trigger() {
+        let mut record = task_trigger_record();
         let run = run_info("failed", "scheduled");
 
-        assert!(apply_latest_run_to_schedule(&mut record, Some(&run)));
+        assert!(apply_latest_run_to_task_trigger(&mut record, Some(&run)));
 
         assert_eq!(record.last_run_status.as_deref(), Some("failed"));
         assert_eq!(record.last_error.as_deref(), Some("stderr failure"));
@@ -1444,11 +1071,11 @@ mod tests {
     }
 
     #[test]
-    fn apply_latest_failed_manual_run_does_not_pause_schedule() {
-        let mut record = schedule_record();
+    fn apply_latest_failed_manual_run_does_not_pause_task_trigger() {
+        let mut record = task_trigger_record();
         let run = run_info("failed", "manual");
 
-        assert!(apply_latest_run_to_schedule(&mut record, Some(&run)));
+        assert!(apply_latest_run_to_task_trigger(&mut record, Some(&run)));
 
         assert_eq!(record.last_run_status.as_deref(), Some("failed"));
         assert_eq!(record.last_error.as_deref(), Some("stderr failure"));
@@ -1458,11 +1085,11 @@ mod tests {
     }
 
     #[test]
-    fn apply_latest_running_run_updates_status_without_erroring_schedule() {
-        let mut record = schedule_record();
+    fn apply_latest_running_run_updates_status_without_erroring_task_trigger() {
+        let mut record = task_trigger_record();
         let run = run_info("running", "scheduled");
 
-        assert!(apply_latest_run_to_schedule(&mut record, Some(&run)));
+        assert!(apply_latest_run_to_task_trigger(&mut record, Some(&run)));
 
         assert_eq!(record.last_run_status.as_deref(), Some("running"));
         assert_eq!(record.last_error, None);
@@ -1472,8 +1099,8 @@ mod tests {
     }
 
     #[test]
-    fn apply_latest_without_run_preserves_schedule_level_error() {
-        let mut record = schedule_record();
+    fn apply_latest_without_run_preserves_task_trigger_level_error() {
+        let mut record = task_trigger_record();
         record.status = "error".to_string();
         record.last_run_id = None;
         record.last_run_at = None;
@@ -1481,7 +1108,7 @@ mod tests {
         record.last_error = Some("cwd must stay inside the user workspace".to_string());
         record.failure_reason = record.last_error.clone();
 
-        assert!(!apply_latest_run_to_schedule(&mut record, None));
+        assert!(!apply_latest_run_to_task_trigger(&mut record, None));
 
         assert_eq!(record.status, "error");
         assert_eq!(

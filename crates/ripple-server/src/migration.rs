@@ -11,7 +11,6 @@ use crate::storage::Storage;
 pub struct MigrationReport {
     pub sessions_imported: usize,
     pub jobs_imported: usize,
-    pub schedules_imported: usize,
     pub documents_imported: usize,
     pub skipped: usize,
     pub errors: Vec<String>,
@@ -22,7 +21,6 @@ impl MigrationReport {
         println!("SQLite migration completed");
         println!("sessions_imported={}", self.sessions_imported);
         println!("jobs_imported={}", self.jobs_imported);
-        println!("schedules_imported={}", self.schedules_imported);
         println!("documents_imported={}", self.documents_imported);
         println!("skipped={}", self.skipped);
         if !self.errors.is_empty() {
@@ -78,13 +76,6 @@ async fn migrate_user_sandbox(
     )
     .await;
     migrate_session_job_roots(storage, &sandbox_dir.join("sessions"), report).await;
-    migrate_schedules(
-        storage,
-        user_id,
-        &sandbox_dir.join("schedules/schedules.json"),
-        report,
-    )
-    .await;
     migrate_documents(
         storage,
         user_id,
@@ -195,28 +186,6 @@ async fn migrate_session_job_roots(
     };
     while let Ok(Some(session)) = sessions.next_entry().await {
         migrate_job_root(storage, &session.path().join("external-agents"), report).await;
-    }
-}
-
-async fn migrate_schedules(
-    storage: &Storage,
-    user_id: &str,
-    path: &Path,
-    report: &mut MigrationReport,
-) {
-    let Some(value) = read_json_value(path, report).await else {
-        return;
-    };
-    let records = value
-        .get("schedules")
-        .and_then(Value::as_object)
-        .map(|schedules| schedules.values().cloned().collect::<Vec<_>>())
-        .unwrap_or_default();
-    let count = records.len();
-    if storage.replace_schedules(user_id, &records).await.is_ok() {
-        report.schedules_imported += count;
-    } else {
-        report.errors.push(path.display().to_string());
     }
 }
 

@@ -4,30 +4,34 @@ use sqlx::Row;
 use super::{json_from_text, json_text, record_str, Storage};
 
 impl Storage {
-    pub async fn replace_schedules(&self, user_id: &str, records: &[Value]) -> anyhow::Result<()> {
+    pub async fn replace_task_triggers(
+        &self,
+        user_id: &str,
+        records: &[Value],
+    ) -> anyhow::Result<()> {
         self.initialize().await?;
         let mut tx = self.pool.begin().await?;
-        sqlx::query("DELETE FROM schedules WHERE user_id = ?")
+        sqlx::query("DELETE FROM task_triggers WHERE user_id = ?")
             .bind(user_id)
             .execute(&mut *tx)
             .await?;
         for record in records {
-            insert_schedule_record(&mut tx, user_id, record).await?;
+            insert_task_trigger_record(&mut tx, user_id, record).await?;
         }
         tx.commit().await?;
         Ok(())
     }
 
-    pub async fn upsert_schedule(&self, user_id: &str, record: &Value) -> anyhow::Result<()> {
+    pub async fn upsert_task_trigger(&self, user_id: &str, record: &Value) -> anyhow::Result<()> {
         self.initialize().await?;
-        let Some(schedule_id) = record.get("schedule_id").and_then(Value::as_str) else {
-            anyhow::bail!("schedule record missing schedule_id");
+        let Some(trigger_id) = record.get("trigger_id").and_then(Value::as_str) else {
+            anyhow::bail!("task trigger record missing trigger_id");
         };
         sqlx::query(
             r#"
-            INSERT INTO schedules (user_id, schedule_id, status, next_run_at, updated_at, record_json)
+            INSERT INTO task_triggers (user_id, trigger_id, status, next_run_at, updated_at, record_json)
             VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(user_id, schedule_id) DO UPDATE SET
+            ON CONFLICT(user_id, trigger_id) DO UPDATE SET
                 status = excluded.status,
                 next_run_at = excluded.next_run_at,
                 updated_at = excluded.updated_at,
@@ -35,7 +39,7 @@ impl Storage {
             "#,
         )
         .bind(user_id)
-        .bind(schedule_id)
+        .bind(trigger_id)
         .bind(record_str(record, "status"))
         .bind(record.get("next_run_at").and_then(Value::as_str))
         .bind(record_str(record, "updated_at"))
@@ -45,20 +49,24 @@ impl Storage {
         Ok(())
     }
 
-    pub async fn delete_schedule(&self, user_id: &str, schedule_id: &str) -> anyhow::Result<bool> {
+    pub async fn delete_task_trigger(
+        &self,
+        user_id: &str,
+        trigger_id: &str,
+    ) -> anyhow::Result<bool> {
         self.initialize().await?;
-        let result = sqlx::query("DELETE FROM schedules WHERE user_id = ? AND schedule_id = ?")
+        let result = sqlx::query("DELETE FROM task_triggers WHERE user_id = ? AND trigger_id = ?")
             .bind(user_id)
-            .bind(schedule_id)
+            .bind(trigger_id)
             .execute(&self.pool)
             .await?;
         Ok(result.rows_affected() > 0)
     }
 
-    pub async fn list_schedules(&self, user_id: &str) -> anyhow::Result<Vec<Value>> {
+    pub async fn list_task_triggers(&self, user_id: &str) -> anyhow::Result<Vec<Value>> {
         self.initialize().await?;
         let rows = sqlx::query(
-            "SELECT record_json FROM schedules WHERE user_id = ? ORDER BY next_run_at ASC, updated_at DESC",
+            "SELECT record_json FROM task_triggers WHERE user_id = ? ORDER BY next_run_at ASC, updated_at DESC",
         )
         .bind(user_id)
         .fetch_all(&self.pool)
@@ -68,9 +76,9 @@ impl Storage {
             .collect()
     }
 
-    pub async fn list_schedule_user_ids(&self) -> anyhow::Result<Vec<String>> {
+    pub async fn list_task_trigger_user_ids(&self) -> anyhow::Result<Vec<String>> {
         self.initialize().await?;
-        let rows = sqlx::query("SELECT DISTINCT user_id FROM schedules ORDER BY user_id ASC")
+        let rows = sqlx::query("SELECT DISTINCT user_id FROM task_triggers ORDER BY user_id ASC")
             .fetch_all(&self.pool)
             .await?;
         Ok(rows
@@ -80,22 +88,22 @@ impl Storage {
     }
 }
 
-async fn insert_schedule_record(
+async fn insert_task_trigger_record(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     user_id: &str,
     record: &Value,
 ) -> anyhow::Result<()> {
-    let Some(schedule_id) = record.get("schedule_id").and_then(Value::as_str) else {
-        anyhow::bail!("schedule record missing schedule_id");
+    let Some(trigger_id) = record.get("trigger_id").and_then(Value::as_str) else {
+        anyhow::bail!("task trigger record missing trigger_id");
     };
     sqlx::query(
         r#"
-        INSERT INTO schedules (user_id, schedule_id, status, next_run_at, updated_at, record_json)
+        INSERT INTO task_triggers (user_id, trigger_id, status, next_run_at, updated_at, record_json)
         VALUES (?, ?, ?, ?, ?, ?)
         "#,
     )
     .bind(user_id)
-    .bind(schedule_id)
+    .bind(trigger_id)
     .bind(record_str(record, "status"))
     .bind(record.get("next_run_at").and_then(Value::as_str))
     .bind(record_str(record, "updated_at"))

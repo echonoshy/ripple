@@ -360,8 +360,8 @@ export interface WorkspaceUploadResponse {
   entries: WorkspaceEntry[];
 }
 
-export type ScheduleKind = "once" | "interval";
-export type ScheduleStatus = "active" | "paused" | "completed" | "error" | string;
+export type TimeTriggerKind = "once" | "interval";
+export type TaskTriggerStatus = "active" | "paused" | "completed" | "error" | string;
 export type MissedRunPolicy = "run_once" | "skip" | string;
 export type OverlapPolicy = "skip" | "allow" | string;
 export type FailurePolicy = "pause" | "keep_active" | string;
@@ -385,17 +385,18 @@ export interface AgentRunInfo {
   pending_approval?: Record<string, unknown> | null;
 }
 
-export interface ScheduleInfo {
-  schedule_id: string;
+export interface TaskTriggerInfo {
+  trigger_id: string;
+  trigger_type: "time" | string;
   user_id: string;
   title: string;
   prompt: string;
-  kind: ScheduleKind;
+  kind: TimeTriggerKind;
   timezone: string;
   run_at: string | null;
   interval_seconds: number | null;
   enabled: boolean;
-  status: ScheduleStatus;
+  status: TaskTriggerStatus;
   next_run_at: string | null;
   last_run_at: string | null;
   last_run_id: string | null;

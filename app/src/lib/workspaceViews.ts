@@ -5,7 +5,6 @@ export type WorkspaceView =
   | "home"
   | "sessions"
   | "tasks"
-  | "automations"
   | "files"
   | "skills"
   | "connectors";

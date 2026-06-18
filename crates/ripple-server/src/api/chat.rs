@@ -60,8 +60,8 @@ use media::{decode_base64_image_payload, workspace_path_or_none};
 use project_context::collect_folder_context;
 pub(crate) use prompt::{build_codex_chat_base_instructions, build_codex_chat_turn_context};
 #[cfg(test)]
-use recent_context::recent_automations_context_from_schedules;
-use recent_context::{recent_automations_context, recent_display_context};
+use recent_context::recent_task_triggers_context_from_records;
+use recent_context::{recent_display_context, recent_task_triggers_context};
 use session_actions::handle_session_control_action;
 use title::spawn_session_title_generation;
 use wire::{
@@ -378,7 +378,8 @@ pub async fn chat_completions(
 async fn create_codex_chat_run(args: &CodexChatStart) -> Result<AgentRunInfo, ApiError> {
     let skill_options = catalog_skill_manifest_options_for_user(&args.state, &args.user_id).await?;
     let recent_display_context = recent_display_context(&args.session.messages);
-    let recent_automations_context = recent_automations_context(&args.state, &args.user_id).await?;
+    let recent_task_triggers_context =
+        recent_task_triggers_context(&args.state, &args.user_id).await?;
     let base_instructions = build_codex_chat_base_instructions();
     let turn_context = build_codex_chat_turn_context(
         &args.state,
@@ -388,7 +389,7 @@ async fn create_codex_chat_run(args: &CodexChatStart) -> Result<AgentRunInfo, Ap
         args.session.context_folder_path.as_deref(),
         args.folder_context_evidence.as_deref(),
         recent_display_context.as_deref(),
-        recent_automations_context.as_deref(),
+        recent_task_triggers_context.as_deref(),
         &skill_options,
         &args.attachment_items,
         args.caller_system_prompt.as_deref(),
@@ -412,9 +413,9 @@ async fn create_codex_chat_run(args: &CodexChatStart) -> Result<AgentRunInfo, Ap
         summary: args.request.summary.clone(),
         output_schema: args.request.output_schema.clone(),
         max_runtime_seconds: args.state.config.codex.max_runtime_seconds,
-        schedule_id: None,
-        schedule_title: None,
-        schedule_trigger: None,
+        task_trigger_id: None,
+        task_trigger_title: None,
+        task_trigger_reason: None,
         codex_thread_id: args.session.codex_thread_id.clone(),
         codex_persistent_thread: !args.request.temporary,
         chat_user_input: Some(args.user_input.clone()),
@@ -1653,6 +1654,9 @@ mod tests {
         assert!(prompt.contains("instead of asking repeatedly"));
         assert!(prompt.contains("<ripple_connector_auth_request>"));
         assert!(prompt.contains("task_update"));
+        assert!(prompt.contains("Task actions may have triggers"));
+        assert!(!prompt.contains("two related control-plane concepts"));
+        assert!(!prompt.contains("automations are explicit standalone"));
         assert!(!prompt.contains("automation_update"));
         assert!(!prompt.contains("ripple_session_events"));
         assert!(!prompt.contains(
@@ -1804,9 +1808,9 @@ mod tests {
     }
 
     #[test]
-    fn recent_automations_context_is_structured_and_limited() {
-        let schedules = vec![json!({
-            "schedule_id": "sch-price",
+    fn recent_task_triggers_context_is_structured_and_limited() {
+        let records = vec![json!({
+            "trigger_id": "sch-price",
             "title": "MacBook Pro price monitor",
             "prompt": "监控二手 M4 Pro 和 M5 Pro MacBook Pro 的价格。",
             "kind": "interval",
@@ -1818,16 +1822,16 @@ mod tests {
             "updated_at": "2026-06-05T10:00:00Z"
         })];
 
-        let context = recent_automations_context_from_schedules(schedules).expect("context");
+        let context = recent_task_triggers_context_from_records(records).expect("context");
 
-        assert!(context.contains("\"schedule_id\": \"sch-price\""));
+        assert!(context.contains("\"trigger_id\": \"sch-price\""));
         assert!(context.contains("\"title\": \"MacBook Pro price monitor\""));
         assert!(context.contains("\"interval_seconds\": 604800"));
         assert!(context.contains("\"prompt\": \"监控二手 M4 Pro 和 M5 Pro MacBook Pro 的价格。\""));
     }
 
     #[tokio::test]
-    async fn codex_chat_context_includes_recent_automations_context() {
+    async fn codex_chat_context_includes_recent_task_triggers_context() {
         let root = std::env::temp_dir().join(format!("ripple-chat-test-{}", Uuid::new_v4()));
         let state = AppState::new(test_config(&root));
         let workspace_root = state
@@ -1846,7 +1850,7 @@ mod tests {
             Some(
                 r#"[
   {
-    "schedule_id": "sch-price",
+    "trigger_id": "sch-price",
     "title": "MacBook Pro price monitor",
     "prompt": "监控二手 M4 Pro 和 M5 Pro MacBook Pro 的价格。"
   }
@@ -1857,8 +1861,9 @@ mod tests {
             None,
         );
 
-        assert!(prompt.contains("## Recent Automations"));
-        assert!(prompt.contains("\"schedule_id\": \"sch-price\""));
+        assert!(prompt.contains("## Recent Task Triggers"));
+        assert!(!prompt.contains("## Recent Automations"));
+        assert!(prompt.contains("\"trigger_id\": \"sch-price\""));
         assert!(prompt.contains("监控二手 M4 Pro 和 M5 Pro MacBook Pro 的价格"));
 
         let _ = std::fs::remove_dir_all(root);

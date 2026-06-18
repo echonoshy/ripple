@@ -32,7 +32,6 @@ const navLabelKeys: Record<WorkspaceView, MessageKey> = {
   tasks: "nav.tasks",
   files: "nav.files",
   skills: "nav.skills",
-  automations: "nav.automations",
   connectors: "nav.connectors",
   home: "nav.settings",
 };

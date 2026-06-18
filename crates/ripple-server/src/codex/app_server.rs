@@ -1470,10 +1470,7 @@ fn add_base_instructions(params: &mut Value, request: &AgentRunnerRequest) {
 }
 
 fn add_task_dynamic_tools(params: &mut Value, request: &AgentRunnerRequest) {
-    if request.session_id.is_none()
-        || request.metadata.get("chat_user_input").is_none()
-        || request.metadata.get("schedule_id").is_some()
-    {
+    if request.session_id.is_none() || request.metadata.get("chat_user_input").is_none() {
         return;
     }
     if let Some(object) = params.as_object_mut() {

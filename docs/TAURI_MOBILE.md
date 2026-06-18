@@ -8,7 +8,7 @@
 
 Ripple mobile 主线采用 **Tauri 复用主 App 客户端**。
 
-- `app` 已经包含完整 App 客户端和 Tauri v2 shell，一级体验覆盖 Sessions/Chat、Tasks、Files、Skills/Connectors 和 Settings。Autos/standalone schedule 管理不再是一级导航。
+- `app` 已经包含完整 App 客户端和 Tauri v2 shell，一级体验覆盖 Sessions/Chat、Tasks、Files、Skills/Connectors 和 Settings。旧 Autos/standalone schedule 管理已移除，定时能力统一展示为 Task Trigger。
 - iOS/Android app 仍然只是 Ripple Server 客户端，不嵌入后端控制面，也不运行 agent loop、sandbox、connector CLI 或 Codex app-server。
 - 首阶段分发目标是 Android APK 真机安装、iOS 真机调试和 TestFlight。
 - 开发/内测阶段可保留设置页手填服务级 API key 和 user id；启用 `server.user_auth` 时也可走邀请制账号登录。生产 trusted-proxy 形态由可信上游服务注入 `X-Ripple-User-Id`。

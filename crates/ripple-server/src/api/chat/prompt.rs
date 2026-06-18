@@ -15,7 +15,7 @@ Ripple is the control plane: it owns user identity, sandbox isolation, connector
   <ripple_connector_auth_request>{\"connector\":\"google_workspace\",\"force_reauth\":false,\"reason\":\"needs Gmail access\"}</ripple_connector_auth_request>\n\
 - For Bilibili tasks, follow the `bilibili` CLI workflow documented by the Bilibili skills.\n\
 - For risky connector writes, ask a clear confirmation question and stop. Continue only after the user's next message explicitly approves the specific action.\n\n\
-- Ripple has two related control-plane concepts. Tasks are durable user goals, obligations, deliverables, or multi-step work items that may outlive the current chat; automations are explicit standalone or recurring scheduled jobs. Do not create cron jobs, sleep loops, background daemons, local scheduler scripts, or external scheduled jobs. Do not call Ripple HTTP APIs from Codex to create tasks or schedules; Ripple validates, stores, confirms, and triggers these control-plane records.\n\
+- Ripple uses Tasks as the durable follow-up model. Tasks capture user goals, obligations, deliverables, or multi-step work items that may outlive the current chat. Task actions may have triggers for future or recurring execution; time-based scheduling is just one task-trigger driver. Do not create cron jobs, sleep loops, background daemons, local scheduler scripts, or external scheduled jobs. Do not call Ripple HTTP APIs from Codex to create tasks or triggers; Ripple validates, stores, confirms, and triggers these control-plane records.\n\
 - When the user states a durable goal, deliverable, obligation, or multi-step work item that should be tracked beyond the immediate answer, call `codex_app.task_update` with `target=\"task\"`. Use `mode=\"propose\"` when the task is inferred, ambiguous, or should ask for user confirmation; use `mode=\"create\"` only when the user clearly asks to track/create the task. The task captures the durable objective; task actions capture concrete next steps.\n\
 - When working on a tracked task, call `codex_app.task_update` to report progress: `start_action` when beginning a task action, `complete_action` with a concise `result_summary` when done, `wait_user` when user input is needed, `block_action` when blocked, and `complete_task` when the full task is done.\n\
 - Use your own semantic judgement; do not rely on keyword matching. Clear user instructions such as reminders, waiting items, check-ins, and future next steps should become TaskActions on a Task when they need tracking.\n\n\
@@ -35,7 +35,7 @@ pub(crate) fn build_codex_chat_turn_context(
     context_folder_path: Option<&str>,
     folder_context_evidence: Option<&str>,
     recent_display_context: Option<&str>,
-    recent_automations_context: Option<&str>,
+    recent_task_triggers_context: Option<&str>,
     skill_options: &SkillManifestOptions,
     attachment_items: &[Value],
     system_prompt: Option<&str>,
@@ -85,7 +85,7 @@ pub(crate) fn build_codex_chat_turn_context(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .unwrap_or("(none)");
-    let recent_automations_context_section = recent_automations_context
+    let recent_task_triggers_context_section = recent_task_triggers_context
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .unwrap_or("(none)");
@@ -109,7 +109,7 @@ pub(crate) fn build_codex_chat_turn_context(
 - Ripple includes bounded recent display context below so control-plane-only turns and recovery paths keep local continuity.\n\n\
 ## Recent Ripple Display Context\n\
 {}\n\n\
-## Recent Automations\n\
+## Recent Task Triggers\n\
 {}\n\n\
 ## Attachments\n\
 {}\n",
@@ -119,7 +119,7 @@ pub(crate) fn build_codex_chat_turn_context(
         render_skill_manifest_with_options(&state.config, Some(workspace_root), skill_options),
         system_prompt.unwrap_or("(none)"),
         recent_display_context_section,
-        recent_automations_context_section,
+        recent_task_triggers_context_section,
         attachment_section
     )
 }

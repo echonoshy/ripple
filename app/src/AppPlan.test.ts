@@ -72,6 +72,37 @@ function testNewSessionCreationOptimisticallyUpdatesSessionList() {
   assert.match(createNewSessionBlock, /void loadSessions\(\{ showLoading: false \}\)/);
 }
 
+function testSwitchingCurrentSessionRefreshesDetails() {
+  const switchSessionBlock =
+    sessionLifecycleSource.match(
+      /const switchSession = useCallback\([\s\S]*?\n\s{2}const deleteSessionById = useCallback/
+    )?.[0] || "";
+  assert.match(
+    switchSessionBlock,
+    /const details = await fetchSessionDetails\(targetSessionId\)/
+  );
+  assert.doesNotMatch(
+    switchSessionBlock,
+    /if \(targetSessionId === sessionId\) \{\s*onSessionActivated\(\);\s*return true;\s*\}/
+  );
+  assert.match(
+    switchSessionBlock,
+    /targetSessionId === sessionId && isGenerating/,
+    "only an active generating session may skip the detail refresh"
+  );
+}
+
+function testOpeningSessionsViewRefreshesCurrentSession() {
+  const handleSelectViewBlock =
+    appSource.match(
+      /const handleSelectView = useCallback\([\s\S]*?\n\s{2}const handleReturnFromMobileFiles = useCallback/
+    )?.[0] || "";
+
+  assert.match(handleSelectViewBlock, /if \(view === "sessions"\) \{/);
+  assert.match(handleSelectViewBlock, /sessionId/);
+  assert.match(handleSelectViewBlock, /void handleSwitchSession\(sessionId\)/);
+}
+
 function testStopRefreshesSessionsAfterInterrupt() {
   const handleStopBlock =
     chatRunSource.match(
@@ -286,6 +317,8 @@ testAppDelegatesSessionLifecycle();
 testAppDelegatesChatRun();
 testNewSessionCreationDoesNotDependOnGlobalGenerationState();
 testNewSessionCreationOptimisticallyUpdatesSessionList();
+testSwitchingCurrentSessionRefreshesDetails();
+testOpeningSessionsViewRefreshesCurrentSession();
 testStopRefreshesSessionsAfterInterrupt();
 testCompactSchedulesDelayedSessionRefreshes();
 testStopTargetsOneRunningSession();

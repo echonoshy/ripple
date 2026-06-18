@@ -1,0 +1,946 @@
+use std::path::{Path as FsPath, PathBuf};
+use std::process::Stdio;
+use std::time::Duration;
+
+use axum::http::StatusCode;
+use axum::Json;
+use serde::Deserialize;
+use serde_json::{json, Map, Value};
+use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::process::Command;
+
+use super::{
+    action_response, command_tail, filter_nsjail_stderr, looks_like_url, remove_file_if_exists,
+    value_as_bool, value_as_u64,
+};
+use crate::api::ApiError;
+use crate::config::FeishuAppConfig;
+use crate::connector_runtime::PendingFeishuSetup;
+use crate::state::AppState;
+
+pub(super) async fn status(state: &AppState, user_id: &str) -> Value {
+    let (connected, detail, mut metadata) = cli_login_status(state, user_id).await;
+    if let Ok(seed_file) = state.sandboxes.credentials_dir(user_id) {
+        metadata["has_seed_credentials"] = json!(seed_file.join("feishu.json").is_file());
+    }
+    json!({
+        "name": "feishu",
+        "connected": connected,
+        "required": !connected,
+        "detail": detail,
+        "metadata": metadata
+    })
+}
+
+pub(super) async fn auth_start(
+    state: &AppState,
+    user_id: &str,
+    payload: &Value,
+) -> Result<Json<Value>, ApiError> {
+    let app_id = payload
+        .get("app_id")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim();
+    let app_secret = payload
+        .get("app_secret")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim();
+    let brand = payload
+        .get("brand")
+        .and_then(Value::as_str)
+        .unwrap_or("feishu")
+        .trim();
+    if !app_id.is_empty() || !app_secret.is_empty() {
+        if app_id.is_empty() || app_secret.is_empty() {
+            return Ok(Json(action_response(
+                "feishu",
+                false,
+                "invalid_credentials",
+                "Both app_id and app_secret are required when seeding Feishu credentials.",
+                json!({}),
+            )));
+        }
+        let path = state
+            .sandboxes
+            .credentials_dir(user_id)?
+            .join("feishu.json");
+        super::write_secret_json(
+            &path,
+            &json!({"app_id": app_id, "app_secret": app_secret, "brand": if brand.is_empty() {"feishu"} else {brand}}),
+        )
+        .await?;
+    }
+
+    let force_new_setup = value_as_bool(payload.get("force_new_setup")).unwrap_or(false);
+    let force_new_user_auth = value_as_bool(payload.get("force_new_user_auth")).unwrap_or(false);
+
+    let (ok, msg) = ensure_cli_config(state, user_id, force_new_setup).await?;
+    state.sandboxes.write_nsjail_config(user_id)?;
+    if looks_like_url(&msg) {
+        return Ok(Json(action_response(
+            "feishu",
+            true,
+            "awaiting_setup",
+            "Open the setup URL to finish Feishu configuration.",
+            json!({"setup_url": msg}),
+        )));
+    }
+    if !ok {
+        return Ok(Json(action_response(
+            "feishu",
+            false,
+            "auth_failed",
+            &msg,
+            json!({}),
+        )));
+    }
+
+    let (connected, _detail, metadata) = cli_login_status(state, user_id).await;
+    if connected && !force_new_user_auth {
+        return Ok(Json(action_response(
+            "feishu",
+            true,
+            "authorized",
+            "Feishu user authorization is already ready for this user.",
+            json!({}),
+        )));
+    }
+    if status_needs_setup(&metadata) {
+        let (ok, msg) = ensure_cli_config(state, user_id, true).await?;
+        state.sandboxes.write_nsjail_config(user_id)?;
+        if looks_like_url(&msg) {
+            return Ok(Json(action_response(
+                "feishu",
+                true,
+                "awaiting_setup",
+                "Open the setup URL to finish Feishu configuration.",
+                json!({"setup_url": msg}),
+            )));
+        }
+        if !ok {
+            return Ok(Json(action_response(
+                "feishu",
+                false,
+                "auth_failed",
+                &msg,
+                json!({}),
+            )));
+        }
+    }
+
+    let data = match start_lark_user_auth(state, user_id, true).await {
+        Ok(data) => data,
+        Err(err) => {
+            return Ok(Json(action_response(
+                "feishu",
+                false,
+                "auth_failed",
+                &err.to_string(),
+                json!({}),
+            )))
+        }
+    };
+    Ok(Json(action_response(
+        "feishu",
+        true,
+        "awaiting_user_auth",
+        "Open oauth_url in a browser, finish Feishu authorization, then complete the auth flow.",
+        data,
+    )))
+}
+
+pub(super) async fn auth_complete(
+    state: &AppState,
+    user_id: &str,
+    payload: &Value,
+) -> Result<Json<Value>, ApiError> {
+    let device_code = payload
+        .get("device_code")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim();
+    if device_code.is_empty() {
+        return Ok(Json(action_response(
+            "feishu",
+            false,
+            "invalid_request",
+            "device_code is required.",
+            json!({}),
+        )));
+    }
+    let complete_result = complete_lark_user_auth(state, user_id, device_code).await;
+    state.sandboxes.write_nsjail_config(user_id)?;
+    if complete_result.as_ref().is_ok_and(|ok| *ok) {
+        return Ok(Json(action_response(
+            "feishu",
+            true,
+            "authorized",
+            "Feishu user authorization completed for this user.",
+            json!({}),
+        )));
+    }
+
+    let msg = complete_result
+        .err()
+        .map(|err| err.to_string())
+        .unwrap_or_else(|| "Feishu user authorization is not ready yet.".to_string());
+    let (connected, status_detail, status_metadata) =
+        confirm_user_authorization(state, user_id).await;
+    if connected {
+        return Ok(Json(action_response(
+            "feishu",
+            true,
+            "authorized",
+            "Feishu user authorization completed for this user.",
+            json!({"status_detail": status_detail, "status_metadata": status_metadata}),
+        )));
+    }
+    let pending_approval = is_auth_pending_approval_message(&msg);
+    let final_confirmation = is_auth_final_confirmation_message(&msg);
+    let stage = if !pending_approval && (is_auth_pending_message(&msg) || final_confirmation) {
+        "pending"
+    } else {
+        "auth_failed"
+    };
+    Ok(Json(action_response(
+        "feishu",
+        stage == "pending",
+        stage,
+        if pending_approval {
+            "Feishu app authorization is pending administrator approval. Ask the Feishu app administrator to approve the requested permissions, then start authorization again."
+        } else if final_confirmation {
+            "Feishu authorization was confirmed in the browser, but local user status is not ready yet."
+        } else {
+            &msg
+        },
+        json!({
+            "device_code_finalized": final_confirmation,
+            "status_detail": status_detail,
+            "status_metadata": status_metadata
+        }),
+    )))
+}
+
+pub(super) async fn disconnect(state: &AppState, user_id: &str) -> Result<Json<Value>, ApiError> {
+    cancel_setup(state, user_id).await;
+    let seed = state
+        .sandboxes
+        .credentials_dir(user_id)?
+        .join("feishu.json");
+    let removed_seed = remove_file_if_exists(&seed).await?;
+    let lark_dir = state.sandboxes.workspace_dir(user_id)?.join(".lark-cli");
+    let removed_workspace_config = if lark_dir.exists() {
+        tokio::fs::remove_dir_all(&lark_dir).await?;
+        true
+    } else {
+        false
+    };
+    state.sandboxes.write_nsjail_config(user_id)?;
+    Ok(Json(action_response(
+        "feishu",
+        true,
+        "disconnected",
+        "Feishu connector state removed for this user.",
+        json!({"seed_removed": removed_seed, "workspace_config_removed": removed_workspace_config}),
+    )))
+}
+
+fn lark_binary(state: &AppState) -> Option<PathBuf> {
+    let root = state.config.sandbox.lark_cli_install_root.as_ref()?;
+    let path = root.join("current/bin/lark-cli");
+    path.is_file().then_some(path)
+}
+
+async fn run_lark(
+    state: &AppState,
+    user_id: &str,
+    _lark: &FsPath,
+    args: &[&str],
+    stdin: Option<&str>,
+    timeout_seconds: u64,
+) -> Result<std::process::Output, ApiError> {
+    let argv = state.sandboxes.nsjail_exec_argv(
+        user_id,
+        state.sandboxes.lark_cli_sandbox_binary(),
+        args,
+    )?;
+    let mut command = Command::new(&argv[0]);
+    command
+        .args(&argv[1..])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    if stdin.is_some() {
+        command.stdin(Stdio::piped());
+    }
+    let mut child = command.spawn()?;
+    if let Some(stdin_text) = stdin {
+        use tokio::io::AsyncWriteExt;
+        if let Some(mut child_stdin) = child.stdin.take() {
+            child_stdin.write_all(stdin_text.as_bytes()).await?;
+        }
+    }
+    tokio::time::timeout(
+        Duration::from_secs(timeout_seconds),
+        child.wait_with_output(),
+    )
+    .await
+    .map_err(|_| ApiError::new(StatusCode::GATEWAY_TIMEOUT, "lark-cli command timed out"))?
+    .map(filter_nsjail_stderr)
+    .map_err(ApiError::from)
+}
+
+async fn cli_login_status(state: &AppState, user_id: &str) -> (bool, String, Value) {
+    let Some(lark) = lark_binary(state) else {
+        return (
+            false,
+            "lark-cli is not installed for this server.".to_string(),
+            json!({"has_app_config": false}),
+        );
+    };
+    let has_app_config = state
+        .sandboxes
+        .workspace_dir(user_id)
+        .map(|workspace| workspace.join(".lark-cli/config.json").is_file())
+        .unwrap_or(false);
+    if !has_app_config {
+        return (
+            false,
+            "Feishu CLI app configuration is missing for this user.".to_string(),
+            json!({"has_app_config": false}),
+        );
+    }
+
+    let mut metadata = Map::new();
+    metadata.insert("has_app_config".to_string(), json!(true));
+    match run_lark(state, user_id, &lark, &["doctor"], None, 15).await {
+        Ok(output) => {
+            let doctor_output = String::from_utf8_lossy(&output.stdout).to_string()
+                + "\n"
+                + &String::from_utf8_lossy(&output.stderr);
+            if let Some(parsed) = first_json_object(&doctor_output) {
+                if let Some(checks) = parsed.get("checks").and_then(Value::as_array) {
+                    let mut check_status = Map::new();
+                    let mut check_messages = Map::new();
+                    for check in checks {
+                        let Some(name) = check.get("name").and_then(Value::as_str) else {
+                            continue;
+                        };
+                        if let Some(status) = check.get("status").and_then(Value::as_str) {
+                            check_status.insert(name.to_string(), json!(status));
+                        }
+                        if let Some(message) = check.get("message").and_then(Value::as_str) {
+                            check_messages.insert(name.to_string(), json!(message));
+                        }
+                    }
+                    for name in ["config_file", "app_resolved", "token_exists"] {
+                        if let Some(status) = check_status.get(name).and_then(Value::as_str) {
+                            if status != "pass" {
+                                let detail = check_messages
+                                    .get(name)
+                                    .and_then(Value::as_str)
+                                    .unwrap_or(match name {
+                                        "config_file" => "Feishu CLI app configuration is missing.",
+                                        "app_resolved" => {
+                                            "Feishu CLI app configuration is invalid."
+                                        }
+                                        _ => "Feishu user authorization is missing.",
+                                    });
+                                metadata.insert(
+                                    "doctor_checks".to_string(),
+                                    Value::Object(check_status),
+                                );
+                                return (false, detail.to_string(), Value::Object(metadata));
+                            }
+                        }
+                    }
+                    metadata.insert("doctor_checks".to_string(), Value::Object(check_status));
+                }
+            }
+        }
+        Err(err) => {
+            metadata.insert("doctor_error".to_string(), json!(format!("{err:?}")));
+        }
+    }
+
+    let output = match run_lark(state, user_id, &lark, &["auth", "status"], None, 10).await {
+        Ok(output) => output,
+        Err(err) => {
+            return (
+                false,
+                format!("Feishu auth status check failed: {err:?}"),
+                Value::Object(metadata),
+            )
+        }
+    };
+    let text = String::from_utf8_lossy(&output.stdout).to_string()
+        + "\n"
+        + &String::from_utf8_lossy(&output.stderr);
+    if let Some(parsed) = first_json_object(&text) {
+        let mut has_user_auth_evidence = false;
+        for (source, target) in [
+            ("identity", "identity"),
+            ("open_id", "open_id"),
+            ("openId", "open_id"),
+            ("userOpenId", "open_id"),
+            ("tenant_key", "tenant_key"),
+            ("tenantKey", "tenant_key"),
+        ] {
+            if let Some(value) = parsed.get(source).and_then(Value::as_str) {
+                if !value.trim().is_empty() {
+                    metadata.insert(target.to_string(), json!(value));
+                    if target == "open_id"
+                        || (target == "identity" && value.trim().eq_ignore_ascii_case("user"))
+                    {
+                        has_user_auth_evidence = true;
+                    }
+                }
+            }
+        }
+        if parsed.get("ok").and_then(Value::as_bool) == Some(false) {
+            let message = parsed
+                .get("error")
+                .and_then(|error| error.get("message"))
+                .and_then(Value::as_str)
+                .unwrap_or("Feishu user authorization is missing.");
+            return (false, message.to_string(), Value::Object(metadata));
+        }
+        if has_user_auth_evidence {
+            return (
+                true,
+                "Feishu user authorization is ready.".to_string(),
+                Value::Object(metadata),
+            );
+        }
+    }
+    if output.status.success() {
+        (
+            false,
+            "Feishu user authorization status is inconclusive.".to_string(),
+            Value::Object(metadata),
+        )
+    } else {
+        (false, command_tail(&output), Value::Object(metadata))
+    }
+}
+
+async fn ensure_cli_config(
+    state: &AppState,
+    user_id: &str,
+    force_new_setup: bool,
+) -> Result<(bool, String), ApiError> {
+    if lark_binary(state).is_none() {
+        return Ok((
+            false,
+            "lark-cli is not installed. Ask an administrator to run scripts/install-feishu-cli.sh."
+                .to_string(),
+        ));
+    }
+    let lark_dir = state.sandboxes.workspace_dir(user_id)?.join(".lark-cli");
+    if force_new_setup {
+        cancel_setup(state, user_id).await;
+        if lark_dir.exists() {
+            tokio::fs::remove_dir_all(&lark_dir).await?;
+        }
+    }
+    if lark_dir.join("config.json").is_file() {
+        return Ok((true, String::new()));
+    }
+    if let Some(app) = read_app_credentials(state, user_id)? {
+        return inject_credentials(state, user_id, &app).await;
+    }
+    if let Some(result) = check_setup(state, user_id).await? {
+        return Ok(result);
+    }
+    start_setup(state, user_id).await
+}
+
+fn read_app_credentials(
+    state: &AppState,
+    user_id: &str,
+) -> Result<Option<FeishuAppConfig>, ApiError> {
+    let seed_file = state
+        .sandboxes
+        .credentials_dir(user_id)?
+        .join("feishu.json");
+    if seed_file.is_file() {
+        let value = serde_json::from_slice::<Value>(&std::fs::read(seed_file)?)
+            .map_err(|err| ApiError::bad_request(err.to_string()))?;
+        if let Some(app) = parse_app_credentials(&value) {
+            return Ok(Some(app));
+        }
+    }
+    Ok(state.config.feishu.app.clone())
+}
+
+fn parse_app_credentials(value: &Value) -> Option<FeishuAppConfig> {
+    let app_id = value.get("app_id")?.as_str()?.trim();
+    let app_secret = value.get("app_secret")?.as_str()?.trim();
+    if app_id.is_empty() || app_secret.is_empty() {
+        return None;
+    }
+    let brand = value
+        .get("brand")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("feishu");
+    Some(FeishuAppConfig {
+        app_id: app_id.to_string(),
+        app_secret: app_secret.to_string(),
+        brand: brand.to_string(),
+    })
+}
+
+async fn inject_credentials(
+    state: &AppState,
+    user_id: &str,
+    app: &FeishuAppConfig,
+) -> Result<(bool, String), ApiError> {
+    let Some(lark) = lark_binary(state) else {
+        return Ok((false, "lark-cli is not installed.".to_string()));
+    };
+    let output = run_lark(
+        state,
+        user_id,
+        &lark,
+        &[
+            "config",
+            "init",
+            "--app-id",
+            app.app_id.as_str(),
+            "--app-secret-stdin",
+            "--brand",
+            app.brand.as_str(),
+        ],
+        Some(&format!("{}\n", app.app_secret)),
+        30,
+    )
+    .await?;
+    if output.status.success() {
+        Ok((true, String::new()))
+    } else {
+        Ok((
+            false,
+            format!(
+                "lark-cli credential injection failed (exit {}): {}",
+                output.status.code().unwrap_or(-1),
+                command_tail(&output)
+            ),
+        ))
+    }
+}
+
+async fn start_setup(state: &AppState, user_id: &str) -> Result<(bool, String), ApiError> {
+    let Some(_lark) = lark_binary(state) else {
+        return Ok((false, "lark-cli is not installed.".to_string()));
+    };
+    let argv = state.sandboxes.nsjail_exec_argv(
+        user_id,
+        "/bin/bash",
+        &[
+            "-c",
+            "/opt/lark-cli/current/bin/lark-cli config init --new --force-init 2>&1",
+        ],
+    )?;
+    let mut command = Command::new(&argv[0]);
+    command
+        .args(&argv[1..])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    let mut child = command.spawn()?;
+    let Some(stdout) = child.stdout.take() else {
+        let _ = child.kill().await;
+        return Ok((false, "Unable to read lark-cli setup output.".to_string()));
+    };
+    let setup_url = extract_url_from_stdout(stdout, 30).await;
+    if setup_url.is_empty() {
+        let _ = child.kill().await;
+        let _ = child.wait().await;
+        return Ok((
+            false,
+            "Unable to extract setup URL from lark-cli config init --new output.".to_string(),
+        ));
+    }
+    state.connector_runtime.feishu_setup.lock().await.insert(
+        user_id.to_string(),
+        PendingFeishuSetup {
+            process: child,
+            url: setup_url.clone(),
+        },
+    );
+    Ok((false, setup_url))
+}
+
+async fn check_setup(state: &AppState, user_id: &str) -> Result<Option<(bool, String)>, ApiError> {
+    let config_file = state
+        .sandboxes
+        .workspace_dir(user_id)?
+        .join(".lark-cli/config.json");
+    if config_file.is_file() {
+        cancel_setup(state, user_id).await;
+        return Ok(Some((true, String::new())));
+    }
+    let mut setups = state.connector_runtime.feishu_setup.lock().await;
+    let Some(setup) = setups.get_mut(user_id) else {
+        return Ok(None);
+    };
+    if let Some(status) = setup.process.try_wait()? {
+        setups.remove(user_id);
+        if !status.success() {
+            return Ok(Some((
+                false,
+                format!(
+                    "config init --new failed (exit={})",
+                    status.code().unwrap_or(-1)
+                ),
+            )));
+        }
+        if config_file.is_file() {
+            Ok(Some((true, String::new())))
+        } else {
+            Ok(Some((
+                false,
+                "config init --new exited but did not create config.json.".to_string(),
+            )))
+        }
+    } else {
+        Ok(Some((false, setup.url.clone())))
+    }
+}
+
+pub(crate) async fn cancel_setup(state: &AppState, user_id: &str) -> bool {
+    let setup = state
+        .connector_runtime
+        .feishu_setup
+        .lock()
+        .await
+        .remove(user_id);
+    if let Some(mut setup) = setup {
+        let _ = setup.process.kill().await;
+        let _ = setup.process.wait().await;
+        true
+    } else {
+        false
+    }
+}
+
+async fn extract_url_from_stdout(
+    stdout: tokio::process::ChildStdout,
+    timeout_seconds: u64,
+) -> String {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(timeout_seconds);
+    let mut lines = BufReader::new(stdout).lines();
+    loop {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            return String::new();
+        }
+        match tokio::time::timeout(remaining.min(Duration::from_secs(5)), lines.next_line()).await {
+            Ok(Ok(Some(line))) => {
+                if let Some(url) = first_url_in_text(&line) {
+                    tokio::spawn(
+                        async move { while matches!(lines.next_line().await, Ok(Some(_))) {} },
+                    );
+                    return url;
+                }
+            }
+            Ok(Ok(None)) | Ok(Err(_)) | Err(_) => return String::new(),
+        }
+    }
+}
+
+fn first_url_in_text(text: &str) -> Option<String> {
+    text.split_whitespace()
+        .find(|part| part.starts_with("http://") || part.starts_with("https://"))
+        .map(|part| {
+            part.trim_matches(|ch: char| {
+                ch == '"' || ch == '\'' || ch == '`' || ch == ')' || ch == ']' || ch == '>'
+            })
+            .to_string()
+        })
+}
+
+async fn start_lark_user_auth(
+    state: &AppState,
+    user_id: &str,
+    force_new: bool,
+) -> anyhow::Result<Value> {
+    let Some(lark) = lark_binary(state) else {
+        anyhow::bail!("lark-cli is not installed.");
+    };
+    if force_new {
+        let output = run_lark(state, user_id, &lark, &["auth", "logout"], None, 10)
+            .await
+            .map_err(|err| anyhow::anyhow!("{err:?}"))?;
+        if !output.status.success() {
+            tracing::warn!(
+                user_id = user_id,
+                detail = command_tail(&output),
+                "lark-cli auth logout before new device flow failed"
+            );
+        }
+    }
+    let output = run_lark(
+        state,
+        user_id,
+        &lark,
+        &["auth", "login", "--no-wait", "--json", "--domain", "all"],
+        None,
+        20,
+    )
+    .await
+    .map_err(|err| anyhow::anyhow!("{err:?}"))?;
+    if !output.status.success() {
+        anyhow::bail!(
+            "lark-cli auth login --no-wait failed (exit {}): {}",
+            output.status.code().unwrap_or(-1),
+            command_tail(&output)
+        );
+    }
+    let merged = String::from_utf8_lossy(&output.stdout).to_string()
+        + "\n"
+        + &String::from_utf8_lossy(&output.stderr);
+    let parsed = first_json_object(&merged).ok_or_else(|| {
+        anyhow::anyhow!("Unable to parse lark-cli auth login --no-wait JSON output")
+    })?;
+    auth_start_payload(&parsed).ok_or_else(|| {
+        anyhow::anyhow!("lark-cli auth login --no-wait output is missing oauth_url or device_code")
+    })
+}
+
+async fn complete_lark_user_auth(
+    state: &AppState,
+    user_id: &str,
+    device_code: &str,
+) -> anyhow::Result<bool> {
+    let Some(lark) = lark_binary(state) else {
+        anyhow::bail!("lark-cli is not installed.");
+    };
+    let output = run_lark(
+        state,
+        user_id,
+        &lark,
+        &["auth", "login", "--device-code", device_code],
+        None,
+        60,
+    )
+    .await
+    .map_err(|err| anyhow::anyhow!("{err:?}"))?;
+    if output.status.success() {
+        Ok(true)
+    } else {
+        anyhow::bail!(
+            "{}",
+            command_tail(&output)
+                .trim()
+                .to_string()
+                .if_empty("lark-cli auth login --device-code failed")
+        )
+    }
+}
+
+async fn confirm_user_authorization(state: &AppState, user_id: &str) -> (bool, String, Value) {
+    let mut last_detail = "Feishu user authorization status is not ready yet.".to_string();
+    let mut last_metadata = json!({});
+    for delay_seconds in [0_u64, 1, 2] {
+        if delay_seconds > 0 {
+            tokio::time::sleep(Duration::from_secs(delay_seconds)).await;
+        }
+        let (connected, detail, metadata) = cli_login_status(state, user_id).await;
+        if connected {
+            return (true, detail, metadata);
+        }
+        last_detail = detail;
+        last_metadata = metadata;
+    }
+    (false, last_detail, last_metadata)
+}
+
+fn status_needs_setup(metadata: &Value) -> bool {
+    let Some(checks) = metadata.get("doctor_checks").and_then(Value::as_object) else {
+        return false;
+    };
+    ["config_file", "app_resolved"].into_iter().any(|name| {
+        checks
+            .get(name)
+            .and_then(Value::as_str)
+            .is_some_and(|status| status != "pass")
+    })
+}
+
+fn auth_start_payload(value: &Value) -> Option<Value> {
+    let data = value
+        .get("data")
+        .and_then(Value::as_object)
+        .cloned()
+        .map(Value::Object)
+        .unwrap_or_else(|| value.clone());
+    let oauth_url = data
+        .get("verification_url")
+        .or_else(|| data.get("verification_uri"))
+        .or_else(|| data.get("oauth_url"))
+        .or_else(|| data.get("auth_url"))
+        .or_else(|| data.get("url"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    let device_code = data
+        .get("device_code")
+        .or_else(|| data.get("deviceCode"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    let mut out = Map::new();
+    out.insert("oauth_url".to_string(), json!(oauth_url));
+    out.insert("device_code".to_string(), json!(device_code));
+    if let Some(expires) = value_as_u64(
+        data.get("expires_in_seconds")
+            .or_else(|| data.get("expires_in"))
+            .or_else(|| data.get("expiresIn")),
+    ) {
+        out.insert("expires_in_seconds".to_string(), json!(expires));
+    }
+    Some(Value::Object(out))
+}
+
+fn first_json_object(text: &str) -> Option<Value> {
+    for (index, ch) in text.char_indices() {
+        if ch != '{' {
+            continue;
+        }
+        let mut deserializer = serde_json::Deserializer::from_str(&text[index..]);
+        if let Ok(value) = Value::deserialize(&mut deserializer) {
+            if value.is_object() {
+                return Some(value);
+            }
+        }
+    }
+    None
+}
+
+fn is_auth_pending_message(message: &str) -> bool {
+    let normalized = message.to_ascii_lowercase();
+    if is_auth_pending_approval_message(&normalized) {
+        return false;
+    }
+    [
+        "pending",
+        "not yet",
+        "not completed",
+        "authorization_pending",
+        "slow_down",
+        "尚未",
+        "未完成",
+        "等待",
+    ]
+    .into_iter()
+    .any(|marker| normalized.contains(marker))
+}
+
+fn is_auth_pending_approval_message(message: &str) -> bool {
+    let normalized = message.to_ascii_lowercase();
+    normalized.contains("pending approval") || normalized.contains("管理员审批")
+}
+
+fn is_auth_final_confirmation_message(message: &str) -> bool {
+    let normalized = message.to_ascii_lowercase();
+    [
+        "本次授权请求用户最终确认后的结果",
+        "请勿持续重试",
+        "最终确认",
+        "final confirmation",
+    ]
+    .into_iter()
+    .any(|marker| normalized.contains(marker))
+}
+
+trait IfEmpty {
+    fn if_empty(self, fallback: &str) -> String;
+}
+
+impl IfEmpty for String {
+    fn if_empty(self, fallback: &str) -> String {
+        if self.is_empty() {
+            fallback.to_string()
+        } else {
+            self
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::process::Stdio;
+    use std::time::Duration;
+
+    use serde_json::json;
+    use tokio::process::Command;
+
+    use super::*;
+
+    #[test]
+    fn extracts_auth_start_payload_from_lark_output() {
+        let parsed = first_json_object(
+            "prefix {\"data\":{\"verification_uri\":\"https://accounts.feishu.cn/device\",\"deviceCode\":\"device-123\",\"expiresIn\":600}} suffix",
+        )
+        .unwrap();
+        let payload = auth_start_payload(&parsed).unwrap();
+
+        assert_eq!(
+            payload.get("oauth_url").and_then(Value::as_str),
+            Some("https://accounts.feishu.cn/device")
+        );
+        assert_eq!(
+            payload.get("device_code").and_then(Value::as_str),
+            Some("device-123")
+        );
+        assert_eq!(value_as_u64(payload.get("expires_in_seconds")), Some(600));
+    }
+
+    #[test]
+    fn pending_approval_is_not_user_auth_pending() {
+        let message = "authorization failed: Unable to authorize. The app is pending approval.";
+
+        assert!(!is_auth_pending_message(message));
+    }
+
+    #[tokio::test]
+    async fn extracting_setup_url_keeps_stdout_drained_after_url() {
+        let mut child = Command::new("/bin/bash")
+            .args([
+                "-c",
+                "printf 'https://open.feishu.cn/page/cli?user_code=abc\\n'; sleep 0.1; printf 'still alive\\n'",
+            ])
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let stdout = child.stdout.take().unwrap();
+
+        let url = extract_url_from_stdout(stdout, 5).await;
+        assert_eq!(url, "https://open.feishu.cn/page/cli?user_code=abc");
+
+        let status = tokio::time::timeout(Duration::from_secs(2), child.wait())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            status.success(),
+            "setup stdout reader closed early: {status}"
+        );
+    }
+
+    #[test]
+    fn auth_start_payload_expires_supports_json_numbers() {
+        let payload = auth_start_payload(&json!({
+            "verification_uri": "https://accounts.feishu.cn/device",
+            "device_code": "device-123",
+            "expires_in": 600
+        }))
+        .unwrap();
+
+        assert_eq!(value_as_u64(payload.get("expires_in_seconds")), Some(600));
+    }
+}

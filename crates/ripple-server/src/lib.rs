@@ -12,6 +12,7 @@ pub mod python_env;
 pub mod redaction;
 pub mod runtime_checks;
 pub mod sandbox;
+pub mod services;
 pub mod sessions;
 pub mod skills;
 pub mod state;
@@ -66,8 +67,8 @@ where
             recovered
         );
     }
-    let schedule_task = tokio::spawn(api::schedules::schedule_trigger_loop(state.clone()));
-    let task_action_task = tokio::spawn(api::tasks::task_action_trigger_loop(state.clone()));
+    let schedule_task = tokio::spawn(services::schedules::schedule_trigger_loop(state.clone()));
+    let task_action_task = tokio::spawn(services::tasks::task_action_trigger_loop(state.clone()));
     let session_maintenance_task = tokio::spawn(state.sessions.clone().maintenance_loop());
     let app = router(state)
         .layer(cors_layer(&config))

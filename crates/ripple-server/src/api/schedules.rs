@@ -499,16 +499,6 @@ pub async fn run_schedule_now(
     Ok(Json(public_run_value(&state, &user_id, &info)))
 }
 
-pub async fn schedule_trigger_loop(state: AppState) {
-    let mut interval = tokio::time::interval(std::time::Duration::from_secs(
-        state.config.schedule_poll_interval_seconds,
-    ));
-    loop {
-        interval.tick().await;
-        let _ = trigger_due_schedules(&state).await;
-    }
-}
-
 pub async fn trigger_due_schedules(
     state: &AppState,
 ) -> Result<BTreeMap<String, Vec<String>>, ApiError> {

@@ -6,15 +6,17 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::Context;
-use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use time::format_description::well_known::Rfc3339;
-use time::OffsetDateTime;
-use tokio::fs::OpenOptions;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::{mpsc, oneshot, Mutex, Notify};
 use tokio::time::timeout;
+
+mod event_log;
+mod pool;
+mod protocol;
+mod runtime_env;
+mod types;
 
 use crate::api::tasks::persist_task_update;
 use crate::codex::approvals::{approval_response_for_action, CodexApproval};
@@ -22,91 +24,27 @@ use crate::codex::permissions::{
     thread_permission_config_for_user, RIPPLE_CODEX_PERMISSION_PROFILE,
 };
 use crate::config::AppConfig;
-use crate::python_env::{ensure_ripple_py_wrapper, ripple_py_bin_dir};
-use crate::redaction::{redact_text, redact_value};
+use crate::python_env::ensure_ripple_py_wrapper;
+use crate::redaction::redact_text;
 use crate::sandbox::SandboxManager;
 use crate::storage::Storage;
-use crate::user::validate_user_id;
+use event_log::append_event;
+use pool::{pool_generation, PoolKey, PoolState, PoolWorker, IDLE_REAPER_INTERVAL_SECONDS};
+use protocol::{
+    completed_final_agent_message, is_compaction_turn_failed, is_context_compaction_completed,
+    is_turn_completed, is_unsupported_server_request, notification_thread_id, notification_turn_id,
+    parse_approval_request, record_agent_message_phase, streamable_final_delta,
+};
+use runtime_env::{
+    codex_home_for_user, codex_runtime_home_for_user, codex_sqlite_home_for_user,
+    connector_credential_env, hardened_app_server_args, inherit_env_allowlist, node_runtime_paths,
+    read_json_string_field, requires_service_codex_auth, runtime_path, INHERITED_NETWORK_ENV,
+};
+pub use types::{AgentRunnerRequest, AgentRunnerResult, AgentRunnerStatus};
 
 const TAIL_CHARS: usize = 64_000;
-const IDLE_REAPER_INTERVAL_SECONDS: u64 = 5;
 const CODEX_NATIVE_INPUT_TYPES: &[&str] = &["text", "image", "localImage"];
-const CODEX_NATIVE_HARDENING_CONFIG_OVERRIDES: &[&str] = &[
-    "include_apps_instructions=false",
-    "features.apps=false",
-    "features.plugins=false",
-    "skills.include_instructions=false",
-    "skills.bundled.enabled=false",
-];
 const THREAD_NOTIFICATION_QUEUE: &str = "__thread__";
-const INHERITED_NETWORK_ENV: &[&str] = &[
-    "HTTP_PROXY",
-    "HTTPS_PROXY",
-    "http_proxy",
-    "https_proxy",
-    "ALL_PROXY",
-    "all_proxy",
-    "NO_PROXY",
-    "no_proxy",
-    "SSL_CERT_FILE",
-    "SSL_CERT_DIR",
-    "NODE_EXTRA_CA_CERTS",
-    "CURL_CA_BUNDLE",
-    "REQUESTS_CA_BUNDLE",
-];
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AgentRunnerRequest {
-    pub provider: String,
-    pub prompt: String,
-    pub base_instructions: Option<String>,
-    pub turn_context: Option<String>,
-    pub cwd: PathBuf,
-    pub input_items: Vec<Value>,
-    pub model: Option<String>,
-    pub effort: Option<String>,
-    pub summary: Option<String>,
-    pub output_schema: Option<Value>,
-    pub max_runtime_seconds: u64,
-    pub user_id: Option<String>,
-    pub session_id: Option<String>,
-    pub metadata: Value,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-pub enum AgentRunnerStatus {
-    Queued,
-    Running,
-    Completed,
-    Failed,
-    Cancelled,
-}
-
-impl AgentRunnerStatus {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Queued => "queued",
-            Self::Running => "running",
-            Self::Completed => "completed",
-            Self::Failed => "failed",
-            Self::Cancelled => "cancelled",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AgentRunnerResult {
-    pub job_id: String,
-    pub provider: String,
-    pub status: AgentRunnerStatus,
-    pub events_file: PathBuf,
-    pub output_file: Option<PathBuf>,
-    pub exit_code: Option<i32>,
-    pub stdout_tail: String,
-    pub stderr_tail: String,
-    pub error: Option<String>,
-    pub metadata: Value,
-}
 
 #[derive(Clone)]
 struct ActiveTurn {
@@ -578,26 +516,6 @@ impl CodexAppServerSession {
             let _ = timeout(Duration::from_secs(2), child.wait()).await;
         }
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct PoolKey {
-    user_key: String,
-    workspace_root: PathBuf,
-    generation: String,
-}
-
-struct PoolWorker {
-    worker_id: u64,
-    session: Arc<CodexAppServerSession>,
-    active_job_id: Option<String>,
-    last_used_at: Instant,
-}
-
-#[derive(Default)]
-struct PoolState {
-    pools: HashMap<PoolKey, Vec<PoolWorker>>,
-    job_to_worker: HashMap<String, (PoolKey, u64)>,
 }
 
 #[derive(Clone)]
@@ -1638,84 +1556,6 @@ fn image_generation_enabled_for_request(request: &AgentRunnerRequest) -> bool {
         .unwrap_or(false)
 }
 
-fn pool_generation(config: &AppConfig) -> String {
-    [
-        config.codex.codex_executable.as_str(),
-        &config.codex.app_server_args.join("\u{1f}"),
-        config.codex.approval_policy.as_str(),
-        config.codex.sandbox_type.as_str(),
-        if config.codex.network_access {
-            "network"
-        } else {
-            "no-network"
-        },
-    ]
-    .join("\u{1e}")
-}
-
-fn codex_home_for_user(config: &AppConfig, user_id: &str) -> anyhow::Result<PathBuf> {
-    validate_user_id(user_id).map_err(anyhow::Error::msg)?;
-    Ok(config
-        .sandbox
-        .sandboxes_root
-        .join(user_id)
-        .join("codex-home"))
-}
-
-fn codex_runtime_home_for_user(config: &AppConfig, user_id: &str) -> anyhow::Result<PathBuf> {
-    validate_user_id(user_id).map_err(anyhow::Error::msg)?;
-    let codex_home = config.codex_home_path();
-    let runtime_root = codex_home
-        .parent()
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| codex_home.clone())
-        .join("codex-runtime");
-    Ok(runtime_root.join("users").join(user_id))
-}
-
-fn codex_sqlite_home_for_user(config: &AppConfig, user_id: &str) -> anyhow::Result<PathBuf> {
-    Ok(codex_runtime_home_for_user(config, user_id)?.join("sqlite"))
-}
-
-struct NodeRuntimePaths {
-    bin: PathBuf,
-    prefix: PathBuf,
-    tmp: PathBuf,
-    compile_cache: PathBuf,
-}
-
-fn node_runtime_paths(runtime_home: &Path) -> NodeRuntimePaths {
-    let node_home = runtime_home.join("node");
-    NodeRuntimePaths {
-        bin: node_home.join("bin"),
-        prefix: node_home.join("prefix"),
-        tmp: node_home.join("tmp"),
-        compile_cache: node_home.join("compile-cache"),
-    }
-}
-
-fn requires_service_codex_auth(config: &AppConfig) -> bool {
-    let executable_name = Path::new(&config.codex.codex_executable)
-        .file_name()
-        .and_then(|name| name.to_str());
-    executable_name == Some("codex")
-        || config
-            .codex
-            .app_server_args
-            .iter()
-            .any(|arg| arg == "app-server")
-}
-
-fn inherit_env_allowlist(command: &mut Command, keys: &[&str]) {
-    for key in keys {
-        if let Some(value) = std::env::var_os(key) {
-            if !value.is_empty() {
-                command.env(*key, value);
-            }
-        }
-    }
-}
-
 fn codex_input_items(request: &AgentRunnerRequest) -> Vec<Value> {
     let mut native = request
         .input_items
@@ -1734,22 +1574,6 @@ fn codex_input_items(request: &AgentRunnerRequest) -> Vec<Value> {
         native.push(json!({"type": "text", "text": request.prompt}));
     }
     native
-}
-
-fn notification_thread_id(message: &Value) -> Option<String> {
-    let params = message.get("params")?;
-    params
-        .get("threadId")
-        .or_else(|| params.get("thread_id"))
-        .and_then(Value::as_str)
-        .map(str::to_string)
-        .or_else(|| {
-            params
-                .get("thread")
-                .and_then(|thread| thread.get("id"))
-                .and_then(Value::as_str)
-                .map(str::to_string)
-        })
 }
 
 #[cfg(test)]
@@ -2172,213 +1996,6 @@ mod tests {
     }
 }
 
-fn notification_turn_id(message: &Value) -> Option<String> {
-    let params = message.get("params")?;
-    params
-        .get("turnId")
-        .or_else(|| params.get("turn_id"))
-        .and_then(Value::as_str)
-        .map(str::to_string)
-        .or_else(|| {
-            params
-                .get("turn")
-                .and_then(|turn| turn.get("id"))
-                .and_then(Value::as_str)
-                .map(str::to_string)
-        })
-}
-
-fn is_context_compaction_completed(message: &Value, thread_id: &str) -> bool {
-    if !message_thread_matches(message, thread_id) {
-        return false;
-    }
-    match message.get("method").and_then(Value::as_str) {
-        Some("thread/compacted") => true,
-        Some("item/completed") => {
-            message.pointer("/params/item/type").and_then(Value::as_str)
-                == Some("contextCompaction")
-        }
-        Some("turn/completed") => message
-            .pointer("/params/turn/status")
-            .and_then(Value::as_str)
-            .map_or(true, |status| status == "completed"),
-        _ => false,
-    }
-}
-
-fn is_compaction_turn_failed(message: &Value, thread_id: &str) -> bool {
-    message_thread_matches(message, thread_id)
-        && message.get("method").and_then(Value::as_str) == Some("turn/completed")
-        && message
-            .pointer("/params/turn/status")
-            .and_then(Value::as_str)
-            == Some("failed")
-}
-
-fn message_thread_matches(message: &Value, thread_id: &str) -> bool {
-    notification_thread_id(message).as_deref() == Some(thread_id)
-}
-
-fn parse_approval_request(
-    message: &Value,
-    job_id: &str,
-    request: &AgentRunnerRequest,
-) -> Option<Value> {
-    let method = message.get("method")?.as_str()?;
-    let action = match method {
-        "item/commandExecution/requestApproval" => "command_execution",
-        "item/fileChange/requestApproval" => "file_change",
-        "item/permissions/requestApproval" => "permissions",
-        "execCommandApproval" => "exec_command",
-        "applyPatchApproval" => "apply_patch",
-        _ => return None,
-    };
-    let request_id = message.get("id")?.clone();
-    let params = message.get("params").cloned().unwrap_or_else(|| json!({}));
-    Some(json!({
-        "source": "codex",
-        "job_id": job_id,
-        "user_id": request.user_id,
-        "session_id": request.session_id,
-        "thread_id": params.get("threadId").or_else(|| params.get("conversationId")).cloned().unwrap_or(Value::Null),
-        "turn_id": params.get("turnId").cloned().unwrap_or(Value::Null),
-        "request_id": request_id,
-        "method": method,
-        "action": action,
-        "description": approval_description(action, &params),
-        "metadata": params
-    }))
-}
-
-fn approval_description(action: &str, params: &Value) -> String {
-    if matches!(action, "command_execution" | "exec_command") {
-        if let Some(command) = params.get("command") {
-            if let Some(command) = command.as_str() {
-                return command.to_string();
-            }
-            if let Some(parts) = command.as_array() {
-                return parts
-                    .iter()
-                    .filter_map(Value::as_str)
-                    .collect::<Vec<_>>()
-                    .join(" ");
-            }
-        }
-    }
-    params
-        .get("reason")
-        .and_then(Value::as_str)
-        .unwrap_or(action)
-        .replace('_', " ")
-}
-
-fn is_unsupported_server_request(message: &Value) -> bool {
-    message.get("id").is_some() && message.get("method").and_then(Value::as_str).is_some()
-}
-
-fn record_agent_message_phase(message: &Value, phases: &mut HashMap<String, Option<String>>) {
-    let method = message.get("method").and_then(Value::as_str);
-    if !matches!(method, Some("item/started") | Some("item/completed")) {
-        return;
-    }
-    let Some(item) = message.pointer("/params/item") else {
-        return;
-    };
-    if item.get("type").and_then(Value::as_str) != Some("agentMessage") {
-        return;
-    }
-    if let Some(id) = item.get("id").and_then(Value::as_str) {
-        phases.insert(
-            id.to_string(),
-            item.get("phase")
-                .and_then(Value::as_str)
-                .map(str::to_string),
-        );
-    }
-}
-
-fn completed_final_agent_message(message: &Value) -> Option<String> {
-    if message.get("method").and_then(Value::as_str) != Some("item/completed") {
-        return None;
-    }
-    let item = message.pointer("/params/item")?;
-    if item.get("type").and_then(Value::as_str) != Some("agentMessage")
-        || item.get("phase").and_then(Value::as_str) == Some("commentary")
-    {
-        return None;
-    }
-    item.get("text")
-        .or_else(|| item.get("content"))
-        .and_then(Value::as_str)
-        .map(str::to_string)
-}
-
-fn streamable_final_delta(
-    message: &Value,
-    phases: &HashMap<String, Option<String>>,
-) -> Option<String> {
-    if message.get("method").and_then(Value::as_str) != Some("item/agentMessage/delta") {
-        return None;
-    }
-    let delta = message.pointer("/params/delta").and_then(Value::as_str)?;
-    if let Some(item_id) = message
-        .pointer("/params/itemId")
-        .or_else(|| message.pointer("/params/item_id"))
-        .and_then(Value::as_str)
-    {
-        if phases.get(item_id).and_then(|phase| phase.as_deref()) == Some("commentary") {
-            return None;
-        }
-    }
-    Some(delta.to_string())
-}
-
-fn is_turn_completed(message: &Value, thread_id: &str, turn_id: &str) -> bool {
-    message.get("method").and_then(Value::as_str) == Some("turn/completed")
-        && message.pointer("/params/threadId").and_then(Value::as_str) == Some(thread_id)
-        && (message.pointer("/params/turnId").and_then(Value::as_str) == Some(turn_id)
-            || message.pointer("/params/turn/id").and_then(Value::as_str) == Some(turn_id))
-}
-
-async fn append_event(
-    events_file: &Path,
-    sequence: &mut u64,
-    job_id: &str,
-    provider: &str,
-    event_type: &str,
-    message: Option<String>,
-    data: Value,
-) -> anyhow::Result<()> {
-    *sequence += 1;
-    if let Some(parent) = events_file.parent() {
-        tokio::fs::create_dir_all(parent).await?;
-    }
-    let event = redact_value(&json!({
-        "type": event_type,
-        "job_id": job_id,
-        "provider": provider,
-        "sequence": *sequence,
-        "message": message,
-        "data": data,
-        "created_at": now_iso()
-    }));
-    let mut file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(events_file)
-        .await?;
-    file.write_all(serde_json::to_string(&event)?.as_bytes())
-        .await?;
-    file.write_all(b"\n").await?;
-    Ok(())
-}
-
-fn now_iso() -> String {
-    OffsetDateTime::now_utc()
-        .format(&Rfc3339)
-        .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string())
-}
-
 fn tail(text: &str) -> String {
     if text.len() <= TAIL_CHARS {
         text.to_string()
@@ -2399,68 +2016,4 @@ impl IfEmptyThen for String {
             self
         }
     }
-}
-
-async fn read_json_string_field(path: &Path, field: &str) -> Option<String> {
-    let value = serde_json::from_slice::<Value>(&tokio::fs::read(path).await.ok()?).ok()?;
-    value
-        .get(field)
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
-}
-
-fn connector_credential_env(credentials_dir: &Path) -> Vec<(String, std::ffi::OsString)> {
-    let bilibili_file = credentials_dir.join("bilibili.json");
-    if bilibili_file.is_file() {
-        vec![(
-            "BILIBILI_CREDENTIAL_FILE".to_string(),
-            bilibili_file.into_os_string(),
-        )]
-    } else {
-        Vec::new()
-    }
-}
-
-fn hardened_app_server_args(configured: &[String]) -> Vec<String> {
-    let mut args = configured.to_vec();
-    for config_override in CODEX_NATIVE_HARDENING_CONFIG_OVERRIDES {
-        args.push("-c".to_string());
-        args.push((*config_override).to_string());
-    }
-    args
-}
-
-fn runtime_path(config: &AppConfig, extra_prefixes: &[PathBuf]) -> Option<std::ffi::OsString> {
-    let mut entries = Vec::new();
-    entries.extend(extra_prefixes.iter().cloned());
-    entries.push(ripple_py_bin_dir(config));
-    if let Some(uv_bin_dir) = &config.sandbox.uv_bin_dir {
-        entries.push(uv_bin_dir.clone());
-    }
-    if let Some(node_dir) = &config.sandbox.node_dir {
-        entries.push(node_dir.join("bin"));
-    }
-    if let Some(root) = &config.sandbox.lark_cli_install_root {
-        entries.push(root.join("current/bin"));
-    }
-    if let Some(root) = &config.sandbox.notion_cli_install_root {
-        entries.push(root.join("current/bin"));
-    }
-    if let Some(root) = &config.sandbox.gogcli_cli_install_root {
-        entries.push(root.join("current/bin"));
-    }
-    for tool in &config.sandbox.cli_tools {
-        for bin_dir in &tool.bin_dirs {
-            entries.push(tool.install_root.join(bin_dir));
-        }
-    }
-    if let Some(path) = std::env::var_os("PATH") {
-        entries.extend(std::env::split_paths(&path));
-    }
-    if entries.is_empty() {
-        return None;
-    }
-    std::env::join_paths(entries).ok()
 }

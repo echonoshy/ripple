@@ -1,4 +1,7 @@
-import { TYPOGRAPHY_META_CLASS, TYPOGRAPHY_MICRO_MEDIUM_CLASS } from "@/components/workbench/stylePrimitives";
+import {
+  TYPOGRAPHY_META_CLASS,
+  TYPOGRAPHY_MICRO_MEDIUM_CLASS,
+} from "@/components/workbench/stylePrimitives";
 import { useI18n } from "@/i18n";
 import { RIPPLE_API_CONNECTION_ERROR, readableApiErrorMessage } from "@/lib/apiErrors";
 import type { WorkspaceEntry } from "@/types";
@@ -64,6 +67,46 @@ export function getWorkspaceParentPath(path: string): string {
   const slashIndex = normalizedPath.lastIndexOf("/");
   if (slashIndex <= DEFAULT_WORKSPACE_PATH.length - 1) return DEFAULT_WORKSPACE_PATH;
   return normalizedPath.slice(0, slashIndex) || DEFAULT_WORKSPACE_PATH;
+}
+
+export interface WorkspacePathBreadcrumb {
+  label: string;
+  path: string;
+  isCurrent: boolean;
+}
+
+export function getWorkspacePathBreadcrumbs(path: string): WorkspacePathBreadcrumb[] {
+  const normalizedPath = normalizeWorkspacePath(path);
+  const relativePath =
+    normalizedPath === DEFAULT_WORKSPACE_PATH
+      ? ""
+      : normalizedPath.slice(DEFAULT_WORKSPACE_PATH.length + 1);
+  const parts = relativePath.split("/").filter(Boolean);
+  const crumbs: WorkspacePathBreadcrumb[] = [
+    {
+      label: DEFAULT_WORKSPACE_PATH.replace(/^\//, ""),
+      path: DEFAULT_WORKSPACE_PATH,
+      isCurrent: parts.length === 0,
+    },
+  ];
+
+  let nextPath = DEFAULT_WORKSPACE_PATH;
+  parts.forEach((part, index) => {
+    nextPath = `${nextPath}/${part}`;
+    crumbs.push({
+      label: part,
+      path: nextPath,
+      isCurrent: index === parts.length - 1,
+    });
+  });
+
+  return crumbs;
+}
+
+export function getWorkspacePathAncestorPaths(path: string, includeSelf = false): string[] {
+  const crumbs = getWorkspacePathBreadcrumbs(path);
+  const selectedCrumbs = includeSelf ? crumbs : crumbs.slice(0, -1);
+  return selectedCrumbs.map((crumb) => crumb.path);
 }
 
 export function canMoveEntriesToDirectory(

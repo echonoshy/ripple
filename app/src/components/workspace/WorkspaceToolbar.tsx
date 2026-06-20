@@ -1,6 +1,7 @@
 import React from "react";
 import {
   ArrowUp,
+  ChevronRight,
   FolderRoot,
   FolderUp,
   Loader2,
@@ -31,7 +32,7 @@ import {
 import { useI18n } from "@/i18n";
 import type { WorkspaceSearchOptions } from "@/lib/api";
 import type { WorkspaceListing } from "@/types";
-import { DEFAULT_WORKSPACE_PATH } from "./workspaceExplorerUtils";
+import { DEFAULT_WORKSPACE_PATH, getWorkspacePathBreadcrumbs } from "./workspaceExplorerUtils";
 
 interface WorkspaceToolbarProps {
   presentation: "compact" | "page";
@@ -46,11 +47,15 @@ interface WorkspaceToolbarProps {
   isActionsMenuOpen: boolean;
   setIsActionsMenuOpen: React.Dispatch<React.SetStateAction<boolean>>;
   searchScope: NonNullable<WorkspaceSearchOptions["scope"]>;
-  setSearchScope: React.Dispatch<React.SetStateAction<NonNullable<WorkspaceSearchOptions["scope"]>>>;
+  setSearchScope: React.Dispatch<
+    React.SetStateAction<NonNullable<WorkspaceSearchOptions["scope"]>>
+  >;
   searchKind: NonNullable<WorkspaceSearchOptions["kind"]>;
   setSearchKind: React.Dispatch<React.SetStateAction<NonNullable<WorkspaceSearchOptions["kind"]>>>;
   fileType: NonNullable<WorkspaceSearchOptions["fileType"]>;
-  setFileType: React.Dispatch<React.SetStateAction<NonNullable<WorkspaceSearchOptions["fileType"]>>>;
+  setFileType: React.Dispatch<
+    React.SetStateAction<NonNullable<WorkspaceSearchOptions["fileType"]>>
+  >;
   searchLimit: number;
   setSearchLimit: React.Dispatch<React.SetStateAction<number>>;
   listing: WorkspaceListing | null;
@@ -117,6 +122,7 @@ export default function WorkspaceToolbar({
   const directoryNavigationButtonClass = `${WORKBENCH_SECONDARY_BUTTON_CLASS} h-8 shrink-0 whitespace-nowrap px-2.5 text-[#46556f] hover:border-[#BACEFD] hover:bg-[#F0F5FF] hover:text-[#1456F0] ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`;
   const directoryNavigationIconClass =
     "flex h-5 w-5 items-center justify-center rounded-full bg-[#F0F5FF] text-[#1456F0] ring-1 ring-[#BACEFD] transition-colors group-hover:bg-[#E8F0FF] group-hover:text-[#1456F0]";
+  const breadcrumbs = getWorkspacePathBreadcrumbs(currentLocationPath);
   const mobileFileActions = (
     <>
       <button
@@ -160,11 +166,7 @@ export default function WorkspaceToolbar({
         onClick={() => uploadInputRef.current?.click()}
       >
         {uploading ? (
-          <Loader2
-            size={18}
-            strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH}
-            className="animate-spin"
-          />
+          <Loader2 size={18} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} className="animate-spin" />
         ) : (
           <Upload size={18} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
         )}
@@ -267,7 +269,9 @@ export default function WorkspaceToolbar({
             <button
               type="button"
               data-ripple-files-action="search-filters"
-              className={isFilterOpen ? filesToolbarIconButtonActiveClass : filesToolbarIconButtonClass}
+              className={
+                isFilterOpen ? filesToolbarIconButtonActiveClass : filesToolbarIconButtonClass
+              }
               title={t("files.searchFilters")}
               aria-label={t("files.searchFilters")}
               onClick={() => setIsFilterOpen((open) => !open)}
@@ -277,7 +281,9 @@ export default function WorkspaceToolbar({
             <button
               type="button"
               data-ripple-files-action="toggle-selection"
-              className={isSelectionActive ? filesToolbarIconButtonActiveClass : filesToolbarIconButtonClass}
+              className={
+                isSelectionActive ? filesToolbarIconButtonActiveClass : filesToolbarIconButtonClass
+              }
               title={isSelectionActive ? t("files.doneSelecting") : t("files.selectFiles")}
               aria-label={isSelectionActive ? t("files.doneSelecting") : t("files.selectFiles")}
               onClick={toggleSelectionMode}
@@ -411,11 +417,15 @@ export default function WorkspaceToolbar({
               ) : null}
             </div>
             <div className="min-w-0 flex-1">
-              <div
-                className={`max-w-full overflow-x-auto overscroll-x-contain font-[family-name:var(--font-mono)] text-[#2B2F36] [scrollbar-width:thin] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
-              >
-                <span className="whitespace-nowrap">{desktopPathLabel}</span>
-              </div>
+              {isSearchMode ? (
+                <div
+                  className={`max-w-full overflow-x-auto overscroll-x-contain font-[family-name:var(--font-mono)] text-[#2B2F36] [scrollbar-width:thin] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                >
+                  <span className="whitespace-nowrap">{desktopPathLabel}</span>
+                </div>
+              ) : (
+                <WorkspaceBreadcrumbs breadcrumbs={breadcrumbs} loadDirectory={loadDirectory} />
+              )}
               {desktopPathDetail && (
                 <div
                   className={`mt-0.5 flex min-w-0 items-center gap-1.5 text-[#646A73] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
@@ -575,13 +585,62 @@ export default function WorkspaceToolbar({
   );
 }
 
+function WorkspaceBreadcrumbs({
+  breadcrumbs,
+  loadDirectory,
+}: {
+  breadcrumbs: ReturnType<typeof getWorkspacePathBreadcrumbs>;
+  loadDirectory: (path: string) => void;
+}) {
+  const { t } = useI18n();
+
+  return (
+    <nav
+      data-ripple-files-breadcrumbs
+      aria-label={t("files.pathBreadcrumbs")}
+      className={`flex max-w-full min-w-0 items-center gap-1 overflow-x-auto overscroll-x-contain font-[family-name:var(--font-mono)] text-[#2B2F36] [scrollbar-width:thin] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+    >
+      {breadcrumbs.map((crumb, index) => (
+        <React.Fragment key={crumb.path}>
+          {index > 0 && <ChevronRight size={12} className="shrink-0 text-[#8F959E]" />}
+          {crumb.isCurrent ? (
+            <span
+              data-ripple-files-breadcrumb={crumb.path}
+              data-ripple-files-breadcrumb-current="true"
+              aria-current="page"
+              className="shrink-0 rounded-md bg-[#F0F5FF] px-1.5 py-0.5 text-[#1456F0]"
+            >
+              {crumb.label}
+            </span>
+          ) : (
+            <button
+              type="button"
+              data-ripple-files-breadcrumb={crumb.path}
+              onClick={() => loadDirectory(crumb.path)}
+              aria-label={t("files.openFolder", { name: crumb.label })}
+              title={crumb.path}
+              className="shrink-0 rounded-md px-1.5 py-0.5 text-[#46556F] hover:bg-[#F0F5FF] hover:text-[#1456F0]"
+            >
+              {crumb.label}
+            </button>
+          )}
+        </React.Fragment>
+      ))}
+    </nav>
+  );
+}
+
 interface WorkspaceSearchFiltersProps {
   searchScope: NonNullable<WorkspaceSearchOptions["scope"]>;
-  setSearchScope: React.Dispatch<React.SetStateAction<NonNullable<WorkspaceSearchOptions["scope"]>>>;
+  setSearchScope: React.Dispatch<
+    React.SetStateAction<NonNullable<WorkspaceSearchOptions["scope"]>>
+  >;
   searchKind: NonNullable<WorkspaceSearchOptions["kind"]>;
   setSearchKind: React.Dispatch<React.SetStateAction<NonNullable<WorkspaceSearchOptions["kind"]>>>;
   fileType: NonNullable<WorkspaceSearchOptions["fileType"]>;
-  setFileType: React.Dispatch<React.SetStateAction<NonNullable<WorkspaceSearchOptions["fileType"]>>>;
+  setFileType: React.Dispatch<
+    React.SetStateAction<NonNullable<WorkspaceSearchOptions["fileType"]>>
+  >;
   searchLimit: number;
   setSearchLimit: React.Dispatch<React.SetStateAction<number>>;
   compact?: boolean;

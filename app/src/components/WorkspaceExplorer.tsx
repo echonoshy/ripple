@@ -15,6 +15,7 @@ import {
 } from "@/components/workspace/WorkspacePreviewPanel";
 import WorkspaceFileList from "@/components/workspace/WorkspaceFileList";
 import WorkspaceToolbar from "@/components/workspace/WorkspaceToolbar";
+import WorkspaceTreePanel from "@/components/workspace/WorkspaceTreePanel";
 import {
   getCachedWorkspaceLastPath,
   getCachedWorkspaceListing,
@@ -41,6 +42,8 @@ import {
   getSplitPercentFromVerticalResize,
   getWorkspacePreviewKind,
   canMoveEntriesToDirectory,
+  getWorkspacePathAncestorPaths,
+  getWorkspacePathBreadcrumbs,
   getWorkspaceParentPath,
   searchModeLabel,
   shouldDismissWorkspaceContextMenuOnEntryClick,
@@ -83,6 +86,7 @@ export {
   getBoundedSplitPercent,
   getSplitPercentAfterFileDoubleClick,
   getSplitPercentFromVerticalResize,
+  getWorkspacePathBreadcrumbs,
   getWorkspaceParentPath,
   getWorkspacePreviewKind,
   shouldDismissWorkspaceContextMenuOnEntryClick,
@@ -165,6 +169,16 @@ export default function WorkspaceExplorer({
   const [currentPath, setCurrentPath] = useState(initialPath);
   const [listing, setListing] = useState<WorkspaceListing | null>(
     () => testInitialListing || getCachedWorkspaceListing(userId, initialPath)
+  );
+  const [treeSeedListings, setTreeSeedListings] = useState<Map<string, WorkspaceListing>>(() => {
+    const seeded = new Map<string, WorkspaceListing>();
+    if (testInitialListing) seeded.set(testInitialListing.path, testInitialListing);
+    const cachedRoot = getCachedWorkspaceListing(userId, DEFAULT_WORKSPACE_PATH);
+    if (cachedRoot) seeded.set(cachedRoot.path, cachedRoot);
+    return seeded;
+  });
+  const [treeExpandedPaths, setTreeExpandedPaths] = useState<Set<string>>(
+    () => new Set([DEFAULT_WORKSPACE_PATH, ...getWorkspacePathAncestorPaths(initialPath, true)])
   );
   const [preview, setPreview] = useState<WorkspaceFilePreview | null>(testInitialPreview || null);
   const [draft, setDraft] = useState("");
@@ -410,6 +424,27 @@ export default function WorkspaceExplorer({
     [updateSplitPercent]
   );
 
+  const seedTreeListing = useCallback((nextListing: WorkspaceListing) => {
+    setTreeSeedListings((current) => {
+      const existing = current.get(nextListing.path);
+      if (existing === nextListing) return current;
+      const next = new Map(current);
+      next.set(nextListing.path, nextListing);
+      return next;
+    });
+  }, []);
+
+  const revealWorkspacePathInTree = useCallback((path: string, includeSelf = false) => {
+    const paths = getWorkspacePathAncestorPaths(path, includeSelf);
+    setTreeExpandedPaths((current) => {
+      const next = new Set(current);
+      for (const expandedPath of paths) {
+        next.add(expandedPath);
+      }
+      return next;
+    });
+  }, []);
+
   const loadDirectory = useCallback(
     async (path: string) => {
       const key = `${userId}\n${path}`;
@@ -425,6 +460,8 @@ export default function WorkspaceExplorer({
         try {
           const data = await fetchWorkspaceListing(path);
           if (directoryRequestIdRef.current !== requestId) return;
+          seedTreeListing(data);
+          revealWorkspacePathInTree(data.path, true);
           setCachedWorkspaceListing(userId, data);
           setCachedWorkspaceLastPath(userId, data.path);
           currentPathRef.current = data.path;
@@ -458,13 +495,14 @@ export default function WorkspaceExplorer({
       directoryLoadRef.current = { key, promise };
       return promise;
     },
-    [userId]
+    [revealWorkspacePathInTree, seedTreeListing, userId]
   );
 
   const openWorkspaceFilePath = useCallback(
     async (targetPath: string, lineNumber?: number) => {
       const requestId = previewRequestIdRef.current + 1;
       previewRequestIdRef.current = requestId;
+      revealWorkspacePathInTree(targetPath);
       await loadDirectory(getWorkspaceParentPath(targetPath));
       if (previewRequestIdRef.current !== requestId) return;
       setSplitPercent((current) =>
@@ -520,7 +558,7 @@ export default function WorkspaceExplorer({
         }
       }
     },
-    [loadDirectory]
+    [loadDirectory, revealWorkspacePathInTree]
   );
 
   useEffect(() => {
@@ -532,6 +570,13 @@ export default function WorkspaceExplorer({
       currentPathRef.current = path;
       setCurrentPath(path);
       setListing(getCachedWorkspaceListing(userId, path));
+      const cachedRoot = getCachedWorkspaceListing(userId, DEFAULT_WORKSPACE_PATH);
+      setTreeSeedListings(() => {
+        const next = new Map<string, WorkspaceListing>();
+        if (cachedRoot) next.set(cachedRoot.path, cachedRoot);
+        return next;
+      });
+      setTreeExpandedPaths(new Set([DEFAULT_WORKSPACE_PATH]));
       setPreview(null);
       setImagePreviewUrl(null);
       setDocumentPreview(null);
@@ -582,9 +627,11 @@ export default function WorkspaceExplorer({
   const openEntry = async (entry: WorkspaceEntry) => {
     if (entry.kind === "directory") {
       previewRequestIdRef.current += 1;
+      revealWorkspacePathInTree(entry.path, true);
       await loadDirectory(entry.path);
       return;
     }
+    revealWorkspacePathInTree(entry.path);
     const requestId = previewRequestIdRef.current + 1;
     previewRequestIdRef.current = requestId;
     setSplitPercent((current) => getSplitPercentAfterFileDoubleClick(current));
@@ -1515,13 +1562,26 @@ export default function WorkspaceExplorer({
         className={`grid min-h-0 flex-1 overflow-hidden ${
           isPagePresentation
             ? isPreviewPanelHidden
-              ? "grid-rows-[minmax(0,1fr)] lg:grid-cols-[minmax(0,1fr)] lg:grid-rows-none"
-              : "grid-rows-[var(--ripple-workspace-list-row)] lg:grid-cols-[minmax(280px,360px)_minmax(0,1fr)] lg:grid-rows-none"
+              ? "grid-rows-[minmax(0,1fr)] lg:grid-cols-[244px_minmax(0,1fr)] lg:grid-rows-none"
+              : "grid-rows-[var(--ripple-workspace-list-row)] lg:grid-cols-[244px_minmax(0,1fr)_minmax(280px,360px)] lg:grid-rows-none"
             : isPreviewPanelHidden
               ? "grid-rows-[minmax(0,1fr)]"
               : "grid-rows-[var(--ripple-workspace-list-row)]"
         }`}
       >
+        {isPagePresentation && (
+          <WorkspaceTreePanel
+            key={userId}
+            userId={userId}
+            currentPath={currentPath}
+            seedListings={treeSeedListings}
+            expandedPaths={treeExpandedPaths}
+            onExpandedPathsChange={setTreeExpandedPaths}
+            onOpenDirectory={(path) => void loadDirectory(path)}
+            onListingLoaded={seedTreeListing}
+          />
+        )}
+
         <WorkspaceFileList
           isPagePresentation={isPagePresentation}
           isPreviewPanelHidden={isPreviewPanelHidden}

@@ -10,6 +10,7 @@ import WorkspaceExplorer, {
   getSplitPercentFromVerticalResize,
   getWorkspacePreviewKind,
   getWorkspaceParentPath,
+  getWorkspacePathBreadcrumbs,
   getSplitPercentAfterFileDoubleClick,
   shouldDismissWorkspaceContextMenuOnEntryClick,
 } from "./WorkspaceExplorer";
@@ -19,6 +20,7 @@ function readWorkspaceExplorerImplementationSource(): string {
     "./WorkspaceExplorer.tsx",
     "./workspace/WorkspaceActionMenus.tsx",
     "./workspace/WorkspaceFileList.tsx",
+    "./workspace/WorkspaceTreePanel.tsx",
     "./workspace/WorkspaceToolbar.tsx",
     "./workspace/workspaceExplorerState.ts",
     "./workspace/workspaceExplorerUtils.tsx",
@@ -127,6 +129,97 @@ function testWorkspaceExplorerUsesFinderTwoPaneLayoutWithTopPathBar() {
 }
 
 testWorkspaceExplorerUsesFinderTwoPaneLayoutWithTopPathBar();
+
+function testWorkspaceExplorerPageShowsLazyDirectoryTree() {
+  const source = readWorkspaceExplorerImplementationSource();
+  const listing = {
+    path: "/workspace",
+    parent_path: null,
+    entries: [
+      {
+        name: "clients",
+        path: "/workspace/clients",
+        kind: "directory" as const,
+        size_bytes: 0,
+        modified_at: "2026-05-17T00:00:00Z",
+        is_hidden: false,
+        mime_type: null,
+      },
+      {
+        name: "notes.md",
+        path: "/workspace/notes.md",
+        kind: "file" as const,
+        size_bytes: 42,
+        modified_at: "2026-05-17T00:00:00Z",
+        is_hidden: false,
+        mime_type: "text/markdown",
+      },
+    ],
+  };
+  const html = renderExplorer({
+    presentation: "page",
+    testInitialListing: listing,
+  });
+  const htmlWithPreview = renderExplorer({
+    presentation: "page",
+    testInitialListing: listing,
+    testInitialPreview: {
+      path: "/workspace/notes.md",
+      name: "notes.md",
+      size_bytes: 42,
+      modified_at: "2026-05-17T00:00:00Z",
+      mime_type: "text/markdown",
+      encoding: "utf-8",
+      content: "# Notes",
+      truncated: false,
+    },
+  });
+
+  assert.match(source, /WorkspaceTreePanel/);
+  assert.match(source, /treeExpandedPaths/);
+  assert.match(source, /seedTreeListing/);
+  assert.match(source, /revealWorkspacePathInTree/);
+  assert.match(source, /<WorkspaceTreePanel\s+key=\{userId\}/);
+  assert.match(html, /data-ripple-workspace-tree="navigation"/);
+  assert.ok(html.includes('data-ripple-workspace-tree-entry="/workspace"'));
+  assert.ok(html.includes('data-ripple-workspace-tree-entry="/workspace/clients"'));
+  assert.match(html, /aria-label="Workspace folders"/);
+  assert.match(html, /aria-current="page"/);
+  assert.match(html, /lg:grid-cols-\[244px_minmax\(0,1fr\)\]/);
+  assert.match(htmlWithPreview, /lg:grid-cols-\[244px_minmax\(0,1fr\)_minmax\(280px,360px\)\]/);
+  assert.match(html, /clients/);
+  assert.doesNotMatch(html, /data-ripple-workspace-place=/);
+}
+
+testWorkspaceExplorerPageShowsLazyDirectoryTree();
+
+function testWorkspaceExplorerPathBreadcrumbsAreClickable() {
+  const source = readWorkspaceExplorerImplementationSource();
+  const crumbs = getWorkspacePathBreadcrumbs("/workspace/clients/acme/reports");
+  const html = renderExplorer({
+    presentation: "page",
+    testInitialListing: {
+      path: "/workspace/clients/acme/reports",
+      parent_path: "/workspace/clients/acme",
+      entries: [],
+    },
+  });
+
+  assert.deepEqual(crumbs, [
+    { label: "workspace", path: "/workspace", isCurrent: false },
+    { label: "clients", path: "/workspace/clients", isCurrent: false },
+    { label: "acme", path: "/workspace/clients/acme", isCurrent: false },
+    { label: "reports", path: "/workspace/clients/acme/reports", isCurrent: true },
+  ]);
+  assert.match(source, /getWorkspacePathBreadcrumbs/);
+  assert.match(html, /data-ripple-files-breadcrumbs/);
+  assert.ok(html.includes('data-ripple-files-breadcrumb="/workspace/clients"'));
+  assert.match(html, /data-ripple-files-breadcrumb-current="true"/);
+  assert.match(html, /aria-label="Open workspace"/);
+  assert.match(html, /aria-current="page"/);
+}
+
+testWorkspaceExplorerPathBreadcrumbsAreClickable();
 
 function testWorkspaceExplorerPageStacksHeaderControlsAwayFromTitle() {
   const html = renderExplorer({ presentation: "page" });
@@ -948,13 +1041,23 @@ testWorkspaceExplorerOpensPendingFileRequestAfterMount();
 
 function testWorkspaceExplorerConsumesPendingFileRequestAfterPreviewOpenSettles() {
   const source = readWorkspaceExplorerImplementationSource();
+  const effectStart = source.indexOf("if (!openFileRequest) return;");
+  const effectEnd = source.indexOf(
+    "}, [openFileRequest, onOpenFileRequestConsumed, openWorkspaceFilePath, userId]);",
+    effectStart
+  );
+
+  assert.ok(effectStart >= 0);
+  assert.ok(effectEnd > effectStart);
+
+  const pendingOpenEffectSource = source.slice(effectStart, effectEnd);
 
   assert.match(
-    source,
+    pendingOpenEffectSource,
     /await openWorkspaceFilePath\(openFileRequest\.path, openFileRequest\.lineNumber\)[\s\S]*onOpenFileRequestConsumed\?\.\(openFileRequest\.id\)/
   );
   assert.doesNotMatch(
-    source,
+    pendingOpenEffectSource,
     /openFileRequest\.userId[\s\S]*onOpenFileRequestConsumed\?\.\(openFileRequest\.id\)[\s\S]*return;/
   );
 }

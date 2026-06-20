@@ -411,6 +411,9 @@ impl Storage {
             "sessions",
             "jobs",
             "task_triggers",
+            "task_events",
+            "task_actions",
+            "tasks",
             "documents",
             "file_refs",
             "user_profiles",
@@ -491,6 +494,55 @@ impl Storage {
         rows.into_iter()
             .map(|row| json_from_text(row.get::<String, _>("record_json").as_str()))
             .collect()
+    }
+
+    pub async fn get_document(
+        &self,
+        user_id: &str,
+        document_id: &str,
+    ) -> anyhow::Result<Option<Value>> {
+        self.initialize().await?;
+        let row =
+            sqlx::query("SELECT record_json FROM documents WHERE user_id = ? AND document_id = ?")
+                .bind(user_id)
+                .bind(document_id)
+                .fetch_optional(&self.pool)
+                .await?;
+        row.map(|row| json_from_text(row.get::<String, _>("record_json").as_str()))
+            .transpose()
+    }
+
+    pub async fn upsert_document(&self, user_id: &str, record: &Value) -> anyhow::Result<()> {
+        self.initialize().await?;
+        let Some(document_id) = record.get("document_id").and_then(Value::as_str) else {
+            anyhow::bail!("document record missing document_id");
+        };
+        sqlx::query(
+            r#"
+            INSERT INTO documents (user_id, document_id, updated_at, record_json)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(user_id, document_id) DO UPDATE SET
+                updated_at = excluded.updated_at,
+                record_json = excluded.record_json
+            "#,
+        )
+        .bind(user_id)
+        .bind(document_id)
+        .bind(record_str(record, "updated_at"))
+        .bind(json_text(record)?)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn delete_document(&self, user_id: &str, document_id: &str) -> anyhow::Result<bool> {
+        self.initialize().await?;
+        let result = sqlx::query("DELETE FROM documents WHERE user_id = ? AND document_id = ?")
+            .bind(user_id)
+            .bind(document_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(result.rows_affected() > 0)
     }
 
     pub async fn upsert_file_ref(&self, record: &FileRefRecord) -> anyhow::Result<()> {

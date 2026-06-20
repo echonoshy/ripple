@@ -61,20 +61,44 @@ pub async fn search_workspace(
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
     let workspace = state.sandboxes.ensure_sandbox(&user_id)?;
+    let scope = query.scope.as_deref().unwrap_or("name");
+    validate_search_filter("scope", scope, &["all", "name", "content"])?;
+    let kind = query.kind.as_deref().unwrap_or("all");
+    validate_search_filter("kind", kind, &["all", "file", "directory"])?;
+    let file_type = query.file_type.as_deref().unwrap_or("all");
+    validate_search_filter(
+        "file_type",
+        file_type,
+        &["all", "code", "markdown", "text", "image"],
+    )?;
+    let max_file_bytes = query
+        .max_file_bytes
+        .unwrap_or(1024 * 1024)
+        .clamp(1, 5 * 1024 * 1024);
     let result = ws::search_files(
         &workspace,
         query.q.as_deref().unwrap_or(""),
         query.limit.unwrap_or(20).clamp(1, 50),
-        query.scope.as_deref().unwrap_or("name"),
-        query.kind.as_deref().unwrap_or("all"),
-        query.file_type.as_deref().unwrap_or("all"),
+        scope,
+        kind,
+        file_type,
         query.include_hidden.unwrap_or(false),
-        query.max_file_bytes.unwrap_or(1024 * 1024),
+        max_file_bytes,
     )
     .map_err(map_workspace_error)?;
     Ok(Json(
         serde_json::to_value(result).unwrap_or_else(|_| json!({})),
     ))
+}
+
+fn validate_search_filter(name: &str, value: &str, allowed: &[&str]) -> Result<(), ApiError> {
+    if allowed.iter().any(|allowed| *allowed == value) {
+        return Ok(());
+    }
+    Err(ApiError::bad_request(format!(
+        "invalid {name}; expected one of: {}",
+        allowed.join(", ")
+    )))
 }
 
 #[derive(Debug, Deserialize)]
@@ -122,6 +146,8 @@ pub async fn save_workspace_file(
         )));
     }
     let target = ws::validate_write_path(&input.path, &workspace).map_err(map_workspace_error)?;
+    let write_lock = state.workspace_write_lock(&user_id);
+    let _write_guard = write_lock.lock_owned().await;
     assert_workspace_save_within_quota(
         &state,
         &user_id,
@@ -444,6 +470,8 @@ async fn save_multipart_files(
         .iter()
         .map(|(path, bytes)| (path.clone(), bytes.len() as u64))
         .collect::<Vec<_>>();
+    let write_lock = state.workspace_write_lock(&user_id);
+    let _write_guard = write_lock.lock_owned().await;
     assert_workspace_writes_within_quota(&state, &user_id, &quota_targets).await?;
 
     let mut entries = Vec::new();
@@ -522,13 +550,21 @@ async fn save_workspace_attachment(
         "attachment"
     };
     let now = OffsetDateTime::now_utc();
-    let target_dir = workspace
-        .join("uploads")
-        .join(format!("{:04}", now.year()))
-        .join(format!("{:02}", u8::from(now.month())));
-    let target = target_dir.join(format!("{}-{filename}", Uuid::new_v4().simple()));
+    let target_virtual_path = format!(
+        "/workspace/uploads/{:04}/{:02}/{}-{filename}",
+        now.year(),
+        u8::from(now.month()),
+        Uuid::new_v4().simple()
+    );
+    let target =
+        ws::validate_write_path(&target_virtual_path, &workspace).map_err(map_workspace_error)?;
+    let target_dir = target
+        .parent()
+        .ok_or_else(|| ApiError::bad_request("Invalid upload path"))?;
+    let write_lock = state.workspace_write_lock(&user_id);
+    let _write_guard = write_lock.lock_owned().await;
     assert_workspace_save_within_quota(&state, &user_id, &target, bytes.len() as u64).await?;
-    tokio::fs::create_dir_all(&target_dir).await?;
+    tokio::fs::create_dir_all(target_dir).await?;
     tokio::fs::write(&target, &bytes).await?;
     let path = ws::workspace_path(&workspace, &target).map_err(map_workspace_error)?;
     record_file_ref(
@@ -689,6 +725,8 @@ pub async fn paste_workspace(
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
     let workspace = state.sandboxes.ensure_sandbox(&user_id)?;
+    let write_lock = state.workspace_write_lock(&user_id);
+    let _write_guard = write_lock.lock_owned().await;
 
     if input.action == "copy" {
         let copy_size =

@@ -7,7 +7,10 @@ use axum::Json;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{json, Value};
 
-use crate::api::chat::{collect_chat_image_events, image_event_to_message_block};
+use crate::api::chat::{
+    collect_chat_image_events, finalize_chat_run_for_session, image_event_to_message_block,
+    recover_session_run_state,
+};
 use crate::api::run_public::sanitize_user_visible_text;
 use crate::api::users::{assert_can_create_run, assert_can_create_session};
 use crate::api::{connectors, paginate, ApiError, ListQuery};
@@ -88,7 +91,7 @@ pub async fn list_sessions(
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
     let sessions = state.sessions.list_sessions(&user_id).await?;
     let total = sessions.len();
-    let (sessions, next_cursor) = paginate(sessions, &query);
+    let (sessions, next_cursor) = paginate(sessions, &query)?;
     let session_values = sessions
         .into_iter()
         .map(serde_json::to_value)
@@ -112,6 +115,7 @@ pub async fn session_overview(
 
     let mut items = Vec::new();
     for info in summaries {
+        recover_session_run_state(&state, &user_id, &info.session_id).await?;
         let Some(record) = state.sessions.load(&user_id, &info.session_id).await? else {
             continue;
         };
@@ -119,7 +123,7 @@ pub async fn session_overview(
         let last_run = runs_by_session
             .get(&info.session_id)
             .map(|run| session_overview_run(&state, &user_id, run));
-        let status = overview_status(&info.status, pending_kind.as_deref(), last_run.as_ref());
+        let status = overview_status(&record.status, pending_kind.as_deref(), last_run.as_ref());
         items.push(SessionOverviewItem {
             session_id: info.session_id,
             title: info.title,
@@ -128,10 +132,10 @@ pub async fn session_overview(
             model: info.model,
             created_at: info.created_at,
             last_active: info.last_active,
-            message_count: info.message_count,
+            message_count: record.message_count,
             changed_file_count: info.changed_file_count,
             pending_kind,
-            pending_approval_count: info.pending_approval_count,
+            pending_approval_count: u32::from(record.pending_permission_request.is_some()),
             plan_progress: record.plan_progress.clone(),
             current_step: current_plan_step(&record),
             last_run,
@@ -386,6 +390,7 @@ pub async fn get_session(
         .sessions
         .recover_stale_context_compaction(&user_id, &session_id)
         .await?;
+    recover_session_run_state(&state, &user_id, &session_id).await?;
     if state
         .sessions
         .load(&user_id, &session_id)
@@ -802,12 +807,28 @@ pub async fn stop_session(
     }
 }
 
+#[utoipa::path(
+    post,
+    path = "/sessions/{session_id}/connector-auth/cancel",
+    tag = "sessions",
+    params(("session_id" = String, Path, description = "Session id")),
+    responses(
+        (status = 200, description = "Connector auth cancellation result", body = serde_json::Value),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Session not found", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn cancel_connector_auth(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(session_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
+    recover_session_run_state(&state, &user_id, &session_id).await?;
     let Some(mut session) = state.sessions.load(&user_id, &session_id).await? else {
         return Err(ApiError::not_found("Session not found"));
     };
@@ -924,6 +945,7 @@ pub async fn resolve_permission_request(
     Json(input): Json<PermissionResolveInput>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
+    recover_session_run_state(&state, &user_id, &session_id).await?;
     let Some(mut session) = state.sessions.load(&user_id, &session_id).await? else {
         return Err(ApiError::not_found("Session not found"));
     };
@@ -988,20 +1010,7 @@ async fn finalize_resolved_permission_session(
             .flatten();
         if let Some(info) = info {
             if matches!(info.status.as_str(), "completed" | "failed" | "cancelled") {
-                if let Ok(Some(mut session)) = state.sessions.load(&user_id, &session_id).await {
-                    if session.pending_permission_request.is_none()
-                        && (session.status_kind() == SessionStatus::Running
-                            || session.status_kind().is_awaiting_approval())
-                    {
-                        session.status = match info.status.as_str() {
-                            "completed" => SessionStatus::Idle.as_str(),
-                            "cancelled" => SessionStatus::Cancelled.as_str(),
-                            _ => SessionStatus::Failed.as_str(),
-                        }
-                        .to_string();
-                        let _ = state.sessions.save_record_if_exists(session).await;
-                    }
-                }
+                let _ = finalize_chat_run_for_session(&state, &user_id, &session_id, &info).await;
                 return;
             }
         }

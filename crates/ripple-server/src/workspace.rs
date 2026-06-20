@@ -419,6 +419,7 @@ pub fn search_files(
             entries.push(entry_for_path(workspace_root, path, match_kind)?);
         }
     }
+    entries.sort_by(|left, right| left.path.cmp(&right.path));
     Ok(WorkspaceSearchResponse {
         query: query.to_string(),
         count: entries.len(),

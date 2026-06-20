@@ -891,6 +891,7 @@ impl CodexAppServerProvider {
                     "excludeTurns": true
                 });
                 add_base_instructions(&mut resume_params, request);
+                add_task_dynamic_tools(&mut resume_params, request);
                 let thread_result = session.request("thread/resume", resume_params).await?;
                 let thread_id = thread_result
                     .pointer("/thread/id")

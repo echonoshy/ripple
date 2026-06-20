@@ -14,7 +14,7 @@ use crate::api::users::assert_can_create_run;
 use crate::api::{paginate, ApiError, ListQuery};
 use crate::codex::events::extract_plan_update_event;
 use crate::jobs::{AgentRunCreateRequest, AgentRunInfo};
-use crate::sessions::SessionRecord;
+use crate::sessions::{SessionRecord, SessionStatus};
 use crate::state::AppState;
 use crate::storage::Storage;
 use crate::user::user_id_from_headers;
@@ -41,7 +41,7 @@ pub async fn list_tasks(
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
     let records = state.storage.list_tasks(&user_id).await?;
-    Ok(Json(task_list_response(&state, &user_id, records, &query)))
+    Ok(Json(task_list_response(&state, &user_id, records, &query)?))
 }
 
 pub async fn list_session_tasks(
@@ -56,7 +56,7 @@ pub async fn list_session_tasks(
         .storage
         .list_tasks_for_session(&user_id, &session_id)
         .await?;
-    Ok(Json(task_list_response(&state, &user_id, records, &query)))
+    Ok(Json(task_list_response(&state, &user_id, records, &query)?))
 }
 
 pub async fn create_task(
@@ -131,6 +131,8 @@ pub async fn cancel_task(
         json!({}),
     )
     .await?;
+    disable_task_triggers_for_terminal_task(&state.storage, &user_id, &task_id, "completed")
+        .await?;
     let actions =
         sort_task_actions_for_execution(state.storage.list_task_actions(&user_id, &task_id).await?);
     Ok(Json(json!({
@@ -1393,14 +1395,14 @@ fn task_list_response(
     user_id: &str,
     records: Vec<Value>,
     query: &ListQuery,
-) -> Value {
+) -> Result<Value, ApiError> {
     let total = records.len();
-    let (items, next_cursor) = paginate(records, query);
-    json!({
+    let (items, next_cursor) = paginate(records, query)?;
+    Ok(json!({
         "tasks": public_values(state, user_id, items),
         "count": total,
         "next_cursor": next_cursor
-    })
+    }))
 }
 
 fn task_record_from_payload(
@@ -1823,6 +1825,26 @@ async fn activate_pending_task_triggers(
     Ok(())
 }
 
+async fn disable_task_triggers_for_terminal_task(
+    storage: &Storage,
+    user_id: &str,
+    task_id: &str,
+    status: &str,
+) -> Result<(), ApiError> {
+    let now = now_iso();
+    for mut trigger in storage.list_task_triggers(user_id).await? {
+        if trigger.get("task_id").and_then(Value::as_str) != Some(task_id) {
+            continue;
+        }
+        set_field(&mut trigger, "enabled", json!(false));
+        set_field(&mut trigger, "status", json!(status));
+        set_field(&mut trigger, "next_run_at", Value::Null);
+        set_field(&mut trigger, "updated_at", json!(now));
+        storage.upsert_task_trigger(user_id, &trigger).await?;
+    }
+    Ok(())
+}
+
 fn compute_task_trigger_next_run_at(
     kind: &str,
     run_at: Option<&str>,
@@ -2128,11 +2150,16 @@ async fn execute_task_action_inner(
         .and_then(Value::as_str)
         .map(str::to_string)
         .ok_or_else(|| ApiError::bad_request("Task run-now requires source_session_id"))?;
+    let session_run_lock = state.sessions.session_lock(user_id, &session_id);
+    let _session_run_guard = session_run_lock.lock_owned().await;
     let mut session = state
         .sessions
         .load(user_id, &session_id)
         .await?
         .ok_or_else(|| ApiError::not_found("Session not found"))?;
+    if session.status_kind().is_busy() || session.status_kind().is_awaiting_approval() {
+        return Err(ApiError::conflict("Session already has work in progress"));
+    }
     let action = match action_id {
         Some(action_id) => {
             load_runnable_task_action(&state.storage, user_id, task_id, action_id).await?
@@ -2222,6 +2249,11 @@ async fn execute_task_action_inner(
         )
         .await
         .map_err(|err| ApiError::bad_request(err.to_string()))?;
+    session.set_status(SessionStatus::Running);
+    state
+        .sessions
+        .save_record_if_exists(session.clone())
+        .await?;
     append_task_event(
         &state.storage,
         user_id,
@@ -2234,44 +2266,73 @@ async fn execute_task_action_inner(
     )
     .await?;
 
-    let final_info =
-        wait_for_task_run(state, user_id, task_id, &info.job_id, max_runtime_seconds).await?;
+    let final_info = wait_for_task_run(
+        state,
+        user_id,
+        task_id,
+        &session_id,
+        &info.job_id,
+        max_runtime_seconds,
+    )
+    .await?;
     let output_text = read_run_output(&final_info).await;
-    let previous_codex_thread_id = session.codex_thread_id.clone();
     record_codex_thread(&mut session, &final_info);
-    let mut session_changed = session.codex_thread_id != previous_codex_thread_id;
+    session.set_status(match final_info.status.as_str() {
+        "cancelled" => SessionStatus::Cancelled,
+        "failed" => SessionStatus::Failed,
+        _ => SessionStatus::Idle,
+    });
     if final_info.status == "completed" {
         let result_summary = sanitize_user_visible_text(state, user_id, &output_text);
         if !result_summary.trim().is_empty() {
             append_assistant_message(&mut session, &result_summary);
-            session_changed = true;
         }
-        let next_action_run_count = action_run_count(&action).saturating_add(1);
+        let latest_action = load_task_action(&state.storage, user_id, task_id, &action_id).await?;
+        let latest_action_status = latest_action
+            .get("status")
+            .and_then(Value::as_str)
+            .unwrap_or("confirmed");
+        let next_action_run_count = action_run_count(&latest_action).saturating_add(1);
         let complete_action_on_success = trigger
             .and_then(|trigger| trigger.complete_action_on_success)
-            .unwrap_or_else(|| should_complete_action_after_run(&action, next_action_run_count));
+            .unwrap_or_else(|| {
+                should_complete_action_after_run(&latest_action, next_action_run_count)
+            });
         let action_result_summary = if output_text.trim().is_empty() {
             "Task run completed.".to_string()
         } else {
             result_summary
         };
-        if complete_action_on_success {
-            let updates = json!({
-                "status": "completed",
-                "last_run_id": final_info.job_id,
-                "run_count": next_action_run_count,
-                "result_summary": action_result_summary
-            });
-            let _ = update_task_action_record(
-                &state.storage,
-                user_id,
-                task_id,
-                &action_id,
-                &updates,
-                Some("complete_action"),
-            )
-            .await?;
-        } else {
+        if latest_action_status == "in_progress" {
+            if complete_action_on_success {
+                let updates = json!({
+                    "status": "completed",
+                    "last_run_id": final_info.job_id,
+                    "run_count": next_action_run_count,
+                    "result_summary": action_result_summary
+                });
+                let _ = update_task_action_record(
+                    &state.storage,
+                    user_id,
+                    task_id,
+                    &action_id,
+                    &updates,
+                    Some("complete_action"),
+                )
+                .await?;
+            } else {
+                requeue_task_action_after_recurring_iteration(
+                    &state.storage,
+                    user_id,
+                    task_id,
+                    &action_id,
+                    &final_info.job_id,
+                    &action_result_summary,
+                    next_action_run_count,
+                )
+                .await?;
+            }
+        } else if latest_action_status == "completed" && !complete_action_on_success {
             requeue_task_action_after_recurring_iteration(
                 &state.storage,
                 user_id,
@@ -2280,6 +2341,19 @@ async fn execute_task_action_inner(
                 &final_info.job_id,
                 &action_result_summary,
                 next_action_run_count,
+            )
+            .await?;
+        } else {
+            let _ = update_task_action_record(
+                &state.storage,
+                user_id,
+                task_id,
+                &action_id,
+                &json!({
+                    "last_run_id": final_info.job_id,
+                    "run_count": next_action_run_count
+                }),
+                None,
             )
             .await?;
         }
@@ -2302,9 +2376,7 @@ async fn execute_task_action_inner(
         )
         .await?;
     }
-    if session_changed {
-        state.sessions.save_record_if_exists(session).await?;
-    }
+    state.sessions.save_record_if_exists(session).await?;
     Ok(final_info)
 }
 
@@ -2463,17 +2535,18 @@ async fn wait_for_task_run(
     state: &AppState,
     user_id: &str,
     task_id: &str,
+    session_id: &str,
     job_id: &str,
     max_runtime_seconds: u64,
 ) -> Result<AgentRunInfo, ApiError> {
     let deadline = Instant::now() + Duration::from_secs(max_runtime_seconds.max(1));
-    let mut line_offset = 0_usize;
+    let mut event_offset = 0_usize;
     loop {
         let Some(info) = state.jobs.info_for_user(job_id, user_id).await? else {
             return Err(ApiError::not_found("Task run not found"));
         };
         if let Some(events_file) = info.events_file.as_deref() {
-            for event in read_new_run_events(events_file, &mut line_offset).await {
+            for event in read_new_run_events(events_file, &mut event_offset).await {
                 if let Some(plan_event) = extract_plan_update_event(&event) {
                     persist_task_plan_update(&state.storage, user_id, task_id, &plan_event).await?;
                 }
@@ -2482,6 +2555,17 @@ async fn wait_for_task_run(
         if matches!(info.status.as_str(), "completed" | "failed" | "cancelled") {
             return Ok(info);
         }
+        if let Some(approval) = info.pending_approval.clone() {
+            if let Some(mut session) = state.sessions.load(user_id, session_id).await? {
+                session.set_status(SessionStatus::AwaitingPermission);
+                session.pending_permission_request = Some(approval.clone());
+                let _ = state.sessions.save_record_if_exists(session).await?;
+            }
+            return Err(ApiError::conflict(json!({
+                "message": "Codex approval required",
+                "approval": approval
+            })));
+        }
         if Instant::now() >= deadline {
             return Err(ApiError::bad_request("Task run timed out"));
         }
@@ -2489,18 +2573,8 @@ async fn wait_for_task_run(
     }
 }
 
-async fn read_new_run_events(path: &str, line_offset: &mut usize) -> Vec<Value> {
-    let Ok(text) = tokio::fs::read_to_string(path).await else {
-        return Vec::new();
-    };
-    let lines = text.lines().collect::<Vec<_>>();
-    let events = lines
-        .iter()
-        .skip(*line_offset)
-        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-        .collect::<Vec<_>>();
-    *line_offset = lines.len();
-    events
+async fn read_new_run_events(path: &str, offset: &mut usize) -> Vec<Value> {
+    crate::api::read_jsonl_events_from_offset(std::path::Path::new(path), offset).await
 }
 
 async fn persist_task_plan_update(

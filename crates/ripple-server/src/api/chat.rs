@@ -613,6 +613,24 @@ async fn maybe_persist_model_connector_auth_request(
     Ok(Some(event))
 }
 
+#[utoipa::path(
+    post,
+    path = "/sessions/{session_id}/connector-auth/poll",
+    tag = "sessions",
+    params(("session_id" = String, Path, description = "Session id")),
+    request_body = ConnectorAuthPollRequest,
+    responses(
+        (status = 200, description = "Connector auth poll result", body = serde_json::Value),
+        (status = 400, description = "Invalid poll request", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Session not found", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 409, description = "Session already has work in progress", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn poll_session_connector_auth(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1125,6 +1143,67 @@ async fn reconcile_stale_active_session(
     Ok(())
 }
 
+pub(crate) async fn finalize_chat_run_for_session(
+    state: &AppState,
+    user_id: &str,
+    session_id: &str,
+    info: &AgentRunInfo,
+) -> Result<(), ApiError> {
+    let Some(mut session) = state.sessions.load(user_id, session_id).await? else {
+        return Err(ApiError::not_found("Session not found"));
+    };
+    if info.status == "completed"
+        && finalize_stale_completed_chat_run(state, &mut session, info).await?
+    {
+        return Ok(());
+    }
+    session.status = match info.status.as_str() {
+        "completed" => SessionStatus::Idle.as_str(),
+        "cancelled" => SessionStatus::Cancelled.as_str(),
+        _ => SessionStatus::Failed.as_str(),
+    }
+    .to_string();
+    session.pending_permission_request = None;
+    clear_session_plan(&mut session);
+    let _ = state
+        .sessions
+        .save_record_if_exists(session.clone())
+        .await?;
+    Ok(())
+}
+
+pub(crate) async fn recover_session_run_state(
+    state: &AppState,
+    user_id: &str,
+    session_id: &str,
+) -> Result<(), ApiError> {
+    let Some(mut session) = state.sessions.load(user_id, session_id).await? else {
+        return Ok(());
+    };
+    reconcile_stale_active_session(state, user_id, &mut session).await?;
+    if session.pending_permission_request.is_none() && !session.status_kind().is_awaiting_approval()
+    {
+        return Ok(());
+    }
+    if state.jobs.has_active_session_run(user_id, session_id).await {
+        return Ok(());
+    }
+    let Some(info) = state
+        .jobs
+        .recover_stale_stored_session_run(user_id, session_id)
+        .await?
+    else {
+        session.pending_permission_request = None;
+        session.set_status(SessionStatus::Failed);
+        let _ = state.sessions.save_record_if_exists(session).await?;
+        return Ok(());
+    };
+    if TERMINAL_STATUSES.contains(&info.status.as_str()) {
+        finalize_chat_run_for_session(state, user_id, session_id, &info).await?;
+    }
+    Ok(())
+}
+
 async fn finalize_stale_completed_chat_run(
     state: &AppState,
     session: &mut SessionRecord,
@@ -1370,24 +1449,7 @@ async fn read_run_usage(info: &AgentRunInfo) -> Value {
 }
 
 async fn read_events_from_offset(events_file: &FsPath, offset: &mut usize) -> Vec<Value> {
-    let Ok(bytes) = tokio::fs::read(events_file).await else {
-        return Vec::new();
-    };
-    if bytes.len() < *offset {
-        *offset = 0;
-    }
-    let slice = &bytes[*offset..];
-    *offset = bytes.len();
-    slice
-        .split(|byte| *byte == b'\n')
-        .filter_map(|line| {
-            if line.iter().all(u8::is_ascii_whitespace) {
-                return None;
-            }
-            serde_json::from_slice::<Value>(line).ok()
-        })
-        .filter(|value| value.is_object())
-        .collect()
+    crate::api::read_jsonl_events_from_offset(events_file, offset).await
 }
 
 #[derive(Default)]

@@ -6,15 +6,15 @@ use axum::Json;
 use serde_json::{json, Value};
 
 use crate::api::connectors::{connector_status_value, read_valid_bilibili_credential_file};
-use crate::api::skills::reconcile_user_skill_settings;
+use crate::api::skills::{public_skill_api_path, reconcile_user_skill_settings};
 use crate::api::ApiError;
 use crate::capabilities::{
     connector_definitions, connector_info, related_connector_for_skill,
     related_skills_for_connector,
 };
 use crate::skills::{
-    build_skill_manifest_with_options, public_skill_path, read_user_skill_settings,
-    write_user_skill_settings, SkillManifestEntry, SkillManifestOptions, UserSkillSettings,
+    build_skill_manifest_with_options, read_user_skill_settings, write_user_skill_settings,
+    SkillManifestEntry, SkillManifestOptions, UserSkillSettings,
 };
 use crate::state::AppState;
 use crate::user::user_id_from_headers;
@@ -182,7 +182,7 @@ fn connector_requirements(name: &str, kind: &str, connected: bool) -> Vec<Value>
 
 fn skill_capability(skill: &SkillManifestEntry, workspace_root: &std::path::Path) -> Value {
     let mut public_skill = skill.clone();
-    public_skill.path = public_skill_path(std::path::Path::new(&skill.path), Some(workspace_root));
+    public_skill.path = public_skill_api_path(skill, Some(workspace_root));
     json!({
         "id": skill.id,
         "type": "skill",

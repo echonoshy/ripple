@@ -11,6 +11,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use tokio::time::{sleep, Duration};
 
+use crate::api::chat::finalize_chat_run_for_session;
 use crate::api::run_public::{
     public_run_value, sanitize_user_visible_text, sanitize_user_visible_value,
 };
@@ -45,7 +46,7 @@ pub async fn list_runs(
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
     let runs = state.jobs.list_user(&user_id).await?;
     let total = runs.len();
-    let (runs, next_cursor) = paginate(runs, &query);
+    let (runs, next_cursor) = paginate(runs, &query)?;
     let runs = runs
         .iter()
         .map(|run| public_run_value(&state, &user_id, run))
@@ -353,6 +354,9 @@ pub async fn cancel_run(
     let Some(info) = state.jobs.cancel_for_user(&job_id, &user_id).await? else {
         return Err(ApiError::not_found("Agent run not found"));
     };
+    if let Some(session_id) = info.metadata.get("session_id").and_then(Value::as_str) {
+        let _ = finalize_chat_run_for_session(&state, &user_id, session_id, &info).await;
+    }
     Ok(Json(public_run_value(&state, &user_id, &info)))
 }
 
@@ -389,24 +393,7 @@ async fn initial_offset(events_file: &FsPath, from_start: bool) -> usize {
 }
 
 async fn read_events_from_offset(events_file: &FsPath, offset: &mut usize) -> Vec<Value> {
-    let Ok(bytes) = tokio::fs::read(events_file).await else {
-        return Vec::new();
-    };
-    if bytes.len() < *offset {
-        *offset = 0;
-    }
-    let slice = &bytes[*offset..];
-    *offset = bytes.len();
-    slice
-        .split(|byte| *byte == b'\n')
-        .filter_map(|line| {
-            if line.iter().all(u8::is_ascii_whitespace) {
-                return None;
-            }
-            serde_json::from_slice::<Value>(line).ok()
-        })
-        .filter(|value| value.is_object())
-        .collect()
+    crate::api::read_jsonl_events_from_offset(events_file, offset).await
 }
 
 fn sse_json(value: &Value) -> Bytes {

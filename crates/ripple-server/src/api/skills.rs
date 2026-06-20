@@ -316,7 +316,7 @@ pub async fn update_skill(
         (status = 200, description = "Archived skill", body = serde_json::Value),
         (status = 403, description = "Read-only skill", body = crate::api::openapi::ApiErrorEnvelope),
         (status = 404, description = "Skill not found", body = crate::api::openapi::ApiErrorEnvelope),
-        (status = 412, description = "Confirmation required", body = crate::api::openapi::ApiErrorEnvelope)
+        (status = 428, description = "Confirmation required", body = crate::api::openapi::ApiErrorEnvelope)
     ),
     security(
         ("bearerAuth" = []),
@@ -655,7 +655,7 @@ fn skill_info(
     let validation = record.and_then(|record| record.validation.clone());
     let user_status = user_status_for_skill(skill, &desired_state, validation.as_ref());
     let read_only = skill.source != "user";
-    let path = public_skill_path(Path::new(&skill.path), workspace_root);
+    let path = public_skill_api_path(skill, workspace_root);
     json!({
         "id": skill.id,
         "type": "skill",
@@ -689,6 +689,16 @@ fn skill_info(
         "last_tested_at": record.and_then(|record| record.last_tested_at.clone()),
         "last_validated_at": record.and_then(|record| record.last_tested_at.clone())
     })
+}
+
+pub(crate) fn public_skill_api_path(
+    skill: &SkillManifestEntry,
+    workspace_root: Option<&Path>,
+) -> String {
+    if skill.source == "user" {
+        return public_skill_path(Path::new(&skill.path), workspace_root);
+    }
+    format!("/shared-skills/{}/SKILL.md", skill.id.replace(':', "/"))
 }
 
 fn desired_state_for_skill(skill: &SkillManifestEntry, settings: &UserSkillSettings) -> String {

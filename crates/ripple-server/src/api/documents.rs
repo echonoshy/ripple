@@ -3,13 +3,13 @@ use std::path::Path;
 use axum::extract::{Path as AxumPath, Query, State};
 use axum::http::HeaderMap;
 use axum::Json;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{json, Value};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use crate::api::ApiError;
+use crate::api::{paginate, ApiError, ListQuery};
 use crate::state::AppState;
 use crate::storage::{sha256_hex, FileRefRecord};
 use crate::user::user_id_from_headers;
@@ -38,6 +38,8 @@ struct DocumentRecord {
 #[derive(Debug, Deserialize)]
 pub struct DocumentListQuery {
     q: Option<String>,
+    limit: Option<usize>,
+    cursor: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -52,8 +54,17 @@ pub struct DocumentCreateInput {
 #[derive(Debug, Deserialize)]
 pub struct DocumentUpdateInput {
     title: Option<String>,
-    linked_session_id: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_nullable_field")]
+    linked_session_id: Option<Option<String>>,
     summary: Option<String>,
+}
+
+fn deserialize_nullable_field<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
 }
 
 pub async fn list_documents(
@@ -72,10 +83,23 @@ pub async fn list_documents(
                 .contains(&q)
         });
     }
-    documents.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
-    Ok(Json(
-        json!({ "documents": documents, "count": documents.len() }),
-    ))
+    documents.sort_by(|a, b| {
+        b.updated_at
+            .cmp(&a.updated_at)
+            .then_with(|| b.document_id.cmp(&a.document_id))
+    });
+    let total = documents.len();
+    let page_query = ListQuery {
+        limit: query.limit,
+        cursor: query.cursor,
+    };
+    let (documents, next_cursor) = paginate(documents, &page_query)?;
+    Ok(Json(json!({
+        "documents": documents,
+        "count": documents.len(),
+        "total": total,
+        "next_cursor": next_cursor
+    })))
 }
 
 pub async fn create_document(
@@ -99,7 +123,6 @@ pub async fn create_document(
     if title.is_empty() {
         return Err(ApiError::bad_request("title is required"));
     }
-    let mut state_doc = load_document_state(&state, &user_id).await?;
     let now = now_iso();
     let document = DocumentRecord {
         document_id: format!("doc-{}", &Uuid::new_v4().simple().to_string()[..12]),
@@ -113,9 +136,14 @@ pub async fn create_document(
         updated_at: now.clone(),
         last_modified_at: now,
     };
-    state_doc.documents.push(document.clone());
     record_document_file_ref(&state, &user_id, &target, &document).await?;
-    save_document_state(&state, &user_id, &state_doc).await?;
+    state
+        .storage
+        .upsert_document(
+            &user_id,
+            &serde_json::to_value(&document).map_err(anyhow::Error::from)?,
+        )
+        .await?;
     Ok(Json(
         serde_json::to_value(document).unwrap_or_else(|_| json!({})),
     ))
@@ -127,12 +155,7 @@ pub async fn get_document(
     AxumPath(document_id): AxumPath<String>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
-    let Some(document) = load_document_state(&state, &user_id)
-        .await?
-        .documents
-        .into_iter()
-        .find(|doc| doc.document_id == document_id)
-    else {
+    let Some(document) = load_document(&state, &user_id, &document_id).await? else {
         return Err(ApiError::not_found("Document not found"));
     };
     Ok(Json(
@@ -147,12 +170,7 @@ pub async fn update_document(
     Json(input): Json<DocumentUpdateInput>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
-    let mut document_state = load_document_state(&state, &user_id).await?;
-    let Some(document) = document_state
-        .documents
-        .iter_mut()
-        .find(|doc| doc.document_id == document_id)
-    else {
+    let Some(mut document) = load_document(&state, &user_id, &document_id).await? else {
         return Err(ApiError::not_found("Document not found"));
     };
     if let Some(title) = input.title {
@@ -162,15 +180,21 @@ pub async fn update_document(
         }
         document.title = title.to_string();
     }
-    if input.linked_session_id.is_some() {
-        document.linked_session_id = input.linked_session_id;
+    if let Some(linked_session_id) = input.linked_session_id {
+        document.linked_session_id = linked_session_id;
     }
     if let Some(summary) = input.summary {
         document.summary = summary;
     }
     document.updated_at = now_iso();
     let out = document.clone();
-    save_document_state(&state, &user_id, &document_state).await?;
+    state
+        .storage
+        .upsert_document(
+            &user_id,
+            &serde_json::to_value(&document).map_err(anyhow::Error::from)?,
+        )
+        .await?;
     Ok(Json(
         serde_json::to_value(out).unwrap_or_else(|_| json!({})),
     ))
@@ -182,15 +206,13 @@ pub async fn delete_document(
     AxumPath(document_id): AxumPath<String>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
-    let mut document_state = load_document_state(&state, &user_id).await?;
-    let before = document_state.documents.len();
-    document_state
-        .documents
-        .retain(|doc| doc.document_id != document_id);
-    if document_state.documents.len() == before {
+    if !state
+        .storage
+        .delete_document(&user_id, &document_id)
+        .await?
+    {
         return Err(ApiError::not_found("Document not found"));
     }
-    save_document_state(&state, &user_id, &document_state).await?;
     Ok(Json(json!({ "ok": true, "document_id": document_id })))
 }
 
@@ -208,20 +230,16 @@ async fn load_document_state(state: &AppState, user_id: &str) -> Result<Document
     })
 }
 
-async fn save_document_state(
+async fn load_document(
     state: &AppState,
     user_id: &str,
-    document_state: &DocumentState,
-) -> Result<(), ApiError> {
-    let records = document_state
-        .documents
-        .iter()
-        .cloned()
-        .map(serde_json::to_value)
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(anyhow::Error::from)?;
-    state.storage.replace_documents(user_id, &records).await?;
-    Ok(())
+    document_id: &str,
+) -> Result<Option<DocumentRecord>, ApiError> {
+    Ok(state
+        .storage
+        .get_document(user_id, document_id)
+        .await?
+        .and_then(|value| serde_json::from_value::<DocumentRecord>(value).ok()))
 }
 
 fn infer_kind(path: &Path) -> String {

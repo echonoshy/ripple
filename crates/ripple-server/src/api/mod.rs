@@ -19,6 +19,8 @@ pub mod tasks;
 pub mod users;
 pub mod workspace;
 
+use std::path::Path;
+
 use axum::body::Body;
 use axum::extract::{DefaultBodyLimit, State};
 use axum::http::{HeaderValue, Request, StatusCode};
@@ -41,21 +43,57 @@ pub struct ListQuery {
     pub cursor: Option<String>,
 }
 
-pub(crate) fn paginate<T>(items: Vec<T>, query: &ListQuery) -> (Vec<T>, Option<String>) {
+pub(crate) fn paginate<T>(
+    items: Vec<T>,
+    query: &ListQuery,
+) -> Result<(Vec<T>, Option<String>), ApiError> {
     let total = items.len();
-    let offset = query
-        .cursor
-        .as_deref()
-        .and_then(|value| value.parse::<usize>().ok())
-        .unwrap_or(0)
-        .min(total);
+    let offset = match query.cursor.as_deref() {
+        Some(value) => value
+            .parse::<usize>()
+            .map_err(|_| ApiError::bad_request("cursor must be a non-negative integer"))?,
+        None => 0,
+    }
+    .min(total);
     let limit = query.limit.unwrap_or(total).clamp(1, 100);
     let end = offset.saturating_add(limit).min(total);
     let next_cursor = (end < total).then(|| end.to_string());
-    (
+    Ok((
         items.into_iter().skip(offset).take(end - offset).collect(),
         next_cursor,
-    )
+    ))
+}
+
+pub(crate) async fn read_jsonl_events_from_offset(
+    events_file: &Path,
+    offset: &mut usize,
+) -> Vec<Value> {
+    let Ok(bytes) = tokio::fs::read(events_file).await else {
+        return Vec::new();
+    };
+    if bytes.len() < *offset {
+        *offset = 0;
+    }
+    let slice = &bytes[*offset..];
+    let Some(complete_len) = slice
+        .iter()
+        .rposition(|byte| *byte == b'\n')
+        .map(|position| position + 1)
+    else {
+        return Vec::new();
+    };
+    let complete = &slice[..complete_len];
+    *offset = (*offset).saturating_add(complete_len);
+    complete
+        .split(|byte| *byte == b'\n')
+        .filter_map(|line| {
+            if line.iter().all(u8::is_ascii_whitespace) {
+                return None;
+            }
+            serde_json::from_slice::<Value>(line).ok()
+        })
+        .filter(|value| value.is_object())
+        .collect()
 }
 
 pub(crate) fn require_confirm(payload: Option<&Value>, action: &str) -> Result<(), ApiError> {
@@ -220,14 +258,8 @@ pub fn router(state: AppState) -> Router {
             "/sessions/:session_id/permissions/resolve",
             post(sessions::resolve_permission_request),
         )
-        .route(
-            "/sessions/:session_id/connector-auth/poll",
-            post(chat::poll_session_connector_auth),
-        )
-        .route(
-            "/sessions/:session_id/connector-auth/cancel",
-            post(sessions::cancel_connector_auth),
-        )
+        .routes(utoipa_axum::routes!(chat::poll_session_connector_auth))
+        .routes(utoipa_axum::routes!(sessions::cancel_connector_auth))
         .route("/sessions/:session_id/usage", get(sessions::session_usage))
         .route(
             "/sandboxes",
@@ -492,7 +524,9 @@ fn status_code_slug(status: StatusCode) -> &'static str {
         StatusCode::NOT_FOUND => "not_found",
         StatusCode::CONFLICT => "conflict",
         StatusCode::GONE => "gone",
+        StatusCode::METHOD_NOT_ALLOWED => "method_not_allowed",
         StatusCode::PRECONDITION_REQUIRED => "precondition_required",
+        StatusCode::INTERNAL_SERVER_ERROR => "internal_server_error",
         StatusCode::SERVICE_UNAVAILABLE => "service_unavailable",
         StatusCode::GATEWAY_TIMEOUT => "gateway_timeout",
         StatusCode::NOT_IMPLEMENTED => "not_implemented",
@@ -1968,5 +2002,38 @@ mod tests {
             .await;
             assert_eq!(status, StatusCode::NOT_FOUND, "{path}");
         }
+    }
+
+    #[tokio::test]
+    async fn jsonl_tail_reader_preserves_partial_line_until_newline() {
+        let root = std::env::temp_dir().join(format!("ripple-jsonl-tail-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("events.jsonl");
+        tokio::fs::write(
+            &path,
+            br#"{"type":"one"}
+{"type":"two""#,
+        )
+        .await
+        .unwrap();
+        let mut offset = 0_usize;
+
+        let first = super::read_jsonl_events_from_offset(&path, &mut offset).await;
+        assert_eq!(first.len(), 1);
+        assert_eq!(first[0].get("type").and_then(Value::as_str), Some("one"));
+
+        tokio::fs::write(
+            &path,
+            br#"{"type":"one"}
+{"type":"two"}
+"#,
+        )
+        .await
+        .unwrap();
+        let second = super::read_jsonl_events_from_offset(&path, &mut offset).await;
+        assert_eq!(second.len(), 1);
+        assert_eq!(second[0].get("type").and_then(Value::as_str), Some("two"));
+
+        let _ = std::fs::remove_dir_all(root);
     }
 }

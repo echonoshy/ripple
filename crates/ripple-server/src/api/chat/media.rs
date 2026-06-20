@@ -9,6 +9,7 @@ use crate::api::users::assert_workspace_save_within_quota;
 use crate::jobs::AgentRunInfo;
 use crate::state::AppState;
 use crate::storage::{sha256_hex, FileRefRecord};
+use crate::workspace as ws;
 
 pub(crate) fn image_event_to_message_block(event: &Value) -> Option<Value> {
     match event.get("type").and_then(Value::as_str) {
@@ -121,16 +122,20 @@ async fn import_generated_image(
     })?;
 
     let now = OffsetDateTime::now_utc();
-    let target_dir = workspace_root
-        .join("outputs")
-        .join("images")
-        .join(format!("{:04}", now.year()))
-        .join(format!("{:02}", u8::from(now.month())));
-    let target = target_dir.join(format!("{}.png", sanitize_filename(item_id)));
+    let target_virtual_path = format!(
+        "/workspace/outputs/images/{:04}/{:02}/{}.png",
+        now.year(),
+        u8::from(now.month()),
+        sanitize_filename(item_id)
+    );
+    let target = ws::validate_write_path(&target_virtual_path, workspace_root).ok()?;
+    let target_dir = target.parent()?;
+    let write_lock = state.workspace_write_lock(user_id);
+    let _write_guard = write_lock.lock_owned().await;
     assert_workspace_save_within_quota(state, user_id, &target, data.len() as u64)
         .await
         .ok()?;
-    if tokio::fs::create_dir_all(&target_dir).await.is_err() {
+    if tokio::fs::create_dir_all(target_dir).await.is_err() {
         return None;
     }
     if tokio::fs::write(&target, &data).await.is_err() {

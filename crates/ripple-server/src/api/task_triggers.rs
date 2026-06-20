@@ -146,7 +146,7 @@ pub async fn list_task_triggers(
             .cmp(&b.next_run_at.clone().unwrap_or_else(|| "9999".to_string()))
     });
     let total = records.len();
-    let (records, next_cursor) = paginate(records, &query);
+    let (records, next_cursor) = paginate(records, &query)?;
     let triggers = records
         .iter()
         .map(|record| public_task_trigger_value(&state, &user_id, record))
@@ -189,7 +189,7 @@ pub async fn list_all_task_triggers(
             })
     });
     let total = records.len();
-    let (records, next_cursor) = paginate(records, &query);
+    let (records, next_cursor) = paginate(records, &query)?;
     let triggers = records
         .iter()
         .map(|record| public_task_trigger_value(&state, &user_id, record))
@@ -1112,7 +1112,10 @@ async fn task_trigger_target_completed(
     let Some(task) = state.storage.get_task(user_id, task_id).await? else {
         return Ok(false);
     };
-    Ok(task.get("status").and_then(Value::as_str) == Some("completed"))
+    Ok(matches!(
+        task.get("status").and_then(Value::as_str),
+        Some("completed" | "cancelled" | "archived")
+    ))
 }
 
 fn should_complete_task_trigger_action(record: &TaskTriggerRecord, trigger: &str) -> bool {

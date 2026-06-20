@@ -462,6 +462,10 @@ fn task_tool_complete_action_arguments() -> &'static str {
     "{\"mode\":\"complete_action\",\"target\":\"task\",\"task_id\":\"task-progress\",\"action_id\":\"act-draft\",\"result_summary\":\"已整理出客户预算范围和报价假设。\"}"
 }
 
+fn task_tool_wait_user_arguments() -> &'static str {
+    "{\"mode\":\"wait_user\",\"target\":\"task\",\"task_id\":\"task-wait-user-preserved\",\"action_id\":\"act-wait-user-preserved\",\"reason\":\"需要用户补充客户预算上限。\"}"
+}
+
 fn recurring_task_tool_complete_action_arguments() -> &'static str {
     "{\"mode\":\"complete_action\",\"target\":\"task\",\"task_id\":\"task-recurring-session-output\",\"action_id\":\"act-recurring-session-output\",\"result_summary\":\"已完成本次定时任务。\"}"
 }
@@ -524,6 +528,10 @@ fn main() {
                 } else {
                     "thread-resume-missing-exclude-turns".to_string()
                 };
+                thread_has_task_tool.insert(
+                    response_thread_id.clone(),
+                    line.contains("\"dynamicTools\"") && line.contains("task_update"),
+                );
                 send(format!(
                     "{{\"id\":{},\"result\":{{\"thread\":{{\"id\":{}}}}}}}",
                     id.raw_json(),
@@ -705,6 +713,36 @@ fn main() {
                         json_string(&thread_id),
                         json_string(&turn_id),
                         task_tool_complete_action_arguments()
+                    ));
+                    continue;
+                }
+
+                if line.contains("[tool-task-wait-user]") {
+                    if !thread_has_task_tool.get(&thread_id).copied().unwrap_or(false) {
+                        complete_turn(
+                            &thread_id,
+                            &turn_id,
+                            &item_id,
+                            "task_update dynamic tool missing",
+                        );
+                        continue;
+                    }
+                    let dynamic_request_id = format!("dynamic-task-wait-user-{turn_counter}");
+                    pending_dynamic_tools.insert(
+                        dynamic_request_id.clone(),
+                        (
+                            thread_id.clone(),
+                            turn_id.clone(),
+                            item_id.clone(),
+                            "task action waiting for user".to_string(),
+                        ),
+                    );
+                    send(format!(
+                        "{{\"id\":{},\"method\":\"item/tool/call\",\"params\":{{\"threadId\":{},\"turnId\":{},\"callId\":\"call-task-wait-user\",\"namespace\":\"codex_app\",\"tool\":\"task_update\",\"arguments\":{}}}}}",
+                        json_string(&dynamic_request_id),
+                        json_string(&thread_id),
+                        json_string(&turn_id),
+                        task_tool_wait_user_arguments()
                     ));
                     continue;
                 }
@@ -2690,7 +2728,7 @@ async fn task_trigger_executes_task_action_and_updates_original_session() {
             .pointer("/actions/0/result_summary")
             .and_then(Value::as_str)
             .unwrap_or("")
-            .contains("task action completed"),
+            .contains("已整理出客户预算范围和报价假设。"),
         "{detail}"
     );
 
@@ -2734,15 +2772,27 @@ async fn due_task_triggers_start_independent_actions_without_serial_waiting() {
         .get("session_id")
         .and_then(Value::as_str)
         .expect("session id");
+    let (status, fast_session) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/sessions",
+        json!({"model": "codex-test"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{fast_session}");
+    let fast_session_id = fast_session
+        .get("session_id")
+        .and_then(Value::as_str)
+        .expect("fast session id");
 
     let (status, created) = call(
         app.clone(),
         Method::POST,
         "/v1/tasks",
         json!({
-            "task_id": "task-trigger-parallel",
-            "title": "并行触发多个 action",
-            "objective": "慢触发器不能阻塞同轮其他触发器。",
+            "task_id": "task-trigger-parallel-slow",
+            "title": "慢触发器任务",
+            "objective": "慢触发器不能阻塞同轮其他 session 的触发器。",
             "status": "active",
             "source_session_id": session_id,
             "actions": [
@@ -2751,7 +2801,23 @@ async fn due_task_triggers_start_independent_actions_without_serial_waiting() {
                     "title": "慢检查",
                     "kind": "execute",
                     "status": "confirmed"
-                },
+                }
+            ]
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+    let (status, created) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/tasks",
+        json!({
+            "task_id": "task-trigger-parallel-fast",
+            "title": "快触发器任务",
+            "objective": "不同 source session 的触发器可以并发执行。",
+            "status": "active",
+            "source_session_id": fast_session_id,
+            "actions": [
                 {
                     "action_id": "act-fast-trigger",
                     "title": "快检查",
@@ -2767,7 +2833,7 @@ async fn due_task_triggers_start_independent_actions_without_serial_waiting() {
     let (status, slow_trigger) = call(
         app.clone(),
         Method::POST,
-        "/v1/tasks/task-trigger-parallel/actions/act-slow-trigger/triggers",
+        "/v1/tasks/task-trigger-parallel-slow/actions/act-slow-trigger/triggers",
         json!({
             "title": "慢触发器",
             "prompt": "[slow] [ids] slow task trigger",
@@ -2782,7 +2848,7 @@ async fn due_task_triggers_start_independent_actions_without_serial_waiting() {
     let (status, fast_trigger) = call(
         app.clone(),
         Method::POST,
-        "/v1/tasks/task-trigger-parallel/actions/act-fast-trigger/triggers",
+        "/v1/tasks/task-trigger-parallel-fast/actions/act-fast-trigger/triggers",
         json!({
             "title": "快触发器",
             "prompt": "[ids] fast task trigger",
@@ -2801,26 +2867,38 @@ async fn due_task_triggers_start_independent_actions_without_serial_waiting() {
 
     let mut observed_fast_complete_while_slow_running = false;
     for _ in 0..40 {
-        let (status, detail) = call(
+        let (status, slow_detail) = call(
             app.clone(),
             Method::GET,
-            "/v1/tasks/task-trigger-parallel",
+            "/v1/tasks/task-trigger-parallel-slow",
             Value::Null,
         )
         .await;
-        assert_eq!(status, StatusCode::OK, "{detail}");
-        let actions = detail
+        assert_eq!(status, StatusCode::OK, "{slow_detail}");
+        let (status, fast_detail) = call(
+            app.clone(),
+            Method::GET,
+            "/v1/tasks/task-trigger-parallel-fast",
+            Value::Null,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{fast_detail}");
+        let slow_actions = slow_detail
             .get("actions")
             .and_then(Value::as_array)
-            .expect("actions");
-        let slow_status = actions
+            .expect("slow actions");
+        let fast_actions = fast_detail
+            .get("actions")
+            .and_then(Value::as_array)
+            .expect("fast actions");
+        let slow_status = slow_actions
             .iter()
             .find(|action| {
                 action.get("action_id").and_then(Value::as_str) == Some("act-slow-trigger")
             })
             .and_then(|action| action.get("status"))
             .and_then(Value::as_str);
-        let fast_status = actions
+        let fast_status = fast_actions
             .iter()
             .find(|action| {
                 action.get("action_id").and_then(Value::as_str) == Some("act-fast-trigger")
@@ -2847,6 +2925,104 @@ async fn due_task_triggers_start_independent_actions_without_serial_waiting() {
         Some(2),
         "{triggered:?}"
     );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn task_run_now_rejects_when_source_session_is_running() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (_state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+
+    let (status, session) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/sessions",
+        json!({"model": "codex-test"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let session_id = session
+        .get("session_id")
+        .and_then(Value::as_str)
+        .expect("session id")
+        .to_string();
+
+    let (status, created) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/tasks",
+        json!({
+            "task_id": "task-run-busy-session",
+            "title": "同一 session 忙碌时不启动任务",
+            "objective": "任务 run-now 不应和当前 chat 并发写同一个 Codex thread。",
+            "status": "active",
+            "source_session_id": session_id,
+            "actions": [
+                {
+                    "action_id": "act-run-busy-session",
+                    "title": "执行一次",
+                    "kind": "execute",
+                    "status": "confirmed"
+                }
+            ]
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+
+    let chat_app = app.clone();
+    let chat_session_id = session_id.clone();
+    let chat_handle = tokio::spawn(async move {
+        call(
+            chat_app,
+            Method::POST,
+            "/v1/chat/completions",
+            json!({
+                "model": "codex-test",
+                "session_id": chat_session_id,
+                "messages": [{"role": "user", "content": "[slow] keep this session busy"}]
+            }),
+        )
+        .await
+    });
+
+    let mut session_running = false;
+    for _ in 0..40 {
+        let (status, detail) = call(
+            app.clone(),
+            Method::GET,
+            &format!("/v1/sessions/{session_id}"),
+            Value::Null,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{detail}");
+        if detail.get("status").and_then(Value::as_str) == Some("running") {
+            session_running = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(session_running, "slow chat should mark the session running");
+
+    let (status, run) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/tasks/task-run-busy-session/run-now",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{run}");
+    assert!(
+        run.to_string()
+            .contains("Session already has work in progress"),
+        "{run}"
+    );
+
+    let (chat_status, chat_body) = chat_handle.await.expect("slow chat join");
+    assert_eq!(chat_status, StatusCode::OK, "{chat_body}");
 
     let _ = std::fs::remove_dir_all(root);
 }
@@ -2979,6 +3155,168 @@ async fn task_run_now_executes_codex_and_writes_progress_back() {
 }
 
 #[tokio::test]
+async fn task_run_resume_thread_keeps_task_update_dynamic_tool_available() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+
+    let (status, session) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/sessions",
+        json!({"model": "codex-test"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let session_id = session
+        .get("session_id")
+        .and_then(Value::as_str)
+        .expect("session id");
+    let mut session_record = state
+        .sessions
+        .load("smoke-user", session_id)
+        .await
+        .unwrap()
+        .expect("session");
+    session_record.codex_thread_id = Some("thread-existing-task".to_string());
+    state.sessions.save_record(session_record).await.unwrap();
+
+    let (status, created) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/tasks",
+        json!({
+            "task_id": "task-progress",
+            "title": "恢复旧 Codex thread 后继续使用 task_update",
+            "objective": "thread/resume 也应注入 task_update dynamic tool。",
+            "status": "active",
+            "source_session_id": session_id,
+            "actions": [
+                {
+                    "action_id": "act-draft",
+                    "title": "[tool-task-complete] 执行报价方案整理",
+                    "kind": "execute",
+                    "status": "confirmed"
+                }
+            ]
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+
+    let (status, run) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/tasks/task-progress/run-now",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{run}");
+
+    let (status, detail) = call(app, Method::GET, "/v1/tasks/task-progress", Value::Null).await;
+    assert_eq!(status, StatusCode::OK, "{detail}");
+    assert_eq!(
+        detail.pointer("/actions/0/status").and_then(Value::as_str),
+        Some("completed"),
+        "{detail}"
+    );
+    assert_eq!(
+        detail
+            .pointer("/actions/0/result_summary")
+            .and_then(Value::as_str),
+        Some("已整理出客户预算范围和报价假设。"),
+        "{detail}"
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn task_run_preserves_task_update_wait_user_terminal_state() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (_state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+
+    let (status, session) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/sessions",
+        json!({"model": "codex-test"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let session_id = session
+        .get("session_id")
+        .and_then(Value::as_str)
+        .expect("session id");
+
+    let (status, created) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/tasks",
+        json!({
+            "task_id": "task-wait-user-preserved",
+            "title": "等待用户补充预算",
+            "objective": "Codex 已明确需要用户补充信息时，run finalizer 不应自动完成 action。",
+            "status": "active",
+            "source_session_id": session_id,
+            "actions": [
+                {
+                    "action_id": "act-wait-user-preserved",
+                    "title": "[tool-task-wait-user] 检查预算信息",
+                    "kind": "execute",
+                    "status": "confirmed"
+                }
+            ]
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+
+    let (status, run) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/tasks/task-wait-user-preserved/run-now",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{run}");
+    assert_eq!(run.get("status").and_then(Value::as_str), Some("completed"));
+
+    let (status, detail) = call(
+        app,
+        Method::GET,
+        "/v1/tasks/task-wait-user-preserved",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{detail}");
+    assert_eq!(
+        detail.pointer("/actions/0/status").and_then(Value::as_str),
+        Some("waiting_user"),
+        "{detail}"
+    );
+    assert_eq!(
+        detail
+            .pointer("/actions/0/waiting_reason")
+            .and_then(Value::as_str),
+        Some("需要用户补充客户预算上限。"),
+        "{detail}"
+    );
+    assert_eq!(
+        detail
+            .pointer("/actions/0/result_summary")
+            .and_then(Value::as_str),
+        None,
+        "{detail}"
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
 async fn task_run_now_rejects_action_already_in_progress() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let fake_codex = write_fake_codex_app_server(&root);
@@ -3047,6 +3385,105 @@ async fn task_run_now_rejects_action_already_in_progress() {
             .and_then(Value::as_str)
             .is_none(),
         "{detail}"
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn cancelling_task_disables_task_triggers() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let (state, app) = test_state_and_app(&root);
+
+    let (status, session) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/sessions",
+        json!({"model": "codex-test"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let session_id = session
+        .get("session_id")
+        .and_then(Value::as_str)
+        .expect("session id");
+
+    let (status, created) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/tasks",
+        json!({
+            "task_id": "task-cancel-disables-trigger",
+            "title": "取消后不再触发",
+            "objective": "取消 task 应同步关闭它的 triggers。",
+            "status": "active",
+            "source_session_id": session_id,
+            "actions": [
+                {
+                    "action_id": "act-cancel-disables-trigger",
+                    "title": "执行一次",
+                    "kind": "execute",
+                    "status": "confirmed"
+                }
+            ]
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+
+    let (status, trigger) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/tasks/task-cancel-disables-trigger/actions/act-cancel-disables-trigger/triggers",
+        json!({
+            "title": "取消前 due",
+            "prompt": "should not run after cancel",
+            "kind": "once",
+            "run_at": "2020-01-01T00:00:00Z",
+            "enabled": true
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{trigger}");
+
+    let (status, cancelled) = call(
+        app.clone(),
+        Method::DELETE,
+        "/v1/tasks/task-cancel-disables-trigger",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{cancelled}");
+    assert_eq!(
+        cancelled.pointer("/task/status").and_then(Value::as_str),
+        Some("cancelled"),
+        "{cancelled}"
+    );
+
+    let triggers = state
+        .storage
+        .list_task_triggers("smoke-user")
+        .await
+        .expect("list triggers");
+    let trigger = triggers
+        .iter()
+        .find(|trigger| {
+            trigger.get("task_id").and_then(Value::as_str) == Some("task-cancel-disables-trigger")
+        })
+        .expect("task trigger remains for audit trail");
+    assert_eq!(trigger.get("enabled").and_then(Value::as_bool), Some(false));
+    assert_eq!(
+        trigger.get("status").and_then(Value::as_str),
+        Some("completed")
+    );
+    assert!(trigger.get("next_run_at").map_or(true, Value::is_null));
+
+    let triggered = trigger_due_task_triggers(&state)
+        .await
+        .expect("trigger due task triggers");
+    assert!(
+        triggered.get("smoke-user").map_or(true, Vec::is_empty),
+        "{triggered:?}"
     );
 
     let _ = std::fs::remove_dir_all(root);
@@ -3261,6 +3698,12 @@ async fn openapi_docs_are_public_and_keep_v1_auth_unchanged() {
         .pointer("/paths/~1v1~1runs~1{job_id}~1events/get")
         .is_some());
     assert!(spec
+        .pointer("/paths/~1v1~1sessions~1{session_id}~1connector-auth~1poll/post")
+        .is_some());
+    assert!(spec
+        .pointer("/paths/~1v1~1sessions~1{session_id}~1connector-auth~1cancel/post")
+        .is_some());
+    assert!(spec
         .pointer("/components/securitySchemes/bearerAuth")
         .is_some());
     assert!(spec
@@ -3324,6 +3767,120 @@ async fn openapi_docs_are_public_and_keep_v1_auth_unchanged() {
         .await
         .unwrap();
     assert_eq!(unauthorized_v1.status(), StatusCode::UNAUTHORIZED);
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn readiness_returns_503_when_required_check_fails() {
+    let root = std::env::temp_dir().join(format!("ripple-ready-fails-{}", Uuid::new_v4()));
+    fs::create_dir_all(&root).unwrap();
+    let blocked_sandbox_root = root.join("sandboxes-file");
+    fs::write(&blocked_sandbox_root, "not a directory").unwrap();
+    let mut config = test_config(&root);
+    config.sandbox.sandboxes_root = blocked_sandbox_root;
+    let (_state, app) = test_state_and_app_with_config(config);
+
+    let response = app
+        .oneshot(request(Method::GET, "/v1/health/ready", Value::Null, true))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let body = response_json(response).await;
+    assert_eq!(
+        body.get("status").and_then(Value::as_str),
+        Some("not_ready")
+    );
+    assert_eq!(
+        body.pointer("/checks/sandboxes_root/status")
+            .and_then(Value::as_str),
+        Some("fail")
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn connector_unsupported_operation_uses_method_not_allowed_code() {
+    let root = std::env::temp_dir().join(format!("ripple-connector-405-{}", Uuid::new_v4()));
+    let (_state, app) = test_state_and_app(&root);
+
+    let (status, body) = call(
+        app,
+        Method::POST,
+        "/v1/connectors/notion/auth/complete",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::METHOD_NOT_ALLOWED, "{body}");
+    assert_eq!(
+        body.pointer("/error/code").and_then(Value::as_str),
+        Some("method_not_allowed"),
+        "{body}"
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn skills_and_capabilities_redact_shared_skill_host_paths() {
+    let root = std::env::temp_dir().join(format!("ripple-shared-skill-paths-{}", Uuid::new_v4()));
+    let shared_root = root.join("shared-skills-root");
+    let shared_skill = shared_root.join("shared-demo/SKILL.md");
+    fs::create_dir_all(shared_skill.parent().unwrap()).unwrap();
+    fs::write(
+        &shared_skill,
+        "---\nname: shared-demo\ndescription: Shared demo\n---\n# Shared demo\n",
+    )
+    .unwrap();
+    let mut config = test_config(&root);
+    config.skills.shared_dirs = vec![shared_root.to_string_lossy().to_string()];
+    let (_state, app) = test_state_and_app_with_config(config);
+
+    let (status, skills) = call(app.clone(), Method::GET, "/v1/skills", Value::Null).await;
+    assert_eq!(status, StatusCode::OK, "{skills}");
+    let skill = skills
+        .get("skills")
+        .and_then(Value::as_array)
+        .and_then(|skills| {
+            skills
+                .iter()
+                .find(|skill| skill.get("id").and_then(Value::as_str) == Some("ripple:shared-demo"))
+        })
+        .expect("shared skill");
+    let skill_path = skill.get("path").and_then(Value::as_str).expect("path");
+    assert!(
+        skill_path.starts_with("/shared-skills/"),
+        "shared skill path should be virtual: {skill_path}"
+    );
+    assert!(
+        !skill_path.contains(shared_root.to_string_lossy().as_ref()),
+        "shared skill path leaked host path: {skill_path}"
+    );
+
+    let (status, capabilities) = call(app, Method::GET, "/v1/capabilities", Value::Null).await;
+    assert_eq!(status, StatusCode::OK, "{capabilities}");
+    let capability = capabilities
+        .get("capabilities")
+        .and_then(Value::as_array)
+        .and_then(|capabilities| {
+            capabilities.iter().find(|capability| {
+                capability.get("id").and_then(Value::as_str) == Some("ripple:shared-demo")
+            })
+        })
+        .expect("shared skill capability");
+    let capability_path = capability
+        .pointer("/skill/path")
+        .and_then(Value::as_str)
+        .expect("capability skill path");
+    assert!(
+        capability_path.starts_with("/shared-skills/"),
+        "shared capability path should be virtual: {capability_path}"
+    );
+    assert!(
+        !capability_path.contains(shared_root.to_string_lossy().as_ref()),
+        "shared capability path leaked host path: {capability_path}"
+    );
 
     let _ = std::fs::remove_dir_all(root);
 }
@@ -4157,6 +4714,220 @@ Content-Type: image/jpeg\r\n\r\n"
         attachment.get("size").and_then(Value::as_u64),
         Some(3 * 1024 * 1024)
     );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn workspace_attachment_upload_rejects_symlinked_uploads_directory() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let (state, app) = test_state_and_app(&root);
+    let workspace = state.sandboxes.ensure_sandbox("smoke-user").unwrap();
+    let outside = root.join("outside-uploads");
+    fs::create_dir_all(&outside).unwrap();
+    std::os::unix::fs::symlink(&outside, workspace.join("uploads")).unwrap();
+
+    let boundary = "ripple-symlink-attachment-boundary";
+    let body = format!(
+        "--{boundary}\r\n\
+Content-Disposition: form-data; name=\"kind\"\r\n\r\n\
+image\r\n\
+--{boundary}\r\n\
+Content-Disposition: form-data; name=\"file\"; filename=\"escape.jpg\"\r\n\
+Content-Type: image/jpeg\r\n\r\n\
+small image\r\n\
+--{boundary}--\r\n"
+    )
+    .into_bytes();
+
+    let response = app
+        .oneshot(multipart_request(
+            "/v1/workspace/attachments",
+            boundary,
+            body,
+        ))
+        .await
+        .unwrap();
+    assert!(
+        matches!(
+            response.status(),
+            StatusCode::BAD_REQUEST | StatusCode::FORBIDDEN
+        ),
+        "unexpected status {}",
+        response.status()
+    );
+    let body = response_json(response).await;
+    assert!(
+        body.to_string().contains("Access denied")
+            || body.to_string().contains("symlink")
+            || body.to_string().contains("Invalid"),
+        "{body}"
+    );
+    assert!(outside.read_dir().unwrap().next().is_none());
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn list_sessions_rejects_invalid_cursor() {
+    let root = std::env::temp_dir().join(format!("ripple-invalid-cursor-{}", Uuid::new_v4()));
+    let (_state, app) = test_state_and_app(&root);
+
+    let (status, body) = call(
+        app,
+        Method::GET,
+        "/v1/sessions?cursor=not-a-number",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(
+        body.pointer("/error/code").and_then(Value::as_str),
+        Some("bad_request"),
+        "{body}"
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn documents_can_clear_linked_session_id_and_paginate() {
+    let root = std::env::temp_dir().join(format!("ripple-documents-page-{}", Uuid::new_v4()));
+    let (state, app) = test_state_and_app(&root);
+    let workspace = state.sandboxes.ensure_sandbox("smoke-user").unwrap();
+    fs::write(workspace.join("a.md"), "# A").unwrap();
+    fs::write(workspace.join("b.md"), "# B").unwrap();
+    fs::write(workspace.join("c.md"), "# C").unwrap();
+
+    let (status, session) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/sessions",
+        json!({"model": "codex-test"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let session_id = session
+        .get("session_id")
+        .and_then(Value::as_str)
+        .expect("session id");
+
+    let mut created_ids = Vec::new();
+    for (title, path) in [
+        ("Doc A", "/workspace/a.md"),
+        ("Doc B", "/workspace/b.md"),
+        ("Doc C", "/workspace/c.md"),
+    ] {
+        let (status, doc) = call(
+            app.clone(),
+            Method::POST,
+            "/v1/documents",
+            json!({
+                "title": title,
+                "path": path,
+                "linked_session_id": session_id,
+                "summary": title
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{doc}");
+        created_ids.push(
+            doc.get("document_id")
+                .and_then(Value::as_str)
+                .expect("document id")
+                .to_string(),
+        );
+    }
+
+    let (status, updated) = call(
+        app.clone(),
+        Method::PATCH,
+        &format!("/v1/documents/{}", created_ids[0]),
+        json!({"linked_session_id": null}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{updated}");
+    assert!(updated
+        .get("linked_session_id")
+        .map_or(true, Value::is_null));
+
+    let (status, page) = call(app, Method::GET, "/v1/documents?limit=2", Value::Null).await;
+    assert_eq!(status, StatusCode::OK, "{page}");
+    assert_eq!(page.get("count").and_then(Value::as_u64), Some(2), "{page}");
+    assert_eq!(page.get("total").and_then(Value::as_u64), Some(3), "{page}");
+    assert!(
+        page.get("next_cursor").and_then(Value::as_str).is_some(),
+        "{page}"
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn workspace_search_rejects_invalid_filters() {
+    let root = std::env::temp_dir().join(format!("ripple-search-filter-{}", Uuid::new_v4()));
+    let (state, app) = test_state_and_app(&root);
+    let workspace = state.sandboxes.ensure_sandbox("smoke-user").unwrap();
+    fs::write(workspace.join("hello.txt"), "hello").unwrap();
+
+    let (status, body) = call(
+        app,
+        Method::GET,
+        "/v1/workspace/search?q=hello&scope=sideways",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn workspace_quota_serializes_concurrent_saves() {
+    let root = std::env::temp_dir().join(format!("ripple-quota-concurrent-{}", Uuid::new_v4()));
+    let mut config = test_config(&root);
+    config.sandbox.max_workspace_mb = 1;
+    let (state, app) = test_state_and_app_with_config(config);
+    state.sandboxes.ensure_sandbox("smoke-user").unwrap();
+    let content = "x".repeat(700 * 1024);
+
+    let first_app = app.clone();
+    let first_content = content.clone();
+    let first = tokio::spawn(async move {
+        call(
+            first_app,
+            Method::PUT,
+            "/v1/workspace/file",
+            json!({"path": "/workspace/a.txt", "content": first_content}),
+        )
+        .await
+    });
+    let second = tokio::spawn(async move {
+        call(
+            app,
+            Method::PUT,
+            "/v1/workspace/file",
+            json!({"path": "/workspace/b.txt", "content": content}),
+        )
+        .await
+    });
+
+    let (first, second) = tokio::join!(first, second);
+    let results = [first.unwrap(), second.unwrap()];
+    let success_count = results
+        .iter()
+        .filter(|(status, _)| *status == StatusCode::OK)
+        .count();
+    let quota_count = results
+        .iter()
+        .filter(|(status, body)| {
+            *status == StatusCode::FORBIDDEN
+                && body.pointer("/error/code").and_then(Value::as_str) == Some("quota_exceeded")
+        })
+        .count();
+    assert_eq!(success_count, 1, "{results:?}");
+    assert_eq!(quota_count, 1, "{results:?}");
 
     let _ = std::fs::remove_dir_all(root);
 }
@@ -5049,7 +5820,7 @@ async fn queued_run_can_be_cancelled_before_it_executes() {
 async fn delete_sandbox_cancels_live_user_runs_before_teardown() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let fake_codex = write_fake_codex_app_server(&root);
-    let (_state, app) =
+    let (state, app) =
         test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
 
     let (status, run) = call(
@@ -5065,11 +5836,61 @@ async fn delete_sandbox_cancels_live_user_runs_before_teardown() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert!(run.get("job_id").and_then(Value::as_str).is_some());
-    let (status, _session) = call(
+    let (status, session) = call(
         app.clone(),
         Method::POST,
         "/v1/sessions",
         json!({"model": "codex-test"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let session_id = session
+        .get("session_id")
+        .and_then(Value::as_str)
+        .expect("session id")
+        .to_string();
+
+    let (status, task) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/tasks",
+        json!({
+            "task_id": "task-delete-sandbox",
+            "title": "删除 sandbox 时清理 task",
+            "objective": "sandbox lifecycle 应清理所有 durable control-plane state。",
+            "status": "active",
+            "source_session_id": session_id,
+            "actions": [
+                {
+                    "action_id": "act-delete-sandbox",
+                    "title": "执行一次",
+                    "kind": "execute",
+                    "status": "confirmed"
+                }
+            ]
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{task}");
+    let (status, trigger) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/tasks/task-delete-sandbox/actions/act-delete-sandbox/triggers",
+        json!({
+            "title": "删除前 due",
+            "prompt": "should be removed with sandbox",
+            "kind": "once",
+            "run_at": "2020-01-01T00:00:00Z",
+            "enabled": true
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{trigger}");
+    let (status, _updated) = call(
+        app.clone(),
+        Method::PATCH,
+        "/v1/tasks/task-delete-sandbox/actions/act-delete-sandbox",
+        json!({"status": "blocked", "result_summary": "留下一个 action/event 状态用于验证清理。"}),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
@@ -5100,6 +5921,30 @@ async fn delete_sandbox_cancels_live_user_runs_before_teardown() {
     let (status, sessions) = call(app.clone(), Method::GET, "/v1/sessions", Value::Null).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(sessions.get("count").and_then(Value::as_u64), Some(0));
+    assert!(state
+        .storage
+        .get_task("smoke-user", "task-delete-sandbox")
+        .await
+        .unwrap()
+        .is_none());
+    assert!(state
+        .storage
+        .list_task_actions("smoke-user", "task-delete-sandbox")
+        .await
+        .unwrap()
+        .is_empty());
+    assert!(state
+        .storage
+        .list_task_events("smoke-user", "task-delete-sandbox")
+        .await
+        .unwrap()
+        .is_empty());
+    assert!(state
+        .storage
+        .list_task_triggers("smoke-user")
+        .await
+        .unwrap()
+        .is_empty());
 
     let _ = std::fs::remove_dir_all(root);
 }
@@ -7886,6 +8731,21 @@ async fn chat_approval_bridge_resolves_fake_codex_request() {
         session_idle,
         "session should be finalized after approval run"
     );
+    let finalized = state
+        .sessions
+        .load(user_id, &session_id)
+        .await
+        .unwrap()
+        .expect("finalized session");
+    assert!(
+        finalized
+            .messages
+            .iter()
+            .any(|message| format!("{message}").contains("fake approval completed")),
+        "approval output should be persisted to session messages: {finalized:?}"
+    );
+    assert_eq!(finalized.total_input_tokens, 10);
+    assert_eq!(finalized.total_output_tokens, 5);
 
     let _ = std::fs::remove_dir_all(root);
 }
@@ -7894,7 +8754,7 @@ async fn chat_approval_bridge_resolves_fake_codex_request() {
 async fn cancelling_approval_run_clears_pending_approval() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let fake_codex = write_fake_codex_app_server(&root);
-    let (_state, app) =
+    let (state, app) =
         test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
 
     let (status, pending) = call(
@@ -7913,6 +8773,11 @@ async fn cancelling_approval_run_clears_pending_approval() {
         .pointer("/detail/approval/job_id")
         .and_then(Value::as_str)
         .expect("job id")
+        .to_string();
+    let session_id = pending
+        .pointer("/detail/approval/session_id")
+        .and_then(Value::as_str)
+        .expect("session id")
         .to_string();
 
     let (status, cancelled) = call(
@@ -7942,6 +8807,60 @@ async fn cancelling_approval_run_clears_pending_approval() {
     assert_eq!(status, StatusCode::OK);
     assert!(matches!(
         reloaded.get("pending_approval"),
+        None | Some(Value::Null)
+    ));
+    let session = state
+        .sessions
+        .load("smoke-user", &session_id)
+        .await
+        .unwrap()
+        .expect("session");
+    assert_eq!(session.status, "cancelled");
+    assert!(
+        session.pending_permission_request.is_none(),
+        "cancelled approval run should clear session pending approval: {session:?}"
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn session_detail_recovers_restart_stale_awaiting_permission_job() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let config = test_config_with_codex_executable(&root, fake_codex);
+    let (_state, app) = test_state_and_app_with_config(config.clone());
+
+    let (status, pending) = call(
+        app,
+        Method::POST,
+        "/v1/chat/completions",
+        json!({
+            "model": "codex-test",
+            "messages": [{"role": "user", "content": "[approval] run a fake command"}],
+            "stream": false
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{pending}");
+    let session_id = pending
+        .pointer("/detail/approval/session_id")
+        .and_then(Value::as_str)
+        .expect("session id")
+        .to_string();
+
+    let (_restarted_state, restarted_app) = test_state_and_app_with_config(config);
+    let (status, detail) = call(
+        restarted_app,
+        Method::GET,
+        &format!("/v1/sessions/{session_id}"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{detail}");
+    assert_eq!(detail.get("status").and_then(Value::as_str), Some("failed"));
+    assert!(matches!(
+        detail.get("pending_permission_request"),
         None | Some(Value::Null)
     ));
 

@@ -79,6 +79,7 @@ import {
 
 const TasksPage = lazy(() => import("@/components/workbench/TasksPage"));
 const FilesPage = lazy(() => import("@/components/workbench/FilesPage"));
+const ConnectorsPage = lazy(() => import("@/components/workbench/ConnectorsPage"));
 const InspectorPanel = lazy(() => import("@/components/workbench/InspectorPanel"));
 const SettingsPage = lazy(() => import("@/components/workbench/SettingsPage"));
 const SkillsPage = lazy(() => import("@/components/workbench/SkillsPage"));
@@ -719,8 +720,8 @@ export default function Home() {
       setMobileFilesReturnToChat(false);
       setMobileSessionRestoreScrollTop(null);
       if (view !== "files") setPendingWorkspaceFileOpen(null);
-      if (view !== "skills" && view !== "connectors") setIsSkillsMobileBackGestureActive(false);
-      if (view === activeView && (view === "skills" || view === "connectors")) {
+      if (view !== "skills") setIsSkillsMobileBackGestureActive(false);
+      if (view === activeView && view === "skills") {
         setSkillsResetToRootRequest((request) => request + 1);
       }
       setMobileMotionDirection(0);
@@ -1101,6 +1102,7 @@ export default function Home() {
         selectedModel={selectedModel}
         onSelectDefaultModel={handleSelectDefaultModel}
         onApiKeyChange={handleAuthReset}
+        onAuthExpired={handleAuthExpired}
       />
     ) : activeView === "files" ? (
       <FilesPage
@@ -1117,7 +1119,7 @@ export default function Home() {
         onAuthExpired={handleAuthExpired}
         onOpenSession={handleOpenTaskSession}
       />
-    ) : activeView === "skills" || activeView === "connectors" ? (
+    ) : activeView === "skills" ? (
       <SkillsPage
         userId={userId}
         onOpenChat={handleOpenChatWithPrompt}
@@ -1125,6 +1127,12 @@ export default function Home() {
         onConnectorStateChange={loadSessions}
         onMobileBackGestureScopeChange={setIsSkillsMobileBackGestureActive}
         resetToRootRequest={skillsResetToRootRequest}
+      />
+    ) : activeView === "connectors" ? (
+      <ConnectorsPage
+        userId={userId}
+        onConnectorStateChange={loadSessions}
+        onOpenSessionAction={handleOpenSessionAction}
       />
     ) : (
       <div className="h-full min-h-0">

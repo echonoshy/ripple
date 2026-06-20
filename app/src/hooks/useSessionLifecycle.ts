@@ -74,32 +74,35 @@ export function useSessionLifecycle({
     [onAuthExpired, t]
   );
 
-  const loadSessions = useCallback(async (options: LoadSessionsOptions = {}): Promise<SessionSummary[]> => {
-    if (authState !== "authenticated") return [];
-    const showLoading = options.showLoading !== false;
-    try {
-      if (showLoading) {
-        setIsLoadingSessions(true);
-        setSessionLoadError(null);
-      }
-      const loadedSessions = await fetchSessions();
-      setSessionSummaries(loadedSessions);
-      return loadedSessions;
-    } catch (err) {
-      if (err instanceof AuthError) {
-        handleAuthExpired();
+  const loadSessions = useCallback(
+    async (options: LoadSessionsOptions = {}): Promise<SessionSummary[]> => {
+      if (authState !== "authenticated") return [];
+      const showLoading = options.showLoading !== false;
+      try {
+        if (showLoading) {
+          setIsLoadingSessions(true);
+          setSessionLoadError(null);
+        }
+        const loadedSessions = await fetchSessions();
+        setSessionSummaries(loadedSessions);
+        return loadedSessions;
+      } catch (err) {
+        if (err instanceof AuthError) {
+          handleAuthExpired();
+          return [];
+        }
+        if (showLoading) {
+          setSessionLoadError(readableApiErrorMessage(err));
+        }
         return [];
+      } finally {
+        if (showLoading) {
+          setIsLoadingSessions(false);
+        }
       }
-      if (showLoading) {
-        setSessionLoadError(readableApiErrorMessage(err));
-      }
-      return [];
-    } finally {
-      if (showLoading) {
-        setIsLoadingSessions(false);
-      }
-    }
-  }, [authState, handleAuthExpired]);
+    },
+    [authState, handleAuthExpired]
+  );
 
   const applySessionDetails = useCallback(
     (details: SessionDetail) => {

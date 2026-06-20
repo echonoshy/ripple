@@ -77,10 +77,7 @@ function testSwitchingCurrentSessionRefreshesDetails() {
     sessionLifecycleSource.match(
       /const switchSession = useCallback\([\s\S]*?\n\s{2}const deleteSessionById = useCallback/
     )?.[0] || "";
-  assert.match(
-    switchSessionBlock,
-    /const details = await fetchSessionDetails\(targetSessionId\)/
-  );
+  assert.match(switchSessionBlock, /const details = await fetchSessionDetails\(targetSessionId\)/);
   assert.doesNotMatch(
     switchSessionBlock,
     /if \(targetSessionId === sessionId\) \{\s*onSessionActivated\(\);\s*return true;\s*\}/

@@ -23,7 +23,8 @@ import {
   AuthError,
   deleteSkill,
   disconnectConnector,
-  fetchCapabilities,
+  fetchConnectorStatuses,
+  fetchConnectors,
   fetchGogcliAccounts,
   fetchSkills,
   updateSkill,
@@ -31,7 +32,6 @@ import {
 } from "@/lib/api";
 import { type MessageKey, useI18n } from "@/i18n";
 import type {
-  CapabilityInfo,
   ConnectorInfo,
   ConnectorStatus,
   GogcliAccountInfo,
@@ -356,38 +356,6 @@ function hasConnectorSnapshot(userId: string): boolean {
   return connectorSnapshotCache.has(userId);
 }
 
-function connectorFromCapability(capability: CapabilityInfo): ConnectorInfo | null {
-  if (capability.type !== "connector") return null;
-  if (capability.connector) return capability.connector;
-  return {
-    name: capability.name,
-    display_name: capability.display_name,
-    description: capability.description,
-    auth_type: "runtime",
-    kind: "user_connector",
-    auth_flow: "none",
-    auth_surfaces: { web: false, chat: false },
-    auth_start_path: null,
-    auth_complete_path: null,
-    auth_cancel_path: null,
-    disconnect_path: null,
-    accounts_path: null,
-    supports_account_disconnect: false,
-  };
-}
-
-function connectorStatusFromCapability(capability: CapabilityInfo): ConnectorStatus {
-  return {
-    name: capability.name,
-    connected: capability.enabled,
-    required: !capability.enabled,
-    detail: "",
-    metadata: {
-      capability_status: capability.status,
-    },
-  };
-}
-
 async function fetchConnectorSnapshot(userId: string, force = false): Promise<ConnectorSnapshot> {
   const freshSnapshot = force ? null : freshConnectorSnapshot(userId);
   if (freshSnapshot) return freshSnapshot;
@@ -395,17 +363,12 @@ async function fetchConnectorSnapshot(userId: string, force = false): Promise<Co
   if (!force && inflightSnapshot) return inflightSnapshot;
 
   const nextInflight = (async () => {
-    const capabilities = await fetchCapabilities();
-    const connectors = capabilities
-      .map(connectorFromCapability)
-      .filter((connector): connector is ConnectorInfo => connector !== null);
-    const statuses = Object.fromEntries(
-      capabilities
-        .filter((capability) => capability.type === "connector")
-        .map((capability) => [capability.name, connectorStatusFromCapability(capability)])
-    );
+    const connectors = await fetchConnectors();
     const google = connectors.find((connector) => connector.name === "google_workspace");
-    const accountData = google?.accounts_path ? await fetchGogcliAccounts(false) : null;
+    const [statuses, accountData] = await Promise.all([
+      fetchConnectorStatuses(connectors),
+      google?.accounts_path ? fetchGogcliAccounts(true) : Promise.resolve(null),
+    ]);
     const snapshot = {
       connectors,
       statuses,

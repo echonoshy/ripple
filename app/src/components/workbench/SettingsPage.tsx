@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { type LocalePreference, useI18n } from "@/i18n";
 import {
+  AuthError,
   changePassword,
   deleteUserAvatar,
   fetchCurrentSandbox,
@@ -72,6 +73,7 @@ interface SettingsPageProps {
   selectedModel: string;
   onSelectDefaultModel: (model: string) => void;
   onApiKeyChange: () => void;
+  onAuthExpired?: (message: string) => void;
 }
 
 function formatBytes(n: number): string {
@@ -184,6 +186,7 @@ export default function SettingsPage({
   selectedModel,
   onSelectDefaultModel,
   onApiKeyChange,
+  onAuthExpired,
 }: SettingsPageProps) {
   const { preference: localePreference, setPreference: setLocalePreference, t } = useI18n();
   const [sandbox, setSandbox] = useState<SandboxInfo | null>(null);
@@ -215,22 +218,32 @@ export default function SettingsPage({
   const avatarFileInputRef = useRef<HTMLInputElement | null>(null);
   const diagnosticsSectionRef = useRef<HTMLElement | null>(null);
 
+  const handleSettingsAuthError = useCallback(
+    (caught: unknown): boolean => {
+      if (!(caught instanceof AuthError)) return false;
+      onAuthExpired?.(t("auth.sessionExpired"));
+      return true;
+    },
+    [onAuthExpired, t]
+  );
+
   const loadSettingsData = useCallback(async () => {
     setIsLoading(true);
     try {
       const [sandboxData, profileData] = await Promise.all([
         fetchCurrentSandbox(),
-        fetchUserProfile().catch(() => null),
+        fetchUserProfile(),
       ]);
       setSandbox(sandboxData);
       setProfile(profileData);
-    } catch {
+    } catch (caught) {
+      if (handleSettingsAuthError(caught)) return;
       setSandbox(null);
       setProfile(null);
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [handleSettingsAuthError]);
 
   useEffect(() => {
     queueMicrotask(() => {
@@ -305,6 +318,7 @@ export default function SettingsPage({
       setIsPasswordOpen(false);
       setPasswordMessage(t("settings.passwordUpdated"));
     } catch (error) {
+      if (handleSettingsAuthError(error)) return;
       setPasswordError(error instanceof Error ? error.message : t("settings.passwordUpdateFailed"));
     } finally {
       setIsChangingPassword(false);
@@ -326,6 +340,7 @@ export default function SettingsPage({
       setDisplayNameMessage(t("settings.displayNameUpdated"));
       dispatchUserProfileChanged();
     } catch (error) {
+      if (handleSettingsAuthError(error)) return;
       setDisplayNameError(
         error instanceof Error ? error.message : t("settings.displayNameUpdateFailed")
       );
@@ -349,6 +364,7 @@ export default function SettingsPage({
       })
       .catch((error) => {
         if (cancelled) return;
+        if (handleSettingsAuthError(error)) return;
         setAvatarError(error instanceof Error ? error.message : t("settings.avatarLoadFailed"));
       });
 
@@ -356,7 +372,7 @@ export default function SettingsPage({
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [profileAvatarUri, t]);
+  }, [handleSettingsAuthError, profileAvatarUri, t]);
 
   const handleAvatarUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0] ?? null;
@@ -372,6 +388,7 @@ export default function SettingsPage({
       setProfile(nextProfile);
       dispatchUserAvatarChanged();
     } catch (error) {
+      if (handleSettingsAuthError(error)) return;
       setAvatarError(error instanceof Error ? error.message : t("settings.avatarUploadFailed"));
     } finally {
       setIsAvatarUploading(false);
@@ -388,6 +405,7 @@ export default function SettingsPage({
       setProfile(nextProfile);
       dispatchUserAvatarChanged();
     } catch (error) {
+      if (handleSettingsAuthError(error)) return;
       setAvatarError(error instanceof Error ? error.message : t("settings.avatarRemoveFailed"));
     } finally {
       setIsAvatarUploading(false);

@@ -115,7 +115,8 @@ testSkillsPageUsesCategoryIndexInsteadOfStatusSections();
 function testSkillsPageMergesConnectorManagementIntoCategories() {
   const source = readFileSync(new URL("./SkillsPage.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /fetchCapabilities/);
+  assert.match(source, /fetchConnectors/);
+  assert.match(source, /fetchConnectorStatuses/);
   assert.match(source, /fetchGogcliAccounts/);
   assert.match(source, /disconnectConnector/);
   assert.match(source, /data-ripple-skill-connector-panel="true"/);
@@ -124,6 +125,7 @@ function testSkillsPageMergesConnectorManagementIntoCategories() {
   assert.match(source, /source: "skills_page"/);
   assert.doesNotMatch(source, /window\.open\(/);
   assert.doesNotMatch(source, /qrcodeImageUrl/);
+  assert.doesNotMatch(source, /fetchCapabilities/);
 }
 
 testSkillsPageMergesConnectorManagementIntoCategories();
@@ -642,10 +644,7 @@ function testSkillsPageMobileInteractionFixes() {
   assert.match(source, /lg:will-change-auto/);
   assert.match(source, /skillsPageScrollRef\.current\?\.scrollTo\(\{ top: 0/);
   assert.match(appSource, /skillsResetToRootRequest/);
-  assert.match(
-    appSource,
-    /view === activeView && \(view === "skills" \|\| view === "connectors"\)/
-  );
+  assert.match(appSource, /view === activeView && view === "skills"/);
   assert.match(source, /confirmDeleteSkillId/);
   assert.match(source, /skills\.confirmDelete/);
   assert.match(source, /renderActiveFilterNotice/);

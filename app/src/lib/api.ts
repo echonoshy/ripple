@@ -739,28 +739,64 @@ export async function fetchModels(): Promise<{ id: string; owned_by: string }[]>
   return data.data || [];
 }
 
+function urlWithCursor(url: string, cursor: string | null): string {
+  if (!cursor) return url;
+  const separator = url.includes("?") ? "&" : "?";
+  return `${url}${separator}cursor=${encodeURIComponent(cursor)}`;
+}
+
+async function fetchPaginatedApiList<TRaw, TOut>(
+  url: string,
+  itemKey: string,
+  normalize: (raw: TRaw) => TOut,
+  fallbackMessage: string
+): Promise<TOut[]> {
+  const items: TOut[] = [];
+  const seenCursors = new Set<string>();
+  let cursor: string | null = null;
+
+  do {
+    const pageUrl: string = urlWithCursor(url, cursor);
+    const res: Response = await fetch(pageUrl, { headers: { ...authHeaders() } });
+    if (res.status === 401) throw new AuthError();
+    if (!res.ok) {
+      const detail = await responseDetail(res);
+      throw new Error(detail || `${fallbackMessage} (${res.status})`);
+    }
+
+    const data: unknown = await res.json();
+    const rawItems: unknown[] = isRecord(data) && Array.isArray(data[itemKey]) ? data[itemKey] : [];
+    items.push(...(rawItems as TRaw[]).map(normalize));
+
+    const nextCursor: string =
+      isRecord(data) && typeof data.next_cursor === "string" ? data.next_cursor.trim() : "";
+    if (!nextCursor || seenCursors.has(nextCursor)) {
+      cursor = null;
+    } else {
+      seenCursors.add(nextCursor);
+      cursor = nextCursor;
+    }
+  } while (cursor);
+
+  return items;
+}
+
 export async function fetchTasks(): Promise<TaskInfo[]> {
-  const res = await fetch(`${API_URL}/tasks`, { headers: { ...authHeaders() } });
-  if (res.status === 401) throw new AuthError();
-  if (!res.ok) {
-    const detail = await responseDetail(res);
-    throw new Error(detail || `Failed to fetch tasks (${res.status})`);
-  }
-  const data = (await res.json()) as { tasks?: RawTask[] };
-  return (data.tasks || []).map(normalizeTask);
+  return fetchPaginatedApiList<RawTask, TaskInfo>(
+    `${API_URL}/tasks`,
+    "tasks",
+    normalizeTask,
+    "Failed to fetch tasks"
+  );
 }
 
 export async function fetchSessionTasks(sessionId: string): Promise<TaskInfo[]> {
-  const res = await fetch(`${API_URL}/sessions/${encodeURIComponent(sessionId)}/tasks`, {
-    headers: { ...authHeaders() },
-  });
-  if (res.status === 401) throw new AuthError();
-  if (!res.ok) {
-    const detail = await responseDetail(res);
-    throw new Error(detail || `Failed to fetch session tasks (${res.status})`);
-  }
-  const data = (await res.json()) as { tasks?: RawTask[] };
-  return (data.tasks || []).map(normalizeTask);
+  return fetchPaginatedApiList<RawTask, TaskInfo>(
+    `${API_URL}/sessions/${encodeURIComponent(sessionId)}/tasks`,
+    "tasks",
+    normalizeTask,
+    "Failed to fetch session tasks"
+  );
 }
 
 export async function fetchTask(taskId: string): Promise<TaskDetailResponse> {
@@ -900,29 +936,21 @@ export async function updateTaskAction(
 }
 
 export async function fetchTaskTriggers(taskId: string): Promise<TaskTriggerInfo[]> {
-  const res = await fetch(`${API_URL}/tasks/${encodeURIComponent(taskId)}/triggers`, {
-    headers: { ...authHeaders() },
-  });
-  if (res.status === 401) throw new AuthError();
-  if (!res.ok) {
-    const detail = await responseDetail(res);
-    throw new Error(detail || `Failed to fetch task triggers (${res.status})`);
-  }
-  const data = (await res.json()) as { triggers?: TaskTriggerInfo[] };
-  return data.triggers || [];
+  return fetchPaginatedApiList<TaskTriggerInfo, TaskTriggerInfo>(
+    `${API_URL}/tasks/${encodeURIComponent(taskId)}/triggers`,
+    "triggers",
+    (trigger) => trigger,
+    "Failed to fetch task triggers"
+  );
 }
 
 export async function fetchAllTaskTriggers(): Promise<TaskTriggerInfo[]> {
-  const res = await fetch(`${API_URL}/task-triggers`, {
-    headers: { ...authHeaders() },
-  });
-  if (res.status === 401) throw new AuthError();
-  if (!res.ok) {
-    const detail = await responseDetail(res);
-    throw new Error(detail || `Failed to fetch task triggers (${res.status})`);
-  }
-  const data = (await res.json()) as { triggers?: TaskTriggerInfo[] };
-  return data.triggers || [];
+  return fetchPaginatedApiList<TaskTriggerInfo, TaskTriggerInfo>(
+    `${API_URL}/task-triggers`,
+    "triggers",
+    (trigger) => trigger,
+    "Failed to fetch task triggers"
+  );
 }
 
 export async function createTaskActionTrigger(
@@ -1047,14 +1075,12 @@ export async function updateSession(
 
 export async function fetchSessions(): Promise<SessionSummary[]> {
   try {
-    const res = await fetch(`${API_URL}/sessions`, { headers: { ...authHeaders() } });
-    if (res.status === 401) throw new AuthError();
-    if (!res.ok) {
-      const detail = await responseDetail(res);
-      throw new Error(detail || `Failed to fetch sessions (${res.status})`);
-    }
-    const data = (await res.json()) as { sessions?: RawSessionSummary[] };
-    return (data.sessions || []).map(normalizeSessionSummary);
+    return await fetchPaginatedApiList<RawSessionSummary, SessionSummary>(
+      `${API_URL}/sessions`,
+      "sessions",
+      normalizeSessionSummary,
+      "Failed to fetch sessions"
+    );
   } catch (error) {
     if (error instanceof AuthError) throw error;
     throw new Error(readableApiErrorMessage(error));
@@ -1541,10 +1567,7 @@ export async function fetchCapabilities(): Promise<CapabilityInfo[]> {
   return body.capabilities || [];
 }
 
-export async function updateSkillCapability(
-  skillId: string,
-  enabled: boolean
-): Promise<CapabilityInfo> {
+export async function updateSkillCapability(skillId: string, enabled: boolean): Promise<SkillInfo> {
   const res = await fetch(`${API_URL}/skills/${encodeURIComponent(skillId)}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json", ...authHeaders() },
@@ -1555,7 +1578,7 @@ export async function updateSkillCapability(
     const detail = await responseDetail(res);
     throw new Error(detail || `Failed to update skill (${res.status})`);
   }
-  return (await res.json()) as CapabilityInfo;
+  return (await res.json()) as SkillInfo;
 }
 
 export async function fetchSkills(): Promise<SkillInfo[]> {

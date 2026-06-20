@@ -23,6 +23,7 @@ function renderSettingsPage(locale: LocalePreference = "en-US") {
         selectedModel="codex-medium"
         onApiKeyChange={noop}
         onSelectDefaultModel={noop}
+        onAuthExpired={noop}
       />
     </I18nProvider>
   );
@@ -40,6 +41,7 @@ function renderServiceSettingsPage() {
         selectedModel="codex-medium"
         onApiKeyChange={noop}
         onSelectDefaultModel={noop}
+        onAuthExpired={noop}
       />
     </I18nProvider>
   );
@@ -60,6 +62,7 @@ function renderSettingsPageWithDifferentCurrentAndDefaultModel() {
         selectedModel="codex-medium"
         onApiKeyChange={noop}
         onSelectDefaultModel={noop}
+        onAuthExpired={noop}
       />
     </I18nProvider>
   );
@@ -272,6 +275,15 @@ function testSettingsPageDoesNotFetchConnectorData() {
   assert.doesNotMatch(source, /onSelectView/);
 }
 
+function testSettingsPagePropagatesAuthExpiry() {
+  const source = readFileSync(new URL("./SettingsPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /onAuthExpired\?:/);
+  assert.match(source, /caught instanceof AuthError/);
+  assert.match(source, /onAuthExpired\?\.\(t\("auth\.sessionExpired"\)\)/);
+  assert.doesNotMatch(source, /fetchUserProfile\(\)\.catch\(\(\) => null\)/);
+}
+
 function testSettingsPageUsesSoftTilesForEntitySections() {
   const html = renderSettingsPage();
   const source = readFileSync(new URL("./SettingsPage.tsx", import.meta.url), "utf8");
@@ -410,6 +422,7 @@ testSettingsPageUsesMobileSheetsForPickersAndTokenBreakdown();
 testSettingsPageCombinesRunCountersInOneRow();
 testSettingsPageSessionCountMeterUsesNeutralIcon();
 testSettingsPageDoesNotFetchConnectorData();
+testSettingsPagePropagatesAuthExpiry();
 testSettingsPageUsesSoftTilesForEntitySections();
 testSettingsPageUsesAppStoreGroupedHierarchy();
 testDefaultModelControlUsesDefaultModelNotCurrentSessionModel();

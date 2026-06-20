@@ -9,6 +9,7 @@ import {
   Clock3,
   Loader2,
   Play,
+  Plus,
   RefreshCw,
   Trash2,
   X,
@@ -17,13 +18,17 @@ import {
   AuthError,
   cancelTask,
   confirmTask,
+  createTaskAction,
+  createTaskActionTrigger,
   deleteTask,
   fetchAllTaskTriggers,
   fetchTask,
   fetchTaskEvents,
   fetchTasks,
   runTaskNow,
+  runTaskTriggerNow,
 } from "@/lib/api";
+import type { TaskActionCreateInput, TaskTriggerCreateInput } from "@/lib/api";
 import type { TaskActionInfo, TaskEventInfo, TaskInfo, TaskTriggerInfo } from "@/types";
 import { useI18n } from "@/i18n";
 import {
@@ -38,6 +43,7 @@ import {
   TYPOGRAPHY_PAGE_TITLE_CLASS,
   TYPOGRAPHY_SECTION_TITLE_CLASS,
   WORKBENCH_DANGER_BUTTON_CLASS,
+  WORKBENCH_FIELD_CLASS,
   WORKBENCH_ICON_BUTTON_CLASS,
   WORKBENCH_PAGE_BACKGROUND_CLASS,
   WORKBENCH_PAGE_CONTENT_CLASS,
@@ -155,6 +161,26 @@ function triggerRunProgressText(
     return t("tasks.triggerRuns", { count: trigger.run_count, max: maxRuns });
   }
   return t("tasks.triggerRunsUnlimited", { count: trigger.run_count });
+}
+
+function triggerStatusLabel(trigger: TaskTriggerInfo, t: ReturnType<typeof useI18n>["t"]): string {
+  if (trigger.status === "pending_confirmation") return t("tasks.triggerPendingConfirmation");
+  if (trigger.status === "paused" || !trigger.enabled) return t("tasks.triggerPaused");
+  return t("tasks.triggerActive");
+}
+
+function triggerStatusClass(trigger: TaskTriggerInfo): string {
+  if (trigger.status === "pending_confirmation") return WORKBENCH_STATUS_WARNING_CLASS;
+  if (trigger.status === "paused" || !trigger.enabled) return WORKBENCH_STATUS_WARNING_CLASS;
+  return WORKBENCH_STATUS_NEUTRAL_CLASS;
+}
+
+function currentTimezone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch {
+    return "UTC";
+  }
 }
 
 function canConfirm(task: TaskInfo): boolean {
@@ -312,6 +338,15 @@ export default function TasksPage({
   const [internalError, setInternalError] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<TaskFilter>("all");
+  const [confirmingTaskAction, setConfirmingTaskAction] = useState<string | null>(null);
+  const [isActionFormOpen, setIsActionFormOpen] = useState(false);
+  const [newActionTitle, setNewActionTitle] = useState("");
+  const [newActionObjective, setNewActionObjective] = useState("");
+  const [newActionWakeupAt, setNewActionWakeupAt] = useState("");
+  const [triggerActionId, setTriggerActionId] = useState<string | null>(null);
+  const [newTriggerTitle, setNewTriggerTitle] = useState("");
+  const [newTriggerPrompt, setNewTriggerPrompt] = useState("");
+  const [newTriggerRunAt, setNewTriggerRunAt] = useState("");
 
   useEffect(() => {
     if (tasks) setTaskList(tasks);
@@ -401,15 +436,27 @@ export default function TasksPage({
     if (selectedTaskId) setSelectedId(selectedTaskId);
   }, [selectedTaskId]);
 
-  const selectedTask = useMemo(
-    () => taskList.find((task) => task.taskId === selectedId) || taskList[0] || null,
-    [selectedId, taskList]
-  );
-
   const filteredTasks = useMemo(
     () => taskList.filter((task) => taskMatchesFilter(task, activeFilter)),
     [activeFilter, taskList]
   );
+
+  const selectedTask = useMemo(
+    () => filteredTasks.find((task) => task.taskId === selectedId) || filteredTasks[0] || null,
+    [filteredTasks, selectedId]
+  );
+
+  useEffect(() => {
+    if (filteredTasks.length === 0) {
+      if (selectedId !== null) setSelectedId(null);
+      return;
+    }
+    if (selectedId && filteredTasks.some((task) => task.taskId === selectedId)) return;
+    const nextSelectedId = filteredTasks[0].taskId;
+    setSelectedId(nextSelectedId);
+    onSelectTask?.(nextSelectedId);
+    void loadTaskDetail(nextSelectedId);
+  }, [filteredTasks, loadTaskDetail, onSelectTask, selectedId]);
 
   const visibleActions = useMemo(
     () =>
@@ -458,6 +505,15 @@ export default function TasksPage({
 
   const runTaskOperation = useCallback(
     async (taskId: string, operation: "confirm" | "run" | "cancel" | "delete") => {
+      const actionKey = `${operation}:${taskId}`;
+      if (
+        (operation === "cancel" || operation === "delete") &&
+        confirmingTaskAction !== actionKey
+      ) {
+        setConfirmingTaskAction(actionKey);
+        return;
+      }
+      setConfirmingTaskAction(null);
       setPendingAction(`${operation}:${taskId}`);
       try {
         if (operation === "confirm") {
@@ -481,6 +537,7 @@ export default function TasksPage({
       }
     },
     [
+      confirmingTaskAction,
       handleError,
       isControlled,
       loadTasks,
@@ -491,6 +548,122 @@ export default function TasksPage({
       selectedId,
       t,
     ]
+  );
+
+  const submitNewAction = useCallback(
+    async (event: React.FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      if (!selectedTask) return;
+      const title = newActionTitle.trim();
+      if (!title) {
+        setInternalError(t("tasks.actionTitleRequired"));
+        return;
+      }
+      setPendingAction(`create-action:${selectedTask.taskId}`);
+      setInternalError(null);
+      try {
+        const input: TaskActionCreateInput = {
+          title,
+          kind: "next_step",
+          objective: newActionObjective.trim() || null,
+          status: "confirmed",
+          nextWakeupAt: newActionWakeupAt || null,
+        };
+        await createTaskAction(selectedTask.taskId, input);
+        setNewActionTitle("");
+        setNewActionObjective("");
+        setNewActionWakeupAt("");
+        setIsActionFormOpen(false);
+        await loadTasks(selectedTask.taskId);
+      } catch (caught) {
+        handleError(caught, t("tasks.actionFailed"));
+      } finally {
+        setPendingAction(null);
+      }
+    },
+    [handleError, loadTasks, newActionObjective, newActionTitle, newActionWakeupAt, selectedTask, t]
+  );
+
+  const openTriggerForm = useCallback(
+    (action?: TaskActionInfo) => {
+      const targetAction = action || visibleActions[0] || null;
+      setTriggerActionId(targetAction?.actionId || null);
+      setNewTriggerTitle(targetAction ? targetAction.title : "");
+      setNewTriggerPrompt(targetAction?.objective || selectedTask?.objective || "");
+      setNewTriggerRunAt("");
+    },
+    [selectedTask?.objective, visibleActions]
+  );
+
+  const submitNewTrigger = useCallback(
+    async (event: React.FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      if (!selectedTask || !triggerActionId) return;
+      const action = visibleActions.find((item) => item.actionId === triggerActionId) || null;
+      const title = newTriggerTitle.trim() || action?.title || t("tasks.newTrigger");
+      const prompt =
+        newTriggerPrompt.trim() ||
+        action?.objective ||
+        selectedTask.objective ||
+        selectedTask.title;
+      if (!newTriggerRunAt) {
+        setInternalError(t("tasks.triggerRunAtRequired"));
+        return;
+      }
+      setPendingAction(`create-trigger:${triggerActionId}`);
+      setInternalError(null);
+      try {
+        const input: TaskTriggerCreateInput = {
+          title,
+          prompt,
+          kind: "once",
+          timezone: currentTimezone(),
+          run_at: newTriggerRunAt,
+          enabled: true,
+          max_runtime_seconds: 600,
+          max_runs: 1,
+        };
+        await createTaskActionTrigger(selectedTask.taskId, triggerActionId, input);
+        setTriggerActionId(null);
+        setNewTriggerTitle("");
+        setNewTriggerPrompt("");
+        setNewTriggerRunAt("");
+        await loadTasks(selectedTask.taskId);
+      } catch (caught) {
+        handleError(caught, t("tasks.actionFailed"));
+      } finally {
+        setPendingAction(null);
+      }
+    },
+    [
+      handleError,
+      loadTasks,
+      newTriggerPrompt,
+      newTriggerRunAt,
+      newTriggerTitle,
+      selectedTask,
+      t,
+      triggerActionId,
+      visibleActions,
+    ]
+  );
+
+  const runTriggerOperation = useCallback(
+    async (trigger: TaskTriggerInfo) => {
+      const taskId = trigger.task_id || selectedTask?.taskId;
+      if (!taskId) return;
+      setPendingAction(`trigger:${trigger.trigger_id}`);
+      setInternalError(null);
+      try {
+        await runTaskTriggerNow(taskId, trigger.trigger_id);
+        await loadTasks(selectedId);
+      } catch (caught) {
+        handleError(caught, t("tasks.actionFailed"));
+      } finally {
+        setPendingAction(null);
+      }
+    },
+    [handleError, loadTasks, selectedId, selectedTask?.taskId, t]
   );
 
   const filterButtonClass = (filter: TaskFilter) =>
@@ -773,8 +946,16 @@ export default function TasksPage({
                             className={`${WORKBENCH_DANGER_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
                             disabled={pendingAction !== null}
                           >
-                            <X size={14} />
-                            <span>{t("tasks.cancel")}</span>
+                            {pendingAction === `cancel:${selectedTask.taskId}` ? (
+                              <Loader2 size={14} className="animate-spin" />
+                            ) : (
+                              <X size={14} />
+                            )}
+                            <span>
+                              {confirmingTaskAction === `cancel:${selectedTask.taskId}`
+                                ? t("tasks.confirmCancel")
+                                : t("tasks.cancel")}
+                            </span>
                           </button>
                         ) : null}
                         <button
@@ -788,7 +969,11 @@ export default function TasksPage({
                           ) : (
                             <Trash2 size={14} />
                           )}
-                          <span>{t("tasks.delete")}</span>
+                          <span>
+                            {confirmingTaskAction === `delete:${selectedTask.taskId}`
+                              ? t("tasks.confirmDelete")
+                              : t("tasks.delete")}
+                          </span>
                         </button>
                       </div>
                     </div>
@@ -803,10 +988,73 @@ export default function TasksPage({
                         <h3 className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#1F2329]`}>
                           {t("tasks.actions")}
                         </h3>
-                        {detailLoading ? (
-                          <Loader2 size={14} className="shrink-0 animate-spin text-[#646A73]" />
-                        ) : null}
+                        <div className="flex items-center gap-2">
+                          {detailLoading ? (
+                            <Loader2 size={14} className="shrink-0 animate-spin text-[#646A73]" />
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={() => setIsActionFormOpen((open) => !open)}
+                            className={`${WORKBENCH_SECONDARY_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                            disabled={pendingAction !== null}
+                          >
+                            <Plus size={14} />
+                            <span>{t("tasks.addAction")}</span>
+                          </button>
+                        </div>
                       </div>
+                      {isActionFormOpen ? (
+                        <form
+                          onSubmit={submitNewAction}
+                          className={`${taskSoftPanelClass} mb-3 grid gap-2 p-3`}
+                        >
+                          <input
+                            value={newActionTitle}
+                            onChange={(event) => setNewActionTitle(event.target.value)}
+                            placeholder={t("tasks.actionTitlePlaceholder")}
+                            className={`h-10 px-2.5 ${WORKBENCH_FIELD_CLASS} ${TYPOGRAPHY_BODY_CLASS}`}
+                          />
+                          <textarea
+                            value={newActionObjective}
+                            onChange={(event) => setNewActionObjective(event.target.value)}
+                            placeholder={t("tasks.actionObjectivePlaceholder")}
+                            rows={2}
+                            className={`min-h-20 px-2.5 py-2 ${WORKBENCH_FIELD_CLASS} ${TYPOGRAPHY_BODY_CLASS}`}
+                          />
+                          <label
+                            className={`grid gap-1 ${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#646A73]`}
+                          >
+                            {t("tasks.optionalWakeupAt")}
+                            <input
+                              type="datetime-local"
+                              value={newActionWakeupAt}
+                              onChange={(event) => setNewActionWakeupAt(event.target.value)}
+                              className={`h-10 px-2.5 ${WORKBENCH_FIELD_CLASS} ${TYPOGRAPHY_BODY_CLASS}`}
+                            />
+                          </label>
+                          <div className="flex flex-wrap justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setIsActionFormOpen(false)}
+                              className={`${WORKBENCH_SECONDARY_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                            >
+                              {t("tasks.cancel")}
+                            </button>
+                            <button
+                              type="submit"
+                              className={`${WORKBENCH_PRIMARY_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                              disabled={pendingAction !== null}
+                            >
+                              {pendingAction === `create-action:${selectedTask.taskId}` ? (
+                                <Loader2 size={14} className="animate-spin" />
+                              ) : (
+                                <Plus size={14} />
+                              )}
+                              <span>{t("tasks.addAction")}</span>
+                            </button>
+                          </div>
+                        </form>
+                      ) : null}
                       {visibleActions.length === 0 && !detailLoading ? (
                         <div
                           className={`${TYPOGRAPHY_BODY_CLASS} rounded-lg border border-dashed border-[#D0D3D6] bg-[#F8F9FA] px-3 py-6 text-center text-[#646A73]`}
@@ -832,11 +1080,22 @@ export default function TasksPage({
                                   {action.title}
                                 </span>
                               </div>
-                              <span
-                                className={`${statusClass(action.status)} shrink-0 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}
-                              >
-                                {statusLabel(action.status, t)}
-                              </span>
+                              <div className="flex shrink-0 items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => openTriggerForm(action)}
+                                  className={`${WORKBENCH_SECONDARY_BUTTON_CLASS} h-7 px-2 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}
+                                  disabled={pendingAction !== null}
+                                >
+                                  <Clock3 size={12} />
+                                  <span>{t("tasks.addTrigger")}</span>
+                                </button>
+                                <span
+                                  className={`${statusClass(action.status)} ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}
+                                >
+                                  {statusLabel(action.status, t)}
+                                </span>
+                              </div>
                             </div>
                             {action.nextWakeupAt ? (
                               <div className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
@@ -871,9 +1130,90 @@ export default function TasksPage({
 
                     <div className="grid content-start gap-3">
                       <section className={`${taskPanelClass} p-3`}>
-                        <h3 className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} mb-3 text-[#1F2329]`}>
-                          {t("tasks.triggers")}
-                        </h3>
+                        <div className="mb-3 flex items-center justify-between gap-2">
+                          <h3 className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#1F2329]`}>
+                            {t("tasks.triggers")}
+                          </h3>
+                          {visibleActions.length > 0 ? (
+                            <button
+                              type="button"
+                              onClick={() => openTriggerForm()}
+                              className={`${WORKBENCH_SECONDARY_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                              disabled={pendingAction !== null}
+                            >
+                              <Plus size={14} />
+                              <span>{t("tasks.addTrigger")}</span>
+                            </button>
+                          ) : null}
+                        </div>
+                        {triggerActionId ? (
+                          <form
+                            onSubmit={submitNewTrigger}
+                            className={`${taskSoftPanelClass} mb-3 grid gap-2 p-3`}
+                          >
+                            <label
+                              className={`grid gap-1 ${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#646A73]`}
+                            >
+                              {t("tasks.action")}
+                              <select
+                                value={triggerActionId}
+                                onChange={(event) => setTriggerActionId(event.target.value)}
+                                className={`h-10 px-2.5 ${WORKBENCH_FIELD_CLASS} ${TYPOGRAPHY_BODY_CLASS}`}
+                              >
+                                {visibleActions.map((action) => (
+                                  <option key={action.actionId} value={action.actionId}>
+                                    {action.title}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                            <input
+                              value={newTriggerTitle}
+                              onChange={(event) => setNewTriggerTitle(event.target.value)}
+                              placeholder={t("tasks.triggerTitlePlaceholder")}
+                              className={`h-10 px-2.5 ${WORKBENCH_FIELD_CLASS} ${TYPOGRAPHY_BODY_CLASS}`}
+                            />
+                            <textarea
+                              value={newTriggerPrompt}
+                              onChange={(event) => setNewTriggerPrompt(event.target.value)}
+                              placeholder={t("tasks.triggerPromptPlaceholder")}
+                              rows={2}
+                              className={`min-h-20 px-2.5 py-2 ${WORKBENCH_FIELD_CLASS} ${TYPOGRAPHY_BODY_CLASS}`}
+                            />
+                            <label
+                              className={`grid gap-1 ${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#646A73]`}
+                            >
+                              {t("tasks.runAt")}
+                              <input
+                                type="datetime-local"
+                                value={newTriggerRunAt}
+                                onChange={(event) => setNewTriggerRunAt(event.target.value)}
+                                className={`h-10 px-2.5 ${WORKBENCH_FIELD_CLASS} ${TYPOGRAPHY_BODY_CLASS}`}
+                              />
+                            </label>
+                            <div className="flex flex-wrap justify-end gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setTriggerActionId(null)}
+                                className={`${WORKBENCH_SECONDARY_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                              >
+                                {t("tasks.cancel")}
+                              </button>
+                              <button
+                                type="submit"
+                                className={`${WORKBENCH_PRIMARY_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                                disabled={pendingAction !== null}
+                              >
+                                {pendingAction === `create-trigger:${triggerActionId}` ? (
+                                  <Loader2 size={14} className="animate-spin" />
+                                ) : (
+                                  <Plus size={14} />
+                                )}
+                                <span>{t("tasks.addTrigger")}</span>
+                              </button>
+                            </div>
+                          </form>
+                        ) : null}
                         {selectedTaskActionTriggers.length === 0 &&
                         selectedTaskTriggers.length === 0 ? (
                           <div
@@ -927,15 +1267,11 @@ export default function TasksPage({
                                   </span>
                                 </div>
                                 <span
-                                  className={`${
-                                    trigger.enabled
-                                      ? WORKBENCH_STATUS_NEUTRAL_CLASS
-                                      : WORKBENCH_STATUS_WARNING_CLASS
-                                  } shrink-0 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}
+                                  className={`${triggerStatusClass(
+                                    trigger
+                                  )} shrink-0 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}
                                 >
-                                  {trigger.enabled
-                                    ? t("tasks.triggerActive")
-                                    : t("tasks.triggerPaused")}
+                                  {triggerStatusLabel(trigger, t)}
                                 </span>
                               </div>
                               <div className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
@@ -945,6 +1281,19 @@ export default function TasksPage({
                               <div className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
                                 {triggerRunProgressText(trigger, t)}
                               </div>
+                              <button
+                                type="button"
+                                onClick={() => void runTriggerOperation(trigger)}
+                                className={`${WORKBENCH_SECONDARY_BUTTON_CLASS} h-8 w-fit ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                                disabled={pendingAction !== null}
+                              >
+                                {pendingAction === `trigger:${trigger.trigger_id}` ? (
+                                  <Loader2 size={14} className="animate-spin" />
+                                ) : (
+                                  <Play size={14} />
+                                )}
+                                <span>{t("tasks.runNow")}</span>
+                              </button>
                               {trigger.last_run_id || trigger.last_run_status ? (
                                 <div className="flex min-w-0 flex-wrap items-center gap-2">
                                   {trigger.last_run_id ? (
@@ -1015,7 +1364,7 @@ export default function TasksPage({
               ) : (
                 <div className={`px-4 py-10 text-center ${TYPOGRAPHY_BODY_CLASS} text-[#646A73]`}>
                   {loading ? <Loader2 size={18} className="mx-auto mb-2 animate-spin" /> : null}
-                  {loading ? t("tasks.failedToLoad") : t("tasks.noTasks")}
+                  {loading ? t("tasks.loading") : t("tasks.noTasks")}
                 </div>
               )}
             </section>

@@ -114,7 +114,10 @@ export default function WorkspaceActionMenus({
                   type="button"
                   onClick={() => {
                     if (contextMenu.entry) startRename(contextMenu.entry);
-                    setContextMenu((prev: WorkspaceContextMenuState) => ({ ...prev, visible: false }));
+                    setContextMenu((prev: WorkspaceContextMenuState) => ({
+                      ...prev,
+                      visible: false,
+                    }));
                   }}
                   className={menuItemClass}
                 >
@@ -149,7 +152,10 @@ export default function WorkspaceActionMenus({
                     type="button"
                     onClick={() => {
                       if (contextMenu.entry) handleDownloadFile(contextMenu.entry.path);
-                      setContextMenu((prev: WorkspaceContextMenuState) => ({ ...prev, visible: false }));
+                      setContextMenu((prev: WorkspaceContextMenuState) => ({
+                        ...prev,
+                        visible: false,
+                      }));
                     }}
                     className={menuItemClass}
                   >
@@ -199,7 +205,10 @@ export default function WorkspaceActionMenus({
                   type="button"
                   onClick={() => {
                     setCreationModal({ visible: true, kind: "file" });
-                    setContextMenu((prev: WorkspaceContextMenuState) => ({ ...prev, visible: false }));
+                    setContextMenu((prev: WorkspaceContextMenuState) => ({
+                      ...prev,
+                      visible: false,
+                    }));
                   }}
                   className={`${menuItemClass} disabled:cursor-not-allowed disabled:opacity-40`}
                 >
@@ -209,7 +218,10 @@ export default function WorkspaceActionMenus({
                   type="button"
                   onClick={() => {
                     setCreationModal({ visible: true, kind: "directory" });
-                    setContextMenu((prev: WorkspaceContextMenuState) => ({ ...prev, visible: false }));
+                    setContextMenu((prev: WorkspaceContextMenuState) => ({
+                      ...prev,
+                      visible: false,
+                    }));
                   }}
                   className={`${menuItemClass} disabled:cursor-not-allowed disabled:opacity-40`}
                 >

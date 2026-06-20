@@ -854,6 +854,127 @@ async function testFetchSessionsNormalizesBackendShape() {
   );
 }
 
+async function testListApisFollowBackendPaginationCursors() {
+  const requests: string[] = [];
+
+  await withFetch(
+    async (input) => {
+      const url = new URL(String(input));
+      requests.push(`${url.pathname}${url.search}`);
+      const cursor = url.searchParams.get("cursor");
+
+      if (url.pathname.endsWith("/sessions")) {
+        return new Response(
+          JSON.stringify({
+            sessions:
+              cursor === "sessions-page-2"
+                ? [
+                    {
+                      session_id: "srv-page-2",
+                      title: "Second page",
+                      model: "gpt-5",
+                      created_at: "2026-06-20T00:00:00Z",
+                      last_active: "2026-06-20T00:01:00Z",
+                      message_count: 1,
+                      status: "idle",
+                      changed_file_count: 0,
+                      pending_approval_count: 0,
+                    },
+                  ]
+                : [
+                    {
+                      session_id: "srv-page-1",
+                      title: "First page",
+                      model: "gpt-5",
+                      created_at: "2026-06-19T00:00:00Z",
+                      last_active: "2026-06-19T00:01:00Z",
+                      message_count: 1,
+                      status: "idle",
+                      changed_file_count: 0,
+                      pending_approval_count: 0,
+                    },
+                  ],
+            next_cursor: cursor === "sessions-page-2" ? null : "sessions-page-2",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+
+      if (url.pathname.endsWith("/tasks")) {
+        return new Response(
+          JSON.stringify({
+            tasks:
+              cursor === "tasks-page-2"
+                ? [{ task_id: "task-page-2", title: "Second task" }]
+                : [{ task_id: "task-page-1", title: "First task" }],
+            next_cursor: cursor === "tasks-page-2" ? null : "tasks-page-2",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+
+      if (url.pathname.endsWith("/task-triggers")) {
+        const base = {
+          trigger_type: "time",
+          user_id: "default",
+          title: "Reminder",
+          prompt: "提醒",
+          kind: "once",
+          timezone: "Asia/Shanghai",
+          run_at: null,
+          interval_seconds: null,
+          enabled: true,
+          status: "active",
+          next_run_at: null,
+          last_run_at: null,
+          last_run_id: null,
+          last_error: null,
+          cwd: null,
+          model: null,
+          effort: null,
+          summary: null,
+          output_schema: null,
+          max_runtime_seconds: 1800,
+          max_runs: 1,
+          run_count: 0,
+          created_at: "2026-06-20T00:00:00Z",
+          updated_at: "2026-06-20T00:00:00Z",
+        };
+        return new Response(
+          JSON.stringify({
+            triggers:
+              cursor === "triggers-page-2"
+                ? [{ ...base, trigger_id: "trg-page-2" }]
+                : [{ ...base, trigger_id: "trg-page-1" }],
+            next_cursor: cursor === "triggers-page-2" ? null : "triggers-page-2",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+
+      throw new Error(`Unexpected request: ${url.pathname}`);
+    },
+    async () => {
+      assert.deepEqual(
+        (await fetchSessions()).map((session) => session.sessionId),
+        ["srv-page-1", "srv-page-2"]
+      );
+      assert.deepEqual(
+        (await fetchTasks()).map((task) => task.taskId),
+        ["task-page-1", "task-page-2"]
+      );
+      assert.deepEqual(
+        (await fetchAllTaskTriggers()).map((trigger) => trigger.trigger_id),
+        ["trg-page-1", "trg-page-2"]
+      );
+    }
+  );
+
+  assert.ok(requests.includes("/v1/sessions?cursor=sessions-page-2"));
+  assert.ok(requests.includes("/v1/tasks?cursor=tasks-page-2"));
+  assert.ok(requests.includes("/v1/task-triggers?cursor=triggers-page-2"));
+}
+
 async function testCreateSessionNormalizesBackendShape() {
   await withFetch(
     async () =>
@@ -1454,6 +1575,7 @@ test("api client behavior", async () => {
   await testUpdateSessionPatchesSelectedModel();
   await testCreateSessionPostsContextFolderPath();
   await testFetchSessionDetailsNormalizesBackendShape();
+  await testListApisFollowBackendPaginationCursors();
   testSessionFollowUpClientApisAreRemoved();
   await testTaskApisUseExpectedBackendShape();
   await testFetchSessionsRejectsServerFailures();

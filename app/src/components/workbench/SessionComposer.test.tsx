@@ -164,7 +164,10 @@ function testComposerUsesWorkbenchSurfaceScaleAndIndependentToolButtons() {
   assert.doesNotMatch(source, /rounded-\[20px\]/);
   assert.match(source, /WORKBENCH_MENU_CLASS/);
   assert.match(source, /COMPOSER_ICON_BUTTON_CLASS/);
-  assert.doesNotMatch(source, /gap-0\.5 rounded-xl border border-\[#EFF0F1\] bg-\[#F8F9FA\] p-0\.5/);
+  assert.doesNotMatch(
+    source,
+    /gap-0\.5 rounded-xl border border-\[#EFF0F1\] bg-\[#F8F9FA\] p-0\.5/
+  );
   assert.doesNotMatch(source, /className=\{composerToolbarClassName\(isExpandedComposer\)\}/);
   assert.match(source, /gap-1\.5/);
   assert.match(source, /bg-transparent text-\[#646A73\]/);

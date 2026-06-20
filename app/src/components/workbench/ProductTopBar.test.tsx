@@ -31,14 +31,15 @@ function testDesktopProductTabsExcludeSettings() {
   assert.match(html, />Tasks</);
   assert.match(html, />Files</);
   assert.match(html, />Skills</);
+  assert.match(html, />Connectors</);
   assert.match(html, /data-ripple-top-tab="sessions"/);
   assert.match(html, /data-ripple-top-tab="tasks"/);
   assert.match(html, /data-ripple-top-tab="files"/);
   assert.match(html, /data-ripple-top-tab="skills"/);
+  assert.match(html, /data-ripple-top-tab="connectors"/);
   assert.doesNotMatch(html, />Autos</);
   assert.doesNotMatch(html, /data-ripple-top-tab="automations"/);
   assert.doesNotMatch(html, />Links</);
-  assert.doesNotMatch(html, /data-ripple-top-tab="connectors"/);
   assert.doesNotMatch(html, /data-ripple-top-tab="home"/);
 }
 
@@ -104,7 +105,7 @@ function testDesktopProductTabsUseEqualWidths() {
     (match) => match[0]
   );
 
-  assert.equal(tabButtons.length, 4);
+  assert.equal(tabButtons.length, 5);
   for (const button of tabButtons) {
     assert.match(button, /w-\[132px\]/);
     assert.match(button, /justify-center/);
@@ -116,7 +117,7 @@ function testDesktopProductTabIconsDoNotShrink() {
   const html = renderProductTopBar();
   const icons = [...html.matchAll(/<svg[^>]*class="[^"]*h-4 w-4 shrink-0[^"]*"[^>]*>/g)];
 
-  assert.equal(icons.length, 4);
+  assert.equal(icons.length, 5);
 }
 
 function testDesktopProductTabsRenderChineseLabels() {
@@ -126,6 +127,7 @@ function testDesktopProductTabsRenderChineseLabels() {
   assert.match(html, />任务</);
   assert.match(html, />文件</);
   assert.match(html, />能力</);
+  assert.match(html, />连接</);
   assert.doesNotMatch(html, />自动化</);
   assert.match(html, /aria-label="打开 default 的个人设置"/);
 }

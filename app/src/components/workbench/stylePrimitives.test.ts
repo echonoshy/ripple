@@ -54,10 +54,7 @@ assert.doesNotMatch(WORKBENCH_SURFACE_CLASS, /bg-white\/8/);
 assert.match(WORKBENCH_SECTION_CLASS, /rounded-xl/);
 assert.match(WORKBENCH_SECTION_CLASS, /border-\[#DEE0E3\]/);
 assert.doesNotMatch(WORKBENCH_SECTION_CLASS, /backdrop-blur/);
-assert.match(
-  WORKBENCH_FLOATING_SURFACE_CLASS,
-  /shadow-\[0_12px_32px_rgba\(31,35,41,0\.14\)\]/
-);
+assert.match(WORKBENCH_FLOATING_SURFACE_CLASS, /shadow-\[0_12px_32px_rgba\(31,35,41,0\.14\)\]/);
 assert.match(WORKBENCH_TOP_BAR_CLASS, /border-b/);
 assert.match(WORKBENCH_TOP_BAR_CLASS, /bg-white/);
 assert.doesNotMatch(WORKBENCH_TOP_BAR_CLASS, /backdrop-blur/);
@@ -92,10 +89,7 @@ assert.equal(
   MOBILE_DETAIL_HEADER_TITLE_CLASS,
   "text-[18px] leading-[26px] font-medium tracking-normal"
 );
-assert.equal(
-  MOBILE_DETAIL_PAGE_HEADER_CLASS,
-  "-mx-3 -mt-[max(env(safe-area-inset-top),12px)]"
-);
+assert.equal(MOBILE_DETAIL_PAGE_HEADER_CLASS, "-mx-3 -mt-[max(env(safe-area-inset-top),12px)]");
 assert.equal(TYPOGRAPHY_SECTION_TITLE_CLASS, "text-[16px] leading-6 font-medium tracking-normal");
 assert.equal(TYPOGRAPHY_BODY_CLASS, "text-[14px] leading-[22px]");
 assert.equal(TYPOGRAPHY_BODY_MEDIUM_CLASS, "text-[14px] leading-[22px] font-medium");
@@ -124,11 +118,7 @@ assert.match(stylePrimitivesSource, /WORKBENCH_TEXT_TERTIARY = "#8F959E"/);
 assert.match(stylePrimitivesSource, /WORKBENCH_BORDER_2 = "#DEE0E3"/);
 assert.match(stylePrimitivesSource, /WORKBENCH_PAGE_CONTENT_CLASS = "mx-auto w-full max-w-7xl"/);
 
-const sharedWidthPageSources = [
-  "./FilesPage.tsx",
-  "./SkillsPage.tsx",
-  "./ConnectorsPage.tsx",
-];
+const sharedWidthPageSources = ["./FilesPage.tsx", "./SkillsPage.tsx", "./ConnectorsPage.tsx"];
 
 for (const sourcePath of sharedWidthPageSources) {
   const source = readFileSync(new URL(sourcePath, import.meta.url), "utf8");
@@ -144,7 +134,10 @@ const workspaceExplorerSource = readFileSync(
   new URL("../WorkspaceExplorer.tsx", import.meta.url),
   "utf8"
 );
-assert.match(workspaceExplorerSource, /lg:grid-cols-\[minmax\(280px,360px\)_minmax\(0,1fr\)\]/);
+assert.match(
+  workspaceExplorerSource,
+  /lg:grid-cols-\[244px_minmax\(0,1fr\)_minmax\(280px,360px\)\]/
+);
 assert.doesNotMatch(workspaceExplorerSource, /minmax\(320px,440px\)_minmax\(0,1fr\)/);
 
 const mobileReadableSources = [

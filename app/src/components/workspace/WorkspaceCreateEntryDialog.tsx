@@ -37,10 +37,7 @@ export default function WorkspaceCreateEntryDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-[1px]">
-      <form
-        onSubmit={onSubmit}
-        className={`w-80 p-5 ${WORKBENCH_FLOATING_SURFACE_CLASS}`}
-      >
+      <form onSubmit={onSubmit} className={`w-80 p-5 ${WORKBENCH_FLOATING_SURFACE_CLASS}`}>
         <h3 className={`mb-3 text-[#1F2329] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
           {modal.kind === "file" ? t("files.createNewFile") : t("files.createNewFolder")}
         </h3>
@@ -48,7 +45,9 @@ export default function WorkspaceCreateEntryDialog({
           autoFocus
           value={draft}
           onChange={(event) => onDraftChange(event.target.value)}
-          placeholder={modal.kind === "file" ? t("files.filePlaceholder") : t("files.folderPlaceholder")}
+          placeholder={
+            modal.kind === "file" ? t("files.filePlaceholder") : t("files.folderPlaceholder")
+          }
           className={`mb-4 h-10 w-full px-4 ${WORKBENCH_FIELD_CLASS} ${TYPOGRAPHY_MOBILE_BODY_CLASS}`}
           disabled={saving}
         />

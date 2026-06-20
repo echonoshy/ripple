@@ -20,7 +20,7 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import { IconTile } from "@/components/icons/IconTile";
 import { useI18n } from "@/i18n";
-import { resolveBackendUrl, parseWorkspaceLink } from "@/lib/api";
+import { getApiOrigin, resolveBackendUrl, parseWorkspaceLink } from "@/lib/api";
 import { openExternalUrl } from "@/lib/platform";
 
 /**
@@ -104,7 +104,8 @@ interface ContentSegment {
     | "notionToken"
     | "notionAuthorized"
     | "bilibili"
-    | "bilibiliAuthorized";
+    | "bilibiliAuthorized"
+    | "unsupportedAuth";
   content: string;
   tag?: FeishuTag;
   url?: string;
@@ -129,6 +130,85 @@ function isExternalHref(href: string | undefined): href is string {
   if (!href) return false;
   const trimmed = href.trim();
   return /^(https?:|mailto:|tel:|sms:|bilibili:)/i.test(trimmed);
+}
+
+function matchesHostname(hostname: string, allowedHostnames: string[]): boolean {
+  const normalized = hostname.toLowerCase();
+  return allowedHostnames.some((allowed) => normalized === allowed);
+}
+
+function trustedUrlHost(url: string, allowedHostnames: string[]): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" && matchesHostname(parsed.hostname, allowedHostnames);
+  } catch {
+    return false;
+  }
+}
+
+function trustedConnectorAuthUrl(marker: string, url: string): boolean {
+  if (marker.startsWith("GOOGLE_AUTH")) {
+    return trustedUrlHost(url, ["accounts.google.com"]);
+  }
+  if (marker.startsWith("FEISHU_SETUP")) {
+    return trustedUrlHost(url, ["open.feishu.cn", "open.larksuite.com"]);
+  }
+  if (marker.startsWith("FEISHU_AUTH")) {
+    return trustedUrlHost(url, [
+      "accounts.feishu.cn",
+      "accounts.larksuite.com",
+      "open.feishu.cn",
+      "open.larksuite.com",
+    ]);
+  }
+  return false;
+}
+
+function trustedBilibiliAuthUrl(url: string): boolean {
+  return trustedUrlHost(url, [
+    "passport.bilibili.com",
+    "passport.bilibili.tv",
+    "account.bilibili.com",
+    "www.bilibili.com",
+  ]);
+}
+
+function trustedBilibiliAppUrl(url: string | undefined): boolean {
+  if (!url) return true;
+  try {
+    return new URL(url).protocol === "bilibili:";
+  } catch {
+    return false;
+  }
+}
+
+function isSafeMarkdownImageSrc(src: string | undefined): boolean {
+  const trimmed = src?.trim();
+  if (!trimmed) return false;
+  if (/^data:image\//i.test(trimmed) || /^blob:/i.test(trimmed)) return true;
+  if (trimmed.startsWith("/v1/") || trimmed.startsWith("/workspace/")) return true;
+  if (!/^[a-z][a-z0-9+.-]*:/i.test(trimmed) && !trimmed.startsWith("//")) return true;
+
+  const resolved = resolveBackendUrl(trimmed) || trimmed;
+  if (!/^https?:/i.test(resolved)) return false;
+
+  try {
+    const parsed = new URL(resolved);
+    const allowedOrigins = new Set<string>();
+    const apiOrigin = getApiOrigin();
+    const baseOrigin = typeof window !== "undefined" ? window.location.origin : "http://localhost";
+    if (apiOrigin) {
+      try {
+        allowedOrigins.add(new URL(apiOrigin, baseOrigin).origin);
+      } catch {
+        // Relative API origins are covered by the relative-path checks above.
+      }
+    }
+    if (typeof window !== "undefined") allowedOrigins.add(window.location.origin);
+    return allowedOrigins.has(parsed.origin);
+  } catch {
+    return false;
+  }
 }
 
 function parseThinkingBlocks(content: string): ContentSegment[] {
@@ -179,14 +259,18 @@ function parseConnectorAuthBlocks(text: string): ContentSegment[] {
       const before = text.slice(lastBilibili, bilibiliMatch.index).trim();
       if (before) segments.push(...parseBrowserConnectorAuthBlocks(before));
     }
-    segments.push({
-      type: "bilibili",
-      content: bilibiliMatch[0],
-      bilibiliMode: bilibiliMatch[1] === "SKILL" ? "skill" : "connect",
-      qrcodeImageUrl: bilibiliMatch[2],
-      url: bilibiliMatch[3],
-      appUrl: bilibiliMatch[4],
-    });
+    if (trustedBilibiliAuthUrl(bilibiliMatch[3]) && trustedBilibiliAppUrl(bilibiliMatch[4])) {
+      segments.push({
+        type: "bilibili",
+        content: bilibiliMatch[0],
+        bilibiliMode: bilibiliMatch[1] === "SKILL" ? "skill" : "connect",
+        qrcodeImageUrl: bilibiliMatch[2],
+        url: bilibiliMatch[3],
+        appUrl: bilibiliMatch[4],
+      });
+    } else {
+      segments.push({ type: "unsupportedAuth", content: bilibiliMatch[0] });
+    }
     lastBilibili =
       bilibiliMatch.index +
       bilibiliMatch[0].length +
@@ -226,6 +310,11 @@ function parseBrowserConnectorAuthBlocks(text: string): ContentSegment[] {
     if (m.index > last) {
       const before = text.slice(last, m.index).trim();
       if (before) segments.push({ type: "text", content: before });
+    }
+    if (url && !trustedConnectorAuthUrl(marker, url)) {
+      segments.push({ type: "unsupportedAuth", content: text.slice(m.index, segmentEnd) });
+      last = segmentEnd + legacyConnectorAuthTailLength(text.slice(segmentEnd));
+      continue;
     }
     if (marker.startsWith("GOOGLE_AUTHORIZED")) {
       segments.push({
@@ -668,6 +757,17 @@ function BilibiliAuthCard({
   );
 }
 
+function UnsupportedAuthCard() {
+  return (
+    <div
+      data-ripple-unsupported-auth-link="true"
+      className="my-3 rounded-xl border border-[#FAD355]/45 bg-[#FFF8DB] px-4 py-3 text-sm font-medium text-[#8B5E00]"
+    >
+      Unsupported authorization link
+    </div>
+  );
+}
+
 function ThinkingBlock({
   content,
   onFeishuAuthOpen,
@@ -743,7 +843,8 @@ function MarkdownContent({
       segment.type === "notionToken" ||
       segment.type === "notionAuthorized" ||
       segment.type === "bilibili" ||
-      segment.type === "bilibiliAuthorized"
+      segment.type === "bilibiliAuthorized" ||
+      segment.type === "unsupportedAuth"
   );
 
   if (hasConnectorAuth) {
@@ -798,6 +899,9 @@ function MarkdownContent({
                 mode={segment.bilibiliMode}
               />
             );
+          }
+          if (segment.type === "unsupportedAuth") {
+            return <UnsupportedAuthCard key={index} />;
           }
           return (
             <MarkdownContent
@@ -885,6 +989,16 @@ function MarkdownContent({
         },
         img({ src, alt, className, ...rest }) {
           const resolved = typeof src === "string" ? resolveBackendUrl(src) : src;
+          if (!isSafeMarkdownImageSrc(resolved)) {
+            return (
+              <span
+                data-ripple-blocked-external-image="true"
+                className="my-4 block rounded-lg border border-dashed border-[#D0D3D6] bg-[#F8F9FA] px-3 py-2 text-sm font-medium text-[#646A73]"
+              >
+                {alt || "External image blocked"}
+              </span>
+            );
+          }
           return (
             <img
               src={resolved}
@@ -997,6 +1111,9 @@ export default function MarkdownRenderer({
               mode={segment.bilibiliMode}
             />
           );
+        }
+        if (segment.type === "unsupportedAuth") {
+          return <UnsupportedAuthCard key={i} />;
         }
         return (
           <MarkdownContent

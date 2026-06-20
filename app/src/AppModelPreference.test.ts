@@ -5,7 +5,10 @@ const appSource = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
 
 function testModelSelectionAppliesToCurrentSessionAndDefault() {
   assert.match(appSource, /const \[defaultModel, setDefaultModel\]/);
-  assert.match(appSource, /const selectedModelOverrideBySessionRef = useRef<Record<string, string>>/);
+  assert.match(
+    appSource,
+    /const selectedModelOverrideBySessionRef = useRef<Record<string, string>>/
+  );
   assert.match(appSource, /const rememberSelectedModelOverride = useCallback/);
   assert.match(
     appSource,

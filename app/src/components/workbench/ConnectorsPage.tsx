@@ -10,7 +10,13 @@ import {
   ShieldCheck,
   Trash2,
 } from "lucide-react";
-import { AuthError, disconnectConnector, fetchCapabilities, fetchGogcliAccounts } from "@/lib/api";
+import {
+  AuthError,
+  disconnectConnector,
+  fetchConnectorStatuses,
+  fetchConnectors,
+  fetchGogcliAccounts,
+} from "@/lib/api";
 import {
   connectorGroupSections,
   connectorReadinessSummary,
@@ -19,7 +25,6 @@ import {
 import { IconTile } from "@/components/icons/IconTile";
 import { useI18n, type MessageKey } from "@/i18n";
 import type {
-  CapabilityInfo,
   ConnectorInfo,
   ConnectorStatus,
   GogcliAccountInfo,
@@ -47,7 +52,6 @@ const CONNECTOR_FOCUS_REFRESH_THROTTLE_MS = 10_000;
 const ACTION_MESSAGE_DISMISS_MS = 4_000;
 
 interface ConnectorSnapshot {
-  capabilities: CapabilityInfo[];
   connectors: ConnectorInfo[];
   statuses: Record<string, ConnectorStatus>;
   accounts: GogcliAccountInfo[];
@@ -118,38 +122,6 @@ function hasConnectorSnapshot(userId: string): boolean {
   return connectorSnapshotCache.has(userId);
 }
 
-function connectorFromCapability(capability: CapabilityInfo): ConnectorInfo | null {
-  if (capability.type !== "connector") return null;
-  if (capability.connector) return capability.connector;
-  return {
-    name: capability.name,
-    display_name: capability.display_name,
-    description: capability.description,
-    auth_type: "runtime",
-    kind: "user_connector",
-    auth_flow: "none",
-    auth_surfaces: { web: false, chat: false },
-    auth_start_path: null,
-    auth_complete_path: null,
-    auth_cancel_path: null,
-    disconnect_path: null,
-    accounts_path: null,
-    supports_account_disconnect: false,
-  };
-}
-
-function connectorStatusFromCapability(capability: CapabilityInfo): ConnectorStatus {
-  return {
-    name: capability.name,
-    connected: capability.enabled,
-    required: !capability.enabled,
-    detail: "",
-    metadata: {
-      capability_status: capability.status,
-    },
-  };
-}
-
 async function fetchConnectorSnapshot(userId: string, force = false): Promise<ConnectorSnapshot> {
   const freshSnapshot = force ? null : freshConnectorSnapshot(userId);
   if (freshSnapshot) return freshSnapshot;
@@ -157,26 +129,16 @@ async function fetchConnectorSnapshot(userId: string, force = false): Promise<Co
   if (!force && inflightSnapshot) return inflightSnapshot;
 
   const nextInflight = (async () => {
-    const capabilities = await fetchCapabilities();
-    const connectorList = capabilities
-      .map(connectorFromCapability)
-      .filter((connector): connector is ConnectorInfo => connector !== null);
-    const statuses = Object.fromEntries(
-      capabilities
-        .filter((capability) => capability.type === "connector")
-        .map((capability) => [capability.name, connectorStatusFromCapability(capability)])
-    );
+    const connectorList = await fetchConnectors();
     const google = connectorList.find((connector) => connector.name === "google_workspace");
-    let accounts: GogcliAccountInfo[] = [];
-    if (google?.accounts_path) {
-      const data = await fetchGogcliAccounts(false);
-      accounts = data?.accounts || [];
-    }
+    const [statuses, accountData] = await Promise.all([
+      fetchConnectorStatuses(connectorList),
+      google?.accounts_path ? fetchGogcliAccounts(true) : Promise.resolve(null),
+    ]);
     const snapshot = {
-      capabilities,
       connectors: connectorList,
       statuses,
-      accounts,
+      accounts: accountData?.accounts || [],
       loadedAt: Date.now(),
     };
     connectorSnapshotCache.set(userId, snapshot);
@@ -505,7 +467,7 @@ export default function ConnectorsPage({
       if (!result) return;
       setConfirmAction(null);
       if (connector.name === "google_workspace") {
-        const data = await fetchGogcliAccounts(false);
+        const data = await fetchGogcliAccounts(true);
         setAccounts(data?.accounts || []);
       }
     },

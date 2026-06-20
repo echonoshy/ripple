@@ -188,10 +188,7 @@ export default function AuthGateway({
           data-ripple-auth-main="true"
           className="flex flex-1 -translate-y-6 flex-col items-center justify-center gap-6 py-6 sm:-translate-y-8 sm:gap-7 lg:-translate-y-10 lg:py-10"
         >
-          <section
-            className="w-full max-w-[680px] text-center"
-            aria-label="Ripple"
-          >
+          <section className="w-full max-w-[680px] text-center" aria-label="Ripple">
             <h1
               data-ripple-brand-wordmark="true"
               className="relative mx-auto flex max-w-[680px] flex-wrap items-baseline justify-center gap-x-2 text-[36px] leading-[40px] font-semibold tracking-normal text-[#1F2329] sm:gap-x-3 sm:text-[52px] sm:leading-[56px]"

@@ -123,7 +123,10 @@ export function WorkspacePreviewPanel({
             : "flex shrink-0 items-center gap-2 border-b border-[#EFF0F1] bg-white px-3 py-2 text-[#646A73]"
         }
       >
-        <IconTile tone={isPagePresentation ? "accent" : "neutral"} size={isPagePresentation ? "sm" : "md"}>
+        <IconTile
+          tone={isPagePresentation ? "accent" : "neutral"}
+          size={isPagePresentation ? "sm" : "md"}
+        >
           <FileText size={isPagePresentation ? 13 : 15} />
         </IconTile>
         <span className="min-w-0 flex-1">
@@ -191,7 +194,13 @@ export function WorkspacePreviewPanel({
           <ChevronDown size={isPagePresentation ? 12 : 13} />
         </button>
       </div>
-      <div className={isPagePresentation ? "min-h-0 flex-1 overflow-hidden" : "min-h-0 flex-1 overflow-hidden bg-white"}>
+      <div
+        className={
+          isPagePresentation
+            ? "min-h-0 flex-1 overflow-hidden"
+            : "min-h-0 flex-1 overflow-hidden bg-white"
+        }
+      >
         {preview ? (
           <div className="flex h-full min-h-0 flex-col">
             <div
@@ -318,7 +327,11 @@ function WorkspacePreviewBody({
             : "min-h-0 flex-1 overflow-hidden bg-[#F8F9FA]"
         }
       >
-        <PdfPreview blob={documentPreview.blob} filename={documentPreview.filename} className="h-full min-h-0" />
+        <PdfPreview
+          blob={documentPreview.blob}
+          filename={documentPreview.filename}
+          className="h-full min-h-0"
+        />
       </div>
     );
   }
@@ -411,8 +424,12 @@ function WorkspaceTextPreviewLines({
                   : "pl-3 hover:bg-[#F8F9FA]"
             }`}
           >
-            <span className="w-9 shrink-0 pr-3 text-right text-[#8F959E] select-none">{lineNum}</span>
-            <span className="flex-1 break-all whitespace-pre-wrap text-[#1F2329]">{line || " "}</span>
+            <span className="w-9 shrink-0 pr-3 text-right text-[#8F959E] select-none">
+              {lineNum}
+            </span>
+            <span className="flex-1 break-all whitespace-pre-wrap text-[#1F2329]">
+              {line || " "}
+            </span>
           </div>
         );
       })}

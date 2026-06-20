@@ -131,6 +131,31 @@ function testGoogleAuthCardUsesChineseI18nText() {
   assert.doesNotMatch(html, /Ripple 会自动继续刚才的请求/);
 }
 
+function testConnectorAuthCardsRejectUnexpectedAuthHosts() {
+  const googleHtml = renderMarkdown({
+    content: "[GOOGLE_AUTH]\nhttps://evil.example/oauth?state=abc",
+  });
+  const feishuHtml = renderMarkdown({
+    content: "[FEISHU_AUTH]\nhttps://evil.example/device",
+  });
+
+  assert.doesNotMatch(googleHtml, /Open Google authorization/);
+  assert.doesNotMatch(googleHtml, /connector-auth-link--primary/);
+  assert.match(googleHtml, /Unsupported authorization link/);
+  assert.doesNotMatch(feishuHtml, /Open authorization page/);
+  assert.doesNotMatch(feishuHtml, /connector-auth-link--info/);
+  assert.match(feishuHtml, /Unsupported authorization link/);
+}
+
+function testMarkdownImagesRejectExternalTrackingUrls() {
+  const html = renderMarkdown({
+    content: "![tracking](https://tracker.example/pixel.png)",
+  });
+
+  assert.doesNotMatch(html, /src="https:\/\/tracker\.example\/pixel\.png"/);
+  assert.match(html, /data-ripple-blocked-external-image="true"/);
+}
+
 function testGoogleAuthorizedCardUsesI18nText() {
   const enHtml = renderMarkdown({ content: "[GOOGLE_AUTHORIZED_CONNECT]" });
   const skillHtml = renderMarkdown({ content: "[GOOGLE_AUTHORIZED_SKILL]" });
@@ -244,6 +269,8 @@ function testConnectorAuthCardsUseWorkbenchNoticeSurfaces() {
 }
 
 testConnectorAuthCardsUseWorkbenchNoticeSurfaces();
+testConnectorAuthCardsRejectUnexpectedAuthHosts();
+testMarkdownImagesRejectExternalTrackingUrls();
 
 function testBilibiliAuthCardShowsQrAndManualOpenLink() {
   const html = renderMarkdown({

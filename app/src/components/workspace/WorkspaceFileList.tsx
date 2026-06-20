@@ -69,7 +69,10 @@ interface WorkspaceFileListProps {
   handleDirectoryDrop: (event: React.DragEvent<HTMLDivElement>, entry: WorkspaceEntry) => void;
   onContainerContextMenu: (event: React.MouseEvent) => void;
   onEntryContextMenu: (event: React.MouseEvent, entry: WorkspaceEntry) => void;
-  handleEntryLongPressStart: (event: React.TouchEvent<HTMLDivElement>, entry: WorkspaceEntry) => void;
+  handleEntryLongPressStart: (
+    event: React.TouchEvent<HTMLDivElement>,
+    entry: WorkspaceEntry
+  ) => void;
   handleEntryLongPressEnd: () => void;
   handleEntryClick: (event: React.MouseEvent, entry: WorkspaceEntry) => void;
   handleFileDoubleClick: (entry: WorkspaceEntry) => void;
@@ -140,11 +143,15 @@ export default function WorkspaceFileList({
     >
       {!isPagePresentation && (
         <div className="flex items-center justify-between border-b border-[#EFF0F1] bg-white px-3 py-2">
-          <span className={`tracking-wider text-[#646A73] uppercase ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
+          <span
+            className={`tracking-wider text-[#646A73] uppercase ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+          >
             {isSearchMode ? t("files.searchResults") : t("files.workspace")}
           </span>
           <div className="flex items-center gap-1">
-            {searchLoading && <Loader2 size={13} className="shrink-0 animate-spin text-[#646A73]" />}
+            {searchLoading && (
+              <Loader2 size={13} className="shrink-0 animate-spin text-[#646A73]" />
+            )}
             {!isSearchMode && (listing?.parent_path || currentPath !== DEFAULT_WORKSPACE_PATH) && (
               <>
                 {listing?.parent_path && (
@@ -264,7 +271,9 @@ export default function WorkspaceFileList({
         }
       >
         {(loading && !listing) || (searchLoading && visibleEntries.length === 0) ? (
-          <div className={`flex h-40 items-center justify-center gap-2 text-[#646A73] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
+          <div
+            className={`flex h-40 items-center justify-center gap-2 text-[#646A73] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
+          >
             <Loader2 size={16} className="animate-spin" />
             {t("files.loading")}
           </div>
@@ -308,11 +317,7 @@ export default function WorkspaceFileList({
                       spellCheck={false}
                       className={`h-10 w-full rounded-lg border border-[#1456F0] bg-white px-2 font-[family-name:var(--font-mono)] text-[#1F2329] outline-none lg:h-8 lg:text-[14px] lg:leading-[22px] ${TYPOGRAPHY_MOBILE_BODY_CLASS}`}
                     />
-                    <WorkspaceEntryMeta
-                      entry={entry}
-                      isSearchMode={isSearchMode}
-                      locale={locale}
-                    />
+                    <WorkspaceEntryMeta entry={entry} isSearchMode={isSearchMode} locale={locale} />
                   </span>
                   {renameSaving && <Loader2 size={13} className="shrink-0 animate-spin" />}
                 </form>
@@ -320,7 +325,9 @@ export default function WorkspaceFileList({
                 <div
                   key={entry.path}
                   draggable={!isCoarsePointer}
-                  data-ripple-files-drop-target={entry.kind === "directory" ? "directory" : undefined}
+                  data-ripple-files-drop-target={
+                    entry.kind === "directory" ? "directory" : undefined
+                  }
                   onDragStart={(event) => handleEntryDragStart(event, entry)}
                   onDragEnd={handleEntryDragEnd}
                   onDragOver={
@@ -473,7 +480,9 @@ function WorkspaceEntryMeta({
       className={`mt-0.5 block truncate font-[family-name:var(--font-mono)] text-[#646A73] ${TYPOGRAPHY_META_CLASS}`}
     >
       {`${entry.kind === "directory" ? t("files.folder") : formatBytes(entry.size_bytes)}${
-        formatModified(entry.modified_at, locale) ? ` · ${formatModified(entry.modified_at, locale)}` : ""
+        formatModified(entry.modified_at, locale)
+          ? ` · ${formatModified(entry.modified_at, locale)}`
+          : ""
       }`}
     </span>
   );

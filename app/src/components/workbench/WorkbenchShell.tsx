@@ -4,10 +4,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronLeft } from "lucide-react";
 import { useI18n } from "@/i18n";
 import { getClientStorageItem, setClientStorageItem } from "@/lib/platform";
-import {
-  WORKBENCH_ICON_BUTTON_CLASS,
-  WORKBENCH_PAGE_BACKGROUND_CLASS,
-} from "./stylePrimitives";
+import { WORKBENCH_ICON_BUTTON_CLASS, WORKBENCH_PAGE_BACKGROUND_CLASS } from "./stylePrimitives";
 
 const INSPECTOR_WIDTH_STORAGE_KEY = "ripple.workbench.inspectorWidth";
 const DEFAULT_INSPECTOR_WIDTH = 460;
@@ -111,7 +108,7 @@ export default function WorkbenchShell({
               onClick={onExpandInspector}
               aria-label={t("common.expandWorkspacePanel")}
               title={t("common.expandWorkspacePanel")}
-              className={`${WORKBENCH_ICON_BUTTON_CLASS} absolute top-1/2 right-0 z-30 hidden !h-14 !w-7 -translate-y-1/2 !rounded-r-none !rounded-l-xl border-r-0 border-[#BACEFD] text-[#1456F0] shadow-[0_4px_12px_rgba(31,35,41,0.08)] hover:border-[#8FB1FF] hover:bg-[#F0F5FF] focus-visible:ring-2 focus-visible:ring-[#BACEFD] focus-visible:outline-none active:scale-95 xl:inline-flex`}
+              className={`${WORKBENCH_ICON_BUTTON_CLASS} absolute top-1/2 right-0 z-30 hidden !h-14 !w-7 -translate-y-1/2 !rounded-l-xl !rounded-r-none border-r-0 border-[#BACEFD] text-[#1456F0] shadow-[0_4px_12px_rgba(31,35,41,0.08)] hover:border-[#8FB1FF] hover:bg-[#F0F5FF] focus-visible:ring-2 focus-visible:ring-[#BACEFD] focus-visible:outline-none active:scale-95 xl:inline-flex`}
             >
               <ChevronLeft size={16} />
             </button>

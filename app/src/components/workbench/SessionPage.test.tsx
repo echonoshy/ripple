@@ -644,6 +644,23 @@ function testVisualViewportKeyboardInsetIgnoresAndroidResizedLayoutViewport() {
   );
 }
 
+function testVisualViewportKeyboardInsetIgnoresCollapsedViewportFrames() {
+  assert.equal(
+    getVisualViewportKeyboardInset({
+      innerHeight: 800,
+      visualViewport: { height: 0, offsetTop: 0 },
+    }),
+    0
+  );
+  assert.equal(
+    getVisualViewportKeyboardInset({
+      innerHeight: 800,
+      visualViewport: { height: 120, offsetTop: 0 },
+    }),
+    0
+  );
+}
+
 function testAndroidKeyboardInsetDoesNotDoubleApplyViewportPan() {
   assert.equal(
     getMobileComposerKeyboardInset({
@@ -933,6 +950,7 @@ testSessionPageCanRestorePreviousScrollPosition();
 testTimelineScrollContainerAllowsHorizontalSwipeBackInTouchEmulation();
 testVisualViewportKeyboardInsetUsesLayoutViewportBottomGap();
 testVisualViewportKeyboardInsetIgnoresAndroidResizedLayoutViewport();
+testVisualViewportKeyboardInsetIgnoresCollapsedViewportFrames();
 testAndroidKeyboardInsetDoesNotDoubleApplyViewportPan();
 testSessionPageNoLongerOwnsMobileBackSwipeGesture();
 testComposerFocusSuppressesTimelineAutoScroll();

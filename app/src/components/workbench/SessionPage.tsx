@@ -84,6 +84,8 @@ interface TokenFooterVisibilityInput {
   totalTokens: number;
 }
 
+const MIN_STABLE_VISUAL_VIEWPORT_HEIGHT_RATIO = 0.35;
+
 export function getVisualViewportKeyboardInset(
   source?: VisualViewportKeyboardSource | null
 ): number {
@@ -94,6 +96,13 @@ export function getVisualViewportKeyboardInset(
     currentSource.layoutViewportHeight && currentSource.layoutViewportHeight > 0
       ? currentSource.layoutViewportHeight
       : currentSource.innerHeight;
+  if (
+    currentSource.visualViewport.height <= 0 ||
+    currentSource.visualViewport.height <
+      layoutViewportHeight * MIN_STABLE_VISUAL_VIEWPORT_HEIGHT_RATIO
+  ) {
+    return 0;
+  }
   const visualBottom = currentSource.visualViewport.offsetTop + currentSource.visualViewport.height;
   return Math.max(0, Math.round(layoutViewportHeight - visualBottom));
 }

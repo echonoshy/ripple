@@ -58,9 +58,11 @@ testConnectorsPageUsesUniformStatusPillDots();
 function testConnectorsPageUsesCatalogWithoutSkillManagement() {
   const source = readFileSync(new URL("./ConnectorsPage.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /fetchCapabilities/);
+  assert.match(source, /fetchConnectors/);
+  assert.match(source, /fetchConnectorStatuses/);
   assert.doesNotMatch(source, /updateSkillCapability/);
   assert.doesNotMatch(source, /capabilitySections/);
+  assert.doesNotMatch(source, /auth_start_path:\s*null/);
   assert.doesNotMatch(source, /Ripple Skills/);
   assert.doesNotMatch(source, /User Skills/);
   assert.doesNotMatch(source, /Runtime Capabilities/);
@@ -230,7 +232,10 @@ testConnectorsPageUsesCompactMobileDensity();
 function testConnectorsPageUsesSolidWorkbenchSurfaces() {
   const source = readFileSync(new URL("./ConnectorsPage.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /WORKBENCH_(SECTION|SURFACE|PRIMARY_BUTTON|SECONDARY_BUTTON|STATUS|FIELD|MENU)/);
+  assert.match(
+    source,
+    /WORKBENCH_(SECTION|SURFACE|PRIMARY_BUTTON|SECONDARY_BUTTON|STATUS|FIELD|MENU)/
+  );
   assert.doesNotMatch(source, /bg-white\/7[02468].*backdrop-blur-xl/);
   assert.doesNotMatch(source, /shadow-\[0_18px_44px/);
   assert.doesNotMatch(source, /backdrop-blur-xl/);

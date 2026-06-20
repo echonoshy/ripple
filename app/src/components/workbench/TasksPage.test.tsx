@@ -121,7 +121,10 @@ const triggers: TaskTriggerInfo[] = [
   },
 ];
 
-function renderTasksPage(locale: LocalePreference = "zh-CN") {
+function renderTasksPage(
+  locale: LocalePreference = "zh-CN",
+  props: Partial<React.ComponentProps<typeof TasksPage>> = {}
+) {
   return renderToStaticMarkup(
     <I18nProvider initialPreference={locale}>
       <TasksPage
@@ -139,6 +142,8 @@ function renderTasksPage(locale: LocalePreference = "zh-CN") {
         onConfirmTask={noop}
         onRunTaskNow={noop}
         onCancelTask={noop}
+        onDeleteTask={noop}
+        {...props}
       />
     </I18nProvider>
   );
@@ -203,9 +208,49 @@ function testTasksPageUsesFocusSplitLayout() {
   assert.match(html, /活动记录/);
 }
 
+function testTasksPageShowsPendingConfirmationTriggers() {
+  const pendingTrigger: TaskTriggerInfo = {
+    ...triggers[0],
+    trigger_id: "trg-pending",
+    enabled: false,
+    status: "pending_confirmation",
+    last_run_id: null,
+    run_count: 0,
+  };
+  const html = renderTasksPage("en-US", { triggers: [pendingTrigger] });
+
+  assert.match(html, /Pending confirmation/);
+  assert.doesNotMatch(html, />Paused</);
+}
+
+function testTasksPageLoadingStateDoesNotClaimFailure() {
+  const html = renderTasksPage("en-US", {
+    selectedTaskId: null,
+    tasks: [],
+    actions: [],
+    events: [],
+    triggers: [],
+    isLoading: true,
+  });
+
+  assert.match(html, /Loading tasks/);
+  assert.doesNotMatch(html, /Failed to load tasks/);
+}
+
+function testTasksPageRequiresConfirmationForDestructiveActions() {
+  const source = readFileSync(new URL("./TasksPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /confirmingTaskAction/);
+  assert.match(source, /tasks\.confirmCancel/);
+  assert.match(source, /tasks\.confirmDelete/);
+}
+
 testTasksPageRendersTaskListAndDetail();
 testPrimaryNavigationNoLongerIncludesAutos();
 testTasksPageKeepsAutomationOutOfPrimaryNavigation();
 testTasksPageUsesFocusSplitLayout();
+testTasksPageShowsPendingConfirmationTriggers();
+testTasksPageLoadingStateDoesNotClaimFailure();
+testTasksPageRequiresConfirmationForDestructiveActions();
 
 console.log("tasks page tests passed");

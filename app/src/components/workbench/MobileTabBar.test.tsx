@@ -38,6 +38,8 @@ function testUsesShortMobileNavigationLabels() {
   assert.match(html, /aria-label="Open Files"/);
   assert.match(html, />Skills</);
   assert.match(html, /aria-label="Open Skills"/);
+  assert.match(html, />Connectors</);
+  assert.match(html, /aria-label="Open Connectors"/);
   assert.match(html, />Settings</);
   assert.match(html, /aria-label="Open Settings"/);
   assert.doesNotMatch(html, />Autos</);
@@ -57,9 +59,9 @@ function testUsesChineseMobileNavigationLabels() {
   assert.match(html, />任务</);
   assert.match(html, />文件</);
   assert.match(html, />能力</);
+  assert.match(html, />连接</);
   assert.match(html, />设置</);
   assert.doesNotMatch(html, />自动化</);
-  assert.doesNotMatch(html, />连接</);
 }
 
 testUsesChineseMobileNavigationLabels();
@@ -135,7 +137,7 @@ testUsesQuietSelectedTabTreatment();
 function testEveryMobileTabUsesSoftIconTile() {
   const html = renderMobileTabBar();
 
-  assert.equal((html.match(/data-ripple-icon-tile="true"/g) || []).length, 5);
+  assert.equal((html.match(/data-ripple-icon-tile="true"/g) || []).length, 6);
   assert.match(html, /data-tone="accent"/);
   assert.match(html, /data-tone="neutral"/);
 }

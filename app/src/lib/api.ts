@@ -912,6 +912,19 @@ export async function fetchTaskTriggers(taskId: string): Promise<TaskTriggerInfo
   return data.triggers || [];
 }
 
+export async function fetchAllTaskTriggers(): Promise<TaskTriggerInfo[]> {
+  const res = await fetch(`${API_URL}/task-triggers`, {
+    headers: { ...authHeaders() },
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to fetch task triggers (${res.status})`);
+  }
+  const data = (await res.json()) as { triggers?: TaskTriggerInfo[] };
+  return data.triggers || [];
+}
+
 export async function createTaskActionTrigger(
   taskId: string,
   actionId: string,
@@ -933,10 +946,7 @@ export async function createTaskActionTrigger(
   return (await res.json()) as TaskTriggerInfo;
 }
 
-export async function runTaskTriggerNow(
-  taskId: string,
-  triggerId: string
-): Promise<AgentRunInfo> {
+export async function runTaskTriggerNow(taskId: string, triggerId: string): Promise<AgentRunInfo> {
   const res = await fetch(
     `${API_URL}/tasks/${encodeURIComponent(taskId)}/triggers/${encodeURIComponent(triggerId)}/run-now`,
     {

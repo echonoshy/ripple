@@ -159,6 +159,49 @@ pub async fn list_task_triggers(
     })))
 }
 
+pub async fn list_all_task_triggers(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<ListQuery>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
+    state.sandboxes.ensure_sandbox(&user_id)?;
+    let mut records = state
+        .storage
+        .list_task_triggers(&user_id)
+        .await?
+        .into_iter()
+        .filter_map(|value| serde_json::from_value::<TaskTriggerRecord>(value).ok())
+        .collect::<Vec<_>>();
+    for record in &mut records {
+        reconcile_task_trigger_record(&state, &user_id, record).await?;
+    }
+    records.sort_by(|a, b| {
+        a.task_id
+            .clone()
+            .unwrap_or_default()
+            .cmp(&b.task_id.clone().unwrap_or_default())
+            .then_with(|| {
+                a.next_run_at
+                    .clone()
+                    .unwrap_or_else(|| "9999".to_string())
+                    .cmp(&b.next_run_at.clone().unwrap_or_else(|| "9999".to_string()))
+            })
+    });
+    let total = records.len();
+    let (records, next_cursor) = paginate(records, &query);
+    let triggers = records
+        .iter()
+        .map(|record| public_task_trigger_value(&state, &user_id, record))
+        .collect::<Vec<_>>();
+    Ok(Json(json!({
+        "triggers": triggers,
+        "count": triggers.len(),
+        "total": total,
+        "next_cursor": next_cursor
+    })))
+}
+
 pub async fn create_task_action_trigger(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -359,6 +402,7 @@ pub async fn trigger_due_task_triggers(
 ) -> Result<BTreeMap<String, Vec<String>>, ApiError> {
     let now = OffsetDateTime::now_utc();
     let mut triggered = BTreeMap::<String, Vec<String>>::new();
+    let mut pending_runs = Vec::new();
     for user_id in state.storage.list_task_trigger_user_ids().await? {
         let trigger_state = load_task_trigger_state(state, &user_id).await?;
         let trigger_ids = trigger_state.triggers.keys().cloned().collect::<Vec<_>>();
@@ -422,49 +466,59 @@ pub async fn trigger_due_task_triggers(
                 persist_task_trigger_record(state, &user_id, &record).await?;
                 continue;
             }
-            match start_task_trigger_run(state, &user_id, &record, "scheduled").await {
-                Ok(info) => {
-                    apply_latest_run_to_task_trigger(&mut record, Some(&info));
-                    record.run_count += 1;
-                    if record.kind == "once"
-                        || task_trigger_limit_reached(&record)
-                        || task_trigger_target_completed(state, &user_id, &record).await?
-                    {
+            let run_state = state.clone();
+            let run_user_id = user_id.clone();
+            pending_runs.push(tokio::spawn(async move {
+                let info =
+                    start_task_trigger_run(&run_state, &run_user_id, &record, "scheduled").await;
+                (run_user_id, trigger_id, record, info)
+            }));
+        }
+    }
+    for pending_run in pending_runs {
+        let (user_id, trigger_id, mut record, info) = pending_run
+            .await
+            .map_err(|err| ApiError::bad_request(format!("Task trigger task failed: {err}")))?;
+        let now = OffsetDateTime::now_utc();
+        match info {
+            Ok(info) => {
+                apply_latest_run_to_task_trigger(&mut record, Some(&info));
+                record.run_count += 1;
+                if record.kind == "once"
+                    || task_trigger_limit_reached(&record)
+                    || task_trigger_target_completed(state, &user_id, &record).await?
+                {
+                    record.enabled = false;
+                    record.status = "completed".to_string();
+                    record.next_run_at = None;
+                } else {
+                    record.status = "active".to_string();
+                    record.next_run_at = advance_next_run_at(&record, now)?;
+                }
+                record.updated_at = iso(now);
+                persist_task_trigger_record(state, &user_id, &record).await?;
+                triggered.entry(user_id).or_default().push(trigger_id);
+            }
+            Err(err) => {
+                let summary = format!("{err:?}");
+                record.last_error = Some(summary.clone());
+                record.failure_reason = Some(summary);
+                record.last_run_status = Some("failed".to_string());
+                if record.kind == "interval"
+                    && record.failure_policy == "keep_active"
+                    && record.enabled
+                {
+                    record.status = "active".to_string();
+                    record.next_run_at = advance_next_run_at(&record, now)?;
+                } else {
+                    if record.failure_policy == "pause" {
                         record.enabled = false;
-                        record.status = "completed".to_string();
-                        record.next_run_at = None;
-                    } else {
-                        record.status = "active".to_string();
-                        record.next_run_at = advance_next_run_at(&record, now)?;
                     }
-                    record.updated_at = iso(now);
-                    persist_task_trigger_record(state, &user_id, &record).await?;
-                    triggered
-                        .entry(user_id.clone())
-                        .or_default()
-                        .push(trigger_id);
+                    record.status = "error".to_string();
+                    record.next_run_at = None;
                 }
-                Err(err) => {
-                    let summary = format!("{err:?}");
-                    record.last_error = Some(summary.clone());
-                    record.failure_reason = Some(summary);
-                    record.last_run_status = Some("failed".to_string());
-                    if record.kind == "interval"
-                        && record.failure_policy == "keep_active"
-                        && record.enabled
-                    {
-                        record.status = "active".to_string();
-                        record.next_run_at = advance_next_run_at(&record, now)?;
-                    } else {
-                        if record.failure_policy == "pause" {
-                            record.enabled = false;
-                        }
-                        record.status = "error".to_string();
-                        record.next_run_at = None;
-                    }
-                    record.updated_at = iso(now);
-                    persist_task_trigger_record(state, &user_id, &record).await?;
-                }
+                record.updated_at = iso(now);
+                persist_task_trigger_record(state, &user_id, &record).await?;
             }
         }
     }
@@ -494,6 +548,13 @@ async fn start_task_trigger_run(
                 .task_action_id
                 .as_ref()
                 .map(|_| should_complete_task_trigger_action(record, trigger)),
+            prompt: Some(record.prompt.clone()),
+            cwd: record.cwd.clone(),
+            model: record.model.clone(),
+            effort: record.effort.clone(),
+            summary: record.summary.clone(),
+            output_schema: record.output_schema.clone(),
+            max_runtime_seconds: Some(record.max_runtime_seconds),
         },
     )
     .await?;

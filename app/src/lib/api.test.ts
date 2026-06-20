@@ -16,6 +16,7 @@ import {
   downloadWorkspaceFile,
   fetchTask,
   fetchTaskEvents,
+  fetchAllTaskTriggers,
   fetchTaskTriggers,
   fetchTasks,
   fetchSessionTasks,
@@ -253,6 +254,8 @@ async function testTaskTriggerApisUseTaskScopedRoutes() {
       );
     },
     async () => {
+      const allTriggers = await fetchAllTaskTriggers();
+      assert.equal(allTriggers[0]?.trigger_id, "trg-linked");
       const triggers = await fetchTaskTriggers("task/trip");
       assert.equal(triggers[0]?.trigger_id, "trg-linked");
       const created = await createTaskActionTrigger("task/trip", "act/remind", {
@@ -270,12 +273,13 @@ async function testTaskTriggerApisUseTaskScopedRoutes() {
   assert.deepEqual(
     requests.map((request) => `${request.method} ${request.path}`),
     [
+      "GET /v1/task-triggers",
       "GET /v1/tasks/task%2Ftrip/triggers",
       "POST /v1/tasks/task%2Ftrip/actions/act%2Fremind/triggers",
       "POST /v1/tasks/task%2Ftrip/triggers/trg%2Flinked/run-now",
     ]
   );
-  assert.deepEqual(requests[1]?.body, {
+  assert.deepEqual(requests[2]?.body, {
     title: "明早提醒",
     prompt: "提醒准备材料",
     kind: "once",

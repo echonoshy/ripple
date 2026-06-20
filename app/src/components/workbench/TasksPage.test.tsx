@@ -186,13 +186,26 @@ function testTasksPageKeepsAutomationOutOfPrimaryNavigation() {
   assert.match(source, /data-ripple-task-page/);
   assert.match(source, /data-ripple-task-list/);
   assert.match(source, /data-ripple-task-detail/);
-  assert.match(source, /fetchTaskTriggers/);
+  assert.match(source, /fetchAllTaskTriggers/);
   assert.doesNotMatch(source, /fetchSchedules/);
   assert.doesNotMatch(source, /disconnectConnector/);
+}
+
+function testTasksPageUsesFocusSplitLayout() {
+  const html = renderTasksPage();
+
+  assert.match(html, /data-ripple-task-focus-split="true"/);
+  assert.match(html, /data-ripple-task-inbox="true"/);
+  assert.match(html, /data-ripple-task-summary="true"/);
+  assert.match(html, /data-ripple-task-actions-panel="true"/);
+  assert.match(html, /data-ripple-task-activity-panel="true"/);
+  assert.match(html, /当前步骤/);
+  assert.match(html, /活动记录/);
 }
 
 testTasksPageRendersTaskListAndDetail();
 testPrimaryNavigationNoLongerIncludesAutos();
 testTasksPageKeepsAutomationOutOfPrimaryNavigation();
+testTasksPageUsesFocusSplitLayout();
 
 console.log("tasks page tests passed");

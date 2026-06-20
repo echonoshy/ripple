@@ -1671,6 +1671,93 @@ async fn due_task_action_trigger_runs_due_action_and_returns_result_to_session()
 }
 
 #[tokio::test]
+async fn due_task_action_loop_skips_actions_owned_by_task_triggers() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+
+    let (status, session) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/sessions",
+        json!({"model": "codex-test"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let session_id = session
+        .get("session_id")
+        .and_then(Value::as_str)
+        .expect("session id");
+
+    let (status, created) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/tasks",
+        json!({
+            "task_id": "task-trigger-owned-due",
+            "title": "避免双重触发",
+            "objective": "同一个 action 只能由 task trigger 触发一次。",
+            "status": "active",
+            "source_session_id": session_id,
+            "actions": [
+                {
+                    "action_id": "act-owned-due",
+                    "title": "提醒补充预算",
+                    "objective": "提醒补充预算。",
+                    "kind": "reminder",
+                    "status": "confirmed",
+                    "created_at": "2000-01-01T00:00:00Z",
+                    "due_in_seconds": 60,
+                    "trigger": {
+                        "title": "补充预算提醒",
+                        "prompt": "提醒用户补充预算。",
+                        "kind": "once",
+                        "run_at": "2000-01-01T00:01:00Z",
+                        "enabled": true
+                    }
+                }
+            ]
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+    assert_eq!(
+        state
+            .storage
+            .list_task_triggers("smoke-user")
+            .await
+            .expect("list triggers")
+            .len(),
+        1
+    );
+
+    let triggered = trigger_due_task_actions(&state)
+        .await
+        .expect("trigger due task actions");
+    assert!(
+        triggered.get("smoke-user").map_or(true, Vec::is_empty),
+        "{triggered:?}"
+    );
+
+    let (status, detail) = call(
+        app,
+        Method::GET,
+        "/v1/tasks/task-trigger-owned-due",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{detail}");
+    assert_eq!(
+        detail.pointer("/actions/0/status").and_then(Value::as_str),
+        Some("confirmed"),
+        "{detail}"
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
 async fn chat_dynamic_task_tool_updates_task_progress() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let fake_codex = write_fake_codex_app_server(&root);
@@ -2204,6 +2291,69 @@ async fn action_trigger_endpoint_respects_candidate_confirmation_gate() {
 }
 
 #[tokio::test]
+async fn list_task_triggers_returns_user_triggers_across_tasks() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let (_state, app) = test_state_and_app(&root);
+
+    for (task_id, action_id, trigger_title) in [
+        ("task-trigger-list-a", "act-trigger-list-a", "A trigger"),
+        ("task-trigger-list-b", "act-trigger-list-b", "B trigger"),
+    ] {
+        let (status, created) = call(
+            app.clone(),
+            Method::POST,
+            "/v1/tasks",
+            json!({
+                "task_id": task_id,
+                "title": trigger_title,
+                "objective": "测试批量触发器列表。",
+                "status": "active",
+                "actions": [
+                    {
+                        "action_id": action_id,
+                        "title": trigger_title,
+                        "kind": "reminder",
+                        "status": "confirmed"
+                    }
+                ]
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{created}");
+        let (status, trigger) = call(
+            app.clone(),
+            Method::POST,
+            &format!("/v1/tasks/{task_id}/actions/{action_id}/triggers"),
+            json!({
+                "title": trigger_title,
+                "prompt": "提醒用户。",
+                "kind": "once",
+                "run_at": "2026-06-19T02:00:00Z",
+                "enabled": false
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{trigger}");
+    }
+
+    let (status, triggers) = call(app, Method::GET, "/v1/task-triggers", Value::Null).await;
+    assert_eq!(status, StatusCode::OK, "{triggers}");
+    assert_eq!(triggers.get("count").and_then(Value::as_u64), Some(2));
+    assert_eq!(triggers.get("total").and_then(Value::as_u64), Some(2));
+    let task_ids = triggers
+        .get("triggers")
+        .and_then(Value::as_array)
+        .expect("triggers")
+        .iter()
+        .filter_map(|trigger| trigger.get("task_id").and_then(Value::as_str))
+        .collect::<Vec<_>>();
+    assert!(task_ids.contains(&"task-trigger-list-a"), "{triggers}");
+    assert!(task_ids.contains(&"task-trigger-list-b"), "{triggers}");
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
 async fn deleting_task_removes_task_linked_triggers() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let (state, app) = test_state_and_app(&root);
@@ -2352,6 +2502,109 @@ async fn task_trigger_resolves_session_model_alias_before_codex_run() {
 }
 
 #[tokio::test]
+async fn task_trigger_uses_its_own_prompt_model_and_effort() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let mut config = test_config_with_codex_executable(&root, fake_codex);
+    config.model_presets.insert(
+        "codex-low".to_string(),
+        ModelPreset {
+            model: "gpt-session-test".to_string(),
+            reasoning_effort: Some("low".to_string()),
+        },
+    );
+    config.model_presets.insert(
+        "codex-trigger".to_string(),
+        ModelPreset {
+            model: "gpt-trigger-test".to_string(),
+            reasoning_effort: Some("medium".to_string()),
+        },
+    );
+    let (state, app) = test_state_and_app_with_config(config);
+
+    let (status, session) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/sessions",
+        json!({"model": "codex-low"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let session_id = session
+        .get("session_id")
+        .and_then(Value::as_str)
+        .expect("session id");
+
+    let (status, created) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/tasks",
+        json!({
+            "task_id": "task-trigger-config",
+            "title": "检查触发器执行配置",
+            "objective": "触发器自己的 prompt、model 和 effort 应参与执行。",
+            "status": "active",
+            "source_session_id": session_id,
+            "actions": [
+                {
+                    "action_id": "act-trigger-config",
+                    "title": "执行触发器配置检查",
+                    "kind": "execute",
+                    "status": "confirmed"
+                }
+            ]
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+
+    let (status, trigger) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/tasks/task-trigger-config/actions/act-trigger-config/triggers",
+        json!({
+            "title": "立即检查触发器配置",
+            "prompt": "[model-alias-check] 只在触发器 prompt 中出现。",
+            "kind": "once",
+            "run_at": "2020-01-01T00:00:00Z",
+            "enabled": true,
+            "model": "codex-trigger",
+            "effort": "high",
+            "max_runtime_seconds": 5
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{trigger}");
+
+    let triggered = trigger_due_task_triggers(&state)
+        .await
+        .expect("trigger task triggers");
+    assert!(
+        triggered.get("smoke-user").is_some_and(|ids| ids
+            .iter()
+            .any(|id| id == trigger["trigger_id"].as_str().unwrap())),
+        "{triggered:?}"
+    );
+
+    let (status, detail) = call(
+        app,
+        Method::GET,
+        "/v1/tasks/task-trigger-config",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{detail}");
+    let summary = detail
+        .pointer("/actions/0/result_summary")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    assert!(summary.contains("model seen: gpt-trigger-test"), "{detail}");
+    assert!(summary.contains("effort seen: high"), "{detail}");
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
 async fn task_trigger_executes_task_action_and_updates_original_session() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let fake_codex = write_fake_codex_app_server(&root);
@@ -2457,6 +2710,142 @@ async fn task_trigger_executes_task_action_and_updates_original_session() {
             .iter()
             .any(|message| format!("{message}").contains("task action completed")),
         "{session_detail}"
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn due_task_triggers_start_independent_actions_without_serial_waiting() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+
+    let (status, session) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/sessions",
+        json!({"model": "codex-test"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let session_id = session
+        .get("session_id")
+        .and_then(Value::as_str)
+        .expect("session id");
+
+    let (status, created) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/tasks",
+        json!({
+            "task_id": "task-trigger-parallel",
+            "title": "并行触发多个 action",
+            "objective": "慢触发器不能阻塞同轮其他触发器。",
+            "status": "active",
+            "source_session_id": session_id,
+            "actions": [
+                {
+                    "action_id": "act-slow-trigger",
+                    "title": "慢检查",
+                    "kind": "execute",
+                    "status": "confirmed"
+                },
+                {
+                    "action_id": "act-fast-trigger",
+                    "title": "快检查",
+                    "kind": "execute",
+                    "status": "confirmed"
+                }
+            ]
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+
+    let (status, slow_trigger) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/tasks/task-trigger-parallel/actions/act-slow-trigger/triggers",
+        json!({
+            "title": "慢触发器",
+            "prompt": "[slow] [ids] slow task trigger",
+            "kind": "once",
+            "run_at": "2020-01-01T00:00:00Z",
+            "enabled": true,
+            "max_runtime_seconds": 5
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{slow_trigger}");
+    let (status, fast_trigger) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/tasks/task-trigger-parallel/actions/act-fast-trigger/triggers",
+        json!({
+            "title": "快触发器",
+            "prompt": "[ids] fast task trigger",
+            "kind": "once",
+            "run_at": "2020-01-01T00:00:00Z",
+            "enabled": true,
+            "max_runtime_seconds": 5
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{fast_trigger}");
+
+    let state_for_trigger = state.clone();
+    let trigger_handle =
+        tokio::spawn(async move { trigger_due_task_triggers(&state_for_trigger).await });
+
+    let mut observed_fast_complete_while_slow_running = false;
+    for _ in 0..40 {
+        let (status, detail) = call(
+            app.clone(),
+            Method::GET,
+            "/v1/tasks/task-trigger-parallel",
+            Value::Null,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{detail}");
+        let actions = detail
+            .get("actions")
+            .and_then(Value::as_array)
+            .expect("actions");
+        let slow_status = actions
+            .iter()
+            .find(|action| {
+                action.get("action_id").and_then(Value::as_str) == Some("act-slow-trigger")
+            })
+            .and_then(|action| action.get("status"))
+            .and_then(Value::as_str);
+        let fast_status = actions
+            .iter()
+            .find(|action| {
+                action.get("action_id").and_then(Value::as_str) == Some("act-fast-trigger")
+            })
+            .and_then(|action| action.get("status"))
+            .and_then(Value::as_str);
+        if slow_status == Some("in_progress") && fast_status == Some("completed") {
+            observed_fast_complete_while_slow_running = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert!(
+        observed_fast_complete_while_slow_running,
+        "fast trigger should finish while slow trigger is still running"
+    );
+
+    let triggered = trigger_handle
+        .await
+        .expect("join trigger loop")
+        .expect("trigger due task triggers");
+    assert_eq!(
+        triggered.get("smoke-user").map(Vec::len),
+        Some(2),
+        "{triggered:?}"
     );
 
     let _ = std::fs::remove_dir_all(root);
@@ -2584,6 +2973,80 @@ async fn task_run_now_executes_codex_and_writes_progress_back() {
             .iter()
             .any(|message| format!("{message}").contains("fake codex completed")),
         "{session_detail}"
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn task_run_now_rejects_action_already_in_progress() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (_state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+
+    let (status, session) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/sessions",
+        json!({"model": "codex-test"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let session_id = session
+        .get("session_id")
+        .and_then(Value::as_str)
+        .expect("session id");
+
+    let (status, created) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/tasks",
+        json!({
+            "task_id": "task-run-reentry",
+            "title": "避免重复运行",
+            "objective": "运行中 action 不应再次启动。",
+            "status": "active",
+            "source_session_id": session_id,
+            "actions": [
+                {
+                    "action_id": "act-running",
+                    "title": "已经在执行",
+                    "kind": "execute",
+                    "status": "in_progress"
+                }
+            ]
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+
+    let (status, run) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/tasks/task-run-reentry/run-now",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{run}");
+    assert!(
+        run.to_string().contains("in_progress") || run.to_string().contains("ready to run"),
+        "{run}"
+    );
+
+    let (status, detail) = call(app, Method::GET, "/v1/tasks/task-run-reentry", Value::Null).await;
+    assert_eq!(status, StatusCode::OK, "{detail}");
+    assert_eq!(
+        detail.pointer("/actions/0/status").and_then(Value::as_str),
+        Some("in_progress"),
+        "{detail}"
+    );
+    assert!(
+        detail
+            .pointer("/actions/0/last_run_id")
+            .and_then(Value::as_str)
+            .is_none(),
+        "{detail}"
     );
 
     let _ = std::fs::remove_dir_all(root);

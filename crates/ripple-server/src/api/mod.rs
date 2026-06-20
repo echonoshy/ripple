@@ -137,6 +137,7 @@ pub fn router(state: AppState) -> Router {
         .route("/tasks/:task_id/delete", post(tasks::delete_task))
         .route("/tasks/:task_id/confirm", post(tasks::confirm_task))
         .route("/tasks/:task_id/run-now", post(tasks::run_task_now))
+        .route("/task-triggers", get(task_triggers::list_all_task_triggers))
         .route(
             "/tasks/:task_id/actions",
             get(tasks::list_task_actions).post(tasks::create_task_action),

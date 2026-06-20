@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use axum::extract::{Path, Query, State};
 use axum::http::HeaderMap;
@@ -25,6 +25,13 @@ pub(crate) struct TaskRunTriggerContext {
     pub(crate) task_trigger_title: String,
     pub(crate) task_trigger_reason: String,
     pub(crate) complete_action_on_success: Option<bool>,
+    pub(crate) prompt: Option<String>,
+    pub(crate) cwd: Option<String>,
+    pub(crate) model: Option<String>,
+    pub(crate) effort: Option<String>,
+    pub(crate) summary: Option<String>,
+    pub(crate) output_schema: Option<Value>,
+    pub(crate) max_runtime_seconds: Option<u64>,
 }
 
 pub async fn list_tasks(
@@ -684,6 +691,17 @@ pub async fn trigger_due_task_actions(
     let now = OffsetDateTime::now_utc();
     let mut triggered = BTreeMap::<String, Vec<String>>::new();
     for user_id in state.storage.list_task_user_ids().await? {
+        let trigger_owned_actions = state
+            .storage
+            .list_task_triggers(&user_id)
+            .await?
+            .into_iter()
+            .filter_map(|trigger| {
+                let task_id = trigger.get("task_id").and_then(Value::as_str)?;
+                let action_id = trigger.get("task_action_id").and_then(Value::as_str)?;
+                Some((task_id.to_string(), action_id.to_string()))
+            })
+            .collect::<BTreeSet<_>>();
         let tasks = state.storage.list_tasks(&user_id).await?;
         for task in tasks {
             if task_is_not_runnable(&task) {
@@ -717,6 +735,9 @@ pub async fn trigger_due_task_actions(
                 else {
                     continue;
                 };
+                if trigger_owned_actions.contains(&(task_id.to_string(), action_id.clone())) {
+                    continue;
+                }
                 let Some(wakeup_at_text) = action_wakeup_at(&action).map(str::to_string) else {
                     continue;
                 };
@@ -1249,10 +1270,12 @@ fn action_dependencies_satisfied(action: &Value, actions: &[Value]) -> bool {
 }
 
 fn action_is_runnable(action: &Value, actions: &[Value]) -> bool {
-    !matches!(
-        action.get("status").and_then(Value::as_str),
-        Some("candidate" | "completed" | "cancelled")
-    ) && action_dependencies_satisfied(action, actions)
+    action
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or("confirmed")
+        == "confirmed"
+        && action_dependencies_satisfied(action, actions)
 }
 
 fn parse_datetime(value: &str) -> Result<OffsetDateTime, ApiError> {
@@ -2133,28 +2156,59 @@ async fn execute_task_action_inner(
 
     let workspace_root = state.sandboxes.ensure_sandbox(user_id)?;
     let runtime_dir = state.sandboxes.session_dir(user_id, &session_id)?;
-    let prompt = task_run_prompt(&task, &action);
-    let max_runtime_seconds = state.config.codex.max_runtime_seconds;
+    let trigger_prompt = trigger
+        .and_then(|trigger| trigger.prompt.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let prompt = task_run_prompt(&task, &action, trigger_prompt);
+    let max_runtime_seconds = trigger
+        .and_then(|trigger| trigger.max_runtime_seconds)
+        .unwrap_or(state.config.codex.max_runtime_seconds);
     assert_can_create_run(state, user_id, max_runtime_seconds).await?;
-    let (model, effort) = state.config.resolve_model(Some(session.model.as_str()));
+    let selected_model = trigger
+        .and_then(|trigger| trigger.model.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(session.model.as_str());
+    let (model, preset_effort) = state.config.resolve_model(Some(selected_model));
+    let effort = trigger
+        .and_then(|trigger| trigger.effort.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or(preset_effort);
+    let cwd = trigger
+        .and_then(|trigger| trigger.cwd.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("/workspace")
+        .to_string();
+    let summary = trigger
+        .and_then(|trigger| trigger.summary.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let output_schema = trigger
+        .and_then(|trigger| trigger.output_schema.clone())
+        .filter(|value| !value.is_null());
     let create = AgentRunCreateRequest {
         prompt: prompt.clone(),
         provider: "codex".to_string(),
         base_instructions: None,
         turn_context: None,
-        cwd: Some("/workspace".to_string()),
-        input_items: vec![json!({"type": "text", "text": prompt})],
+        cwd: Some(cwd),
+        input_items: vec![json!({"type": "text", "text": prompt.clone()})],
         model: Some(model),
         effort,
-        summary: None,
-        output_schema: None,
+        summary,
+        output_schema,
         max_runtime_seconds,
         task_trigger_id: trigger.map(|trigger| trigger.trigger_id.clone()),
         task_trigger_title: trigger.map(|trigger| trigger.task_trigger_title.clone()),
         task_trigger_reason: trigger.map(|trigger| trigger.task_trigger_reason.clone()),
         codex_thread_id: session.codex_thread_id.clone(),
         codex_persistent_thread: true,
-        chat_user_input: Some(task_run_prompt(&task, &action)),
+        chat_user_input: Some(prompt.clone()),
         chat_user_content: None,
     };
     let info = state
@@ -2310,7 +2364,7 @@ async fn load_runnable_task_action(
         .get("status")
         .and_then(Value::as_str)
         .unwrap_or("confirmed");
-    if matches!(status, "candidate" | "completed" | "cancelled") {
+    if status != "confirmed" {
         return Err(ApiError::bad_request(format!(
             "Task action cannot run while status is {status}."
         )));
@@ -2369,7 +2423,7 @@ async fn ensure_runnable_action(
     Ok(action)
 }
 
-fn task_run_prompt(task: &Value, action: &Value) -> String {
+fn task_run_prompt(task: &Value, action: &Value, run_instruction: Option<&str>) -> String {
     let task_id = task.get("task_id").and_then(Value::as_str).unwrap_or("");
     let task_title = task.get("title").and_then(Value::as_str).unwrap_or("任务");
     let task_objective = task
@@ -2388,6 +2442,10 @@ fn task_run_prompt(task: &Value, action: &Value) -> String {
         .get("objective")
         .and_then(Value::as_str)
         .unwrap_or(action_title);
+    let run_instruction = run_instruction
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(action_objective);
     let next_action_run_count = action_run_count(action).saturating_add(1);
     let action_run_limit = action_max_runs(action)
         .map(|max_runs| max_runs.to_string())
@@ -2397,7 +2455,7 @@ fn task_run_prompt(task: &Value, action: &Value) -> String {
         .and_then(Value::as_str)
         .unwrap_or("");
     format!(
-        "Run this Ripple task.\nTask ID: {task_id}\nTask title: {task_title}\nTask objective: {task_objective}\nCurrent action ID: {action_id}\nCurrent action: {action_title}\nAction objective: {action_objective}\nCurrent action run: {next_action_run_count}/{action_run_limit}\nSource context:\n{source}\n\nUse `codex_app.task_update` to update this task's progress. Call start_action when beginning, complete_action when done, wait_user when user input is needed, and block_action if blocked. Return a concise update for the user in the same language as the task."
+        "Run this Ripple task.\nTask ID: {task_id}\nTask title: {task_title}\nTask objective: {task_objective}\nCurrent action ID: {action_id}\nCurrent action: {action_title}\nAction objective: {action_objective}\nRun instruction: {run_instruction}\nCurrent action run: {next_action_run_count}/{action_run_limit}\nSource context:\n{source}\n\nUse `codex_app.task_update` to update this task's progress. Call start_action when beginning, complete_action when done, wait_user when user input is needed, and block_action if blocked. Return a concise update for the user in the same language as the task."
     )
 }
 

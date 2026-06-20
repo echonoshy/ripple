@@ -18,9 +18,9 @@ import {
   cancelTask,
   confirmTask,
   deleteTask,
+  fetchAllTaskTriggers,
   fetchTask,
   fetchTaskEvents,
-  fetchTaskTriggers,
   fetchTasks,
   runTaskNow,
 } from "@/lib/api";
@@ -150,7 +150,7 @@ function triggerRunProgressText(
   trigger: TaskTriggerInfo,
   t: ReturnType<typeof useI18n>["t"]
 ): string {
-  const maxRuns = trigger.kind === "once" ? trigger.max_runs ?? 1 : trigger.max_runs;
+  const maxRuns = trigger.kind === "once" ? (trigger.max_runs ?? 1) : trigger.max_runs;
   if (typeof maxRuns === "number" && maxRuns > 0) {
     return t("tasks.triggerRuns", { count: trigger.run_count, max: maxRuns });
   }
@@ -272,6 +272,14 @@ function actionFollowUpClass(action: TaskActionInfo): string {
   return "text-[#646A73]";
 }
 
+const taskPanelClass =
+  "rounded-xl border border-[#DEE0E3] bg-white shadow-[0_1px_2px_rgba(31,35,41,0.04)]";
+
+const taskSoftPanelClass = "rounded-xl border border-[#EFF0F1] bg-[#F8F9FA]";
+
+const taskTimelineItemClass =
+  "relative grid min-w-0 gap-1.5 border-l border-[#DEE0E3] pb-3 pl-3 last:pb-0 before:absolute before:top-1.5 before:-left-[4.5px] before:h-2 before:w-2 before:rounded-full before:bg-[#1456F0] before:ring-4 before:ring-white";
+
 export default function TasksPage({
   userId,
   selectedTaskId,
@@ -356,34 +364,34 @@ export default function TasksPage({
     [handleError, isControlled, t]
   );
 
-  const loadTasks = useCallback(async (preferredSelectedId: string | null = selectedId) => {
-    if (isControlled) return;
-    setInternalLoading(true);
-    try {
-      const nextTasks = await fetchTasks();
-      const triggerGroups = await Promise.all(
-        nextTasks.map((task) => fetchTaskTriggers(task.taskId))
-      );
-      setTaskList(nextTasks);
-      setTriggerList(triggerGroups.flat());
-      const nextSelectedId =
-        preferredSelectedId && nextTasks.some((task) => task.taskId === preferredSelectedId)
-          ? preferredSelectedId
-          : nextTasks[0]?.taskId || null;
-      setSelectedId(nextSelectedId);
-      setInternalError(null);
-      if (nextSelectedId) {
-        await loadTaskDetail(nextSelectedId);
-      } else {
-        setDetailActions([]);
-        setTaskEvents([]);
+  const loadTasks = useCallback(
+    async (preferredSelectedId: string | null = selectedId) => {
+      if (isControlled) return;
+      setInternalLoading(true);
+      try {
+        const [nextTasks, nextTriggers] = await Promise.all([fetchTasks(), fetchAllTaskTriggers()]);
+        setTaskList(nextTasks);
+        setTriggerList(nextTriggers);
+        const nextSelectedId =
+          preferredSelectedId && nextTasks.some((task) => task.taskId === preferredSelectedId)
+            ? preferredSelectedId
+            : nextTasks[0]?.taskId || null;
+        setSelectedId(nextSelectedId);
+        setInternalError(null);
+        if (nextSelectedId) {
+          await loadTaskDetail(nextSelectedId);
+        } else {
+          setDetailActions([]);
+          setTaskEvents([]);
+        }
+      } catch (caught) {
+        handleError(caught, t("tasks.failedToLoad"));
+      } finally {
+        setInternalLoading(false);
       }
-    } catch (caught) {
-      handleError(caught, t("tasks.failedToLoad"));
-    } finally {
-      setInternalLoading(false);
-    }
-  }, [handleError, isControlled, loadTaskDetail, selectedId, t]);
+    },
+    [handleError, isControlled, loadTaskDetail, selectedId, t]
+  );
 
   useEffect(() => {
     if (!isControlled) void loadTasks();
@@ -538,19 +546,6 @@ export default function TasksPage({
             </button>
           </header>
 
-          <div className="flex min-w-0 gap-1.5 overflow-x-auto pb-0.5">
-            {taskFilters.map((filter) => (
-              <button
-                key={filter}
-                type="button"
-                onClick={() => setActiveFilter(filter)}
-                className={filterButtonClass(filter)}
-              >
-                {filterLabel(filter, t)}
-              </button>
-            ))}
-          </div>
-
           {errorMessage ? (
             <div
               className={`flex items-start gap-2 rounded-lg border border-[#B42318]/25 bg-[#FFF1F0] px-3 py-2 ${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#B42318]`}
@@ -560,381 +555,461 @@ export default function TasksPage({
             </div>
           ) : null}
 
-          <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(260px,0.82fr)_minmax(0,1.38fr)]">
-            <section data-ripple-task-list="true" className="grid content-start gap-2">
-              {filteredTasks.length === 0 && !loading ? (
-                <div
-                  className={`rounded-xl border border-dashed border-[#D0D3D6] bg-white px-4 py-8 text-center ${TYPOGRAPHY_BODY_CLASS} text-[#646A73]`}
-                >
-                  {t("tasks.noTasks")}
+          <div
+            data-ripple-task-focus-split="true"
+            className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(286px,0.78fr)_minmax(0,1.5fr)] xl:grid-cols-[320px_minmax(0,1fr)]"
+          >
+            <section
+              data-ripple-task-list="true"
+              data-ripple-task-inbox="true"
+              className={`${taskPanelClass} min-h-0 overflow-hidden`}
+            >
+              <div className="flex items-center justify-between gap-2 border-b border-[#EFF0F1] px-3 py-2.5">
+                <div className="min-w-0">
+                  <h2 className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} truncate text-[#1F2329]`}>
+                    {t("tasks.title")}
+                  </h2>
+                  <p className={`${TYPOGRAPHY_META_CLASS} mt-0.5 text-[#646A73]`}>
+                    {t("tasks.total", { count: filteredTasks.length })}
+                  </p>
                 </div>
-              ) : null}
-              {filteredTasks.map((task) => {
-                const selected = selectedTask?.taskId === task.taskId;
-                return (
+                {loading ? (
+                  <Loader2 size={15} className="shrink-0 animate-spin text-[#646A73]" />
+                ) : null}
+              </div>
+              <div className="flex min-w-0 gap-1.5 overflow-x-auto border-b border-[#EFF0F1] px-2.5 py-2">
+                {taskFilters.map((filter) => (
                   <button
-                    key={task.taskId}
+                    key={filter}
                     type="button"
-                    onClick={() => selectTask(task.taskId)}
-                    className={`min-w-0 rounded-xl border bg-white px-3 py-2.5 text-left shadow-[0_1px_2px_rgba(31,35,41,0.04)] transition-colors ${
-                      selected
-                        ? "border-[#BACEFD] bg-[#F0F5FF]"
-                        : "border-[#DEE0E3] hover:bg-[#F8F9FA]"
-                    }`}
+                    onClick={() => setActiveFilter(filter)}
+                    className={filterButtonClass(filter)}
                   >
-                    <div className="flex min-w-0 items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className={`truncate ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
-                          {task.title}
-                        </div>
-                        <div className={`mt-0.5 truncate ${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
-                          {task.progress?.currentActionTitle || task.objective || task.taskId}
-                        </div>
-                      </div>
-                      <span
-                        className={`${statusClass(task.status)} shrink-0 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}
-                      >
-                        {statusLabel(task.status, t)}
-                      </span>
-                    </div>
-                    <div className="mt-2 flex items-center justify-between gap-2">
-                      <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-[#EFF0F1]">
-                        <div
-                          className="h-full rounded-full bg-[#1456F0]"
-                          style={{ width: `${task.progress?.percent ?? 0}%` }}
-                        />
-                      </div>
-                      <span className={`${TYPOGRAPHY_META_MEDIUM_CLASS} shrink-0 text-[#646A73]`}>
-                        {progressText(task)}
-                      </span>
-                    </div>
+                    {filterLabel(filter, t)}
                   </button>
-                );
-              })}
+                ))}
+              </div>
+              <div className="grid content-start gap-2 p-2.5">
+                {filteredTasks.length === 0 && !loading ? (
+                  <div
+                    className={`rounded-lg border border-dashed border-[#D0D3D6] bg-[#F8F9FA] px-4 py-8 text-center ${TYPOGRAPHY_BODY_CLASS} text-[#646A73]`}
+                  >
+                    {t("tasks.noTasks")}
+                  </div>
+                ) : null}
+                {filteredTasks.map((task) => {
+                  const selected = selectedTask?.taskId === task.taskId;
+                  return (
+                    <button
+                      key={task.taskId}
+                      type="button"
+                      onClick={() => selectTask(task.taskId)}
+                      className={`group min-w-0 rounded-lg border px-3 py-2.5 text-left transition-colors ${
+                        selected
+                          ? "border-[#BACEFD] bg-[#F0F5FF] shadow-[inset_3px_0_0_#1456F0]"
+                          : "border-transparent bg-white hover:border-[#DEE0E3] hover:bg-[#F8F9FA]"
+                      }`}
+                    >
+                      <div className="flex min-w-0 items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className={`truncate ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
+                            {task.title}
+                          </div>
+                          <div
+                            className={`mt-0.5 truncate ${TYPOGRAPHY_META_CLASS} text-[#646A73]`}
+                          >
+                            {task.progress?.currentActionTitle || task.objective || task.taskId}
+                          </div>
+                        </div>
+                        <span
+                          className={`${statusClass(task.status)} shrink-0 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}
+                        >
+                          {statusLabel(task.status, t)}
+                        </span>
+                      </div>
+                      <div className="mt-2 flex items-center justify-between gap-2">
+                        <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-[#EFF0F1]">
+                          <div
+                            className="h-full rounded-full bg-[#1456F0]"
+                            style={{ width: `${task.progress?.percent ?? 0}%` }}
+                          />
+                        </div>
+                        <span className={`${TYPOGRAPHY_META_MEDIUM_CLASS} shrink-0 text-[#646A73]`}>
+                          {progressText(task)}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             </section>
 
-            <section
-              data-ripple-task-detail="true"
-              className="min-h-0 rounded-xl border border-[#DEE0E3] bg-white shadow-[0_1px_2px_rgba(31,35,41,0.04)]"
-            >
+            <section data-ripple-task-detail="true" className="min-h-0">
               {selectedTask ? (
-                <div className="grid gap-3 p-3 sm:p-4">
-                  <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <h2 className={`${TYPOGRAPHY_SECTION_TITLE_CLASS} truncate text-[#1F2329]`}>
-                        {selectedTask.title}
-                      </h2>
-                      <p className={`${TYPOGRAPHY_BODY_CLASS} mt-1 text-[#646A73]`}>
-                        {selectedTask.objective || t("tasks.objective")}
-                      </p>
-                    </div>
-                    <span
-                      className={`${statusClass(selectedTask.status)} ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}
-                    >
-                      {statusLabel(selectedTask.status, t)}
-                    </span>
-                  </div>
-
-                  <div className="grid gap-2 md:grid-cols-3">
-                    <div className="rounded-lg border border-[#EFF0F1] bg-[#F8F9FA] px-3 py-2">
-                      <div className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
-                        {t("tasks.progress")}
-                      </div>
-                      <div className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} mt-0.5 text-[#1F2329]`}>
-                        {progressText(selectedTask)} · {selectedTask.progress?.percent ?? 0}%
-                      </div>
-                    </div>
-                    <div className="rounded-lg border border-[#EFF0F1] bg-[#F8F9FA] px-3 py-2">
-                      <div className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
-                        {t("tasks.currentAction")}
-                      </div>
-                      <div
-                        className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} mt-0.5 truncate text-[#1F2329]`}
-                      >
-                        {selectedTask.progress?.currentActionTitle || t("tasks.unknown")}
-                      </div>
-                    </div>
-                    <div className="rounded-lg border border-[#EFF0F1] bg-[#F8F9FA] px-3 py-2">
-                      <div className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
-                        {t("tasks.updated")}
-                      </div>
-                      <div
-                        className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} mt-0.5 truncate text-[#1F2329]`}
-                      >
-                        {formatDate(selectedTask.updatedAt, locale, t("tasks.unknown"))}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-2">
-                    {selectedTask.sourceSessionId ? (
-                      <button
-                        type="button"
-                        onClick={() => onOpenSession?.(selectedTask.sourceSessionId || "")}
-                        title={t("tasks.viewSourceSession")}
-                        className={`${WORKBENCH_SECONDARY_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
-                      >
-                        <CircleDot size={14} strokeWidth={LUCIDE_NAV_STROKE_WIDTH} />
-                        <span>{t("tasks.viewSourceSession")}</span>
-                      </button>
-                    ) : null}
-                    {canConfirm(selectedTask) ? (
-                      <button
-                        type="button"
-                        onClick={() => void runTaskOperation(selectedTask.taskId, "confirm")}
-                        className={`${WORKBENCH_PRIMARY_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
-                        disabled={pendingAction !== null}
-                      >
-                        <Check size={14} />
-                        <span>{t("tasks.confirm")}</span>
-                      </button>
-                    ) : null}
-                    {canRun(selectedTask) ? (
-                      <button
-                        type="button"
-                        onClick={() => void runTaskOperation(selectedTask.taskId, "run")}
-                        className={`${WORKBENCH_SECONDARY_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
-                        disabled={pendingAction !== null}
-                      >
-                        {pendingAction === `run:${selectedTask.taskId}` ? (
-                          <Loader2 size={14} className="animate-spin" />
-                        ) : (
-                          <Play size={14} />
-                        )}
-                        <span>
-                          {pendingAction === `run:${selectedTask.taskId}`
-                            ? t("tasks.runningNow")
-                            : t("tasks.runNow")}
-                        </span>
-                      </button>
-                    ) : null}
-                    {canCancel(selectedTask) ? (
-                      <button
-                        type="button"
-                        onClick={() => void runTaskOperation(selectedTask.taskId, "cancel")}
-                        className={`${WORKBENCH_DANGER_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
-                        disabled={pendingAction !== null}
-                      >
-                        <X size={14} />
-                        <span>{t("tasks.cancel")}</span>
-                      </button>
-                    ) : null}
-                    <button
-                      type="button"
-                      onClick={() => void runTaskOperation(selectedTask.taskId, "delete")}
-                      className={`${WORKBENCH_DANGER_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
-                      disabled={pendingAction !== null}
-                    >
-                      {pendingAction === `delete:${selectedTask.taskId}` ? (
-                        <Loader2 size={14} className="animate-spin" />
-                      ) : (
-                        <Trash2 size={14} />
-                      )}
-                      <span>{t("tasks.delete")}</span>
-                    </button>
-                  </div>
-
-                  <div className="grid gap-2">
-                    <h3 className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#1F2329]`}>
-                      {t("tasks.actions")}
-                    </h3>
-                    {detailLoading ? (
-                      <div className="flex items-center gap-2 text-[#646A73]">
-                        <Loader2 size={14} className="animate-spin" />
-                        <span className={TYPOGRAPHY_META_CLASS}>{t("tasks.failedToLoad")}</span>
-                      </div>
-                    ) : null}
-                    {visibleActions.length === 0 && !detailLoading ? (
-                      <div
-                        className={`${TYPOGRAPHY_BODY_CLASS} rounded-lg border border-dashed border-[#D0D3D6] px-3 py-4 text-center text-[#646A73]`}
-                      >
-                        {t("tasks.noActions")}
-                      </div>
-                    ) : null}
-                    {visibleActions.map((action) => (
-                      <div
-                        key={action.actionId}
-                        className="grid gap-1.5 rounded-lg border border-[#EFF0F1] bg-[#F8F9FA] px-3 py-2"
-                      >
-                        <div className="flex min-w-0 items-center justify-between gap-2">
-                          <div className="flex min-w-0 items-center gap-2">
-                            {action.status === "completed" ? (
-                              <CheckCircle2 size={15} className="shrink-0 text-[#16845B]" />
-                            ) : action.status === "waiting_user" ? (
-                              <Clock3 size={15} className="shrink-0 text-[#8B5E00]" />
-                            ) : action.status === "blocked" ? (
-                              <AlertTriangle size={15} className="shrink-0 text-[#B42318]" />
-                            ) : (
-                              <CircleDot size={15} className="shrink-0 text-[#1456F0]" />
-                            )}
-                            <span className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} truncate`}>
-                              {action.title}
-                            </span>
-                          </div>
-                          <span
-                            className={`${statusClass(action.status)} shrink-0 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}
-                          >
-                            {statusLabel(action.status, t)}
-                          </span>
-                        </div>
-                        {action.nextWakeupAt ? (
-                          <div className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
-                            {t("tasks.plannedAt")}:{" "}
-                            {formatDate(action.nextWakeupAt, locale, t("tasks.unknown"))}
-                          </div>
-                        ) : null}
-                        {actionFollowUpText(action, t) || action.lastRunId ? (
-                          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-                            {actionFollowUpText(action, t) ? (
-                              <p
-                                className={`${TYPOGRAPHY_META_CLASS} min-w-0 break-words ${actionFollowUpClass(
-                                  action
-                                )}`}
-                              >
-                                {actionFollowUpText(action, t)}
-                              </p>
-                            ) : null}
-                            {action.lastRunId ? (
-                              <span
-                                className={`shrink-0 rounded-md border border-[#DEE0E3] bg-white px-1.5 py-0.5 font-[family-name:var(--font-mono)] ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} text-[#646A73]`}
-                              >
-                                {t("tasks.lastRun")}: {action.lastRunId}
-                              </span>
-                            ) : null}
-                          </div>
-                        ) : null}
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="grid gap-2">
-                    <h3 className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#1F2329]`}>
-                      {t("tasks.triggers")}
-                    </h3>
-                    {selectedTaskActionTriggers.length === 0 &&
-                    selectedTaskTriggers.length === 0 ? (
-                      <div
-                        className={`${TYPOGRAPHY_BODY_CLASS} rounded-lg border border-dashed border-[#D0D3D6] px-3 py-4 text-center text-[#646A73]`}
-                      >
-                        {t("tasks.noTriggers")}
-                      </div>
-                    ) : null}
-                    {selectedTaskActionTriggers.map((action) => (
-                      <div
-                        key={`task-action-trigger-${action.actionId}`}
-                        className="grid gap-1.5 rounded-lg border border-[#EFF0F1] bg-[#F8F9FA] px-3 py-2"
-                      >
-                        <div className="flex min-w-0 items-center justify-between gap-2">
-                          <div className="flex min-w-0 items-center gap-2">
-                            <Clock3 size={15} className="shrink-0 text-[#1456F0]" />
-                            <span className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} truncate`}>
-                              {action.title}
-                            </span>
-                          </div>
-                          <span
-                            className={`${WORKBENCH_STATUS_NEUTRAL_CLASS} shrink-0 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}
-                          >
-                            {t("tasks.actionTrigger")}
-                          </span>
-                        </div>
-                        <div className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
-                          {t("tasks.triggerNext")}:{" "}
-                          {formatDate(action.nextWakeupAt, locale, t("tasks.unknown"))}
-                        </div>
-                        {action.lastRunId ? (
-                          <span
-                            className={`w-fit rounded-md border border-[#DEE0E3] bg-white px-1.5 py-0.5 font-[family-name:var(--font-mono)] ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} text-[#646A73]`}
-                          >
-                            {t("tasks.lastRun")}: {action.lastRunId}
-                          </span>
-                        ) : null}
-                      </div>
-                    ))}
-                    {selectedTaskTriggers.map((trigger) => (
-                      <div
-                        key={trigger.trigger_id}
-                        className="grid gap-1.5 rounded-lg border border-[#EFF0F1] bg-[#F8F9FA] px-3 py-2"
-                      >
-                        <div className="flex min-w-0 items-center justify-between gap-2">
-                          <div className="flex min-w-0 items-center gap-2">
-                            <Clock3 size={15} className="shrink-0 text-[#1456F0]" />
-                            <span className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} truncate`}>
-                              {trigger.title}
-                            </span>
-                          </div>
-                          <span
-                            className={`${
-                              trigger.enabled
-                                ? WORKBENCH_STATUS_NEUTRAL_CLASS
-                                : WORKBENCH_STATUS_WARNING_CLASS
-                            } shrink-0 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}
-                          >
-                            {trigger.enabled ? t("tasks.triggerActive") : t("tasks.triggerPaused")}
-                          </span>
-                        </div>
-                        <div className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
-                          {t("tasks.triggerNext")}:{" "}
-                          {formatDate(trigger.next_run_at, locale, t("tasks.unknown"))}
-                        </div>
-                        <div className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
-                          {triggerRunProgressText(trigger, t)}
-                        </div>
-                        {trigger.last_run_id || trigger.last_run_status ? (
+                <div className="grid min-h-full gap-3">
+                  <div
+                    data-ripple-task-summary="true"
+                    className={`${taskPanelClass} overflow-hidden`}
+                  >
+                    <div className="grid gap-3 p-3 sm:p-4">
+                      <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
                           <div className="flex min-w-0 flex-wrap items-center gap-2">
-                            {trigger.last_run_id ? (
-                              <span
-                                className={`shrink-0 rounded-md border border-[#DEE0E3] bg-white px-1.5 py-0.5 font-[family-name:var(--font-mono)] ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} text-[#646A73]`}
-                              >
-                                {t("tasks.lastRun")}: {trigger.last_run_id}
-                              </span>
-                            ) : null}
-                            {trigger.last_run_status ? (
-                              <span className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
-                                {trigger.last_run_status}
-                              </span>
-                            ) : null}
-                          </div>
-                        ) : null}
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="grid gap-2">
-                    <h3 className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#1F2329]`}>
-                      {t("tasks.events")}
-                    </h3>
-                    {visibleEvents.length === 0 ? (
-                      <div
-                        className={`${TYPOGRAPHY_BODY_CLASS} rounded-lg border border-dashed border-[#D0D3D6] px-3 py-4 text-center text-[#646A73]`}
-                      >
-                        {t("tasks.noEvents")}
-                      </div>
-                    ) : null}
-                    {visibleEvents.slice(0, 6).map((event) => {
-                      const detail = eventDetailText(event, visibleActions, t);
-                      return (
-                        <div
-                          key={event.eventId}
-                          className="grid min-w-0 gap-0.5 rounded-lg border border-[#EFF0F1] px-3 py-2"
-                        >
-                          <div className="flex min-w-0 items-center justify-between gap-3">
-                            <span
-                              className={`${TYPOGRAPHY_META_MEDIUM_CLASS} truncate text-[#2B2F36]`}
+                            <h2
+                              className={`${TYPOGRAPHY_SECTION_TITLE_CLASS} min-w-0 truncate text-[#1F2329]`}
                             >
-                              {eventLabel(event.eventType, t)}
-                            </span>
-                            <span className={`${TYPOGRAPHY_META_CLASS} shrink-0 text-[#646A73]`}>
-                              {formatDate(event.createdAt, locale, t("tasks.unknown"))}
+                              {selectedTask.title}
+                            </h2>
+                            <span
+                              className={`${statusClass(selectedTask.status)} ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}
+                            >
+                              {statusLabel(selectedTask.status, t)}
                             </span>
                           </div>
-                          {detail ? (
-                            <div className={`${TYPOGRAPHY_META_CLASS} truncate text-[#646A73]`}>
-                              {detail}
-                            </div>
+                          <p className={`${TYPOGRAPHY_BODY_CLASS} mt-1 text-[#646A73]`}>
+                            {selectedTask.objective || t("tasks.objective")}
+                          </p>
+                        </div>
+                        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                          {canConfirm(selectedTask) ? (
+                            <button
+                              type="button"
+                              onClick={() => void runTaskOperation(selectedTask.taskId, "confirm")}
+                              className={`${WORKBENCH_PRIMARY_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                              disabled={pendingAction !== null}
+                            >
+                              <Check size={14} />
+                              <span>{t("tasks.confirm")}</span>
+                            </button>
+                          ) : null}
+                          {canRun(selectedTask) ? (
+                            <button
+                              type="button"
+                              onClick={() => void runTaskOperation(selectedTask.taskId, "run")}
+                              className={`${WORKBENCH_PRIMARY_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                              disabled={pendingAction !== null}
+                            >
+                              {pendingAction === `run:${selectedTask.taskId}` ? (
+                                <Loader2 size={14} className="animate-spin" />
+                              ) : (
+                                <Play size={14} />
+                              )}
+                              <span>
+                                {pendingAction === `run:${selectedTask.taskId}`
+                                  ? t("tasks.runningNow")
+                                  : t("tasks.runNow")}
+                              </span>
+                            </button>
+                          ) : null}
+                          {selectedTask.sourceSessionId ? (
+                            <button
+                              type="button"
+                              onClick={() => onOpenSession?.(selectedTask.sourceSessionId || "")}
+                              title={t("tasks.viewSourceSession")}
+                              className={`${WORKBENCH_SECONDARY_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                            >
+                              <CircleDot size={14} strokeWidth={LUCIDE_NAV_STROKE_WIDTH} />
+                              <span>{t("tasks.viewSourceSession")}</span>
+                            </button>
                           ) : null}
                         </div>
-                      );
-                    })}
+                      </div>
+
+                      <div>
+                        <div className="flex items-center justify-between gap-3">
+                          <span className={`${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#646A73]`}>
+                            {t("tasks.progress")}
+                          </span>
+                          <span className={`${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#1F2329]`}>
+                            {progressText(selectedTask)} · {selectedTask.progress?.percent ?? 0}%
+                          </span>
+                        </div>
+                        <div className="mt-2 h-2 overflow-hidden rounded-full bg-[#EFF0F1]">
+                          <div
+                            className="h-full rounded-full bg-[#1456F0]"
+                            style={{ width: `${selectedTask.progress?.percent ?? 0}%` }}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid gap-2 md:grid-cols-3">
+                        <div className={`${taskSoftPanelClass} px-3 py-2`}>
+                          <div className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
+                            {t("tasks.currentAction")}
+                          </div>
+                          <div
+                            className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} mt-0.5 truncate text-[#1F2329]`}
+                          >
+                            {selectedTask.progress?.currentActionTitle || t("tasks.unknown")}
+                          </div>
+                        </div>
+                        <div className={`${taskSoftPanelClass} px-3 py-2`}>
+                          <div className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
+                            {t("tasks.updated")}
+                          </div>
+                          <div
+                            className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} mt-0.5 truncate text-[#1F2329]`}
+                          >
+                            {formatDate(selectedTask.updatedAt, locale, t("tasks.unknown"))}
+                          </div>
+                        </div>
+                        <div className={`${taskSoftPanelClass} px-3 py-2`}>
+                          <div className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
+                            {t("tasks.triggers")}
+                          </div>
+                          <div
+                            className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} mt-0.5 truncate text-[#1F2329]`}
+                          >
+                            {selectedTaskActionTriggers.length + selectedTaskTriggers.length}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2 border-t border-[#EFF0F1] pt-3">
+                        {canCancel(selectedTask) ? (
+                          <button
+                            type="button"
+                            onClick={() => void runTaskOperation(selectedTask.taskId, "cancel")}
+                            className={`${WORKBENCH_DANGER_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                            disabled={pendingAction !== null}
+                          >
+                            <X size={14} />
+                            <span>{t("tasks.cancel")}</span>
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={() => void runTaskOperation(selectedTask.taskId, "delete")}
+                          className={`${WORKBENCH_DANGER_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                          disabled={pendingAction !== null}
+                        >
+                          {pendingAction === `delete:${selectedTask.taskId}` ? (
+                            <Loader2 size={14} className="animate-spin" />
+                          ) : (
+                            <Trash2 size={14} />
+                          )}
+                          <span>{t("tasks.delete")}</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid min-h-0 gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(280px,0.86fr)]">
+                    <section
+                      data-ripple-task-actions-panel="true"
+                      className={`${taskPanelClass} min-h-0 p-3`}
+                    >
+                      <div className="mb-3 flex items-center justify-between gap-2">
+                        <h3 className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#1F2329]`}>
+                          {t("tasks.actions")}
+                        </h3>
+                        {detailLoading ? (
+                          <Loader2 size={14} className="shrink-0 animate-spin text-[#646A73]" />
+                        ) : null}
+                      </div>
+                      {visibleActions.length === 0 && !detailLoading ? (
+                        <div
+                          className={`${TYPOGRAPHY_BODY_CLASS} rounded-lg border border-dashed border-[#D0D3D6] bg-[#F8F9FA] px-3 py-6 text-center text-[#646A73]`}
+                        >
+                          {t("tasks.noActions")}
+                        </div>
+                      ) : null}
+                      <div className="grid gap-0">
+                        {visibleActions.map((action) => (
+                          <div key={action.actionId} className={taskTimelineItemClass}>
+                            <div className="flex min-w-0 items-start justify-between gap-2">
+                              <div className="flex min-w-0 items-center gap-2">
+                                {action.status === "completed" ? (
+                                  <CheckCircle2 size={15} className="shrink-0 text-[#16845B]" />
+                                ) : action.status === "waiting_user" ? (
+                                  <Clock3 size={15} className="shrink-0 text-[#8B5E00]" />
+                                ) : action.status === "blocked" ? (
+                                  <AlertTriangle size={15} className="shrink-0 text-[#B42318]" />
+                                ) : (
+                                  <CircleDot size={15} className="shrink-0 text-[#1456F0]" />
+                                )}
+                                <span className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} truncate`}>
+                                  {action.title}
+                                </span>
+                              </div>
+                              <span
+                                className={`${statusClass(action.status)} shrink-0 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}
+                              >
+                                {statusLabel(action.status, t)}
+                              </span>
+                            </div>
+                            {action.nextWakeupAt ? (
+                              <div className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
+                                {t("tasks.plannedAt")}:{" "}
+                                {formatDate(action.nextWakeupAt, locale, t("tasks.unknown"))}
+                              </div>
+                            ) : null}
+                            {actionFollowUpText(action, t) || action.lastRunId ? (
+                              <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                                {actionFollowUpText(action, t) ? (
+                                  <p
+                                    className={`${TYPOGRAPHY_META_CLASS} min-w-0 break-words ${actionFollowUpClass(
+                                      action
+                                    )}`}
+                                  >
+                                    {actionFollowUpText(action, t)}
+                                  </p>
+                                ) : null}
+                                {action.lastRunId ? (
+                                  <span
+                                    className={`shrink-0 rounded-md border border-[#DEE0E3] bg-white px-1.5 py-0.5 font-[family-name:var(--font-mono)] ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} text-[#646A73]`}
+                                  >
+                                    {t("tasks.lastRun")}: {action.lastRunId}
+                                  </span>
+                                ) : null}
+                              </div>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+
+                    <div className="grid content-start gap-3">
+                      <section className={`${taskPanelClass} p-3`}>
+                        <h3 className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} mb-3 text-[#1F2329]`}>
+                          {t("tasks.triggers")}
+                        </h3>
+                        {selectedTaskActionTriggers.length === 0 &&
+                        selectedTaskTriggers.length === 0 ? (
+                          <div
+                            className={`${TYPOGRAPHY_BODY_CLASS} rounded-lg border border-dashed border-[#D0D3D6] bg-[#F8F9FA] px-3 py-5 text-center text-[#646A73]`}
+                          >
+                            {t("tasks.noTriggers")}
+                          </div>
+                        ) : null}
+                        <div className="grid gap-2">
+                          {selectedTaskActionTriggers.map((action) => (
+                            <div
+                              key={`task-action-trigger-${action.actionId}`}
+                              className={`${taskSoftPanelClass} grid gap-1.5 px-3 py-2`}
+                            >
+                              <div className="flex min-w-0 items-center justify-between gap-2">
+                                <div className="flex min-w-0 items-center gap-2">
+                                  <Clock3 size={15} className="shrink-0 text-[#1456F0]" />
+                                  <span className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} truncate`}>
+                                    {action.title}
+                                  </span>
+                                </div>
+                                <span
+                                  className={`${WORKBENCH_STATUS_NEUTRAL_CLASS} shrink-0 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}
+                                >
+                                  {t("tasks.actionTrigger")}
+                                </span>
+                              </div>
+                              <div className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
+                                {t("tasks.triggerNext")}:{" "}
+                                {formatDate(action.nextWakeupAt, locale, t("tasks.unknown"))}
+                              </div>
+                              {action.lastRunId ? (
+                                <span
+                                  className={`w-fit rounded-md border border-[#DEE0E3] bg-white px-1.5 py-0.5 font-[family-name:var(--font-mono)] ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} text-[#646A73]`}
+                                >
+                                  {t("tasks.lastRun")}: {action.lastRunId}
+                                </span>
+                              ) : null}
+                            </div>
+                          ))}
+                          {selectedTaskTriggers.map((trigger) => (
+                            <div
+                              key={trigger.trigger_id}
+                              className={`${taskSoftPanelClass} grid gap-1.5 px-3 py-2`}
+                            >
+                              <div className="flex min-w-0 items-center justify-between gap-2">
+                                <div className="flex min-w-0 items-center gap-2">
+                                  <Clock3 size={15} className="shrink-0 text-[#1456F0]" />
+                                  <span className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} truncate`}>
+                                    {trigger.title}
+                                  </span>
+                                </div>
+                                <span
+                                  className={`${
+                                    trigger.enabled
+                                      ? WORKBENCH_STATUS_NEUTRAL_CLASS
+                                      : WORKBENCH_STATUS_WARNING_CLASS
+                                  } shrink-0 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}
+                                >
+                                  {trigger.enabled
+                                    ? t("tasks.triggerActive")
+                                    : t("tasks.triggerPaused")}
+                                </span>
+                              </div>
+                              <div className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
+                                {t("tasks.triggerNext")}:{" "}
+                                {formatDate(trigger.next_run_at, locale, t("tasks.unknown"))}
+                              </div>
+                              <div className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
+                                {triggerRunProgressText(trigger, t)}
+                              </div>
+                              {trigger.last_run_id || trigger.last_run_status ? (
+                                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                                  {trigger.last_run_id ? (
+                                    <span
+                                      className={`shrink-0 rounded-md border border-[#DEE0E3] bg-white px-1.5 py-0.5 font-[family-name:var(--font-mono)] ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} text-[#646A73]`}
+                                    >
+                                      {t("tasks.lastRun")}: {trigger.last_run_id}
+                                    </span>
+                                  ) : null}
+                                  {trigger.last_run_status ? (
+                                    <span className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
+                                      {trigger.last_run_status}
+                                    </span>
+                                  ) : null}
+                                </div>
+                              ) : null}
+                            </div>
+                          ))}
+                        </div>
+                      </section>
+
+                      <section
+                        data-ripple-task-activity-panel="true"
+                        className={`${taskPanelClass} p-3`}
+                      >
+                        <h3 className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} mb-3 text-[#1F2329]`}>
+                          {t("tasks.activity")}
+                        </h3>
+                        {visibleEvents.length === 0 ? (
+                          <div
+                            className={`${TYPOGRAPHY_BODY_CLASS} rounded-lg border border-dashed border-[#D0D3D6] bg-[#F8F9FA] px-3 py-5 text-center text-[#646A73]`}
+                          >
+                            {t("tasks.noEvents")}
+                          </div>
+                        ) : null}
+                        <div className="grid gap-2">
+                          {visibleEvents.slice(0, 6).map((event) => {
+                            const detail = eventDetailText(event, visibleActions, t);
+                            return (
+                              <div key={event.eventId} className="grid min-w-0 gap-0.5">
+                                <div className="flex min-w-0 items-center justify-between gap-3">
+                                  <span
+                                    className={`${TYPOGRAPHY_META_MEDIUM_CLASS} truncate text-[#2B2F36]`}
+                                  >
+                                    {eventLabel(event.eventType, t)}
+                                  </span>
+                                  <span
+                                    className={`${TYPOGRAPHY_META_CLASS} shrink-0 text-[#646A73]`}
+                                  >
+                                    {formatDate(event.createdAt, locale, t("tasks.unknown"))}
+                                  </span>
+                                </div>
+                                {detail ? (
+                                  <div
+                                    className={`${TYPOGRAPHY_META_CLASS} truncate text-[#646A73]`}
+                                  >
+                                    {detail}
+                                  </div>
+                                ) : null}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </section>
+                    </div>
                   </div>
                 </div>
               ) : (

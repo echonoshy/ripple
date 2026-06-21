@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import { I18nProvider, type LocalePreference } from "@/i18n";
 import type { TaskActionInfo, TaskEventInfo, TaskInfo, TaskTriggerInfo } from "@/types";
-import TasksPage from "./TasksPage";
+import TasksPage, { taskEmptyStateMessageKey } from "./TasksPage";
 
 const noop = () => {};
 
@@ -223,6 +223,71 @@ function testTasksPageShowsPendingConfirmationTriggers() {
   assert.doesNotMatch(html, />Paused</);
 }
 
+function testTasksPageShowsFailedTriggersAsErrors() {
+  const failedTrigger: TaskTriggerInfo = {
+    ...triggers[0],
+    trigger_id: "trg-failed",
+    enabled: false,
+    status: "error",
+    last_run_status: "failed",
+    last_error: "fake codex failed",
+  };
+  const html = renderTasksPage("en-US", { triggers: [failedTrigger] });
+
+  assert.match(html, />Failed</);
+  assert.match(html, /fake codex failed/);
+  assert.doesNotMatch(html, />Paused</);
+}
+
+function testTasksPageShowsCompletedTriggersAsCompleted() {
+  const completedTrigger: TaskTriggerInfo = {
+    ...triggers[0],
+    trigger_id: "trg-completed",
+    enabled: false,
+    status: "completed",
+    last_run_status: "completed",
+    run_count: 1,
+    max_runs: 1,
+  };
+  const html = renderTasksPage("en-US", { triggers: [completedTrigger] });
+
+  assert.match(html, />Completed</);
+  assert.doesNotMatch(html, />Paused</);
+}
+
+function testAddStepDoesNotCollectTriggerTiming() {
+  const source = readFileSync(new URL("./TasksPage.tsx", import.meta.url), "utf8");
+
+  assert.doesNotMatch(source, /newActionWakeupAt/);
+  assert.doesNotMatch(source, /tasks\.optionalWakeupAt/);
+  assert.doesNotMatch(source, /nextWakeupAt: newActionWakeupAt/);
+}
+
+function testTasksPageUsesDedicatedStepSortingMode() {
+  const html = renderTasksPage("en-US");
+  const source = readFileSync(new URL("./TasksPage.tsx", import.meta.url), "utf8");
+
+  assert.match(html, />Sort</);
+  assert.doesNotMatch(html, /Move step up/);
+  assert.doesNotMatch(html, /Move step down/);
+  assert.match(source, /isActionSortMode/);
+  assert.match(source, /draggable=\{isActionSortMode\}/);
+  assert.match(source, /onDragStart/);
+  assert.match(source, /onDrop/);
+  assert.match(source, /tasks\.finishSortingActions/);
+  assert.match(source, /tasks\.cancelSortingActions/);
+  assert.match(source, /tasks\.actionSortPosition/);
+}
+
+function testTriggerFormDoesNotDuplicateStepContentFields() {
+  const source = readFileSync(new URL("./TasksPage.tsx", import.meta.url), "utf8");
+
+  assert.doesNotMatch(source, /newTriggerTitle/);
+  assert.doesNotMatch(source, /newTriggerPrompt/);
+  assert.doesNotMatch(source, /tasks\.triggerTitlePlaceholder/);
+  assert.doesNotMatch(source, /tasks\.triggerPromptPlaceholder/);
+}
+
 function testTasksPageLoadingStateDoesNotClaimFailure() {
   const html = renderTasksPage("en-US", {
     selectedTaskId: null,
@@ -235,6 +300,33 @@ function testTasksPageLoadingStateDoesNotClaimFailure() {
 
   assert.match(html, /Loading tasks/);
   assert.doesNotMatch(html, /Failed to load tasks/);
+}
+
+function testTasksPageDistinguishesFilteredEmptyState() {
+  assert.equal(taskEmptyStateMessageKey(0, 0), "tasks.noTasks");
+  assert.equal(taskEmptyStateMessageKey(1, 0), "tasks.noTasksForFilter");
+}
+
+function testTasksPageFilterRowDoesNotLookLikeRefreshProgress() {
+  const source = readFileSync(new URL("./TasksPage.tsx", import.meta.url), "utf8");
+  const filterRowStart = source.indexOf("{taskFilters.map");
+  const filterRowSource = source.slice(Math.max(0, filterRowStart - 260), filterRowStart);
+
+  assert.match(filterRowSource, /flex-wrap/);
+  assert.doesNotMatch(filterRowSource, /overflow-x-auto/);
+}
+
+function testTasksPageReloadIsNotKeyedToSelectionChanges() {
+  const source = readFileSync(new URL("./TasksPage.tsx", import.meta.url), "utf8");
+  const loadTasksStart = source.indexOf("const loadTasks = useCallback");
+  const loadTasksEnd = source.indexOf("useEffect(() => {\n    if (!isControlled)", loadTasksStart);
+  const loadTasksSource = source.slice(loadTasksStart, loadTasksEnd);
+  const dependencyStart = loadTasksSource.lastIndexOf("[");
+  const dependencyEnd = loadTasksSource.lastIndexOf("]");
+  const dependencySource = loadTasksSource.slice(dependencyStart, dependencyEnd + 1);
+
+  assert.match(loadTasksSource, /selectedIdRef\.current/);
+  assert.doesNotMatch(dependencySource, /\bselectedId\b/);
 }
 
 function testTasksPageRequiresConfirmationForDestructiveActions() {
@@ -250,7 +342,15 @@ testPrimaryNavigationNoLongerIncludesAutos();
 testTasksPageKeepsAutomationOutOfPrimaryNavigation();
 testTasksPageUsesFocusSplitLayout();
 testTasksPageShowsPendingConfirmationTriggers();
+testTasksPageShowsFailedTriggersAsErrors();
+testTasksPageShowsCompletedTriggersAsCompleted();
+testAddStepDoesNotCollectTriggerTiming();
+testTasksPageUsesDedicatedStepSortingMode();
+testTriggerFormDoesNotDuplicateStepContentFields();
 testTasksPageLoadingStateDoesNotClaimFailure();
+testTasksPageDistinguishesFilteredEmptyState();
+testTasksPageFilterRowDoesNotLookLikeRefreshProgress();
+testTasksPageReloadIsNotKeyedToSelectionChanges();
 testTasksPageRequiresConfirmationForDestructiveActions();
 
 console.log("tasks page tests passed");

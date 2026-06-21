@@ -1,12 +1,15 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   Check,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   CircleDot,
   Clock3,
+  GripVertical,
   Loader2,
   Play,
   Plus,
@@ -27,6 +30,7 @@ import {
   fetchTasks,
   runTaskNow,
   runTaskTriggerNow,
+  updateTaskAction,
 } from "@/lib/api";
 import type { TaskActionCreateInput, TaskTriggerCreateInput } from "@/lib/api";
 import type { TaskActionInfo, TaskEventInfo, TaskInfo, TaskTriggerInfo } from "@/types";
@@ -134,6 +138,13 @@ function taskMatchesFilter(task: TaskInfo, filter: TaskFilter): boolean {
   return !["completed", "archived", "cancelled", "blocked", "waiting_user"].includes(task.status);
 }
 
+export function taskEmptyStateMessageKey(
+  totalTaskCount: number,
+  visibleTaskCount: number
+): "tasks.noTasks" | "tasks.noTasksForFilter" {
+  return totalTaskCount > 0 && visibleTaskCount === 0 ? "tasks.noTasksForFilter" : "tasks.noTasks";
+}
+
 function formatDate(value: string | null | undefined, locale: string, fallback: string): string {
   if (!value) return fallback;
   const date = new Date(value);
@@ -163,13 +174,40 @@ function triggerRunProgressText(
   return t("tasks.triggerRunsUnlimited", { count: trigger.run_count });
 }
 
+function isTriggerCompleted(trigger: TaskTriggerInfo): boolean {
+  if (trigger.status === "completed") return true;
+  const maxRuns = trigger.kind === "once" ? (trigger.max_runs ?? 1) : trigger.max_runs;
+  return (
+    trigger.last_run_status === "completed" &&
+    typeof maxRuns === "number" &&
+    maxRuns > 0 &&
+    trigger.run_count >= maxRuns
+  );
+}
+
 function triggerStatusLabel(trigger: TaskTriggerInfo, t: ReturnType<typeof useI18n>["t"]): string {
+  if (
+    trigger.status === "error" ||
+    trigger.last_run_status === "failed" ||
+    trigger.last_run_status === "cancelled"
+  ) {
+    return t("tasks.triggerError");
+  }
+  if (isTriggerCompleted(trigger)) return t("tasks.triggerCompleted");
   if (trigger.status === "pending_confirmation") return t("tasks.triggerPendingConfirmation");
   if (trigger.status === "paused" || !trigger.enabled) return t("tasks.triggerPaused");
   return t("tasks.triggerActive");
 }
 
 function triggerStatusClass(trigger: TaskTriggerInfo): string {
+  if (
+    trigger.status === "error" ||
+    trigger.last_run_status === "failed" ||
+    trigger.last_run_status === "cancelled"
+  ) {
+    return WORKBENCH_STATUS_DANGER_CLASS;
+  }
+  if (isTriggerCompleted(trigger)) return WORKBENCH_STATUS_SUCCESS_CLASS;
   if (trigger.status === "pending_confirmation") return WORKBENCH_STATUS_WARNING_CLASS;
   if (trigger.status === "paused" || !trigger.enabled) return WORKBENCH_STATUS_WARNING_CLASS;
   return WORKBENCH_STATUS_NEUTRAL_CLASS;
@@ -330,6 +368,7 @@ export default function TasksPage({
   const [selectedId, setSelectedId] = useState<string | null>(
     selectedTaskId || tasks?.[0]?.taskId || null
   );
+  const selectedIdRef = useRef<string | null>(selectedId);
   const [detailActions, setDetailActions] = useState<TaskActionInfo[]>(() => actions || []);
   const [taskEvents, setTaskEvents] = useState<TaskEventInfo[]>(() => events || []);
   const [triggerList, setTriggerList] = useState<TaskTriggerInfo[]>(() => triggers || []);
@@ -340,13 +379,17 @@ export default function TasksPage({
   const [activeFilter, setActiveFilter] = useState<TaskFilter>("all");
   const [confirmingTaskAction, setConfirmingTaskAction] = useState<string | null>(null);
   const [isActionFormOpen, setIsActionFormOpen] = useState(false);
+  const [isActionSortMode, setIsActionSortMode] = useState(false);
   const [newActionTitle, setNewActionTitle] = useState("");
   const [newActionObjective, setNewActionObjective] = useState("");
-  const [newActionWakeupAt, setNewActionWakeupAt] = useState("");
+  const [draftActionOrderIds, setDraftActionOrderIds] = useState<string[]>([]);
+  const [draggingActionId, setDraggingActionId] = useState<string | null>(null);
   const [triggerActionId, setTriggerActionId] = useState<string | null>(null);
-  const [newTriggerTitle, setNewTriggerTitle] = useState("");
-  const [newTriggerPrompt, setNewTriggerPrompt] = useState("");
   const [newTriggerRunAt, setNewTriggerRunAt] = useState("");
+
+  useEffect(() => {
+    selectedIdRef.current = selectedId;
+  }, [selectedId]);
 
   useEffect(() => {
     if (tasks) setTaskList(tasks);
@@ -400,16 +443,18 @@ export default function TasksPage({
   );
 
   const loadTasks = useCallback(
-    async (preferredSelectedId: string | null = selectedId) => {
+    async (preferredSelectedId?: string | null) => {
       if (isControlled) return;
+      const requestedSelectedId =
+        preferredSelectedId === undefined ? selectedIdRef.current : preferredSelectedId;
       setInternalLoading(true);
       try {
         const [nextTasks, nextTriggers] = await Promise.all([fetchTasks(), fetchAllTaskTriggers()]);
         setTaskList(nextTasks);
         setTriggerList(nextTriggers);
         const nextSelectedId =
-          preferredSelectedId && nextTasks.some((task) => task.taskId === preferredSelectedId)
-            ? preferredSelectedId
+          requestedSelectedId && nextTasks.some((task) => task.taskId === requestedSelectedId)
+            ? requestedSelectedId
             : nextTasks[0]?.taskId || null;
         setSelectedId(nextSelectedId);
         setInternalError(null);
@@ -425,7 +470,7 @@ export default function TasksPage({
         setInternalLoading(false);
       }
     },
-    [handleError, isControlled, loadTaskDetail, selectedId, t]
+    [handleError, isControlled, loadTaskDetail, t]
   );
 
   useEffect(() => {
@@ -447,6 +492,12 @@ export default function TasksPage({
   );
 
   useEffect(() => {
+    setIsActionSortMode(false);
+    setDraftActionOrderIds([]);
+    setDraggingActionId(null);
+  }, [selectedTask?.taskId]);
+
+  useEffect(() => {
     if (filteredTasks.length === 0) {
       if (selectedId !== null) setSelectedId(null);
       return;
@@ -458,11 +509,20 @@ export default function TasksPage({
     void loadTaskDetail(nextSelectedId);
   }, [filteredTasks, loadTaskDetail, onSelectTask, selectedId]);
 
-  const visibleActions = useMemo(
-    () =>
-      selectedTask ? detailActions.filter((action) => action.taskId === selectedTask.taskId) : [],
-    [detailActions, selectedTask]
-  );
+  const visibleActions = useMemo(() => {
+    const actionsForTask = selectedTask
+      ? detailActions.filter((action) => action.taskId === selectedTask.taskId)
+      : [];
+    if (!isActionSortMode || draftActionOrderIds.length === 0) return actionsForTask;
+    const byId = new Map(actionsForTask.map((action) => [action.actionId, action]));
+    const ordered = draftActionOrderIds.flatMap((actionId) => {
+      const action = byId.get(actionId);
+      return action ? [action] : [];
+    });
+    const orderedIds = new Set(ordered.map((action) => action.actionId));
+    const rest = actionsForTask.filter((action) => !orderedIds.has(action.actionId));
+    return [...ordered, ...rest];
+  }, [detailActions, draftActionOrderIds, isActionSortMode, selectedTask]);
   const visibleEvents = useMemo(
     () =>
       selectedTask
@@ -488,6 +548,7 @@ export default function TasksPage({
   );
   const loading = isLoading ?? internalLoading;
   const errorMessage = error ?? internalError;
+  const emptyTaskMessage = t(taskEmptyStateMessageKey(taskList.length, filteredTasks.length));
 
   const selectTask = useCallback(
     (taskId: string) => {
@@ -567,12 +628,10 @@ export default function TasksPage({
           kind: "next_step",
           objective: newActionObjective.trim() || null,
           status: "confirmed",
-          nextWakeupAt: newActionWakeupAt || null,
         };
         await createTaskAction(selectedTask.taskId, input);
         setNewActionTitle("");
         setNewActionObjective("");
-        setNewActionWakeupAt("");
         setIsActionFormOpen(false);
         await loadTasks(selectedTask.taskId);
       } catch (caught) {
@@ -581,18 +640,141 @@ export default function TasksPage({
         setPendingAction(null);
       }
     },
-    [handleError, loadTasks, newActionObjective, newActionTitle, newActionWakeupAt, selectedTask, t]
+    [handleError, loadTasks, newActionObjective, newActionTitle, selectedTask, t]
+  );
+
+  const startActionSortMode = useCallback(() => {
+    setIsActionFormOpen(false);
+    setTriggerActionId(null);
+    setDraftActionOrderIds(visibleActions.map((action) => action.actionId));
+    setDraggingActionId(null);
+    setIsActionSortMode(true);
+  }, [visibleActions]);
+
+  const cancelActionSortMode = useCallback(() => {
+    setIsActionSortMode(false);
+    setDraftActionOrderIds([]);
+    setDraggingActionId(null);
+  }, []);
+
+  const moveDraftAction = useCallback(
+    (actionId: string, direction: -1 | 1) => {
+      const fallbackOrder = visibleActions.map((action) => action.actionId);
+      setDraftActionOrderIds((current) => {
+        const order = current.length > 0 ? current.slice() : fallbackOrder.slice();
+        const currentIndex = order.indexOf(actionId);
+        const targetIndex = currentIndex + direction;
+        if (currentIndex < 0 || targetIndex < 0 || targetIndex >= order.length) return current;
+        const [moved] = order.splice(currentIndex, 1);
+        order.splice(targetIndex, 0, moved);
+        return order;
+      });
+    },
+    [visibleActions]
+  );
+
+  const moveDraftActionToIndex = useCallback(
+    (actionId: string, targetIndex: number) => {
+      const fallbackOrder = visibleActions.map((action) => action.actionId);
+      setDraftActionOrderIds((current) => {
+        const order = current.length > 0 ? current.slice() : fallbackOrder.slice();
+        const currentIndex = order.indexOf(actionId);
+        const boundedTargetIndex = Math.max(0, Math.min(targetIndex, order.length - 1));
+        if (currentIndex < 0 || currentIndex === boundedTargetIndex) return current;
+        const [moved] = order.splice(currentIndex, 1);
+        order.splice(boundedTargetIndex, 0, moved);
+        return order;
+      });
+    },
+    [visibleActions]
+  );
+
+  const submitActionSortOrder = useCallback(async () => {
+    if (!selectedTask) return;
+    const orderIds =
+      draftActionOrderIds.length > 0
+        ? draftActionOrderIds
+        : visibleActions.map((action) => action.actionId);
+    const byId = new Map(visibleActions.map((action) => [action.actionId, action]));
+    const nextActions = orderIds.flatMap((actionId) => {
+      const action = byId.get(actionId);
+      return action ? [action] : [];
+    });
+    if (nextActions.length <= 1) {
+      cancelActionSortMode();
+      return;
+    }
+    setPendingAction(`sort-actions:${selectedTask.taskId}`);
+    setInternalError(null);
+    try {
+      await Promise.all(
+        nextActions.map((action, index) =>
+          updateTaskAction(selectedTask.taskId, action.actionId, { sequenceIndex: index + 1 })
+        )
+      );
+      setDetailActions((current) => {
+        const reorderedIds = new Set(nextActions.map((action) => action.actionId));
+        const reordered = nextActions.map((action, index) => ({
+          ...action,
+          sequenceIndex: index + 1,
+        }));
+        const rest = current.filter((action) => !reorderedIds.has(action.actionId));
+        return [...reordered, ...rest];
+      });
+      cancelActionSortMode();
+      await loadTasks(selectedTask.taskId);
+    } catch (caught) {
+      handleError(caught, t("tasks.actionFailed"));
+    } finally {
+      setPendingAction(null);
+    }
+  }, [
+    cancelActionSortMode,
+    draftActionOrderIds,
+    handleError,
+    loadTasks,
+    selectedTask,
+    t,
+    visibleActions,
+  ]);
+
+  const handleActionDragStart = useCallback(
+    (event: React.DragEvent<HTMLDivElement>, actionId: string) => {
+      if (!isActionSortMode) return;
+      setDraggingActionId(actionId);
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", actionId);
+    },
+    [isActionSortMode]
+  );
+
+  const handleActionDragOver = useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      if (!isActionSortMode) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+    },
+    [isActionSortMode]
+  );
+
+  const handleActionDrop = useCallback(
+    (event: React.DragEvent<HTMLDivElement>, targetIndex: number) => {
+      if (!isActionSortMode) return;
+      event.preventDefault();
+      const actionId = event.dataTransfer.getData("text/plain") || draggingActionId;
+      if (actionId) moveDraftActionToIndex(actionId, targetIndex);
+      setDraggingActionId(null);
+    },
+    [draggingActionId, isActionSortMode, moveDraftActionToIndex]
   );
 
   const openTriggerForm = useCallback(
     (action?: TaskActionInfo) => {
       const targetAction = action || visibleActions[0] || null;
       setTriggerActionId(targetAction?.actionId || null);
-      setNewTriggerTitle(targetAction ? targetAction.title : "");
-      setNewTriggerPrompt(targetAction?.objective || selectedTask?.objective || "");
       setNewTriggerRunAt("");
     },
-    [selectedTask?.objective, visibleActions]
+    [visibleActions]
   );
 
   const submitNewTrigger = useCallback(
@@ -600,12 +782,9 @@ export default function TasksPage({
       event.preventDefault();
       if (!selectedTask || !triggerActionId) return;
       const action = visibleActions.find((item) => item.actionId === triggerActionId) || null;
-      const title = newTriggerTitle.trim() || action?.title || t("tasks.newTrigger");
+      const title = action?.title || selectedTask.title;
       const prompt =
-        newTriggerPrompt.trim() ||
-        action?.objective ||
-        selectedTask.objective ||
-        selectedTask.title;
+        action?.objective || action?.title || selectedTask.objective || selectedTask.title;
       if (!newTriggerRunAt) {
         setInternalError(t("tasks.triggerRunAtRequired"));
         return;
@@ -625,8 +804,6 @@ export default function TasksPage({
         };
         await createTaskActionTrigger(selectedTask.taskId, triggerActionId, input);
         setTriggerActionId(null);
-        setNewTriggerTitle("");
-        setNewTriggerPrompt("");
         setNewTriggerRunAt("");
         await loadTasks(selectedTask.taskId);
       } catch (caught) {
@@ -635,17 +812,7 @@ export default function TasksPage({
         setPendingAction(null);
       }
     },
-    [
-      handleError,
-      loadTasks,
-      newTriggerPrompt,
-      newTriggerRunAt,
-      newTriggerTitle,
-      selectedTask,
-      t,
-      triggerActionId,
-      visibleActions,
-    ]
+    [handleError, loadTasks, newTriggerRunAt, selectedTask, t, triggerActionId, visibleActions]
   );
 
   const runTriggerOperation = useCallback(
@@ -750,7 +917,7 @@ export default function TasksPage({
                   <Loader2 size={15} className="shrink-0 animate-spin text-[#646A73]" />
                 ) : null}
               </div>
-              <div className="flex min-w-0 gap-1.5 overflow-x-auto border-b border-[#EFF0F1] px-2.5 py-2">
+              <div className="flex min-w-0 flex-wrap gap-1.5 border-b border-[#EFF0F1] px-2.5 py-2">
                 {taskFilters.map((filter) => (
                   <button
                     key={filter}
@@ -767,7 +934,7 @@ export default function TasksPage({
                   <div
                     className={`rounded-lg border border-dashed border-[#D0D3D6] bg-[#F8F9FA] px-4 py-8 text-center ${TYPOGRAPHY_BODY_CLASS} text-[#646A73]`}
                   >
-                    {t("tasks.noTasks")}
+                    {emptyTaskMessage}
                   </div>
                 ) : null}
                 {filteredTasks.map((task) => {
@@ -992,18 +1159,57 @@ export default function TasksPage({
                           {detailLoading ? (
                             <Loader2 size={14} className="shrink-0 animate-spin text-[#646A73]" />
                           ) : null}
-                          <button
-                            type="button"
-                            onClick={() => setIsActionFormOpen((open) => !open)}
-                            className={`${WORKBENCH_SECONDARY_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
-                            disabled={pendingAction !== null}
-                          >
-                            <Plus size={14} />
-                            <span>{t("tasks.addAction")}</span>
-                          </button>
+                          {isActionSortMode ? (
+                            <>
+                              <button
+                                type="button"
+                                onClick={cancelActionSortMode}
+                                className={`${WORKBENCH_SECONDARY_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                                disabled={pendingAction !== null}
+                              >
+                                {t("tasks.cancelSortingActions")}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void submitActionSortOrder()}
+                                className={`${WORKBENCH_PRIMARY_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                                disabled={pendingAction !== null}
+                              >
+                                {pendingAction === `sort-actions:${selectedTask.taskId}` ? (
+                                  <Loader2 size={14} className="animate-spin" />
+                                ) : (
+                                  <Check size={14} />
+                                )}
+                                <span>{t("tasks.finishSortingActions")}</span>
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              {visibleActions.length > 1 ? (
+                                <button
+                                  type="button"
+                                  onClick={startActionSortMode}
+                                  className={`${WORKBENCH_SECONDARY_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                                  disabled={pendingAction !== null || detailLoading}
+                                >
+                                  <GripVertical size={14} />
+                                  <span>{t("tasks.sortActions")}</span>
+                                </button>
+                              ) : null}
+                              <button
+                                type="button"
+                                onClick={() => setIsActionFormOpen((open) => !open)}
+                                className={`${WORKBENCH_SECONDARY_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                                disabled={pendingAction !== null}
+                              >
+                                <Plus size={14} />
+                                <span>{t("tasks.addAction")}</span>
+                              </button>
+                            </>
+                          )}
                         </div>
                       </div>
-                      {isActionFormOpen ? (
+                      {isActionFormOpen && !isActionSortMode ? (
                         <form
                           onSubmit={submitNewAction}
                           className={`${taskSoftPanelClass} mb-3 grid gap-2 p-3`}
@@ -1021,17 +1227,6 @@ export default function TasksPage({
                             rows={2}
                             className={`min-h-20 px-2.5 py-2 ${WORKBENCH_FIELD_CLASS} ${TYPOGRAPHY_BODY_CLASS}`}
                           />
-                          <label
-                            className={`grid gap-1 ${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#646A73]`}
-                          >
-                            {t("tasks.optionalWakeupAt")}
-                            <input
-                              type="datetime-local"
-                              value={newActionWakeupAt}
-                              onChange={(event) => setNewActionWakeupAt(event.target.value)}
-                              className={`h-10 px-2.5 ${WORKBENCH_FIELD_CLASS} ${TYPOGRAPHY_BODY_CLASS}`}
-                            />
-                          </label>
                           <div className="flex flex-wrap justify-end gap-2">
                             <button
                               type="button"
@@ -1063,46 +1258,107 @@ export default function TasksPage({
                         </div>
                       ) : null}
                       <div className="grid gap-0">
-                        {visibleActions.map((action) => (
-                          <div key={action.actionId} className={taskTimelineItemClass}>
+                        {visibleActions.map((action, index) => (
+                          <div
+                            key={action.actionId}
+                            draggable={isActionSortMode}
+                            onDragStart={(event) => handleActionDragStart(event, action.actionId)}
+                            onDragOver={handleActionDragOver}
+                            onDrop={(event) => handleActionDrop(event, index)}
+                            onDragEnd={() => setDraggingActionId(null)}
+                            className={`${taskTimelineItemClass} ${
+                              isActionSortMode
+                                ? "rounded-lg border border-[#DEE0E3] bg-[#F8F9FA] py-2 pr-2 transition-colors"
+                                : ""
+                            } ${draggingActionId === action.actionId ? "opacity-60" : ""}`}
+                          >
                             <div className="flex min-w-0 items-start justify-between gap-2">
                               <div className="flex min-w-0 items-center gap-2">
-                                {action.status === "completed" ? (
-                                  <CheckCircle2 size={15} className="shrink-0 text-[#16845B]" />
-                                ) : action.status === "waiting_user" ? (
-                                  <Clock3 size={15} className="shrink-0 text-[#8B5E00]" />
-                                ) : action.status === "blocked" ? (
-                                  <AlertTriangle size={15} className="shrink-0 text-[#B42318]" />
-                                ) : (
-                                  <CircleDot size={15} className="shrink-0 text-[#1456F0]" />
-                                )}
-                                <span className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} truncate`}>
-                                  {action.title}
-                                </span>
+                                {isActionSortMode ? (
+                                  <span
+                                    aria-label={t("tasks.actionSortHandle")}
+                                    title={t("tasks.actionSortHandle")}
+                                    className="inline-flex h-7 w-7 shrink-0 cursor-grab items-center justify-center rounded-lg text-[#8F959E] active:cursor-grabbing"
+                                  >
+                                    <GripVertical size={15} />
+                                  </span>
+                                ) : null}
+                                <div className="flex min-w-0 items-center gap-2">
+                                  {action.status === "completed" ? (
+                                    <CheckCircle2 size={15} className="shrink-0 text-[#16845B]" />
+                                  ) : action.status === "waiting_user" ? (
+                                    <Clock3 size={15} className="shrink-0 text-[#8B5E00]" />
+                                  ) : action.status === "blocked" ? (
+                                    <AlertTriangle size={15} className="shrink-0 text-[#B42318]" />
+                                  ) : (
+                                    <CircleDot size={15} className="shrink-0 text-[#1456F0]" />
+                                  )}
+                                  <span className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} truncate`}>
+                                    {action.title}
+                                  </span>
+                                </div>
                               </div>
                               <div className="flex shrink-0 items-center gap-1.5">
-                                <button
-                                  type="button"
-                                  onClick={() => openTriggerForm(action)}
-                                  className={`${WORKBENCH_SECONDARY_BUTTON_CLASS} h-7 px-2 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}
-                                  disabled={pendingAction !== null}
-                                >
-                                  <Clock3 size={12} />
-                                  <span>{t("tasks.addTrigger")}</span>
-                                </button>
-                                <span
-                                  className={`${statusClass(action.status)} ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}
-                                >
-                                  {statusLabel(action.status, t)}
-                                </span>
+                                {isActionSortMode ? (
+                                  <>
+                                    <span
+                                      className={`${TYPOGRAPHY_MICRO_MEDIUM_CLASS} shrink-0 rounded-md border border-[#DEE0E3] bg-white px-1.5 py-0.5 text-[#646A73]`}
+                                    >
+                                      {t("tasks.actionSortPosition", {
+                                        current: index + 1,
+                                        total: visibleActions.length,
+                                      })}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      aria-label={t("tasks.moveActionUp")}
+                                      title={t("tasks.moveActionUp")}
+                                      onClick={() => moveDraftAction(action.actionId, -1)}
+                                      className="inline-flex h-7 shrink-0 items-center justify-center gap-1 rounded-lg border border-[#DEE0E3] bg-white px-2 text-[#2B2F36] transition-colors hover:bg-[#F8F9FA] disabled:cursor-not-allowed disabled:opacity-40"
+                                      disabled={pendingAction !== null || index === 0}
+                                    >
+                                      <ChevronUp size={13} />
+                                      <span className={TYPOGRAPHY_MICRO_MEDIUM_CLASS}>
+                                        {t("tasks.moveActionUpShort")}
+                                      </span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      aria-label={t("tasks.moveActionDown")}
+                                      title={t("tasks.moveActionDown")}
+                                      onClick={() => moveDraftAction(action.actionId, 1)}
+                                      className="inline-flex h-7 shrink-0 items-center justify-center gap-1 rounded-lg border border-[#DEE0E3] bg-white px-2 text-[#2B2F36] transition-colors hover:bg-[#F8F9FA] disabled:cursor-not-allowed disabled:opacity-40"
+                                      disabled={
+                                        pendingAction !== null ||
+                                        index === visibleActions.length - 1
+                                      }
+                                    >
+                                      <ChevronDown size={13} />
+                                      <span className={TYPOGRAPHY_MICRO_MEDIUM_CLASS}>
+                                        {t("tasks.moveActionDownShort")}
+                                      </span>
+                                    </button>
+                                  </>
+                                ) : (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() => openTriggerForm(action)}
+                                      className={`${WORKBENCH_SECONDARY_BUTTON_CLASS} h-7 px-2 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}
+                                      disabled={pendingAction !== null}
+                                    >
+                                      <Clock3 size={12} />
+                                      <span>{t("tasks.addTrigger")}</span>
+                                    </button>
+                                    <span
+                                      className={`${statusClass(action.status)} ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}
+                                    >
+                                      {statusLabel(action.status, t)}
+                                    </span>
+                                  </>
+                                )}
                               </div>
                             </div>
-                            {action.nextWakeupAt ? (
-                              <div className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
-                                {t("tasks.plannedAt")}:{" "}
-                                {formatDate(action.nextWakeupAt, locale, t("tasks.unknown"))}
-                              </div>
-                            ) : null}
                             {actionFollowUpText(action, t) || action.lastRunId ? (
                               <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
                                 {actionFollowUpText(action, t) ? (
@@ -1167,19 +1423,6 @@ export default function TasksPage({
                                 ))}
                               </select>
                             </label>
-                            <input
-                              value={newTriggerTitle}
-                              onChange={(event) => setNewTriggerTitle(event.target.value)}
-                              placeholder={t("tasks.triggerTitlePlaceholder")}
-                              className={`h-10 px-2.5 ${WORKBENCH_FIELD_CLASS} ${TYPOGRAPHY_BODY_CLASS}`}
-                            />
-                            <textarea
-                              value={newTriggerPrompt}
-                              onChange={(event) => setNewTriggerPrompt(event.target.value)}
-                              placeholder={t("tasks.triggerPromptPlaceholder")}
-                              rows={2}
-                              className={`min-h-20 px-2.5 py-2 ${WORKBENCH_FIELD_CLASS} ${TYPOGRAPHY_BODY_CLASS}`}
-                            />
                             <label
                               className={`grid gap-1 ${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#646A73]`}
                             >
@@ -1281,6 +1524,11 @@ export default function TasksPage({
                               <div className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
                                 {triggerRunProgressText(trigger, t)}
                               </div>
+                              {trigger.last_error ? (
+                                <div className={`${TYPOGRAPHY_META_CLASS} text-[#B42318]`}>
+                                  {t("tasks.lastError")}: {trigger.last_error}
+                                </div>
+                              ) : null}
                               <button
                                 type="button"
                                 onClick={() => void runTriggerOperation(trigger)}
@@ -1364,7 +1612,7 @@ export default function TasksPage({
               ) : (
                 <div className={`px-4 py-10 text-center ${TYPOGRAPHY_BODY_CLASS} text-[#646A73]`}>
                   {loading ? <Loader2 size={18} className="mx-auto mb-2 animate-spin" /> : null}
-                  {loading ? t("tasks.loading") : t("tasks.noTasks")}
+                  {loading ? t("tasks.loading") : emptyTaskMessage}
                 </div>
               )}
             </section>

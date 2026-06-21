@@ -482,6 +482,7 @@ export interface TaskActionInfo {
   lastRunId?: string | null;
   lastError?: string | null;
   waitingReason?: string | null;
+  sequenceIndex?: number | null;
   createdAt?: string | null;
   updatedAt?: string | null;
 }

@@ -1252,10 +1252,21 @@ async function testTaskApisUseExpectedBackendShape() {
       }
 
       if (url.pathname.endsWith("/actions")) {
-        return new Response(JSON.stringify(taskResponse.actions[0]), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        });
+        return new Response(
+          JSON.stringify({
+            action: {
+              ...taskResponse.actions[0],
+              action_id: "act/created",
+              kind: "waiting_user",
+              title: "等用户确认",
+              due_at: "2026-06-18T09:00:00.000Z",
+            },
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }
+        );
       }
 
       if (url.pathname === "/v1/tasks") {
@@ -1298,16 +1309,17 @@ async function testTaskApisUseExpectedBackendShape() {
           await createTaskAction("task/with space", {
             title: "等用户确认",
             kind: "waiting_user",
-            nextWakeupAt: "2026-06-18T09:00:00.000Z",
+            nextWakeupAt: "2026-06-18T09:00",
           })
         ).title,
-        "生成报价"
+        "等用户确认"
       );
       assert.equal(
         (
           await updateTaskAction("task/with space", "act/1", {
             status: "completed",
             resultSummary: "已完成报价草案。",
+            sequenceIndex: 2,
           })
         ).action.resultSummary,
         "已完成报价草案。"
@@ -1330,14 +1342,20 @@ async function testTaskApisUseExpectedBackendShape() {
       "PATCH /v1/tasks/task%2Fwith%20space/actions/act%2F1",
     ]
   );
-  assert.deepEqual(requests[8]?.body, {
-    title: "等用户确认",
-    kind: "waiting_user",
-    next_wakeup_at: "2026-06-18T09:00:00.000Z",
-  });
+  assert.equal((requests[8]?.body as Record<string, unknown>)?.title, "等用户确认");
+  assert.equal((requests[8]?.body as Record<string, unknown>)?.kind, "waiting_user");
+  assert.notEqual(
+    (requests[8]?.body as Record<string, unknown>)?.next_wakeup_at,
+    "2026-06-18T09:00"
+  );
+  assert.match(
+    String((requests[8]?.body as Record<string, unknown>)?.next_wakeup_at),
+    /^2026-06-18T\d{2}:00:00\.000Z$/
+  );
   assert.deepEqual(requests[9]?.body, {
     status: "completed",
     result_summary: "已完成报价草案。",
+    sequence_index: 2,
   });
 }
 

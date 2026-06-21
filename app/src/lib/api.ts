@@ -189,6 +189,7 @@ export interface TaskActionUpdateInput {
   resultSummary?: string | null;
   lastError?: string | null;
   waitingReason?: string | null;
+  sequenceIndex?: number | null;
 }
 
 export interface TaskDetailResponse {
@@ -363,6 +364,17 @@ function taskTriggerInputForRequest<T extends TaskTriggerCreateInput>(input: T):
   return { ...input, run_at: runAt };
 }
 
+function normalizeTaskActionWakeupAtForRequest(
+  value: string | null | undefined
+): string | null | undefined {
+  if (typeof value !== "string") return value;
+  const trimmed = value.trim();
+  if (!trimmed || hasDatetimeOffset(trimmed)) return value;
+  const parsed = new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toISOString();
+}
+
 function taskActionInputForRequest(
   input: TaskActionCreateInput | TaskActionUpdateInput
 ): Record<string, unknown> {
@@ -376,7 +388,7 @@ function taskActionInputForRequest(
     body.requires_confirmation = input.requiresConfirmation;
   }
   if ("nextWakeupAt" in input && input.nextWakeupAt !== undefined) {
-    body.next_wakeup_at = input.nextWakeupAt;
+    body.next_wakeup_at = normalizeTaskActionWakeupAtForRequest(input.nextWakeupAt);
   }
   if ("resultSummary" in input && input.resultSummary !== undefined) {
     body.result_summary = input.resultSummary;
@@ -384,6 +396,9 @@ function taskActionInputForRequest(
   if ("lastError" in input && input.lastError !== undefined) body.last_error = input.lastError;
   if ("waitingReason" in input && input.waitingReason !== undefined) {
     body.waiting_reason = input.waitingReason;
+  }
+  if ("sequenceIndex" in input && input.sequenceIndex !== undefined) {
+    body.sequence_index = input.sequenceIndex;
   }
   return body;
 }
@@ -611,6 +626,7 @@ interface RawTaskAction {
   last_run_id?: string | null;
   last_error?: string | null;
   waiting_reason?: string | null;
+  sequence_index?: number | null;
   created_at?: string | null;
   updated_at?: string | null;
 }
@@ -674,9 +690,19 @@ function normalizeTaskAction(raw: RawTaskAction): TaskActionInfo {
     lastRunId: raw.last_run_id ?? null,
     lastError: raw.last_error ?? null,
     waitingReason: raw.waiting_reason ?? null,
+    sequenceIndex: raw.sequence_index ?? null,
     createdAt: raw.created_at ?? null,
     updatedAt: raw.updated_at ?? null,
   };
+}
+
+function normalizeTaskActionResponse(
+  raw: RawTaskAction | { action?: RawTaskAction }
+): TaskActionInfo {
+  if ("action" in raw && raw.action) {
+    return normalizeTaskAction(raw.action);
+  }
+  return normalizeTaskAction(raw as RawTaskAction);
 }
 
 function normalizeTaskEvent(raw: RawTaskEvent): TaskEventInfo {
@@ -900,7 +926,9 @@ export async function createTaskAction(
     const detail = await responseDetail(res);
     throw new Error(detail || `Failed to create task action (${res.status})`);
   }
-  return normalizeTaskAction((await res.json()) as RawTaskAction);
+  return normalizeTaskActionResponse(
+    (await res.json()) as RawTaskAction | { action?: RawTaskAction }
+  );
 }
 
 export async function updateTaskAction(

@@ -118,7 +118,7 @@ assert.match(stylePrimitivesSource, /WORKBENCH_TEXT_TERTIARY = "#8F959E"/);
 assert.match(stylePrimitivesSource, /WORKBENCH_BORDER_2 = "#DEE0E3"/);
 assert.match(stylePrimitivesSource, /WORKBENCH_PAGE_CONTENT_CLASS = "mx-auto w-full max-w-7xl"/);
 
-const sharedWidthPageSources = ["./FilesPage.tsx", "./SkillsPage.tsx", "./ConnectorsPage.tsx"];
+const sharedWidthPageSources = ["./FilesPage.tsx", "./SkillsPage.tsx"];
 
 for (const sourcePath of sharedWidthPageSources) {
   const source = readFileSync(new URL(sourcePath, import.meta.url), "utf8");
@@ -150,7 +150,6 @@ const mobileReadableSources = [
   "./WorkspaceFolderPicker.tsx",
   "./WorkspaceNav.tsx",
   "./SkillsPage.tsx",
-  "./ConnectorsPage.tsx",
   "./SettingsPage.tsx",
   "../WorkspaceExplorer.tsx",
 ];

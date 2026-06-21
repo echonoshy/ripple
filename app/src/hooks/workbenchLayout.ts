@@ -75,7 +75,7 @@ export function shouldEnableAndroidChatBackGesture({
 }): boolean {
   const isMobileChatBackGestureActive = activeView === "sessions" && mobileSessionMode === "chat";
   const isMobileSkillsBackGestureActive =
-    (activeView === "skills" || activeView === "connectors") && isSkillsMobileBackGestureActive;
+    activeView === "skills" && isSkillsMobileBackGestureActive;
   return (
     authState === "authenticated" &&
     (isMobileChatBackGestureActive || isMobileSkillsBackGestureActive) &&

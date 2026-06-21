@@ -29,7 +29,6 @@ const mobileNavLabelKeys: Record<WorkspaceView, MessageKey> = {
   tasks: "nav.tasks",
   files: "nav.files",
   skills: "nav.skills",
-  connectors: "nav.connectors",
   home: "nav.settings",
 };
 

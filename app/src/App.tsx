@@ -79,7 +79,6 @@ import {
 
 const TasksPage = lazy(() => import("@/components/workbench/TasksPage"));
 const FilesPage = lazy(() => import("@/components/workbench/FilesPage"));
-const ConnectorsPage = lazy(() => import("@/components/workbench/ConnectorsPage"));
 const InspectorPanel = lazy(() => import("@/components/workbench/InspectorPanel"));
 const SettingsPage = lazy(() => import("@/components/workbench/SettingsPage"));
 const SkillsPage = lazy(() => import("@/components/workbench/SkillsPage"));
@@ -1127,12 +1126,6 @@ export default function Home() {
         onConnectorStateChange={loadSessions}
         onMobileBackGestureScopeChange={setIsSkillsMobileBackGestureActive}
         resetToRootRequest={skillsResetToRootRequest}
-      />
-    ) : activeView === "connectors" ? (
-      <ConnectorsPage
-        userId={userId}
-        onConnectorStateChange={loadSessions}
-        onOpenSessionAction={handleOpenSessionAction}
       />
     ) : (
       <div className="h-full min-h-0">

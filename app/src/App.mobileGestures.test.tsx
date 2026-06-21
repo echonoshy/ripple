@@ -57,10 +57,8 @@ function testModelDropdownStateOnlyTracksComposer() {
 function testAndroidBackGestureScopeStaysInsideActiveDetailSurfaces() {
   assert.match(appSource, /useAndroidChatBackGesture\(\{/);
   assert.match(workbenchLayoutSource, /activeView === "sessions" && mobileSessionMode === "chat"/);
-  assert.match(
-    workbenchLayoutSource,
-    /\(activeView === "skills" \|\| activeView === "connectors"\) && isSkillsMobileBackGestureActive/
-  );
+  assert.match(workbenchLayoutSource, /activeView === "skills" && isSkillsMobileBackGestureActive/);
+  assert.doesNotMatch(workbenchLayoutSource, /activeView === "connectors"/);
   assert.match(workbenchLayoutSource, /setAndroidChatBackGestureEnabled\(/);
 }
 

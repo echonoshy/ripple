@@ -96,7 +96,20 @@ pub async fn update_task(
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
     let mut task = load_task(&state.storage, &user_id, &task_id).await?;
     merge_task_updates(&mut task, &input)?;
+    let actions =
+        sort_task_actions_for_execution(state.storage.list_task_actions(&user_id, &task_id).await?);
+    let trigger_records =
+        task_trigger_records_from_task_and_actions(&user_id, &task, &actions, &now_iso())?;
+    validate_enabled_task_triggers_have_source_session(&task, &trigger_records)?;
     state.storage.upsert_task(&user_id, &task).await?;
+    persist_new_task_trigger_records(&state.storage, &user_id, &task, &trigger_records).await?;
+    if let Some(status) = task
+        .get("status")
+        .and_then(Value::as_str)
+        .filter(|status| matches!(*status, "completed" | "cancelled" | "archived"))
+    {
+        disable_task_triggers_for_terminal_task(&state.storage, &user_id, &task_id, status).await?;
+    }
     append_task_event(
         &state.storage,
         &user_id,
@@ -105,8 +118,6 @@ pub async fn update_task(
         json!({"updates": input}),
     )
     .await?;
-    let actions =
-        sort_task_actions_for_execution(state.storage.list_task_actions(&user_id, &task_id).await?);
     Ok(Json(json!({
         "task": public_task_value(&state, &user_id, task),
         "actions": public_task_action_values(&state, &user_id, actions)
@@ -131,7 +142,7 @@ pub async fn cancel_task(
         json!({}),
     )
     .await?;
-    disable_task_triggers_for_terminal_task(&state.storage, &user_id, &task_id, "completed")
+    disable_task_triggers_for_terminal_task(&state.storage, &user_id, &task_id, "cancelled")
         .await?;
     let actions =
         sort_task_actions_for_execution(state.storage.list_task_actions(&user_id, &task_id).await?);
@@ -240,13 +251,12 @@ pub async fn create_task_action(
     let action = action_record_from_payload(&input, &user_id, &task_id, &task, &now, None)?;
     let trigger_records =
         task_trigger_records_from_actions(&user_id, &task, std::slice::from_ref(&action), &now)?;
+    validate_enabled_task_triggers_have_source_session(&task, &trigger_records)?;
     state
         .storage
         .upsert_task_action(&user_id, &task_id, &action)
         .await?;
-    for trigger in &trigger_records {
-        state.storage.upsert_task_trigger(&user_id, trigger).await?;
-    }
+    persist_new_task_trigger_records(&state.storage, &user_id, &task, &trigger_records).await?;
     let _ = refresh_task_progress(&state.storage, &user_id, &task_id).await?;
     append_task_event(
         &state.storage,
@@ -832,6 +842,7 @@ pub(crate) async fn create_task_from_payload(
     let actions = sort_task_actions_for_execution(actions);
     let trigger_records =
         task_trigger_records_from_task_and_actions(user_id, &task, &actions, &now)?;
+    validate_enabled_task_triggers_have_source_session(&task, &trigger_records)?;
 
     storage.upsert_task(user_id, &task).await?;
     for action in &actions {
@@ -839,9 +850,7 @@ pub(crate) async fn create_task_from_payload(
             .upsert_task_action(user_id, &task_id, action)
             .await?;
     }
-    for trigger in &trigger_records {
-        storage.upsert_task_trigger(user_id, trigger).await?;
-    }
+    persist_new_task_trigger_records(storage, user_id, &task, &trigger_records).await?;
     let task = refresh_task_progress(storage, user_id, &task_id).await?;
     append_task_event(
         storage,
@@ -884,7 +893,20 @@ async fn persist_task_update_mutation(
                 });
             let mut task = load_task(storage, user_id, task_id).await?;
             merge_task_updates(&mut task, &updates)?;
+            let actions =
+                sort_task_actions_for_execution(storage.list_task_actions(user_id, task_id).await?);
+            let trigger_records =
+                task_trigger_records_from_task_and_actions(user_id, &task, &actions, &now_iso())?;
+            validate_enabled_task_triggers_have_source_session(&task, &trigger_records)?;
             storage.upsert_task(user_id, &task).await?;
+            persist_new_task_trigger_records(storage, user_id, &task, &trigger_records).await?;
+            if let Some(status) = task
+                .get("status")
+                .and_then(Value::as_str)
+                .filter(|status| matches!(*status, "completed" | "cancelled" | "archived"))
+            {
+                disable_task_triggers_for_terminal_task(storage, user_id, task_id, status).await?;
+            }
             append_task_event(
                 storage,
                 user_id,
@@ -893,8 +915,6 @@ async fn persist_task_update_mutation(
                 json!({"updates": updates}),
             )
             .await?;
-            let actions =
-                sort_task_actions_for_execution(storage.list_task_actions(user_id, task_id).await?);
             Ok(json!({
                 "ok": true,
                 "mode": mode,
@@ -920,12 +940,11 @@ async fn persist_task_update_mutation(
                 std::slice::from_ref(&action),
                 &now,
             )?;
+            validate_enabled_task_triggers_have_source_session(&task, &trigger_records)?;
             storage
                 .upsert_task_action(user_id, task_id, &action)
                 .await?;
-            for trigger in &trigger_records {
-                storage.upsert_task_trigger(user_id, trigger).await?;
-            }
+            persist_new_task_trigger_records(storage, user_id, &task, &trigger_records).await?;
             append_task_event(
                 storage,
                 user_id,
@@ -977,6 +996,7 @@ async fn persist_task_update_mutation(
             set_task_status_internal(&mut task, "completed");
             set_field(&mut task, "updated_at", json!(now_iso()));
             storage.upsert_task(user_id, &task).await?;
+            disable_task_triggers_for_terminal_task(storage, user_id, task_id, "completed").await?;
             append_task_event(storage, user_id, task_id, "task_completed", json!({})).await?;
             let actions =
                 sort_task_actions_for_execution(storage.list_task_actions(user_id, task_id).await?);
@@ -1001,6 +1021,7 @@ async fn update_task_action_record(
     updates: &Value,
     event_hint: Option<&str>,
 ) -> Result<(Value, Value, Vec<Value>), ApiError> {
+    let task_for_triggers = load_task(storage, user_id, task_id).await?;
     let mut action = load_task_action(storage, user_id, task_id, action_id).await?;
     let previous_status = action
         .get("status")
@@ -1008,8 +1029,17 @@ async fn update_task_action_record(
         .unwrap_or("confirmed")
         .to_string();
     merge_task_action_updates(&mut action, updates)?;
+    let trigger_records = task_trigger_records_from_actions(
+        user_id,
+        &task_for_triggers,
+        std::slice::from_ref(&action),
+        &now_iso(),
+    )?;
+    validate_enabled_task_triggers_have_source_session(&task_for_triggers, &trigger_records)?;
     storage
         .upsert_task_action(user_id, task_id, &action)
+        .await?;
+    persist_new_task_trigger_records(storage, user_id, &task_for_triggers, &trigger_records)
         .await?;
     let new_status = action
         .get("status")
@@ -1589,6 +1619,81 @@ fn task_trigger_records_from_actions(
         }
     }
     Ok(records)
+}
+
+fn task_has_source_session(task: &Value) -> bool {
+    task.get("source_session_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .is_some_and(|value| !value.is_empty())
+}
+
+fn validate_enabled_task_triggers_have_source_session(
+    task: &Value,
+    triggers: &[Value],
+) -> Result<(), ApiError> {
+    if triggers.iter().any(|trigger| {
+        trigger
+            .get("enabled")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+    }) && !task_has_source_session(task)
+    {
+        return Err(ApiError::bad_request(
+            "Enabled task trigger requires source_session_id",
+        ));
+    }
+    Ok(())
+}
+
+async fn persist_new_task_trigger_records(
+    storage: &Storage,
+    user_id: &str,
+    task: &Value,
+    records: &[Value],
+) -> Result<(), ApiError> {
+    validate_enabled_task_triggers_have_source_session(task, records)?;
+    if records.is_empty() {
+        return Ok(());
+    }
+    let existing = storage.list_task_triggers(user_id).await?;
+    for record in records {
+        if existing
+            .iter()
+            .any(|stored| task_trigger_record_has_same_id(stored, record))
+        {
+            storage.upsert_task_trigger(user_id, record).await?;
+            continue;
+        }
+        if existing
+            .iter()
+            .any(|stored| task_trigger_record_matches_identity(stored, record))
+        {
+            continue;
+        }
+        storage.upsert_task_trigger(user_id, record).await?;
+    }
+    Ok(())
+}
+
+fn task_trigger_record_has_same_id(existing: &Value, record: &Value) -> bool {
+    existing.get("trigger_id").and_then(Value::as_str)
+        == record.get("trigger_id").and_then(Value::as_str)
+}
+
+fn task_trigger_record_matches_identity(existing: &Value, record: &Value) -> bool {
+    const KEYS: &[&str] = &[
+        "task_id",
+        "task_action_id",
+        "title",
+        "prompt",
+        "kind",
+        "timezone",
+        "run_at",
+        "interval_seconds",
+    ];
+    KEYS.iter()
+        .all(|key| existing.get(*key) == record.get(*key))
 }
 
 fn task_trigger_values(task: &Value) -> Vec<&Value> {
@@ -2171,6 +2276,13 @@ async fn execute_task_action_inner(
         .and_then(Value::as_str)
         .ok_or_else(|| ApiError::bad_request("Task action missing action_id"))?
         .to_string();
+
+    let workspace_root = state.sandboxes.ensure_sandbox(user_id)?;
+    let runtime_dir = state.sandboxes.session_dir(user_id, &session_id)?;
+    let max_runtime_seconds = trigger
+        .and_then(|trigger| trigger.max_runtime_seconds)
+        .unwrap_or(state.config.codex.max_runtime_seconds);
+    assert_can_create_run(state, user_id, max_runtime_seconds).await?;
     let (task, action, _) = update_task_action_record(
         &state.storage,
         user_id,
@@ -2180,18 +2292,11 @@ async fn execute_task_action_inner(
         Some("start_action"),
     )
     .await?;
-
-    let workspace_root = state.sandboxes.ensure_sandbox(user_id)?;
-    let runtime_dir = state.sandboxes.session_dir(user_id, &session_id)?;
     let trigger_prompt = trigger
         .and_then(|trigger| trigger.prompt.as_deref())
         .map(str::trim)
         .filter(|value| !value.is_empty());
     let prompt = task_run_prompt(&task, &action, trigger_prompt);
-    let max_runtime_seconds = trigger
-        .and_then(|trigger| trigger.max_runtime_seconds)
-        .unwrap_or(state.config.codex.max_runtime_seconds);
-    assert_can_create_run(state, user_id, max_runtime_seconds).await?;
     let selected_model = trigger
         .and_then(|trigger| trigger.model.as_deref())
         .map(str::trim)
@@ -2238,7 +2343,7 @@ async fn execute_task_action_inner(
         chat_user_input: Some(prompt.clone()),
         chat_user_content: None,
     };
-    let info = state
+    let info = match state
         .jobs
         .start(
             create,
@@ -2248,12 +2353,42 @@ async fn execute_task_action_inner(
             runtime_dir,
         )
         .await
-        .map_err(|err| ApiError::bad_request(err.to_string()))?;
+    {
+        Ok(info) => info,
+        Err(err) => {
+            let message = err.to_string();
+            let _ = update_task_action_record(
+                &state.storage,
+                user_id,
+                task_id,
+                &action_id,
+                &json!({
+                    "status": "blocked",
+                    "last_error": message
+                }),
+                Some("block_action"),
+            )
+            .await;
+            return Err(ApiError::bad_request(message));
+        }
+    };
     session.set_status(SessionStatus::Running);
-    state
-        .sessions
-        .save_record_if_exists(session.clone())
-        .await?;
+    if let Err(err) = state.sessions.save_record_if_exists(session.clone()).await {
+        let message = format!("{err:?}");
+        let _ = update_task_action_record(
+            &state.storage,
+            user_id,
+            task_id,
+            &action_id,
+            &json!({
+                "status": "blocked",
+                "last_error": message
+            }),
+            Some("block_action"),
+        )
+        .await;
+        return Err(err.into());
+    }
     append_task_event(
         &state.storage,
         user_id,
@@ -2266,7 +2401,7 @@ async fn execute_task_action_inner(
     )
     .await?;
 
-    let final_info = wait_for_task_run(
+    let final_info = match wait_for_task_run(
         state,
         user_id,
         task_id,
@@ -2274,7 +2409,29 @@ async fn execute_task_action_inner(
         &info.job_id,
         max_runtime_seconds,
     )
-    .await?;
+    .await
+    {
+        Ok(info) => info,
+        Err(err) => {
+            let message = format!("{err:?}");
+            let _ = update_task_action_record(
+                &state.storage,
+                user_id,
+                task_id,
+                &action_id,
+                &json!({
+                    "status": "blocked",
+                    "last_run_id": info.job_id,
+                    "last_error": message
+                }),
+                Some("block_action"),
+            )
+            .await;
+            session.set_status(SessionStatus::Failed);
+            let _ = state.sessions.save_record_if_exists(session).await;
+            return Err(err);
+        }
+    };
     let output_text = read_run_output(&final_info).await;
     record_codex_thread(&mut session, &final_info);
     session.set_status(match final_info.status.as_str() {

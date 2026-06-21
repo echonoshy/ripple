@@ -220,6 +220,11 @@ pub async fn create_task_action_trigger(
         .iter()
         .find(|action| action.get("action_id").and_then(Value::as_str) == Some(action_id.as_str()))
         .ok_or_else(|| ApiError::not_found("Task action not found"))?;
+    if input.enabled && !task_has_source_session(&task) {
+        return Err(ApiError::bad_request(
+            "Enabled task trigger requires source_session_id",
+        ));
+    }
     let enable_on_confirm = input.enabled;
     let needs_confirmation = task.get("status").and_then(Value::as_str) == Some("candidate")
         || task
@@ -269,6 +274,11 @@ pub async fn create_task_trigger(
         .get_task(&user_id, &task_id)
         .await?
         .ok_or_else(|| ApiError::not_found("Task not found"))?;
+    if input.enabled && !task_has_source_session(&task) {
+        return Err(ApiError::bad_request(
+            "Enabled task trigger requires source_session_id",
+        ));
+    }
     let enable_on_confirm = input.enabled;
     let needs_confirmation = task.get("status").and_then(Value::as_str) == Some("candidate")
         || task
@@ -385,7 +395,9 @@ pub async fn run_task_trigger_now(
         }
     };
     apply_latest_run_to_task_trigger(&mut record, Some(&info));
-    if task_trigger_target_completed(&state, &user_id, &record).await? {
+    if info.status != "completed" {
+        apply_failed_task_trigger_run(&mut record, &info, now)?;
+    } else if task_trigger_target_completed(&state, &user_id, &record).await? {
         record.enabled = false;
         record.status = "completed".to_string();
         record.next_run_at = None;
@@ -483,6 +495,12 @@ pub async fn trigger_due_task_triggers(
         match info {
             Ok(info) => {
                 apply_latest_run_to_task_trigger(&mut record, Some(&info));
+                if info.status != "completed" {
+                    apply_failed_task_trigger_run(&mut record, &info, now)?;
+                    record.updated_at = iso(now);
+                    persist_task_trigger_record(state, &user_id, &record).await?;
+                    continue;
+                }
                 record.run_count += 1;
                 if record.kind == "once"
                     || task_trigger_limit_reached(&record)
@@ -876,6 +894,28 @@ fn apply_latest_run_to_task_trigger(
     *record != before
 }
 
+fn apply_failed_task_trigger_run(
+    record: &mut TaskTriggerRecord,
+    info: &AgentRunInfo,
+    now: OffsetDateTime,
+) -> Result<(), ApiError> {
+    let summary = run_failure_summary(info);
+    record.last_error = Some(summary.clone());
+    record.failure_reason = Some(summary);
+    record.last_run_status = Some(info.status.clone());
+    if record.kind == "interval" && record.failure_policy == "keep_active" && record.enabled {
+        record.status = "active".to_string();
+        record.next_run_at = advance_next_run_at(record, now)?;
+    } else {
+        if record.failure_policy == "pause" {
+            record.enabled = false;
+        }
+        record.status = "error".to_string();
+        record.next_run_at = None;
+    }
+    Ok(())
+}
+
 fn run_timestamp(run: &AgentRunInfo) -> String {
     if !run.updated_at.trim().is_empty() {
         return run.updated_at.clone();
@@ -1161,6 +1201,13 @@ fn default_overlap_policy() -> String {
 
 fn default_failure_policy() -> String {
     "pause".to_string()
+}
+
+fn task_has_source_session(task: &Value) -> bool {
+    task.get("source_session_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .is_some_and(|value| !value.is_empty())
 }
 
 #[cfg(test)]

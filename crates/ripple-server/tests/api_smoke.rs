@@ -422,6 +422,36 @@ fn complete_turn(thread_id: &str, turn_id: &str, item_id: &str, text: &str) {
     ));
 }
 
+fn fail_turn(thread_id: &str, turn_id: &str, item_id: &str, text: &str) {
+    let text_json = json_string(text);
+    send(format!(
+        "{{\"method\":\"item/started\",\"params\":{{\"threadId\":{},\"turnId\":{},\"item\":{{\"id\":{},\"type\":\"agentMessage\",\"phase\":\"final\"}}}}}}",
+        json_string(thread_id),
+        json_string(turn_id),
+        json_string(item_id)
+    ));
+    send(format!(
+        "{{\"method\":\"item/agentMessage/delta\",\"params\":{{\"threadId\":{},\"turnId\":{},\"itemId\":{},\"delta\":{}}}}}",
+        json_string(thread_id),
+        json_string(turn_id),
+        json_string(item_id),
+        text_json
+    ));
+    send(format!(
+        "{{\"method\":\"item/completed\",\"params\":{{\"threadId\":{},\"turnId\":{},\"item\":{{\"id\":{},\"type\":\"agentMessage\",\"phase\":\"final\",\"text\":{}}}}}}}",
+        json_string(thread_id),
+        json_string(turn_id),
+        json_string(item_id),
+        text_json
+    ));
+    send(format!(
+        "{{\"method\":\"turn/completed\",\"params\":{{\"threadId\":{},\"turnId\":{},\"turn\":{{\"id\":{},\"status\":\"failed\"}}}}}}",
+        json_string(thread_id),
+        json_string(turn_id),
+        json_string(turn_id)
+    ));
+}
+
 fn emit_runtime_events(thread_id: &str, turn_id: &str) {
     let thread_id = json_string(thread_id);
     let turn_id = json_string(turn_id);
@@ -624,6 +654,11 @@ fn main() {
                         json_string(&thread_id),
                         json_string(&turn_id)
                     ));
+                    continue;
+                }
+
+                if line.contains("[fail]") {
+                    fail_turn(&thread_id, &turn_id, &item_id, "fake codex failed");
                     continue;
                 }
 
@@ -2274,6 +2309,19 @@ async fn action_trigger_endpoint_respects_candidate_confirmation_gate() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let (_state, app) = test_state_and_app(&root);
 
+    let (status, session) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/sessions",
+        json!({"model": "codex-test"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let session_id = session
+        .get("session_id")
+        .and_then(Value::as_str)
+        .expect("session id");
+
     let (status, created) = call(
         app.clone(),
         Method::POST,
@@ -2284,6 +2332,7 @@ async fn action_trigger_endpoint_respects_candidate_confirmation_gate() {
             "objective": "根据历史会话推测可能要检查合同。",
             "status": "candidate",
             "requires_confirmation": true,
+            "source_session_id": session_id,
             "actions": [
                 {
                     "action_id": "act-endpoint-candidate",
@@ -2396,6 +2445,19 @@ async fn deleting_task_removes_task_linked_triggers() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let (state, app) = test_state_and_app(&root);
 
+    let (status, session) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/sessions",
+        json!({"model": "codex-test"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let session_id = session
+        .get("session_id")
+        .and_then(Value::as_str)
+        .expect("session id");
+
     let (status, created) = call(
         app.clone(),
         Method::POST,
@@ -2405,6 +2467,7 @@ async fn deleting_task_removes_task_linked_triggers() {
             "title": "删除时清理触发器",
             "objective": "删除任务时应清理关联触发器。",
             "status": "active",
+            "source_session_id": session_id,
             "actions": [
                 {
                     "action_id": "act-delete-trigger",
@@ -3474,7 +3537,7 @@ async fn cancelling_task_disables_task_triggers() {
     assert_eq!(trigger.get("enabled").and_then(Value::as_bool), Some(false));
     assert_eq!(
         trigger.get("status").and_then(Value::as_str),
-        Some("completed")
+        Some("cancelled")
     );
     assert!(trigger.get("next_run_at").map_or(true, Value::is_null));
 
@@ -3485,6 +3548,239 @@ async fn cancelling_task_disables_task_triggers() {
         triggered.get("smoke-user").map_or(true, Vec::is_empty),
         "{triggered:?}"
     );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn enabled_task_trigger_requires_source_session() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let (_state, app) = test_state_and_app(&root);
+
+    let (status, created) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/tasks",
+        json!({
+            "task_id": "task-trigger-without-session",
+            "title": "缺少来源 session",
+            "objective": "没有来源 session 的 task 不应创建可执行 trigger。",
+            "status": "active",
+            "actions": [
+                {
+                    "action_id": "act-without-session",
+                    "title": "执行一次",
+                    "kind": "execute",
+                    "status": "confirmed"
+                }
+            ]
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+
+    let (status, trigger) = call(
+        app,
+        Method::POST,
+        "/v1/tasks/task-trigger-without-session/actions/act-without-session/triggers",
+        json!({
+            "title": "不可执行 trigger",
+            "prompt": "should be rejected",
+            "kind": "once",
+            "run_at": "2020-01-01T00:00:00Z",
+            "enabled": true
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{trigger}");
+    assert!(
+        trigger.to_string().contains("source_session_id"),
+        "{trigger}"
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn updating_action_with_embedded_trigger_persists_task_trigger() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let (_state, app) = test_state_and_app(&root);
+
+    let (status, session) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/sessions",
+        json!({"model": "codex-test"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let session_id = session
+        .get("session_id")
+        .and_then(Value::as_str)
+        .expect("session id");
+
+    let (status, created) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/tasks",
+        json!({
+            "task_id": "task-action-update-trigger",
+            "title": "更新 action trigger",
+            "objective": "action 更新里的 trigger 也需要落到 task_triggers。",
+            "status": "active",
+            "source_session_id": session_id,
+            "actions": [
+                {
+                    "action_id": "act-action-update-trigger",
+                    "title": "等待补充触发器",
+                    "kind": "execute",
+                    "status": "confirmed"
+                }
+            ]
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+
+    let (status, updated) = call(
+        app.clone(),
+        Method::PATCH,
+        "/v1/tasks/task-action-update-trigger/actions/act-action-update-trigger",
+        json!({
+            "trigger": {
+                "title": "明早提醒执行",
+                "prompt": "run this action tomorrow",
+                "kind": "once",
+                "run_at": "2026-06-19T02:00:00Z",
+                "enabled": true
+            }
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{updated}");
+
+    let (status, triggers) = call(
+        app,
+        Method::GET,
+        "/v1/tasks/task-action-update-trigger/triggers",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{triggers}");
+    let items = triggers
+        .get("triggers")
+        .and_then(Value::as_array)
+        .expect("trigger list");
+    assert_eq!(items.len(), 1, "{triggers}");
+    assert_eq!(
+        items[0].get("task_id").and_then(Value::as_str),
+        Some("task-action-update-trigger"),
+        "{triggers}"
+    );
+    assert_eq!(
+        items[0].get("task_action_id").and_then(Value::as_str),
+        Some("act-action-update-trigger"),
+        "{triggers}"
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn failed_task_trigger_run_is_not_marked_completed() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+
+    let (status, session) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/sessions",
+        json!({"model": "codex-test"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let session_id = session
+        .get("session_id")
+        .and_then(Value::as_str)
+        .expect("session id");
+
+    let (status, created) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/tasks",
+        json!({
+            "task_id": "task-trigger-fail",
+            "title": "失败触发器",
+            "objective": "底层 Codex run 失败时 trigger 不能被标成 completed。",
+            "status": "active",
+            "source_session_id": session_id,
+            "actions": [
+                {
+                    "action_id": "act-trigger-fail",
+                    "title": "会失败的执行",
+                    "kind": "execute",
+                    "status": "confirmed"
+                }
+            ]
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+
+    let (status, trigger) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/tasks/task-trigger-fail/actions/act-trigger-fail/triggers",
+        json!({
+            "title": "失败一次",
+            "prompt": "[fail] fail this run",
+            "kind": "once",
+            "run_at": "2020-01-01T00:00:00Z",
+            "enabled": true
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{trigger}");
+    let trigger_id = trigger
+        .get("trigger_id")
+        .and_then(Value::as_str)
+        .expect("trigger id")
+        .to_string();
+
+    let triggered = trigger_due_task_triggers(&state)
+        .await
+        .expect("trigger due task triggers");
+    assert!(
+        triggered.get("smoke-user").map_or(true, Vec::is_empty),
+        "{triggered:?}"
+    );
+
+    let (status, triggers) = call(
+        app,
+        Method::GET,
+        "/v1/tasks/task-trigger-fail/triggers",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{triggers}");
+    let item = triggers
+        .get("triggers")
+        .and_then(Value::as_array)
+        .and_then(|items| {
+            items
+                .iter()
+                .find(|item| item.get("trigger_id").and_then(Value::as_str) == Some(&trigger_id))
+        })
+        .expect("failed trigger");
+    assert_eq!(item.get("status").and_then(Value::as_str), Some("error"));
+    assert_eq!(
+        item.get("last_run_status").and_then(Value::as_str),
+        Some("failed")
+    );
+    assert_eq!(item.get("enabled").and_then(Value::as_bool), Some(false));
+    assert_eq!(item.get("run_count").and_then(Value::as_u64), Some(0));
 
     let _ = std::fs::remove_dir_all(root);
 }

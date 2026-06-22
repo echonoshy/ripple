@@ -70,6 +70,8 @@ where
     let task_trigger_task = tokio::spawn(services::task_triggers::task_trigger_loop(state.clone()));
     let task_action_task = tokio::spawn(services::tasks::task_action_trigger_loop(state.clone()));
     let session_maintenance_task = tokio::spawn(state.sessions.clone().maintenance_loop());
+    let codex_log_cleanup_task =
+        tokio::spawn(codex::log_cleanup::maintenance_loop(state.config.clone()));
     let app = router(state)
         .layer(cors_layer(&config))
         .layer(TraceLayer::new_for_http());
@@ -81,6 +83,7 @@ where
     task_trigger_task.abort();
     task_action_task.abort();
     session_maintenance_task.abort();
+    codex_log_cleanup_task.abort();
     result?;
     Ok(())
 }

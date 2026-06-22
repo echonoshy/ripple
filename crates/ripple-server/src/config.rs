@@ -5,6 +5,9 @@ use serde::Deserialize;
 
 pub const DEFAULT_CODEX_MAX_WORKERS_PER_POOL: usize = 8;
 pub const DEFAULT_CODEX_MAX_TOTAL_POOL_WORKERS: usize = 256;
+pub const DEFAULT_CODEX_RUNTIME_LOG_RETENTION_SECONDS: u64 = 24 * 60 * 60;
+pub const DEFAULT_CODEX_RUNTIME_LOG_MAX_MB: u64 = 64;
+pub const DEFAULT_CODEX_RUNTIME_LOG_CLEANUP_INTERVAL_SECONDS: u64 = 60 * 60;
 
 #[derive(Clone, Debug)]
 pub struct AppConfig {
@@ -146,6 +149,9 @@ pub struct CodexConfig {
     pub max_workers_per_pool: usize,
     pub max_total_pool_workers: usize,
     pub max_runtime_seconds: u64,
+    pub runtime_log_retention_seconds: u64,
+    pub runtime_log_max_mb: u64,
+    pub runtime_log_cleanup_interval_seconds: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -321,6 +327,9 @@ struct RawCodex {
     idle_timeout_seconds: Option<u64>,
     max_workers_per_pool: Option<usize>,
     max_total_pool_workers: Option<usize>,
+    runtime_log_retention_seconds: Option<u64>,
+    runtime_log_max_mb: Option<u64>,
+    runtime_log_cleanup_interval_seconds: Option<u64>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -548,6 +557,16 @@ impl AppConfig {
                     .unwrap_or(DEFAULT_CODEX_MAX_TOTAL_POOL_WORKERS)
                     .max(1),
                 max_runtime_seconds: codex_chat.max_runtime_seconds.unwrap_or(3600),
+                runtime_log_retention_seconds: codex_raw
+                    .runtime_log_retention_seconds
+                    .unwrap_or(DEFAULT_CODEX_RUNTIME_LOG_RETENTION_SECONDS),
+                runtime_log_max_mb: codex_raw
+                    .runtime_log_max_mb
+                    .unwrap_or(DEFAULT_CODEX_RUNTIME_LOG_MAX_MB),
+                runtime_log_cleanup_interval_seconds: codex_raw
+                    .runtime_log_cleanup_interval_seconds
+                    .unwrap_or(DEFAULT_CODEX_RUNTIME_LOG_CLEANUP_INTERVAL_SECONDS)
+                    .max(60),
             },
             schedule_extraction_max_runtime_seconds: schedule_extraction
                 .max_runtime_seconds
@@ -997,6 +1016,28 @@ external_agents:
             config.codex.codex_home,
             Some(config.repo_root.join(".ripple/codex-service-home"))
         );
+    }
+
+    #[test]
+    fn parses_codex_runtime_log_cleanup_config() {
+        let config = with_temp_config(
+            "codex-log-cleanup",
+            r#"
+server:
+  api_keys: ["test-key"]
+external_agents:
+  codex:
+    runtime_log_retention_seconds: 7200
+    runtime_log_max_mb: 12
+    runtime_log_cleanup_interval_seconds: 300
+"#,
+            AppConfig::load,
+        )
+        .expect("load config");
+
+        assert_eq!(config.codex.runtime_log_retention_seconds, 7200);
+        assert_eq!(config.codex.runtime_log_max_mb, 12);
+        assert_eq!(config.codex.runtime_log_cleanup_interval_seconds, 300);
     }
 
     #[test]

@@ -56,6 +56,11 @@ external_agents:
     max_total_pool_workers: 256
     # 空闲 worker 超过该时间后由 idle reaper 关闭。
     idle_timeout_seconds: 1800
+    # Codex runtime trace 日志不参与对话恢复；生产环境默认只短期保留，避免
+    # logs_2.sqlite 随用户量膨胀。超过大小上限时会清空该日志库并 VACUUM。
+    runtime_log_retention_seconds: 86400
+    runtime_log_max_mb: 64
+    runtime_log_cleanup_interval_seconds: 3600
 
 # 日志配置
 # Ripple Server 日志只写 stdout/stderr；生产部署由 systemd/journald、

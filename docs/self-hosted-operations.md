@@ -139,6 +139,40 @@ external_agents:
 
 `max_workers_per_pool` 限制同一个 `user_id + workspace_root + generation` pool 的并发 worker 数；`max_total_pool_workers` 限制整机总 worker 数。
 
+## Codex Runtime Log Cleanup
+
+Codex 自身会写入 `logs_2.sqlite`，主要是 trace/debug 级运行时日志。它不参与 Ripple 会话列表、消息还原或 Codex thread 续聊；这些依赖的是 `.ripple/ripple.sqlite` 的 `sessions/session_messages/codex_thread_id`，以及 Codex runtime 的 `state_5.sqlite` 和 thread rollout 文件。
+
+Ripple Server 启动后会自动清理以下日志库：
+
+- `.ripple/codex-runtime/users/<user_id>/sqlite/logs_2.sqlite`
+- `.ripple/sandboxes/<user_id>/codex-home/logs_2.sqlite`，仅兼容旧布局
+- `.ripple/codex-service-home/logs_2.sqlite`
+
+默认配置：
+
+```yaml
+external_agents:
+  codex:
+    runtime_log_retention_seconds: 86400
+    runtime_log_max_mb: 64
+    runtime_log_cleanup_interval_seconds: 3600
+```
+
+清理策略：
+
+- 先删除超过 `runtime_log_retention_seconds` 的旧日志。
+- 执行 SQLite checkpoint 和 `VACUUM` 缩小文件。
+- 如果单个日志库仍超过 `runtime_log_max_mb`，清空 `logs` 表并再次 `VACUUM`。
+- 如果日志库正被 Codex 写入导致短暂锁冲突，本轮跳过，下个周期重试。
+
+不要把下面这些路径当成普通日志清理：
+
+- `.ripple/ripple.sqlite*`
+- `.ripple/codex-runtime/users/<user_id>/sqlite/state_5.sqlite`
+- `.ripple/sandboxes/<user_id>/codex-home/sessions`
+- `.ripple/sandboxes/<user_id>/sessions`
+
 ## Document Preview Runtime
 
 Workspace 文件预览里，PDF 会直接以内联 PDF 返回；Word、Excel、PowerPoint 等 Office 文件会先通过 LibreOffice 转成 PDF，再返回给前端只读查看。`soffice` 就是 LibreOffice 提供的命令行入口，所以部署机器需要安装 LibreOffice，否则 `.doc/.docx/.xls/.xlsx/.ppt/.pptx` 这类文件无法生成预览。

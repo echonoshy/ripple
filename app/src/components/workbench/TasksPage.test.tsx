@@ -255,6 +255,11 @@ function testTasksPageShowsCompletedTriggersAsCompleted() {
   assert.match(html, /No next run/);
   assert.doesNotMatch(html, /Next: Unknown/);
   assert.doesNotMatch(html, />Paused</);
+  const completedTriggerStart = html.indexOf(">明早提醒<");
+  const completedTriggerEnd = html.indexOf("Last run: job-sch-trip", completedTriggerStart);
+  const completedTriggerHtml = html.slice(completedTriggerStart, completedTriggerEnd);
+  assert.doesNotMatch(completedTriggerHtml, />Run again</);
+  assert.doesNotMatch(completedTriggerHtml, />Run now</);
 }
 
 function testTasksPageExposesTriggerEditingControls() {
@@ -279,6 +284,43 @@ function testTasksPageExposesTriggerEditingControls() {
   assert.match(html, />Delete</);
   assert.match(html, /Every 30 min/);
   assert.match(html, /Runs 2\/5/);
+}
+
+function testCompletedTaskSummaryDoesNotShowUnknownCurrentStep() {
+  const completedTask: TaskInfo = {
+    ...task,
+    status: "completed",
+    progress: {
+      completed: 2,
+      total: 2,
+      percent: 100,
+      currentActionId: null,
+      currentActionTitle: null,
+    },
+  };
+  const html = renderTasksPage("en-US", {
+    tasks: [completedTask],
+    actions: actions.map((action) => ({ ...action, status: "completed" })),
+  });
+
+  assert.match(html, /All steps completed/);
+  assert.doesNotMatch(html, /Current step[\s\S]*Unknown/);
+}
+
+function testTasksPageLetsStepsBeEditedWithoutInlineTriggerButtons() {
+  const source = readFileSync(new URL("./TasksPage.tsx", import.meta.url), "utf8");
+  const html = renderTasksPage("en-US");
+  const stepsPanelStart = html.indexOf('data-ripple-task-actions-panel="true"');
+  const triggersPanelStart = html.indexOf(">Triggers<", stepsPanelStart);
+  assert.notEqual(stepsPanelStart, -1);
+  assert.notEqual(triggersPanelStart, -1);
+  const stepsPanel = html.slice(stepsPanelStart, triggersPanelStart);
+
+  assert.match(source, /editingActionId/);
+  assert.match(source, /submitActionEdit/);
+  assert.match(source, /updateTaskAction\(selectedTask\.taskId, editingActionId/);
+  assert.match(html, />Edit</);
+  assert.doesNotMatch(stepsPanel, />Add trigger</);
 }
 
 function testAddStepDoesNotCollectTriggerTiming() {
@@ -371,6 +413,8 @@ testTasksPageShowsPendingConfirmationTriggers();
 testTasksPageShowsFailedTriggersAsErrors();
 testTasksPageShowsCompletedTriggersAsCompleted();
 testTasksPageExposesTriggerEditingControls();
+testCompletedTaskSummaryDoesNotShowUnknownCurrentStep();
+testTasksPageLetsStepsBeEditedWithoutInlineTriggerButtons();
 testAddStepDoesNotCollectTriggerTiming();
 testTasksPageUsesDedicatedStepSortingMode();
 testTriggerFormDoesNotDuplicateStepContentFields();

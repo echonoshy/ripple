@@ -101,8 +101,21 @@ pub async fn update_task(
     let trigger_records =
         task_trigger_records_from_task_and_actions(&user_id, &task, &actions, &now_iso())?;
     validate_enabled_task_triggers_have_source_session(&task, &trigger_records)?;
+    let task_triggers_touched = task_trigger_fields_touched(&input);
     state.storage.upsert_task(&user_id, &task).await?;
-    persist_new_task_trigger_records(&state.storage, &user_id, &task, &trigger_records).await?;
+    if task_triggers_touched {
+        sync_task_trigger_records_for_owner(
+            &state.storage,
+            &user_id,
+            &task,
+            &trigger_records,
+            &task_id,
+            None,
+        )
+        .await?;
+    } else {
+        persist_new_task_trigger_records(&state.storage, &user_id, &task, &trigger_records).await?;
+    }
     if let Some(status) = task
         .get("status")
         .and_then(Value::as_str)
@@ -892,6 +905,7 @@ async fn persist_task_update_mutation(
                     updates
                 });
             let mut task = load_task(storage, user_id, task_id).await?;
+            let task_triggers_touched = task_trigger_fields_touched(&updates);
             merge_task_updates(&mut task, &updates)?;
             let actions =
                 sort_task_actions_for_execution(storage.list_task_actions(user_id, task_id).await?);
@@ -899,7 +913,19 @@ async fn persist_task_update_mutation(
                 task_trigger_records_from_task_and_actions(user_id, &task, &actions, &now_iso())?;
             validate_enabled_task_triggers_have_source_session(&task, &trigger_records)?;
             storage.upsert_task(user_id, &task).await?;
-            persist_new_task_trigger_records(storage, user_id, &task, &trigger_records).await?;
+            if task_triggers_touched {
+                sync_task_trigger_records_for_owner(
+                    storage,
+                    user_id,
+                    &task,
+                    &trigger_records,
+                    task_id,
+                    None,
+                )
+                .await?;
+            } else {
+                persist_new_task_trigger_records(storage, user_id, &task, &trigger_records).await?;
+            }
             if let Some(status) = task
                 .get("status")
                 .and_then(Value::as_str)
@@ -1028,6 +1054,7 @@ async fn update_task_action_record(
         .and_then(Value::as_str)
         .unwrap_or("confirmed")
         .to_string();
+    let action_triggers_touched = task_trigger_fields_touched(updates);
     merge_task_action_updates(&mut action, updates)?;
     let trigger_records = task_trigger_records_from_actions(
         user_id,
@@ -1039,8 +1066,20 @@ async fn update_task_action_record(
     storage
         .upsert_task_action(user_id, task_id, &action)
         .await?;
-    persist_new_task_trigger_records(storage, user_id, &task_for_triggers, &trigger_records)
+    if action_triggers_touched {
+        sync_task_trigger_records_for_owner(
+            storage,
+            user_id,
+            &task_for_triggers,
+            &trigger_records,
+            task_id,
+            Some(action_id),
+        )
         .await?;
+    } else {
+        persist_new_task_trigger_records(storage, user_id, &task_for_triggers, &trigger_records)
+            .await?;
+    }
     let new_status = action
         .get("status")
         .and_then(Value::as_str)
@@ -1129,6 +1168,13 @@ fn merge_task_action_updates(action: &mut Value, input: &Value) -> Result<(), Ap
                 .as_str()
                 .ok_or_else(|| ApiError::bad_request("task action status must be a string"))?;
             transition_action_status(action, next)?;
+        } else if key == "trigger" && value.is_null() {
+            remove_field(action, "trigger");
+        } else if key == "triggers" {
+            set_field(action, key, value.clone());
+            if value.as_array().is_some_and(Vec::is_empty) {
+                remove_field(action, "trigger");
+            }
         } else if key == "title" {
             let Some(title) = value
                 .as_str()
@@ -1709,6 +1755,63 @@ async fn persist_new_task_trigger_records(
     Ok(())
 }
 
+async fn sync_task_trigger_records_for_owner(
+    storage: &Storage,
+    user_id: &str,
+    task: &Value,
+    records: &[Value],
+    task_id: &str,
+    action_id: Option<&str>,
+) -> Result<(), ApiError> {
+    validate_enabled_task_triggers_have_source_session(task, records)?;
+    delete_stale_task_trigger_records_for_owner(storage, user_id, task_id, action_id, records)
+        .await?;
+    persist_new_task_trigger_records(storage, user_id, task, records).await
+}
+
+async fn delete_stale_task_trigger_records_for_owner(
+    storage: &Storage,
+    user_id: &str,
+    task_id: &str,
+    action_id: Option<&str>,
+    desired_records: &[Value],
+) -> Result<(), ApiError> {
+    let desired = desired_records
+        .iter()
+        .filter(|record| task_trigger_record_matches_owner(record, task_id, action_id))
+        .collect::<Vec<_>>();
+    for existing in storage.list_task_triggers(user_id).await? {
+        if !task_trigger_record_matches_owner(&existing, task_id, action_id) {
+            continue;
+        }
+        if desired.iter().any(|record| {
+            task_trigger_record_has_same_id(&existing, record)
+                || task_trigger_record_matches_identity(&existing, record)
+        }) {
+            continue;
+        }
+        if let Some(trigger_id) = existing.get("trigger_id").and_then(Value::as_str) {
+            storage.delete_task_trigger(user_id, trigger_id).await?;
+        }
+    }
+    Ok(())
+}
+
+fn task_trigger_record_matches_owner(
+    record: &Value,
+    task_id: &str,
+    action_id: Option<&str>,
+) -> bool {
+    record.get("task_id").and_then(Value::as_str) == Some(task_id)
+        && record.get("task_action_id").and_then(Value::as_str) == action_id
+}
+
+fn task_trigger_fields_touched(input: &Value) -> bool {
+    input
+        .as_object()
+        .is_some_and(|object| object.contains_key("trigger") || object.contains_key("triggers"))
+}
+
 fn task_trigger_record_has_same_id(existing: &Value, record: &Value) -> bool {
     existing.get("trigger_id").and_then(Value::as_str)
         == record.get("trigger_id").and_then(Value::as_str)
@@ -2071,6 +2174,13 @@ fn merge_task_updates(task: &mut Value, input: &Value) -> Result<(), ApiError> {
                 .as_str()
                 .ok_or_else(|| ApiError::bad_request("task status must be a string"))?;
             transition_task_status(task, next)?;
+        } else if key == "trigger" && value.is_null() {
+            remove_field(task, "trigger");
+        } else if key == "triggers" {
+            set_field(task, key, value.clone());
+            if value.as_array().is_some_and(Vec::is_empty) {
+                remove_field(task, "trigger");
+            }
         } else if key == "title" {
             let Some(title) = value
                 .as_str()
@@ -2979,6 +3089,12 @@ fn set_field(record: &mut Value, key: &str, value: Value) {
     }
 }
 
+fn remove_field(record: &mut Value, key: &str) {
+    if let Some(object) = record.as_object_mut() {
+        object.remove(key);
+    }
+}
+
 fn generated_id(prefix: &str) -> String {
     format!("{prefix}-{}", &Uuid::new_v4().simple().to_string()[..10])
 }
@@ -3385,6 +3501,112 @@ mod tests {
         assert_eq!(
             task.pointer("/progress/total").and_then(Value::as_u64),
             Some(1)
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn removing_embedded_action_trigger_deletes_stored_task_trigger() -> anyhow::Result<()> {
+        let (storage, root) = temp_storage()?;
+        let user_id = "alice";
+        let task_id = "task-trigger-cleanup";
+
+        create_task_from_payload(
+            &storage,
+            user_id,
+            Some("session-1"),
+            &json!({
+                "task_id": task_id,
+                "title": "Send digest",
+                "objective": "Send a digest tomorrow",
+                "actions": [
+                    {
+                        "action_id": "act-send",
+                        "title": "Send the digest",
+                        "objective": "Send the digest to the team",
+                        "trigger": {
+                            "title": "Digest trigger",
+                            "prompt": "Send the digest",
+                            "kind": "once",
+                            "run_at": "2026-06-22T09:00:00Z"
+                        }
+                    }
+                ]
+            }),
+        )
+        .await
+        .unwrap_or_else(|err| panic!("task with embedded action trigger should persist: {err:?}"));
+        assert_eq!(storage.list_task_triggers(user_id).await?.len(), 1);
+
+        update_task_action_record(
+            &storage,
+            user_id,
+            task_id,
+            "act-send",
+            &json!({
+                "triggers": []
+            }),
+            Some("update_action"),
+        )
+        .await
+        .unwrap_or_else(|err| panic!("action update should persist: {err:?}"));
+
+        assert!(
+            storage.list_task_triggers(user_id).await?.is_empty(),
+            "embedded action trigger removal should delete stale stored triggers"
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn removing_embedded_task_trigger_deletes_stored_task_trigger() -> anyhow::Result<()> {
+        let (storage, root) = temp_storage()?;
+        let user_id = "alice";
+        let task_id = "task-level-trigger-cleanup";
+
+        create_task_from_payload(
+            &storage,
+            user_id,
+            Some("session-1"),
+            &json!({
+                "task_id": task_id,
+                "title": "Check status",
+                "objective": "Check status tomorrow",
+                "trigger": {
+                    "title": "Status trigger",
+                    "prompt": "Check status",
+                    "kind": "once",
+                    "run_at": "2026-06-22T09:00:00Z"
+                }
+            }),
+        )
+        .await
+        .unwrap_or_else(|err| panic!("task with embedded trigger should persist: {err:?}"));
+        assert_eq!(storage.list_task_triggers(user_id).await?.len(), 1);
+
+        persist_task_update(
+            &storage,
+            user_id,
+            Some("session-1"),
+            &json!({
+                "mode": "update_task",
+                "target": "task",
+                "task_id": task_id,
+                "updates": {
+                    "triggers": []
+                }
+            }),
+        )
+        .await
+        .unwrap_or_else(|err| panic!("task trigger update should persist: {err:?}"));
+
+        assert!(
+            storage.list_task_triggers(user_id).await?.is_empty(),
+            "embedded task trigger removal should delete stale stored triggers"
         );
 
         let _ = std::fs::remove_dir_all(root);

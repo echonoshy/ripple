@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use time::format_description::well_known::Rfc3339;
 use time::{Duration as TimeDuration, OffsetDateTime, PrimitiveDateTime};
+use tracing::warn;
 use uuid::Uuid;
 
 use crate::api::run_public::{
@@ -237,6 +238,8 @@ struct TaskTriggerRecord {
     overlap_policy: String,
     #[serde(default = "default_failure_policy")]
     failure_policy: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    enable_on_confirm: Option<bool>,
     cwd: Option<String>,
     model: Option<String>,
     effort: Option<String>,
@@ -573,6 +576,7 @@ pub(crate) async fn create_task_trigger_for_user(
         missed_run_policy: normalize_missed_run_policy(&input.missed_run_policy)?.to_string(),
         overlap_policy: normalize_overlap_policy(&input.overlap_policy)?.to_string(),
         failure_policy: normalize_failure_policy(&input.failure_policy)?.to_string(),
+        enable_on_confirm: None,
         cwd: input.cwd,
         model: input.model,
         effort: input.effort,
@@ -618,14 +622,26 @@ pub async fn update_task_trigger(
     )?;
     let now = OffsetDateTime::now_utc();
     let timing = driver.normalize_update_timing(&record, &input, now)?;
-    let enabled = input.enabled.unwrap_or(record.enabled);
+    let requested_enabled = input
+        .enabled
+        .unwrap_or_else(|| record.enable_on_confirm.unwrap_or(record.enabled));
 
     let task = state
         .storage
         .get_task(&user_id, &task_id)
         .await?
         .ok_or_else(|| ApiError::not_found("Task not found"))?;
-    if enabled && !task_has_source_session(&task) {
+    let linked_action = if let Some(action_id) = record.task_action_id.as_deref() {
+        state
+            .storage
+            .list_task_actions(&user_id, &task_id)
+            .await?
+            .into_iter()
+            .find(|action| action.get("action_id").and_then(Value::as_str) == Some(action_id))
+    } else {
+        None
+    };
+    if requested_enabled && !task_has_source_session(&task) {
         return Err(ApiError::bad_request(
             "Enabled task trigger requires source_session_id",
         ));
@@ -673,20 +689,28 @@ pub async fn update_task_trigger(
     record.run_at = timing.run_at;
     record.interval_seconds = timing.interval_seconds;
     record.max_runs = timing.max_runs;
-    record.enabled = enabled;
+    record.enabled = requested_enabled;
     let should_recompute_next = schedule_changed
-        || (enabled && !old_enabled)
-        || (enabled && old_next_run_at.is_none())
-        || (enabled && old_status == "completed" && input.max_runs.is_some());
-    if !enabled {
+        || (requested_enabled && !old_enabled)
+        || (requested_enabled && old_next_run_at.is_none())
+        || (requested_enabled && old_status == "completed" && input.max_runs.is_some());
+    if task_trigger_update_requires_confirmation(&record, &task, linked_action.as_ref()) {
+        record.enabled = false;
+        record.status = "pending_confirmation".to_string();
+        record.next_run_at = None;
+        record.enable_on_confirm = Some(requested_enabled);
+    } else if !requested_enabled {
         record.status = "paused".to_string();
         record.next_run_at = None;
+        record.enable_on_confirm = None;
     } else if driver.limit_reached(&record) {
         record.enabled = false;
         record.status = "completed".to_string();
         record.next_run_at = None;
+        record.enable_on_confirm = None;
     } else {
         record.status = "active".to_string();
+        record.enable_on_confirm = None;
         if should_recompute_next {
             record.next_run_at = timing.next_run_at;
         } else {
@@ -787,7 +811,6 @@ pub async fn trigger_due_task_triggers(
 ) -> Result<BTreeMap<String, Vec<String>>, ApiError> {
     let now = OffsetDateTime::now_utc();
     let mut triggered = BTreeMap::<String, Vec<String>>::new();
-    let mut pending_runs = Vec::new();
     for user_id in state.storage.list_task_trigger_user_ids().await? {
         let trigger_state = load_task_trigger_state(state, &user_id).await?;
         let trigger_ids = trigger_state.triggers.keys().cloned().collect::<Vec<_>>();
@@ -858,65 +881,72 @@ pub async fn trigger_due_task_triggers(
             }
             let run_state = state.clone();
             let run_user_id = user_id.clone();
-            pending_runs.push(tokio::spawn(async move {
-                let info =
-                    start_task_trigger_run(&run_state, &run_user_id, &record, "scheduled").await;
-                (run_user_id, trigger_id, record, info)
-            }));
-        }
-    }
-    for pending_run in pending_runs {
-        let (user_id, trigger_id, mut record, info) = pending_run
-            .await
-            .map_err(|err| ApiError::bad_request(format!("Task trigger task failed: {err}")))?;
-        let now = OffsetDateTime::now_utc();
-        match info {
-            Ok(info) => {
-                apply_latest_run_to_task_trigger(&mut record, Some(&info));
-                if info.status != "completed" {
-                    apply_failed_task_trigger_run(&mut record, &info, now)?;
-                    record.updated_at = iso(now);
-                    persist_task_trigger_record(state, &user_id, &record).await?;
-                    continue;
+            triggered
+                .entry(user_id.clone())
+                .or_default()
+                .push(trigger_id);
+            tokio::spawn(async move {
+                if let Err(err) = run_scheduled_task_trigger(run_state, run_user_id, record).await {
+                    warn!("scheduled task trigger failed to finalize: {err:?}");
                 }
-                record.run_count += 1;
-                let driver = task_trigger_driver_for_record(&record)?;
-                if driver.complete_after_success(&record)
-                    || task_trigger_target_completed(state, &user_id, &record).await?
-                {
-                    record.enabled = false;
-                    record.status = "completed".to_string();
-                    record.next_run_at = None;
-                } else {
-                    record.status = "active".to_string();
-                    record.next_run_at = driver.next_after_run(&record, now)?;
-                }
-                record.updated_at = iso(now);
-                persist_task_trigger_record(state, &user_id, &record).await?;
-                triggered.entry(user_id).or_default().push(trigger_id);
-            }
-            Err(err) => {
-                let summary = format!("{err:?}");
-                record.last_error = Some(summary.clone());
-                record.failure_reason = Some(summary);
-                record.last_run_status = Some("failed".to_string());
-                let driver = task_trigger_driver_for_record(&record)?;
-                if driver.keep_active_after_failure(&record) {
-                    record.status = "active".to_string();
-                    record.next_run_at = driver.next_after_run(&record, now)?;
-                } else {
-                    if record.failure_policy == "pause" {
-                        record.enabled = false;
-                    }
-                    record.status = "error".to_string();
-                    record.next_run_at = None;
-                }
-                record.updated_at = iso(now);
-                persist_task_trigger_record(state, &user_id, &record).await?;
-            }
+            });
         }
     }
     Ok(triggered)
+}
+
+async fn run_scheduled_task_trigger(
+    state: AppState,
+    user_id: String,
+    mut record: TaskTriggerRecord,
+) -> Result<(), ApiError> {
+    let info = start_task_trigger_run(&state, &user_id, &record, "scheduled").await;
+    let now = OffsetDateTime::now_utc();
+    match info {
+        Ok(info) => {
+            apply_latest_run_to_task_trigger(&mut record, Some(&info));
+            if info.status != "completed" {
+                apply_failed_task_trigger_run(&mut record, &info, now)?;
+                record.updated_at = iso(now);
+                persist_task_trigger_record(&state, &user_id, &record).await?;
+                return Ok(());
+            }
+            record.run_count += 1;
+            let driver = task_trigger_driver_for_record(&record)?;
+            if driver.complete_after_success(&record)
+                || task_trigger_target_completed(&state, &user_id, &record).await?
+            {
+                record.enabled = false;
+                record.status = "completed".to_string();
+                record.next_run_at = None;
+            } else {
+                record.status = "active".to_string();
+                record.next_run_at = driver.next_after_run(&record, now)?;
+            }
+            record.updated_at = iso(now);
+            persist_task_trigger_record(&state, &user_id, &record).await?;
+        }
+        Err(err) => {
+            let summary = format!("{err:?}");
+            record.last_error = Some(summary.clone());
+            record.failure_reason = Some(summary);
+            record.last_run_status = Some("failed".to_string());
+            let driver = task_trigger_driver_for_record(&record)?;
+            if driver.keep_active_after_failure(&record) {
+                record.status = "active".to_string();
+                record.next_run_at = driver.next_after_run(&record, now)?;
+            } else {
+                if record.failure_policy == "pause" {
+                    record.enabled = false;
+                }
+                record.status = "error".to_string();
+                record.next_run_at = None;
+            }
+            record.updated_at = iso(now);
+            persist_task_trigger_record(&state, &user_id, &record).await?;
+        }
+    }
+    Ok(())
 }
 
 async fn start_task_trigger_run(
@@ -1663,6 +1693,25 @@ fn task_has_source_session(task: &Value) -> bool {
         .is_some_and(|value| !value.is_empty())
 }
 
+fn task_trigger_update_requires_confirmation(
+    record: &TaskTriggerRecord,
+    task: &Value,
+    action: Option<&Value>,
+) -> bool {
+    record.status == "pending_confirmation"
+        || record.enable_on_confirm.is_some()
+        || task_or_action_requires_confirmation(task)
+        || action.is_some_and(task_or_action_requires_confirmation)
+}
+
+fn task_or_action_requires_confirmation(value: &Value) -> bool {
+    value.get("status").and_then(Value::as_str) == Some("candidate")
+        || value
+            .get("requires_confirmation")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1689,6 +1738,7 @@ mod tests {
             missed_run_policy: "run_once".to_string(),
             overlap_policy: "skip".to_string(),
             failure_policy: "pause".to_string(),
+            enable_on_confirm: None,
             cwd: None,
             model: None,
             effort: None,
@@ -1914,5 +1964,50 @@ mod tests {
         record.max_runs = None;
 
         assert!(should_complete_task_trigger_action(&record, "scheduled"));
+    }
+
+    #[test]
+    fn candidate_task_keeps_trigger_pending_on_update() {
+        let task = json!({
+            "task_id": "task-candidate",
+            "status": "candidate",
+            "requires_confirmation": true,
+            "source_session_id": "session-1"
+        });
+        let mut record = task_trigger_record();
+        record.status = "pending_confirmation".to_string();
+        record.enabled = false;
+        record.next_run_at = None;
+        record.task_id = Some("task-candidate".to_string());
+
+        assert!(
+            task_trigger_update_requires_confirmation(&record, &task, None),
+            "candidate task triggers must stay pending until the task is confirmed"
+        );
+    }
+
+    #[test]
+    fn candidate_action_keeps_trigger_pending_on_update() {
+        let task = json!({
+            "task_id": "task-active",
+            "status": "active",
+            "source_session_id": "session-1"
+        });
+        let action = json!({
+            "action_id": "act-candidate",
+            "status": "candidate",
+            "requires_confirmation": true
+        });
+        let mut record = task_trigger_record();
+        record.status = "pending_confirmation".to_string();
+        record.enabled = false;
+        record.next_run_at = None;
+        record.task_id = Some("task-active".to_string());
+        record.task_action_id = Some("act-candidate".to_string());
+
+        assert!(
+            task_trigger_update_requires_confirmation(&record, &task, Some(&action)),
+            "candidate action triggers must stay pending until the action is confirmed"
+        );
     }
 }

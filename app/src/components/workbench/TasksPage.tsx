@@ -90,6 +90,14 @@ interface TasksPageProps {
 type TaskFilter = "all" | "open" | "waiting" | "blocked" | "done";
 
 const taskFilters: TaskFilter[] = ["all", "open", "waiting", "blocked", "done"];
+const editableActionStatuses: TaskActionInfo["status"][] = [
+  "confirmed",
+  "in_progress",
+  "waiting_user",
+  "blocked",
+  "completed",
+  "cancelled",
+];
 
 function statusLabel(status: string, t: ReturnType<typeof useI18n>["t"]): string {
   switch (status) {
@@ -169,6 +177,19 @@ function progressText(task: TaskInfo): string {
   const progress = task.progress;
   if (!progress) return "0/0";
   return `${progress.completed}/${progress.total}`;
+}
+
+function currentActionSummaryText(task: TaskInfo, t: ReturnType<typeof useI18n>["t"]): string {
+  if (task.progress?.currentActionTitle) return task.progress.currentActionTitle;
+  if (
+    task.status === "completed" ||
+    ((task.progress?.total ?? 0) > 0 &&
+      (task.progress?.completed ?? 0) >= (task.progress?.total ?? 0))
+  ) {
+    return t("tasks.allActionsCompleted");
+  }
+  if ((task.progress?.total ?? 0) === 0) return t("tasks.noActions");
+  return t("tasks.unknown");
 }
 
 function triggerRunProgressText(
@@ -453,6 +474,11 @@ export default function TasksPage({
   const [isActionSortMode, setIsActionSortMode] = useState(false);
   const [newActionTitle, setNewActionTitle] = useState("");
   const [newActionObjective, setNewActionObjective] = useState("");
+  const [editingActionId, setEditingActionId] = useState<string | null>(null);
+  const [editingActionTitle, setEditingActionTitle] = useState("");
+  const [editingActionObjective, setEditingActionObjective] = useState("");
+  const [editingActionStatus, setEditingActionStatus] =
+    useState<TaskActionInfo["status"]>("confirmed");
   const [draftActionOrderIds, setDraftActionOrderIds] = useState<string[]>([]);
   const [draggingActionId, setDraggingActionId] = useState<string | null>(null);
   const [triggerActionId, setTriggerActionId] = useState<string | null>(null);
@@ -572,6 +598,7 @@ export default function TasksPage({
     setIsActionSortMode(false);
     setDraftActionOrderIds([]);
     setDraggingActionId(null);
+    setEditingActionId(null);
     setTriggerActionId(null);
     setEditingTriggerId(null);
     setConfirmingTriggerDeleteId(null);
@@ -733,13 +760,77 @@ export default function TasksPage({
     [handleError, loadTasks, newActionObjective, newActionTitle, selectedTask, t]
   );
 
+  const closeActionEditForm = useCallback(() => {
+    setEditingActionId(null);
+    setEditingActionTitle("");
+    setEditingActionObjective("");
+    setEditingActionStatus("confirmed");
+  }, []);
+
+  const openActionEditForm = useCallback((action: TaskActionInfo) => {
+    setIsActionFormOpen(false);
+    setIsActionSortMode(false);
+    setDraftActionOrderIds([]);
+    setDraggingActionId(null);
+    setTriggerActionId(null);
+    setEditingTriggerId(null);
+    setConfirmingTriggerDeleteId(null);
+    setEditingActionId(action.actionId);
+    setEditingActionTitle(action.title);
+    setEditingActionObjective(action.objective || "");
+    setEditingActionStatus(action.status || "confirmed");
+  }, []);
+
+  const submitActionEdit = useCallback(
+    async (event: React.FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      if (!selectedTask || !editingActionId) return;
+      const title = editingActionTitle.trim();
+      if (!title) {
+        setInternalError(t("tasks.actionTitleRequired"));
+        return;
+      }
+      setPendingAction(`edit-action:${editingActionId}`);
+      setInternalError(null);
+      try {
+        const detail = await updateTaskAction(selectedTask.taskId, editingActionId, {
+          title,
+          objective: editingActionObjective.trim() || null,
+          status: editingActionStatus,
+        });
+        setDetailActions(detail.actions);
+        setTaskList((current) =>
+          current.map((task) => (task.taskId === detail.task.taskId ? detail.task : task))
+        );
+        closeActionEditForm();
+        await loadTasks(selectedTask.taskId);
+      } catch (caught) {
+        handleError(caught, t("tasks.actionFailed"));
+      } finally {
+        setPendingAction(null);
+      }
+    },
+    [
+      closeActionEditForm,
+      editingActionId,
+      editingActionObjective,
+      editingActionStatus,
+      editingActionTitle,
+      handleError,
+      loadTasks,
+      selectedTask,
+      t,
+    ]
+  );
+
   const startActionSortMode = useCallback(() => {
     setIsActionFormOpen(false);
+    closeActionEditForm();
     setTriggerActionId(null);
     setDraftActionOrderIds(visibleActions.map((action) => action.actionId));
     setDraggingActionId(null);
     setIsActionSortMode(true);
-  }, [visibleActions]);
+  }, [closeActionEditForm, visibleActions]);
 
   const cancelActionSortMode = useCallback(() => {
     setIsActionSortMode(false);
@@ -861,10 +952,12 @@ export default function TasksPage({
   const openTriggerForm = useCallback(
     (action?: TaskActionInfo) => {
       const targetAction = action || visibleActions[0] || null;
+      closeActionEditForm();
+      setEditingTriggerId(null);
       setTriggerActionId(targetAction?.actionId || null);
       setNewTriggerRunAt("");
     },
-    [visibleActions]
+    [closeActionEditForm, visibleActions]
   );
 
   const submitNewTrigger = useCallback(
@@ -904,17 +997,21 @@ export default function TasksPage({
     [handleError, loadTasks, newTriggerRunAt, selectedTask, t, triggerActionId, visibleActions]
   );
 
-  const openTriggerEditForm = useCallback((trigger: TaskTriggerInfo) => {
-    setTriggerActionId(null);
-    setEditingTriggerId(trigger.trigger_id);
-    setEditingTriggerKind(trigger.kind);
-    setEditingTriggerRunAt(toDateTimeLocalValue(trigger.run_at || trigger.next_run_at));
-    setEditingTriggerIntervalMinutes(
-      String(Math.max(1, Math.round((trigger.interval_seconds || 3_600) / 60)))
-    );
-    setEditingTriggerMaxRuns(trigger.max_runs ? String(trigger.max_runs) : "");
-    setConfirmingTriggerDeleteId(null);
-  }, []);
+  const openTriggerEditForm = useCallback(
+    (trigger: TaskTriggerInfo) => {
+      closeActionEditForm();
+      setTriggerActionId(null);
+      setEditingTriggerId(trigger.trigger_id);
+      setEditingTriggerKind(trigger.kind);
+      setEditingTriggerRunAt(toDateTimeLocalValue(trigger.run_at || trigger.next_run_at));
+      setEditingTriggerIntervalMinutes(
+        String(Math.max(1, Math.round((trigger.interval_seconds || 3_600) / 60)))
+      );
+      setEditingTriggerMaxRuns(trigger.max_runs ? String(trigger.max_runs) : "");
+      setConfirmingTriggerDeleteId(null);
+    },
+    [closeActionEditForm]
+  );
 
   const submitTriggerEdit = useCallback(
     async (event: React.FormEvent<HTMLFormElement>) => {
@@ -927,7 +1024,7 @@ export default function TasksPage({
       const input: TaskTriggerUpdateInput = {
         kind: editingTriggerKind,
         timezone: currentTimezone(),
-        enabled: isTriggerCompleted(trigger) ? true : trigger.enabled,
+        enabled: trigger.enabled,
       };
       if (editingTriggerKind === "once") {
         if (!editingTriggerRunAt) {
@@ -1023,14 +1120,7 @@ export default function TasksPage({
         setPendingAction(null);
       }
     },
-    [
-      confirmingTriggerDeleteId,
-      handleError,
-      loadTasks,
-      selectedId,
-      selectedTask?.taskId,
-      t,
-    ]
+    [confirmingTriggerDeleteId, handleError, loadTasks, selectedId, selectedTask?.taskId, t]
   );
 
   const runTriggerOperation = useCallback(
@@ -1298,7 +1388,7 @@ export default function TasksPage({
                           <div
                             className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} mt-0.5 truncate text-[#1F2329]`}
                           >
-                            {selectedTask.progress?.currentActionTitle || t("tasks.unknown")}
+                            {currentActionSummaryText(selectedTask, t)}
                           </div>
                         </div>
                         <div className={`${taskSoftPanelClass} px-3 py-2`}>
@@ -1426,7 +1516,12 @@ export default function TasksPage({
                               ) : null}
                               <button
                                 type="button"
-                                onClick={() => setIsActionFormOpen((open) => !open)}
+                                onClick={() => {
+                                  closeActionEditForm();
+                                  setTriggerActionId(null);
+                                  setEditingTriggerId(null);
+                                  setIsActionFormOpen((open) => !open);
+                                }}
                                 className={`${WORKBENCH_SECONDARY_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
                                 disabled={pendingAction !== null}
                               >
@@ -1571,12 +1666,15 @@ export default function TasksPage({
                                   <>
                                     <button
                                       type="button"
-                                      onClick={() => openTriggerForm(action)}
+                                      onClick={() => openActionEditForm(action)}
                                       className={`${WORKBENCH_SECONDARY_BUTTON_CLASS} h-7 px-2 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}
-                                      disabled={pendingAction !== null}
+                                      disabled={
+                                        pendingAction !== null ||
+                                        editingActionId === action.actionId
+                                      }
                                     >
-                                      <Clock3 size={12} />
-                                      <span>{t("tasks.addTrigger")}</span>
+                                      <Pencil size={12} />
+                                      <span>{t("tasks.edit")}</span>
                                     </button>
                                     <span
                                       className={`${statusClass(action.status)} ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}
@@ -1587,6 +1685,75 @@ export default function TasksPage({
                                 )}
                               </div>
                             </div>
+                            {editingActionId === action.actionId ? (
+                              <form
+                                onSubmit={submitActionEdit}
+                                className="mt-2 grid gap-2 rounded-lg border border-[#DEE0E3] bg-white p-2"
+                              >
+                                <label
+                                  className={`grid gap-1 ${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#646A73]`}
+                                >
+                                  {t("tasks.action")}
+                                  <input
+                                    value={editingActionTitle}
+                                    onChange={(event) => setEditingActionTitle(event.target.value)}
+                                    placeholder={t("tasks.actionTitlePlaceholder")}
+                                    className={`h-9 px-2.5 ${WORKBENCH_FIELD_CLASS} ${TYPOGRAPHY_BODY_CLASS}`}
+                                  />
+                                </label>
+                                <label
+                                  className={`grid gap-1 ${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#646A73]`}
+                                >
+                                  {t("tasks.objective")}
+                                  <textarea
+                                    value={editingActionObjective}
+                                    onChange={(event) =>
+                                      setEditingActionObjective(event.target.value)
+                                    }
+                                    placeholder={t("tasks.actionObjectivePlaceholder")}
+                                    rows={2}
+                                    className={`min-h-16 px-2.5 py-2 ${WORKBENCH_FIELD_CLASS} ${TYPOGRAPHY_BODY_CLASS}`}
+                                  />
+                                </label>
+                                <label
+                                  className={`grid gap-1 ${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#646A73]`}
+                                >
+                                  {t("tasks.actionStatus")}
+                                  <select
+                                    value={editingActionStatus}
+                                    onChange={(event) => setEditingActionStatus(event.target.value)}
+                                    className={`h-9 px-2.5 ${WORKBENCH_FIELD_CLASS} ${TYPOGRAPHY_BODY_CLASS}`}
+                                  >
+                                    {editableActionStatuses.map((status) => (
+                                      <option key={status} value={status}>
+                                        {statusLabel(status, t)}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </label>
+                                <div className="flex flex-wrap justify-end gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={closeActionEditForm}
+                                    className={`${WORKBENCH_SECONDARY_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                                  >
+                                    {t("tasks.cancel")}
+                                  </button>
+                                  <button
+                                    type="submit"
+                                    className={`${WORKBENCH_PRIMARY_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                                    disabled={pendingAction !== null}
+                                  >
+                                    {pendingAction === `edit-action:${action.actionId}` ? (
+                                      <Loader2 size={14} className="animate-spin" />
+                                    ) : (
+                                      <Check size={14} />
+                                    )}
+                                    <span>{t("tasks.saveAction")}</span>
+                                  </button>
+                                </div>
+                              </form>
+                            ) : null}
                             {actionFollowUpText(action, t) || action.lastRunId ? (
                               <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
                                 {actionFollowUpText(action, t) ? (
@@ -1883,23 +2050,22 @@ export default function TasksPage({
                                     </span>
                                   </button>
                                 ) : null}
-                                <button
-                                  type="button"
-                                  onClick={() => void runTriggerOperation(trigger)}
-                                  className={`${WORKBENCH_SECONDARY_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
-                                  disabled={pendingAction !== null}
-                                >
-                                  {pendingAction === `trigger:${trigger.trigger_id}` ? (
-                                    <Loader2 size={14} className="animate-spin" />
-                                  ) : (
-                                    <Play size={14} />
-                                  )}
-                                  <span>
-                                    {isTriggerCompleted(trigger)
-                                      ? t("tasks.runAgain")
-                                      : t("tasks.runNow")}
-                                  </span>
-                                </button>
+                                {!isTriggerCompleted(trigger) &&
+                                trigger.status !== "pending_confirmation" ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => void runTriggerOperation(trigger)}
+                                    className={`${WORKBENCH_SECONDARY_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                                    disabled={pendingAction !== null}
+                                  >
+                                    {pendingAction === `trigger:${trigger.trigger_id}` ? (
+                                      <Loader2 size={14} className="animate-spin" />
+                                    ) : (
+                                      <Play size={14} />
+                                    )}
+                                    <span>{t("tasks.runNow")}</span>
+                                  </button>
+                                ) : null}
                                 <button
                                   type="button"
                                   onClick={() => void deleteTriggerOperation(trigger)}

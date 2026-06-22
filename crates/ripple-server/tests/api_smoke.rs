@@ -2441,6 +2441,157 @@ async fn list_task_triggers_returns_user_triggers_across_tasks() {
 }
 
 #[tokio::test]
+async fn task_trigger_can_be_updated_paused_and_deleted() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let (_state, app) = test_state_and_app(&root);
+
+    let (status, session) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/sessions",
+        json!({"model": "codex-test"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let session_id = session
+        .get("session_id")
+        .and_then(Value::as_str)
+        .expect("session id");
+
+    let (status, created) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/tasks",
+        json!({
+            "task_id": "task-edit-trigger",
+            "title": "编辑触发器",
+            "objective": "周期触发器应该可编辑。",
+            "status": "active",
+            "source_session_id": session_id,
+            "actions": [
+                {
+                    "action_id": "act-edit-trigger",
+                    "title": "发送报告",
+                    "kind": "execute",
+                    "status": "confirmed"
+                }
+            ]
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+
+    let (status, trigger) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/tasks/task-edit-trigger/actions/act-edit-trigger/triggers",
+        json!({
+            "title": "每小时报告",
+            "prompt": "发送报告。",
+            "kind": "interval",
+            "interval_seconds": 3600,
+            "enabled": true,
+            "max_runs": 3
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{trigger}");
+    let trigger_id = trigger
+        .get("trigger_id")
+        .and_then(Value::as_str)
+        .expect("trigger id");
+
+    let (status, updated) = call(
+        app.clone(),
+        Method::PATCH,
+        &format!("/v1/tasks/task-edit-trigger/triggers/{trigger_id}"),
+        json!({
+            "title": "每半小时报告",
+            "interval_seconds": 1800,
+            "max_runs": 5
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{updated}");
+    assert_eq!(
+        updated.get("title").and_then(Value::as_str),
+        Some("每半小时报告")
+    );
+    assert_eq!(
+        updated.get("interval_seconds").and_then(Value::as_u64),
+        Some(1800)
+    );
+    assert_eq!(updated.get("max_runs").and_then(Value::as_u64), Some(5));
+    assert_eq!(
+        updated.get("status").and_then(Value::as_str),
+        Some("active")
+    );
+    assert!(
+        updated.get("next_run_at").and_then(Value::as_str).is_some(),
+        "{updated}"
+    );
+
+    let (status, paused) = call(
+        app.clone(),
+        Method::PATCH,
+        &format!("/v1/tasks/task-edit-trigger/triggers/{trigger_id}"),
+        json!({
+            "enabled": false
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{paused}");
+    assert_eq!(paused.get("enabled").and_then(Value::as_bool), Some(false));
+    assert_eq!(paused.get("status").and_then(Value::as_str), Some("paused"));
+    assert!(
+        paused.get("next_run_at").is_some_and(Value::is_null),
+        "{paused}"
+    );
+
+    let (status, resumed) = call(
+        app.clone(),
+        Method::PATCH,
+        &format!("/v1/tasks/task-edit-trigger/triggers/{trigger_id}"),
+        json!({
+            "enabled": true
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{resumed}");
+    assert_eq!(resumed.get("enabled").and_then(Value::as_bool), Some(true));
+    assert_eq!(
+        resumed.get("status").and_then(Value::as_str),
+        Some("active")
+    );
+    assert!(
+        resumed.get("next_run_at").and_then(Value::as_str).is_some(),
+        "{resumed}"
+    );
+
+    let (status, deleted) = call(
+        app.clone(),
+        Method::DELETE,
+        &format!("/v1/tasks/task-edit-trigger/triggers/{trigger_id}"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{deleted}");
+    assert_eq!(deleted.get("deleted").and_then(Value::as_bool), Some(true));
+
+    let (status, listed) = call(
+        app,
+        Method::GET,
+        "/v1/tasks/task-edit-trigger/triggers",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{listed}");
+    assert_eq!(listed.get("total").and_then(Value::as_u64), Some(0));
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
 async fn deleting_task_removes_task_linked_triggers() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let (state, app) = test_state_and_app(&root);

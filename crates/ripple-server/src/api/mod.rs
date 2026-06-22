@@ -193,6 +193,10 @@ pub fn router(state: AppState) -> Router {
             get(task_triggers::list_task_triggers).post(task_triggers::create_task_trigger),
         )
         .route(
+            "/tasks/:task_id/triggers/:trigger_id",
+            patch(task_triggers::update_task_trigger).delete(task_triggers::delete_task_trigger),
+        )
+        .route(
             "/tasks/:task_id/triggers/:trigger_id/run-now",
             post(task_triggers::run_task_trigger_now),
         )

@@ -37,9 +37,11 @@ import {
   sendChatMessage,
   sendSessionControlAction,
   stopSession,
+  updateTaskTrigger,
   updateSession,
   updateTaskAction,
   createTaskActionTrigger,
+  deleteTaskTrigger,
   updateUserProfile,
   uploadUserAvatar,
   disconnectConnector,
@@ -182,6 +184,46 @@ async function testTaskTriggerApisUseTaskScopedRoutes() {
           headers: { "Content-Type": "application/json" },
         });
       }
+      if (init?.method === "PATCH") {
+        return new Response(
+          JSON.stringify({
+            trigger_id: "trg-linked",
+            trigger_type: "time",
+            user_id: "default",
+            title: "每半小时提醒",
+            prompt: "提醒准备材料",
+            kind: "interval",
+            timezone: "UTC",
+            run_at: null,
+            interval_seconds: 1800,
+            enabled: true,
+            status: "active",
+            next_run_at: "2026-06-17T10:30:00Z",
+            last_run_at: null,
+            last_run_id: null,
+            last_error: null,
+            cwd: null,
+            model: null,
+            effort: null,
+            summary: null,
+            output_schema: null,
+            max_runtime_seconds: 1800,
+            max_runs: 5,
+            task_id: "task-trip",
+            task_action_id: "act-remind",
+            run_count: 0,
+            created_at: "2026-06-17T10:00:00Z",
+            updated_at: "2026-06-17T10:05:00Z",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      if (init?.method === "DELETE") {
+        return new Response(JSON.stringify({ deleted: true, trigger_id: "trg-linked" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
       if (init?.method === "POST") {
         return new Response(
           JSON.stringify({
@@ -266,7 +308,17 @@ async function testTaskTriggerApisUseTaskScopedRoutes() {
         run_at: "2026-06-18T07:30",
       });
       assert.equal(created.task_action_id, "act-remind");
+      const updated = await updateTaskTrigger("task/trip", "trg/linked", {
+        title: "每半小时提醒",
+        kind: "interval",
+        timezone: "UTC",
+        interval_seconds: 1800,
+        max_runs: 5,
+        enabled: true,
+      });
+      assert.equal(updated.interval_seconds, 1800);
       assert.equal((await runTaskTriggerNow("task/trip", "trg/linked")).job_id, "job-trigger");
+      assert.equal((await deleteTaskTrigger("task/trip", "trg/linked")).deleted, true);
     }
   );
 
@@ -276,7 +328,9 @@ async function testTaskTriggerApisUseTaskScopedRoutes() {
       "GET /v1/task-triggers",
       "GET /v1/tasks/task%2Ftrip/triggers",
       "POST /v1/tasks/task%2Ftrip/actions/act%2Fremind/triggers",
+      "PATCH /v1/tasks/task%2Ftrip/triggers/trg%2Flinked",
       "POST /v1/tasks/task%2Ftrip/triggers/trg%2Flinked/run-now",
+      "DELETE /v1/tasks/task%2Ftrip/triggers/trg%2Flinked",
     ]
   );
   assert.deepEqual(requests[2]?.body, {
@@ -285,6 +339,14 @@ async function testTaskTriggerApisUseTaskScopedRoutes() {
     kind: "once",
     timezone: "Asia/Shanghai",
     run_at: "2026-06-18T07:30:00+08:00",
+  });
+  assert.deepEqual(requests[3]?.body, {
+    title: "每半小时提醒",
+    kind: "interval",
+    timezone: "UTC",
+    interval_seconds: 1800,
+    max_runs: 5,
+    enabled: true,
   });
 }
 

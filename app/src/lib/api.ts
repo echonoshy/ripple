@@ -169,6 +169,31 @@ export interface TaskTriggerCreateInput {
   failure_policy?: string;
 }
 
+export interface TaskTriggerUpdateInput {
+  title?: string;
+  prompt?: string;
+  trigger_type?: "time";
+  kind?: "once" | "interval";
+  timezone?: string;
+  run_at?: string | null;
+  interval_seconds?: number | null;
+  enabled?: boolean;
+  model?: string | null;
+  effort?: string | null;
+  cwd?: string | null;
+  max_runtime_seconds?: number;
+  max_runs?: number | null;
+  missed_run_policy?: string;
+  overlap_policy?: string;
+  failure_policy?: string;
+}
+
+export interface TaskTriggerDeleteResponse {
+  deleted: boolean;
+  trigger_id?: string;
+  task_id?: string;
+}
+
 export interface TaskActionCreateInput {
   title: string;
   kind?: string;
@@ -359,7 +384,9 @@ function normalizeTaskTriggerRunAtForRequest(
   return `${localDateTimeText(localParts)}${timezoneOffsetText(offsetMinutes)}`;
 }
 
-function taskTriggerInputForRequest<T extends TaskTriggerCreateInput>(input: T): T {
+function taskTriggerInputForRequest<T extends { run_at?: string | null; timezone?: string | null }>(
+  input: T
+): T {
   const runAt = normalizeTaskTriggerRunAtForRequest(input.run_at, input.timezone);
   if (runAt === input.run_at) return input;
   return { ...input, run_at: runAt };
@@ -1001,6 +1028,46 @@ export async function createTaskActionTrigger(
     throw new Error(detail || `Failed to create task trigger (${res.status})`);
   }
   return (await res.json()) as TaskTriggerInfo;
+}
+
+export async function updateTaskTrigger(
+  taskId: string,
+  triggerId: string,
+  input: TaskTriggerUpdateInput
+): Promise<TaskTriggerInfo> {
+  const res = await fetch(
+    `${API_URL}/tasks/${encodeURIComponent(taskId)}/triggers/${encodeURIComponent(triggerId)}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(taskTriggerInputForRequest(input)),
+    }
+  );
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to update task trigger (${res.status})`);
+  }
+  return (await res.json()) as TaskTriggerInfo;
+}
+
+export async function deleteTaskTrigger(
+  taskId: string,
+  triggerId: string
+): Promise<TaskTriggerDeleteResponse> {
+  const res = await fetch(
+    `${API_URL}/tasks/${encodeURIComponent(taskId)}/triggers/${encodeURIComponent(triggerId)}`,
+    {
+      method: "DELETE",
+      headers: { ...authHeaders() },
+    }
+  );
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to delete task trigger (${res.status})`);
+  }
+  return (await res.json()) as TaskTriggerDeleteResponse;
 }
 
 export async function runTaskTriggerNow(taskId: string, triggerId: string): Promise<AgentRunInfo> {

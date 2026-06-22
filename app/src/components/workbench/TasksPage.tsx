@@ -11,6 +11,8 @@ import {
   Clock3,
   GripVertical,
   Loader2,
+  Pause,
+  Pencil,
   Play,
   Plus,
   RefreshCw,
@@ -23,6 +25,7 @@ import {
   confirmTask,
   createTaskAction,
   createTaskActionTrigger,
+  deleteTaskTrigger,
   deleteTask,
   fetchAllTaskTriggers,
   fetchTask,
@@ -31,8 +34,13 @@ import {
   runTaskNow,
   runTaskTriggerNow,
   updateTaskAction,
+  updateTaskTrigger,
 } from "@/lib/api";
-import type { TaskActionCreateInput, TaskTriggerCreateInput } from "@/lib/api";
+import type {
+  TaskActionCreateInput,
+  TaskTriggerCreateInput,
+  TaskTriggerUpdateInput,
+} from "@/lib/api";
 import type { TaskActionInfo, TaskEventInfo, TaskInfo, TaskTriggerInfo } from "@/types";
 import { useI18n } from "@/i18n";
 import {
@@ -213,6 +221,69 @@ function triggerStatusClass(trigger: TaskTriggerInfo): string {
   return WORKBENCH_STATUS_NEUTRAL_CLASS;
 }
 
+function formatIntervalText(
+  seconds: number | null | undefined,
+  t: ReturnType<typeof useI18n>["t"]
+): string {
+  const safeSeconds = Math.max(1, Math.round(seconds || 0));
+  if (safeSeconds % 86_400 === 0) {
+    return t("tasks.triggerEveryDays", { count: safeSeconds / 86_400 });
+  }
+  if (safeSeconds % 3_600 === 0) {
+    return t("tasks.triggerEveryHours", { count: safeSeconds / 3_600 });
+  }
+  if (safeSeconds % 60 === 0) {
+    return t("tasks.triggerEveryMinutes", { count: safeSeconds / 60 });
+  }
+  return t("tasks.triggerEverySeconds", { count: safeSeconds });
+}
+
+function triggerScheduleText(
+  trigger: TaskTriggerInfo,
+  locale: string,
+  t: ReturnType<typeof useI18n>["t"]
+): string {
+  if (trigger.kind === "interval") {
+    return formatIntervalText(trigger.interval_seconds, t);
+  }
+  const runAt = trigger.run_at || trigger.next_run_at;
+  if (!runAt) return t("tasks.triggerOnce");
+  return `${t("tasks.triggerOnce")} · ${formatDate(runAt, locale, t("tasks.unknown"))}`;
+}
+
+function triggerNextText(
+  trigger: TaskTriggerInfo,
+  locale: string,
+  t: ReturnType<typeof useI18n>["t"]
+): string {
+  if (isTriggerCompleted(trigger)) return t("tasks.triggerNoNextRun");
+  if (trigger.status === "pending_confirmation") return t("tasks.triggerPendingConfirmation");
+  if (trigger.status === "paused" || !trigger.enabled) return t("tasks.triggerPaused");
+  if (!trigger.next_run_at) return t("tasks.triggerNoNextRun");
+  return formatDate(trigger.next_run_at, locale, t("tasks.triggerNoNextRun"));
+}
+
+function toDateTimeLocalValue(value: string | null | undefined): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 16);
+}
+
+function earliestIso(values: Array<string | null | undefined>): string | null {
+  let bestValue: string | null = null;
+  let bestTime = Number.POSITIVE_INFINITY;
+  for (const value of values) {
+    if (!value) continue;
+    const time = new Date(value).getTime();
+    if (Number.isNaN(time) || time >= bestTime) continue;
+    bestTime = time;
+    bestValue = value;
+  }
+  return bestValue;
+}
+
 function currentTimezone(): string {
   try {
     return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
@@ -386,6 +457,12 @@ export default function TasksPage({
   const [draggingActionId, setDraggingActionId] = useState<string | null>(null);
   const [triggerActionId, setTriggerActionId] = useState<string | null>(null);
   const [newTriggerRunAt, setNewTriggerRunAt] = useState("");
+  const [editingTriggerId, setEditingTriggerId] = useState<string | null>(null);
+  const [editingTriggerKind, setEditingTriggerKind] = useState<"once" | "interval">("once");
+  const [editingTriggerRunAt, setEditingTriggerRunAt] = useState("");
+  const [editingTriggerIntervalMinutes, setEditingTriggerIntervalMinutes] = useState("60");
+  const [editingTriggerMaxRuns, setEditingTriggerMaxRuns] = useState("");
+  const [confirmingTriggerDeleteId, setConfirmingTriggerDeleteId] = useState<string | null>(null);
 
   useEffect(() => {
     selectedIdRef.current = selectedId;
@@ -495,6 +572,9 @@ export default function TasksPage({
     setIsActionSortMode(false);
     setDraftActionOrderIds([]);
     setDraggingActionId(null);
+    setTriggerActionId(null);
+    setEditingTriggerId(null);
+    setConfirmingTriggerDeleteId(null);
   }, [selectedTask?.taskId]);
 
   useEffect(() => {
@@ -545,6 +625,16 @@ export default function TasksPage({
   const selectedTaskActionTriggers = useMemo(
     () => visibleActions.filter((action) => Boolean(action.nextWakeupAt)),
     [visibleActions]
+  );
+  const selectedTaskNextRunAt = useMemo(
+    () =>
+      earliestIso([
+        ...selectedTaskActionTriggers.map((action) => action.nextWakeupAt),
+        ...selectedTaskTriggers
+          .filter((trigger) => trigger.enabled && !isTriggerCompleted(trigger))
+          .map((trigger) => trigger.next_run_at),
+      ]),
+    [selectedTaskActionTriggers, selectedTaskTriggers]
   );
   const loading = isLoading ?? internalLoading;
   const errorMessage = error ?? internalError;
@@ -800,7 +890,6 @@ export default function TasksPage({
           run_at: newTriggerRunAt,
           enabled: true,
           max_runtime_seconds: 600,
-          max_runs: 1,
         };
         await createTaskActionTrigger(selectedTask.taskId, triggerActionId, input);
         setTriggerActionId(null);
@@ -813,6 +902,135 @@ export default function TasksPage({
       }
     },
     [handleError, loadTasks, newTriggerRunAt, selectedTask, t, triggerActionId, visibleActions]
+  );
+
+  const openTriggerEditForm = useCallback((trigger: TaskTriggerInfo) => {
+    setTriggerActionId(null);
+    setEditingTriggerId(trigger.trigger_id);
+    setEditingTriggerKind(trigger.kind);
+    setEditingTriggerRunAt(toDateTimeLocalValue(trigger.run_at || trigger.next_run_at));
+    setEditingTriggerIntervalMinutes(
+      String(Math.max(1, Math.round((trigger.interval_seconds || 3_600) / 60)))
+    );
+    setEditingTriggerMaxRuns(trigger.max_runs ? String(trigger.max_runs) : "");
+    setConfirmingTriggerDeleteId(null);
+  }, []);
+
+  const submitTriggerEdit = useCallback(
+    async (event: React.FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      if (!editingTriggerId) return;
+      const trigger =
+        selectedTaskTriggers.find((item) => item.trigger_id === editingTriggerId) || null;
+      const taskId = trigger?.task_id || selectedTask?.taskId;
+      if (!trigger || !taskId) return;
+      const input: TaskTriggerUpdateInput = {
+        kind: editingTriggerKind,
+        timezone: currentTimezone(),
+        enabled: isTriggerCompleted(trigger) ? true : trigger.enabled,
+      };
+      if (editingTriggerKind === "once") {
+        if (!editingTriggerRunAt) {
+          setInternalError(t("tasks.triggerRunAtRequired"));
+          return;
+        }
+        input.run_at = editingTriggerRunAt;
+        input.interval_seconds = null;
+        input.max_runs = null;
+      } else {
+        const intervalMinutes = Number(editingTriggerIntervalMinutes);
+        if (!Number.isFinite(intervalMinutes) || intervalMinutes <= 0) {
+          setInternalError(t("tasks.triggerIntervalRequired"));
+          return;
+        }
+        const maxRunsText = editingTriggerMaxRuns.trim();
+        if (maxRunsText) {
+          const maxRuns = Number(maxRunsText);
+          if (!Number.isInteger(maxRuns) || maxRuns <= 0) {
+            setInternalError(t("tasks.triggerMaxRunsInvalid"));
+            return;
+          }
+          input.max_runs = maxRuns;
+        } else {
+          input.max_runs = null;
+        }
+        input.run_at = null;
+        input.interval_seconds = Math.max(1, Math.round(intervalMinutes * 60));
+      }
+      setPendingAction(`edit-trigger:${editingTriggerId}`);
+      setInternalError(null);
+      try {
+        await updateTaskTrigger(taskId, editingTriggerId, input);
+        setEditingTriggerId(null);
+        await loadTasks(selectedTask?.taskId || selectedId);
+      } catch (caught) {
+        handleError(caught, t("tasks.actionFailed"));
+      } finally {
+        setPendingAction(null);
+      }
+    },
+    [
+      editingTriggerId,
+      editingTriggerIntervalMinutes,
+      editingTriggerKind,
+      editingTriggerMaxRuns,
+      editingTriggerRunAt,
+      handleError,
+      loadTasks,
+      selectedId,
+      selectedTask?.taskId,
+      selectedTaskTriggers,
+      t,
+    ]
+  );
+
+  const toggleTriggerEnabledOperation = useCallback(
+    async (trigger: TaskTriggerInfo) => {
+      const taskId = trigger.task_id || selectedTask?.taskId;
+      if (!taskId) return;
+      setPendingAction(`toggle-trigger:${trigger.trigger_id}`);
+      setInternalError(null);
+      try {
+        await updateTaskTrigger(taskId, trigger.trigger_id, { enabled: !trigger.enabled });
+        await loadTasks(selectedTask?.taskId || selectedId);
+      } catch (caught) {
+        handleError(caught, t("tasks.actionFailed"));
+      } finally {
+        setPendingAction(null);
+      }
+    },
+    [handleError, loadTasks, selectedId, selectedTask?.taskId, t]
+  );
+
+  const deleteTriggerOperation = useCallback(
+    async (trigger: TaskTriggerInfo) => {
+      const taskId = trigger.task_id || selectedTask?.taskId;
+      if (!taskId) return;
+      if (confirmingTriggerDeleteId !== trigger.trigger_id) {
+        setConfirmingTriggerDeleteId(trigger.trigger_id);
+        return;
+      }
+      setPendingAction(`delete-trigger:${trigger.trigger_id}`);
+      setInternalError(null);
+      try {
+        await deleteTaskTrigger(taskId, trigger.trigger_id);
+        setConfirmingTriggerDeleteId(null);
+        setEditingTriggerId(null);
+        await loadTasks(selectedTask?.taskId || selectedId);
+      } catch (caught) {
+        handleError(caught, t("tasks.actionFailed"));
+      } finally {
+        setPendingAction(null);
+      }
+    },
+    [
+      confirmingTriggerDeleteId,
+      handleError,
+      loadTasks,
+      selectedId,
+      selectedTask?.taskId,
+      t,
+    ]
   );
 
   const runTriggerOperation = useCallback(
@@ -1072,7 +1290,7 @@ export default function TasksPage({
                         </div>
                       </div>
 
-                      <div className="grid gap-2 md:grid-cols-3">
+                      <div className="grid gap-2 md:grid-cols-4">
                         <div className={`${taskSoftPanelClass} px-3 py-2`}>
                           <div className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
                             {t("tasks.currentAction")}
@@ -1081,6 +1299,16 @@ export default function TasksPage({
                             className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} mt-0.5 truncate text-[#1F2329]`}
                           >
                             {selectedTask.progress?.currentActionTitle || t("tasks.unknown")}
+                          </div>
+                        </div>
+                        <div className={`${taskSoftPanelClass} px-3 py-2`}>
+                          <div className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
+                            {t("tasks.nextRun")}
+                          </div>
+                          <div
+                            className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} mt-0.5 truncate text-[#1F2329]`}
+                          >
+                            {formatDate(selectedTaskNextRunAt, locale, t("tasks.triggerNoNextRun"))}
                           </div>
                         </div>
                         <div className={`${taskSoftPanelClass} px-3 py-2`}>
@@ -1518,8 +1746,10 @@ export default function TasksPage({
                                 </span>
                               </div>
                               <div className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
-                                {t("tasks.triggerNext")}:{" "}
-                                {formatDate(trigger.next_run_at, locale, t("tasks.unknown"))}
+                                {triggerScheduleText(trigger, locale, t)}
+                              </div>
+                              <div className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
+                                {t("tasks.triggerNext")}: {triggerNextText(trigger, locale, t)}
                               </div>
                               <div className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
                                 {triggerRunProgressText(trigger, t)}
@@ -1529,19 +1759,165 @@ export default function TasksPage({
                                   {t("tasks.lastError")}: {trigger.last_error}
                                 </div>
                               ) : null}
-                              <button
-                                type="button"
-                                onClick={() => void runTriggerOperation(trigger)}
-                                className={`${WORKBENCH_SECONDARY_BUTTON_CLASS} h-8 w-fit ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
-                                disabled={pendingAction !== null}
-                              >
-                                {pendingAction === `trigger:${trigger.trigger_id}` ? (
-                                  <Loader2 size={14} className="animate-spin" />
-                                ) : (
-                                  <Play size={14} />
-                                )}
-                                <span>{t("tasks.runNow")}</span>
-                              </button>
+                              {editingTriggerId === trigger.trigger_id ? (
+                                <form
+                                  onSubmit={submitTriggerEdit}
+                                  className="mt-1 grid gap-2 border-t border-[#DEE0E3] pt-2"
+                                >
+                                  <label
+                                    className={`grid gap-1 ${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#646A73]`}
+                                  >
+                                    {t("tasks.triggerMode")}
+                                    <select
+                                      value={editingTriggerKind}
+                                      onChange={(event) =>
+                                        setEditingTriggerKind(
+                                          event.target.value === "interval" ? "interval" : "once"
+                                        )
+                                      }
+                                      className={`h-9 px-2.5 ${WORKBENCH_FIELD_CLASS} ${TYPOGRAPHY_BODY_CLASS}`}
+                                    >
+                                      <option value="once">{t("tasks.triggerOnce")}</option>
+                                      <option value="interval">{t("tasks.triggerInterval")}</option>
+                                    </select>
+                                  </label>
+                                  {editingTriggerKind === "once" ? (
+                                    <label
+                                      className={`grid gap-1 ${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#646A73]`}
+                                    >
+                                      {t("tasks.runAt")}
+                                      <input
+                                        type="datetime-local"
+                                        value={editingTriggerRunAt}
+                                        onChange={(event) =>
+                                          setEditingTriggerRunAt(event.target.value)
+                                        }
+                                        className={`h-9 px-2.5 ${WORKBENCH_FIELD_CLASS} ${TYPOGRAPHY_BODY_CLASS}`}
+                                      />
+                                    </label>
+                                  ) : (
+                                    <div className="grid gap-2 sm:grid-cols-2">
+                                      <label
+                                        className={`grid gap-1 ${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#646A73]`}
+                                      >
+                                        {t("tasks.triggerEveryMinutesLabel")}
+                                        <input
+                                          type="number"
+                                          min="1"
+                                          step="1"
+                                          value={editingTriggerIntervalMinutes}
+                                          onChange={(event) =>
+                                            setEditingTriggerIntervalMinutes(event.target.value)
+                                          }
+                                          className={`h-9 px-2.5 ${WORKBENCH_FIELD_CLASS} ${TYPOGRAPHY_BODY_CLASS}`}
+                                        />
+                                      </label>
+                                      <label
+                                        className={`grid gap-1 ${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#646A73]`}
+                                      >
+                                        {t("tasks.maxRuns")}
+                                        <input
+                                          type="number"
+                                          min="1"
+                                          step="1"
+                                          placeholder={t("tasks.noLimit")}
+                                          value={editingTriggerMaxRuns}
+                                          onChange={(event) =>
+                                            setEditingTriggerMaxRuns(event.target.value)
+                                          }
+                                          className={`h-9 px-2.5 ${WORKBENCH_FIELD_CLASS} ${TYPOGRAPHY_BODY_CLASS}`}
+                                        />
+                                      </label>
+                                    </div>
+                                  )}
+                                  <div className="flex flex-wrap justify-end gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => setEditingTriggerId(null)}
+                                      className={`${WORKBENCH_SECONDARY_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                                    >
+                                      {t("tasks.cancel")}
+                                    </button>
+                                    <button
+                                      type="submit"
+                                      className={`${WORKBENCH_PRIMARY_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                                      disabled={pendingAction !== null}
+                                    >
+                                      {pendingAction === `edit-trigger:${trigger.trigger_id}` ? (
+                                        <Loader2 size={14} className="animate-spin" />
+                                      ) : (
+                                        <Check size={14} />
+                                      )}
+                                      <span>{t("tasks.saveTrigger")}</span>
+                                    </button>
+                                  </div>
+                                </form>
+                              ) : null}
+                              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => openTriggerEditForm(trigger)}
+                                  className={`${WORKBENCH_SECONDARY_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                                  disabled={pendingAction !== null}
+                                >
+                                  <Pencil size={14} />
+                                  <span>{t("tasks.edit")}</span>
+                                </button>
+                                {!isTriggerCompleted(trigger) &&
+                                trigger.status !== "pending_confirmation" ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => void toggleTriggerEnabledOperation(trigger)}
+                                    className={`${WORKBENCH_SECONDARY_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                                    disabled={pendingAction !== null}
+                                  >
+                                    {pendingAction === `toggle-trigger:${trigger.trigger_id}` ? (
+                                      <Loader2 size={14} className="animate-spin" />
+                                    ) : trigger.enabled ? (
+                                      <Pause size={14} />
+                                    ) : (
+                                      <Play size={14} />
+                                    )}
+                                    <span>
+                                      {trigger.enabled ? t("tasks.pause") : t("tasks.resume")}
+                                    </span>
+                                  </button>
+                                ) : null}
+                                <button
+                                  type="button"
+                                  onClick={() => void runTriggerOperation(trigger)}
+                                  className={`${WORKBENCH_SECONDARY_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                                  disabled={pendingAction !== null}
+                                >
+                                  {pendingAction === `trigger:${trigger.trigger_id}` ? (
+                                    <Loader2 size={14} className="animate-spin" />
+                                  ) : (
+                                    <Play size={14} />
+                                  )}
+                                  <span>
+                                    {isTriggerCompleted(trigger)
+                                      ? t("tasks.runAgain")
+                                      : t("tasks.runNow")}
+                                  </span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => void deleteTriggerOperation(trigger)}
+                                  className={`${WORKBENCH_DANGER_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                                  disabled={pendingAction !== null}
+                                >
+                                  {pendingAction === `delete-trigger:${trigger.trigger_id}` ? (
+                                    <Loader2 size={14} className="animate-spin" />
+                                  ) : (
+                                    <Trash2 size={14} />
+                                  )}
+                                  <span>
+                                    {confirmingTriggerDeleteId === trigger.trigger_id
+                                      ? t("tasks.confirmDelete")
+                                      : t("tasks.delete")}
+                                  </span>
+                                </button>
+                              </div>
                               {trigger.last_run_id || trigger.last_run_status ? (
                                 <div className="flex min-w-0 flex-wrap items-center gap-2">
                                   {trigger.last_run_id ? (

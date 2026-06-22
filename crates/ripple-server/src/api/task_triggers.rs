@@ -39,6 +39,7 @@ enum TaskTriggerDriverDecision {
 
 struct NormalizedTaskTriggerTiming {
     kind: String,
+    timezone: String,
     run_at: Option<String>,
     interval_seconds: Option<u64>,
     max_runs: Option<u64>,
@@ -51,6 +52,13 @@ trait TaskTriggerDriver: Sync {
     fn normalize_create_timing(
         &self,
         input: &TaskTriggerCreateInput,
+        now: OffsetDateTime,
+    ) -> Result<NormalizedTaskTriggerTiming, ApiError>;
+
+    fn normalize_update_timing(
+        &self,
+        current: &TaskTriggerRecord,
+        input: &TaskTriggerUpdateInput,
         now: OffsetDateTime,
     ) -> Result<NormalizedTaskTriggerTiming, ApiError>;
 
@@ -102,6 +110,45 @@ impl TaskTriggerDriver for TimeTaskTriggerDriver {
         )?;
         Ok(NormalizedTaskTriggerTiming {
             kind: kind.to_string(),
+            timezone: normalized_timezone(&input.timezone),
+            run_at,
+            interval_seconds,
+            max_runs,
+            next_run_at,
+        })
+    }
+
+    fn normalize_update_timing(
+        &self,
+        current: &TaskTriggerRecord,
+        input: &TaskTriggerUpdateInput,
+        now: OffsetDateTime,
+    ) -> Result<NormalizedTaskTriggerTiming, ApiError> {
+        let kind = normalize_kind(input.kind.as_deref().unwrap_or(&current.kind))?;
+        let timezone = normalized_timezone(input.timezone.as_deref().unwrap_or(&current.timezone));
+        let run_at_source = match &input.run_at {
+            Some(Some(value)) => Some(value.as_str()),
+            Some(None) => None,
+            None => current.run_at.as_deref(),
+        };
+        let run_at = normalize_run_at(run_at_source, &timezone)?;
+        let interval_source = input.interval_seconds.unwrap_or(current.interval_seconds);
+        let interval_seconds = normalize_interval(kind, interval_source)?;
+        let max_runs_source = if kind == "interval" {
+            input.max_runs.unwrap_or(current.max_runs)
+        } else {
+            input.max_runs.unwrap_or(None)
+        };
+        let max_runs = normalize_max_runs(kind, max_runs_source)?;
+        let next_run_at = compute_time_trigger_initial_next_run_at(
+            kind,
+            run_at.as_deref(),
+            interval_seconds,
+            now,
+        )?;
+        Ok(NormalizedTaskTriggerTiming {
+            kind: kind.to_string(),
+            timezone,
             run_at,
             interval_seconds,
             max_runs,
@@ -256,6 +303,46 @@ pub struct TaskTriggerCreateInput {
     pub(crate) overlap_policy: String,
     #[serde(default = "default_failure_policy")]
     pub(crate) failure_policy: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TaskTriggerUpdateInput {
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
+    prompt: Option<String>,
+    #[serde(default, alias = "triggerType")]
+    trigger_type: Option<String>,
+    #[serde(default)]
+    kind: Option<String>,
+    #[serde(default)]
+    timezone: Option<String>,
+    #[serde(default)]
+    run_at: Option<Option<String>>,
+    #[serde(default)]
+    interval_seconds: Option<Option<u64>>,
+    #[serde(default)]
+    enabled: Option<bool>,
+    #[serde(default)]
+    cwd: Option<Option<String>>,
+    #[serde(default)]
+    model: Option<Option<String>>,
+    #[serde(default)]
+    effort: Option<Option<String>>,
+    #[serde(default)]
+    summary: Option<Option<String>>,
+    #[serde(default, rename = "outputSchema", alias = "output_schema")]
+    output_schema: Option<Option<Value>>,
+    #[serde(default)]
+    max_runtime_seconds: Option<u64>,
+    #[serde(default)]
+    max_runs: Option<Option<u64>>,
+    #[serde(default)]
+    missed_run_policy: Option<String>,
+    #[serde(default)]
+    overlap_policy: Option<String>,
+    #[serde(default)]
+    failure_policy: Option<String>,
 }
 
 pub async fn list_task_triggers(
@@ -468,7 +555,7 @@ pub(crate) async fn create_task_trigger_for_user(
         title,
         prompt,
         kind: timing.kind,
-        timezone: input.timezone.trim().to_string(),
+        timezone: timing.timezone,
         run_at: timing.run_at,
         interval_seconds: timing.interval_seconds,
         enabled: input.enabled,
@@ -501,6 +588,146 @@ pub(crate) async fn create_task_trigger_for_user(
     };
     persist_task_trigger_record(state, user_id, &record).await?;
     Ok(public_task_trigger_record_value(state, user_id, &record))
+}
+
+pub async fn update_task_trigger(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((task_id, trigger_id)): Path<(String, String)>,
+    Json(input): Json<TaskTriggerUpdateInput>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
+    let workspace_root = state.sandboxes.ensure_sandbox(&user_id)?;
+    let trigger_state = load_task_trigger_state(&state, &user_id).await?;
+    let Some(mut record) = trigger_state.triggers.get(&trigger_id).cloned() else {
+        return Err(ApiError::not_found("Task trigger not found"));
+    };
+    if record.task_id.as_deref() != Some(task_id.as_str()) {
+        return Err(ApiError::not_found("Task trigger not found"));
+    }
+    reconcile_task_trigger_record(&state, &user_id, &mut record).await?;
+    let old_enabled = record.enabled;
+    let old_status = record.status.clone();
+    let old_next_run_at = record.next_run_at.clone();
+    let schedule_changed = task_trigger_update_changes_schedule(&input);
+    let driver = task_trigger_driver_for_type(
+        input
+            .trigger_type
+            .as_deref()
+            .unwrap_or(&record.trigger_type),
+    )?;
+    let now = OffsetDateTime::now_utc();
+    let timing = driver.normalize_update_timing(&record, &input, now)?;
+    let enabled = input.enabled.unwrap_or(record.enabled);
+
+    let task = state
+        .storage
+        .get_task(&user_id, &task_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("Task not found"))?;
+    if enabled && !task_has_source_session(&task) {
+        return Err(ApiError::bad_request(
+            "Enabled task trigger requires source_session_id",
+        ));
+    }
+
+    if let Some(title) = input.title.as_deref() {
+        record.title = clean_required(title, "title")?;
+    }
+    if let Some(prompt) = input.prompt.as_deref() {
+        record.prompt = clean_required(prompt, "prompt")?;
+    }
+    if let Some(cwd) = input.cwd {
+        let cwd = clean_nullable_text(cwd);
+        validate_task_trigger_cwd(&workspace_root, cwd.as_deref())?;
+        record.cwd = cwd;
+    }
+    if let Some(model) = input.model {
+        record.model = clean_nullable_text(model);
+    }
+    if let Some(effort) = input.effort {
+        record.effort = clean_nullable_text(effort);
+    }
+    if let Some(summary) = input.summary {
+        record.summary = clean_nullable_text(summary);
+    }
+    if let Some(output_schema) = input.output_schema {
+        record.output_schema = output_schema;
+    }
+    if let Some(max_runtime_seconds) = input.max_runtime_seconds {
+        record.max_runtime_seconds = max_runtime_seconds.clamp(1, 86_400);
+    }
+    if let Some(missed_run_policy) = input.missed_run_policy.as_deref() {
+        record.missed_run_policy = normalize_missed_run_policy(missed_run_policy)?.to_string();
+    }
+    if let Some(overlap_policy) = input.overlap_policy.as_deref() {
+        record.overlap_policy = normalize_overlap_policy(overlap_policy)?.to_string();
+    }
+    if let Some(failure_policy) = input.failure_policy.as_deref() {
+        record.failure_policy = normalize_failure_policy(failure_policy)?.to_string();
+    }
+
+    record.trigger_type = driver.trigger_type().to_string();
+    record.kind = timing.kind;
+    record.timezone = timing.timezone;
+    record.run_at = timing.run_at;
+    record.interval_seconds = timing.interval_seconds;
+    record.max_runs = timing.max_runs;
+    record.enabled = enabled;
+    let should_recompute_next = schedule_changed
+        || (enabled && !old_enabled)
+        || (enabled && old_next_run_at.is_none())
+        || (enabled && old_status == "completed" && input.max_runs.is_some());
+    if !enabled {
+        record.status = "paused".to_string();
+        record.next_run_at = None;
+    } else if driver.limit_reached(&record) {
+        record.enabled = false;
+        record.status = "completed".to_string();
+        record.next_run_at = None;
+    } else {
+        record.status = "active".to_string();
+        if should_recompute_next {
+            record.next_run_at = timing.next_run_at;
+        } else {
+            record.next_run_at = old_next_run_at.or(timing.next_run_at);
+        }
+        if old_status == "error" {
+            record.last_error = None;
+            record.failure_reason = None;
+        }
+    }
+    record.updated_at = iso(now);
+    persist_task_trigger_record(&state, &user_id, &record).await?;
+    Ok(Json(public_task_trigger_value(&state, &user_id, &record)))
+}
+
+pub async fn delete_task_trigger(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((task_id, trigger_id)): Path<(String, String)>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
+    state.sandboxes.ensure_sandbox(&user_id)?;
+    let trigger_state = load_task_trigger_state(&state, &user_id).await?;
+    let Some(record) = trigger_state.triggers.get(&trigger_id) else {
+        return Err(ApiError::not_found("Task trigger not found"));
+    };
+    if record.task_id.as_deref() != Some(task_id.as_str()) {
+        return Err(ApiError::not_found("Task trigger not found"));
+    }
+    if !state
+        .storage
+        .delete_task_trigger(&user_id, &trigger_id)
+        .await?
+    {
+        return Err(ApiError::not_found("Task trigger not found"));
+    }
+    Ok(Json(json!({
+        "deleted": true,
+        "trigger_id": trigger_id,
+        "task_id": task_id
+    })))
 }
 
 pub async fn run_task_trigger_now(
@@ -1148,6 +1375,31 @@ fn clean_optional_link_id(value: Option<String>) -> Option<String> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string)
+}
+
+fn clean_nullable_text(value: Option<String>) -> Option<String> {
+    value
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn normalized_timezone(value: &str) -> String {
+    let value = value.trim();
+    if value.is_empty() {
+        default_timezone()
+    } else {
+        value.to_string()
+    }
+}
+
+fn task_trigger_update_changes_schedule(input: &TaskTriggerUpdateInput) -> bool {
+    input.trigger_type.is_some()
+        || input.kind.is_some()
+        || input.timezone.is_some()
+        || input.run_at.is_some()
+        || input.interval_seconds.is_some()
 }
 
 fn task_trigger_driver_for_type(value: &str) -> Result<&'static dyn TaskTriggerDriver, ApiError> {

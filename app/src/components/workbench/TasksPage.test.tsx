@@ -252,7 +252,33 @@ function testTasksPageShowsCompletedTriggersAsCompleted() {
   const html = renderTasksPage("en-US", { triggers: [completedTrigger] });
 
   assert.match(html, />Completed</);
+  assert.match(html, /No next run/);
+  assert.doesNotMatch(html, /Next: Unknown/);
   assert.doesNotMatch(html, />Paused</);
+}
+
+function testTasksPageExposesTriggerEditingControls() {
+  const html = renderTasksPage("en-US", {
+    triggers: [
+      {
+        ...triggers[0],
+        kind: "interval",
+        run_at: null,
+        interval_seconds: 1800,
+        max_runs: 5,
+        run_count: 2,
+      },
+    ],
+  });
+  const source = readFileSync(new URL("./TasksPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /updateTaskTrigger/);
+  assert.match(source, /deleteTaskTrigger/);
+  assert.match(html, />Edit</);
+  assert.match(html, />Pause</);
+  assert.match(html, />Delete</);
+  assert.match(html, /Every 30 min/);
+  assert.match(html, /Runs 2\/5/);
 }
 
 function testAddStepDoesNotCollectTriggerTiming() {
@@ -344,6 +370,7 @@ testTasksPageUsesFocusSplitLayout();
 testTasksPageShowsPendingConfirmationTriggers();
 testTasksPageShowsFailedTriggersAsErrors();
 testTasksPageShowsCompletedTriggersAsCompleted();
+testTasksPageExposesTriggerEditingControls();
 testAddStepDoesNotCollectTriggerTiming();
 testTasksPageUsesDedicatedStepSortingMode();
 testTriggerFormDoesNotDuplicateStepContentFields();

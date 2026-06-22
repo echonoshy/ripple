@@ -1291,14 +1291,19 @@ fn action_dependency_ids(action: &Value) -> Vec<String> {
 }
 
 fn action_dependencies_satisfied(action: &Value, actions: &[Value]) -> bool {
-    let dependencies = action_dependency_ids(action);
-    dependencies.is_empty()
-        || dependencies.iter().all(|dependency_id| {
-            actions.iter().any(|candidate| {
+    unsatisfied_action_dependency_ids(action, actions).is_empty()
+}
+
+fn unsatisfied_action_dependency_ids(action: &Value, actions: &[Value]) -> Vec<String> {
+    action_dependency_ids(action)
+        .into_iter()
+        .filter(|dependency_id| {
+            !actions.iter().any(|candidate| {
                 candidate.get("action_id").and_then(Value::as_str) == Some(dependency_id.as_str())
                     && candidate.get("status").and_then(Value::as_str) == Some("completed")
             })
         })
+        .collect()
 }
 
 fn action_is_runnable(action: &Value, actions: &[Value]) -> bool {
@@ -1308,6 +1313,34 @@ fn action_is_runnable(action: &Value, actions: &[Value]) -> bool {
         .unwrap_or("confirmed")
         == "confirmed"
         && action_dependencies_satisfied(action, actions)
+}
+
+pub(crate) async fn task_action_dependency_wait_reason(
+    storage: &Storage,
+    user_id: &str,
+    task_id: &str,
+    action_id: &str,
+) -> Result<Option<String>, ApiError> {
+    let actions =
+        sort_task_actions_for_execution(storage.list_task_actions(user_id, task_id).await?);
+    let Some(action) = actions
+        .iter()
+        .find(|action| action.get("action_id").and_then(Value::as_str) == Some(action_id))
+    else {
+        return Ok(None);
+    };
+    if action.get("status").and_then(Value::as_str) != Some("confirmed") {
+        return Ok(None);
+    }
+    let waiting_for = unsatisfied_action_dependency_ids(action, &actions);
+    if waiting_for.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(format!(
+            "Waiting for dependencies: {}",
+            waiting_for.join(", ")
+        )))
+    }
 }
 
 fn parse_datetime(value: &str) -> Result<OffsetDateTime, ApiError> {
@@ -1692,8 +1725,21 @@ fn task_trigger_record_matches_identity(existing: &Value, record: &Value) -> boo
         "run_at",
         "interval_seconds",
     ];
+    if task_trigger_type_for_value(existing) != task_trigger_type_for_value(record) {
+        return false;
+    }
     KEYS.iter()
         .all(|key| existing.get(*key) == record.get(*key))
+}
+
+fn task_trigger_type_for_value(record: &Value) -> &str {
+    record
+        .get("trigger_type")
+        .or_else(|| record.get("triggerType"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("time")
 }
 
 fn task_trigger_values(task: &Value) -> Vec<&Value> {
@@ -1730,6 +1776,7 @@ fn task_trigger_record_from_payload(
         .and_then(Value::as_str)
         .ok_or_else(|| ApiError::bad_request("task trigger missing task_id"))?;
     let action_id = action.and_then(|action| action.get("action_id").and_then(Value::as_str));
+    let trigger_type = task_trigger_type_for_value(trigger);
     let kind = trigger
         .get("kind")
         .and_then(Value::as_str)
@@ -1745,6 +1792,11 @@ fn task_trigger_record_from_payload(
     if !matches!(kind, "once" | "interval") {
         return Err(ApiError::bad_request(
             "task trigger kind must be one of: once, interval",
+        ));
+    }
+    if trigger_type != "time" {
+        return Err(ApiError::bad_request(
+            "task trigger trigger_type must be one of: time",
         ));
     }
     let timezone = trigger
@@ -1835,6 +1887,7 @@ fn task_trigger_record_from_payload(
     Ok(json!({
         "trigger_id": generated_id("trg"),
         "user_id": user_id,
+        "trigger_type": trigger_type,
         "title": title,
         "prompt": prompt,
         "kind": kind,
@@ -2283,7 +2336,7 @@ async fn execute_task_action_inner(
         .and_then(|trigger| trigger.max_runtime_seconds)
         .unwrap_or(state.config.codex.max_runtime_seconds);
     assert_can_create_run(state, user_id, max_runtime_seconds).await?;
-    let (task, action, _) = update_task_action_record(
+    let (task, action, actions) = update_task_action_record(
         &state.storage,
         user_id,
         task_id,
@@ -2296,7 +2349,7 @@ async fn execute_task_action_inner(
         .and_then(|trigger| trigger.prompt.as_deref())
         .map(str::trim)
         .filter(|value| !value.is_empty());
-    let prompt = task_run_prompt(&task, &action, trigger_prompt);
+    let prompt = task_run_prompt(&task, &action, &actions, trigger_prompt);
     let selected_model = trigger
         .and_then(|trigger| trigger.model.as_deref())
         .map(str::trim)
@@ -2652,7 +2705,86 @@ async fn ensure_runnable_action(
     Ok(action)
 }
 
-fn task_run_prompt(task: &Value, action: &Value, run_instruction: Option<&str>) -> String {
+fn previous_step_results_for_prompt(current_action: &Value, actions: &[Value]) -> String {
+    let current_action_id = current_action
+        .get("action_id")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let current_sequence = action_sequence_index(current_action);
+    let dependency_ids = action_dependency_ids(current_action)
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    let mut seen = BTreeSet::new();
+    let mut lines = Vec::new();
+
+    for action in sort_task_actions_for_execution(actions.to_vec()) {
+        let action_id = action
+            .get("action_id")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        if action_id.is_empty() || action_id == current_action_id {
+            continue;
+        }
+        if action.get("status").and_then(Value::as_str) != Some("completed") {
+            continue;
+        }
+        let is_dependency = dependency_ids.contains(action_id);
+        let is_prior_sequence =
+            current_sequence != u64::MAX && action_sequence_index(&action) < current_sequence;
+        if !is_dependency && !is_prior_sequence {
+            continue;
+        }
+        if !seen.insert(action_id.to_string()) {
+            continue;
+        }
+
+        let title = action
+            .get("title")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("Untitled step");
+        let objective = action
+            .get("objective")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let result_summary = action
+            .get("result_summary")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("Completed without a saved result summary.");
+        let last_run_id = action
+            .get("last_run_id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+
+        let mut line = format!("- Action {action_id}: {title}");
+        if let Some(objective) = objective.filter(|objective| *objective != title) {
+            line.push_str(&format!("\n  Objective: {objective}"));
+        }
+        line.push_str(&format!("\n  Result: {result_summary}"));
+        if let Some(last_run_id) = last_run_id {
+            line.push_str(&format!("\n  Last run: {last_run_id}"));
+        }
+        lines.push(line);
+    }
+
+    if lines.is_empty() {
+        "None.".to_string()
+    } else {
+        lines.join("\n")
+    }
+}
+
+fn task_run_prompt(
+    task: &Value,
+    action: &Value,
+    actions: &[Value],
+    run_instruction: Option<&str>,
+) -> String {
     let task_id = task.get("task_id").and_then(Value::as_str).unwrap_or("");
     let task_title = task.get("title").and_then(Value::as_str).unwrap_or("任务");
     let task_objective = task
@@ -2683,8 +2815,9 @@ fn task_run_prompt(task: &Value, action: &Value, run_instruction: Option<&str>) 
         .get("source_summary")
         .and_then(Value::as_str)
         .unwrap_or("");
+    let previous_results = previous_step_results_for_prompt(action, actions);
     format!(
-        "Run this Ripple task.\nTask ID: {task_id}\nTask title: {task_title}\nTask objective: {task_objective}\nCurrent action ID: {action_id}\nCurrent action: {action_title}\nAction objective: {action_objective}\nRun instruction: {run_instruction}\nCurrent action run: {next_action_run_count}/{action_run_limit}\nSource context:\n{source}\n\nUse `codex_app.task_update` to update this task's progress. Call start_action when beginning, complete_action when done, wait_user when user input is needed, and block_action if blocked. Return a concise update for the user in the same language as the task."
+        "Run this Ripple task.\nTask ID: {task_id}\nTask title: {task_title}\nTask objective: {task_objective}\nCurrent action ID: {action_id}\nCurrent action: {action_title}\nAction objective: {action_objective}\nRun instruction: {run_instruction}\nCurrent action run: {next_action_run_count}/{action_run_limit}\nSource context:\n{source}\n\nPrevious step results:\n{previous_results}\n\nUse `codex_app.task_update` to update this task's progress. Call start_action when beginning, complete_action when done, wait_user when user input is needed, and block_action if blocked. Consider previous step results when they are relevant to the current action, but do not force unrelated parallel work into this step. Return a concise update for the user in the same language as the task."
     )
 }
 
@@ -2885,6 +3018,68 @@ mod tests {
     #[test]
     fn recurring_action_can_return_to_confirmed_after_iteration() {
         assert!(allowed_action_transition("in_progress", "confirmed"));
+    }
+
+    #[test]
+    fn task_run_prompt_includes_completed_prior_step_results() {
+        let task = json!({
+            "task_id": "task-pipeline",
+            "title": "Launch report",
+            "objective": "Research then write the launch report",
+            "source_summary": "User asked for a two-step workflow."
+        });
+        let first = json!({
+            "action_id": "act-research",
+            "title": "Research launch facts",
+            "objective": "Collect launch facts",
+            "status": "completed",
+            "sequence_index": 1,
+            "result_summary": "Found pricing, launch date, and three risks.",
+            "last_run_id": "agent-research"
+        });
+        let current = json!({
+            "action_id": "act-write",
+            "title": "Write launch report",
+            "objective": "Write the report from the research",
+            "status": "confirmed",
+            "sequence_index": 2,
+            "depends_on_action_ids": ["act-research"]
+        });
+        let later = json!({
+            "action_id": "act-send",
+            "title": "Send launch report",
+            "objective": "Send the report",
+            "status": "completed",
+            "sequence_index": 3,
+            "result_summary": "Sent the report.",
+            "last_run_id": "agent-send"
+        });
+        let actions = vec![first, current.clone(), later];
+
+        let prompt = task_run_prompt(&task, &current, &actions, None);
+
+        assert!(prompt.contains("Previous step results:"));
+        assert!(prompt.contains("act-research"));
+        assert!(prompt.contains("Found pricing, launch date, and three risks."));
+        assert!(prompt.contains("agent-research"));
+        assert!(!prompt.contains("agent-send"));
+    }
+
+    #[test]
+    fn sequence_index_does_not_block_parallel_action_without_dependencies() {
+        let first = json!({
+            "action_id": "act-research",
+            "status": "in_progress",
+            "sequence_index": 1
+        });
+        let current = json!({
+            "action_id": "act-independent",
+            "status": "confirmed",
+            "sequence_index": 2
+        });
+        let actions = vec![first, current.clone()];
+
+        assert!(action_is_runnable(&current, &actions));
     }
 
     #[tokio::test]

@@ -14,12 +14,15 @@ use crate::api::run_public::{
     public_run_value, sanitize_user_visible_text, sanitize_user_visible_value,
 };
 use crate::api::tasks::{
-    append_task_event, execute_task_action_for_trigger, TaskRunTriggerContext,
+    append_task_event, execute_task_action_for_trigger, task_action_dependency_wait_reason,
+    TaskRunTriggerContext,
 };
 use crate::api::{paginate, ApiError, ListQuery};
 use crate::jobs::{resolve_workspace_cwd, AgentRunInfo};
 use crate::state::AppState;
 use crate::user::user_id_from_headers;
+
+const TIME_TRIGGER_TYPE: &str = "time";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct TaskTriggerState {
@@ -27,10 +30,144 @@ struct TaskTriggerState {
     triggers: BTreeMap<String, TaskTriggerRecord>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+enum TaskTriggerDriverDecision {
+    Pending,
+    Fire,
+    SkipMissed { next_run_at: Option<String> },
+}
+
+struct NormalizedTaskTriggerTiming {
+    kind: String,
+    run_at: Option<String>,
+    interval_seconds: Option<u64>,
+    max_runs: Option<u64>,
+    next_run_at: Option<String>,
+}
+
+trait TaskTriggerDriver: Sync {
+    fn trigger_type(&self) -> &'static str;
+
+    fn normalize_create_timing(
+        &self,
+        input: &TaskTriggerCreateInput,
+        now: OffsetDateTime,
+    ) -> Result<NormalizedTaskTriggerTiming, ApiError>;
+
+    fn scheduled_decision(
+        &self,
+        record: &TaskTriggerRecord,
+        now: OffsetDateTime,
+        poll_interval_seconds: u64,
+    ) -> Result<TaskTriggerDriverDecision, ApiError>;
+
+    fn next_after_run(
+        &self,
+        record: &TaskTriggerRecord,
+        now: OffsetDateTime,
+    ) -> Result<Option<String>, ApiError>;
+
+    fn limit_reached(&self, record: &TaskTriggerRecord) -> bool;
+
+    fn complete_after_success(&self, record: &TaskTriggerRecord) -> bool;
+
+    fn should_complete_action_on_scheduled_run(&self, record: &TaskTriggerRecord) -> bool;
+
+    fn keep_active_after_failure(&self, record: &TaskTriggerRecord) -> bool;
+}
+
+struct TimeTaskTriggerDriver;
+
+static TIME_TASK_TRIGGER_DRIVER: TimeTaskTriggerDriver = TimeTaskTriggerDriver;
+
+impl TaskTriggerDriver for TimeTaskTriggerDriver {
+    fn trigger_type(&self) -> &'static str {
+        TIME_TRIGGER_TYPE
+    }
+
+    fn normalize_create_timing(
+        &self,
+        input: &TaskTriggerCreateInput,
+        now: OffsetDateTime,
+    ) -> Result<NormalizedTaskTriggerTiming, ApiError> {
+        let kind = normalize_kind(&input.kind)?;
+        let max_runs = normalize_max_runs(kind, input.max_runs)?;
+        let interval_seconds = normalize_interval(kind, input.interval_seconds)?;
+        let run_at = normalize_run_at(input.run_at.as_deref(), &input.timezone)?;
+        let next_run_at = compute_time_trigger_initial_next_run_at(
+            kind,
+            run_at.as_deref(),
+            interval_seconds,
+            now,
+        )?;
+        Ok(NormalizedTaskTriggerTiming {
+            kind: kind.to_string(),
+            run_at,
+            interval_seconds,
+            max_runs,
+            next_run_at,
+        })
+    }
+
+    fn scheduled_decision(
+        &self,
+        record: &TaskTriggerRecord,
+        now: OffsetDateTime,
+        poll_interval_seconds: u64,
+    ) -> Result<TaskTriggerDriverDecision, ApiError> {
+        let Some(next_run_at) = record.next_run_at.as_deref() else {
+            return Ok(TaskTriggerDriverDecision::Pending);
+        };
+        let next_run_at = parse_datetime(next_run_at)?;
+        if next_run_at > now {
+            return Ok(TaskTriggerDriverDecision::Pending);
+        }
+        if should_skip_missed_time_run(record, next_run_at, now, poll_interval_seconds) {
+            return Ok(TaskTriggerDriverDecision::SkipMissed {
+                next_run_at: self.next_after_run(record, now)?,
+            });
+        }
+        Ok(TaskTriggerDriverDecision::Fire)
+    }
+
+    fn next_after_run(
+        &self,
+        record: &TaskTriggerRecord,
+        now: OffsetDateTime,
+    ) -> Result<Option<String>, ApiError> {
+        advance_time_trigger_next_run_at(record, now)
+    }
+
+    fn limit_reached(&self, record: &TaskTriggerRecord) -> bool {
+        record.kind == "interval"
+            && record
+                .max_runs
+                .is_some_and(|max_runs| record.run_count >= max_runs)
+    }
+
+    fn complete_after_success(&self, record: &TaskTriggerRecord) -> bool {
+        record.kind == "once" || self.limit_reached(record)
+    }
+
+    fn should_complete_action_on_scheduled_run(&self, record: &TaskTriggerRecord) -> bool {
+        record.kind == "once"
+            || (record.kind == "interval"
+                && record
+                    .max_runs
+                    .is_some_and(|max_runs| record.run_count.saturating_add(1) >= max_runs))
+    }
+
+    fn keep_active_after_failure(&self, record: &TaskTriggerRecord) -> bool {
+        record.kind == "interval" && record.failure_policy == "keep_active" && record.enabled
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 struct TaskTriggerRecord {
     trigger_id: String,
     user_id: String,
+    #[serde(default = "default_trigger_type")]
+    trigger_type: String,
     title: String,
     prompt: String,
     kind: String,
@@ -81,6 +218,8 @@ pub(crate) struct TaskTriggerPhaseInput {
 pub struct TaskTriggerCreateInput {
     pub(crate) title: String,
     pub(crate) prompt: String,
+    #[serde(default = "default_trigger_type", alias = "triggerType")]
+    pub(crate) trigger_type: String,
     #[serde(default = "default_kind")]
     pub(crate) kind: String,
     #[serde(default = "default_timezone")]
@@ -317,26 +456,28 @@ pub(crate) async fn create_task_trigger_for_user(
 ) -> Result<Value, ApiError> {
     let workspace_root = state.sandboxes.ensure_sandbox(user_id)?;
     let now = OffsetDateTime::now_utc();
-    let kind = normalize_kind(&input.kind)?;
-    let max_runs = normalize_max_runs(kind, input.max_runs)?;
-    let interval_seconds = normalize_interval(kind, input.interval_seconds)?;
-    let run_at = normalize_run_at(input.run_at.as_deref(), &input.timezone)?;
-    let next_run_at = compute_initial_next_run_at(kind, run_at.as_deref(), interval_seconds, now)?;
+    let driver = task_trigger_driver_for_type(&input.trigger_type)?;
+    let timing = driver.normalize_create_timing(&input, now)?;
     let title = clean_required(&input.title, "title")?;
     let prompt = clean_required(&input.prompt, "prompt")?;
     validate_task_trigger_cwd(&workspace_root, input.cwd.as_deref())?;
     let record = TaskTriggerRecord {
         trigger_id: format!("trg-{}", &Uuid::new_v4().simple().to_string()[..10]),
         user_id: user_id.to_string(),
+        trigger_type: driver.trigger_type().to_string(),
         title,
         prompt,
-        kind: kind.to_string(),
+        kind: timing.kind,
         timezone: input.timezone.trim().to_string(),
-        run_at,
-        interval_seconds,
+        run_at: timing.run_at,
+        interval_seconds: timing.interval_seconds,
         enabled: input.enabled,
         status: if input.enabled { "active" } else { "paused" }.to_string(),
-        next_run_at: if input.enabled { next_run_at } else { None },
+        next_run_at: if input.enabled {
+            timing.next_run_at
+        } else {
+            None
+        },
         last_run_at: None,
         last_run_id: None,
         last_error: None,
@@ -351,7 +492,7 @@ pub(crate) async fn create_task_trigger_for_user(
         summary: input.summary,
         output_schema: input.output_schema,
         max_runtime_seconds: input.max_runtime_seconds.clamp(1, 86_400),
-        max_runs,
+        max_runs: timing.max_runs,
         task_id: clean_optional_link_id(input.task_id),
         task_action_id: clean_optional_link_id(input.task_action_id),
         run_count: 0,
@@ -382,6 +523,11 @@ pub async fn run_task_trigger_now(
         ));
     }
     let now = OffsetDateTime::now_utc();
+    if let Some(reason) = task_trigger_dependency_wait_reason(&state, &user_id, &record).await? {
+        apply_waiting_dependencies_to_task_trigger(&mut record, &reason, None, now);
+        persist_task_trigger_record(&state, &user_id, &record).await?;
+        return Err(ApiError::conflict(reason));
+    }
     let info = match start_task_trigger_run(&state, &user_id, &record, "manual").await {
         Ok(info) => info,
         Err(err) => {
@@ -426,7 +572,8 @@ pub async fn trigger_due_task_triggers(
             if !record.enabled || record.status != "active" {
                 continue;
             }
-            if task_trigger_limit_reached(&record) {
+            let driver = task_trigger_driver_for_record(&record)?;
+            if driver.limit_reached(&record) {
                 record.enabled = false;
                 record.status = "completed".to_string();
                 record.next_run_at = None;
@@ -442,25 +589,29 @@ pub async fn trigger_due_task_triggers(
                 persist_task_trigger_record(state, &user_id, &record).await?;
                 continue;
             }
-            let Some(next_run_at) = record.next_run_at.as_deref() else {
-                continue;
-            };
-            let next_run_at = parse_datetime(next_run_at)?;
-            if next_run_at > now {
-                continue;
-            }
-            if should_skip_missed_run(
+            match driver.scheduled_decision(
                 &record,
-                next_run_at,
                 now,
                 state.config.schedule_poll_interval_seconds,
-            ) {
-                record.last_error = None;
-                record.failure_reason = None;
-                record.last_run_status = Some("skipped_missed".to_string());
-                record.status = "active".to_string();
-                record.next_run_at = advance_next_run_at(&record, now)?;
-                record.updated_at = iso(now);
+            )? {
+                TaskTriggerDriverDecision::Pending => continue,
+                TaskTriggerDriverDecision::SkipMissed { next_run_at } => {
+                    record.last_error = None;
+                    record.failure_reason = None;
+                    record.last_run_status = Some("skipped_missed".to_string());
+                    record.status = "active".to_string();
+                    record.next_run_at = next_run_at;
+                    record.updated_at = iso(now);
+                    persist_task_trigger_record(state, &user_id, &record).await?;
+                    continue;
+                }
+                TaskTriggerDriverDecision::Fire => {}
+            }
+            if let Some(reason) =
+                task_trigger_dependency_wait_reason(state, &user_id, &record).await?
+            {
+                let retry_at = dependency_retry_at(state, now);
+                apply_waiting_dependencies_to_task_trigger(&mut record, &reason, retry_at, now);
                 persist_task_trigger_record(state, &user_id, &record).await?;
                 continue;
             }
@@ -473,7 +624,7 @@ pub async fn trigger_due_task_triggers(
                 record.last_error =
                     Some("Skipped because previous run is still active".to_string());
                 record.last_run_status = Some("skipped_overlap".to_string());
-                record.next_run_at = advance_next_run_at(&record, now)?;
+                record.next_run_at = driver.next_after_run(&record, now)?;
                 record.updated_at = iso(now);
                 persist_task_trigger_record(state, &user_id, &record).await?;
                 continue;
@@ -502,8 +653,8 @@ pub async fn trigger_due_task_triggers(
                     continue;
                 }
                 record.run_count += 1;
-                if record.kind == "once"
-                    || task_trigger_limit_reached(&record)
+                let driver = task_trigger_driver_for_record(&record)?;
+                if driver.complete_after_success(&record)
                     || task_trigger_target_completed(state, &user_id, &record).await?
                 {
                     record.enabled = false;
@@ -511,7 +662,7 @@ pub async fn trigger_due_task_triggers(
                     record.next_run_at = None;
                 } else {
                     record.status = "active".to_string();
-                    record.next_run_at = advance_next_run_at(&record, now)?;
+                    record.next_run_at = driver.next_after_run(&record, now)?;
                 }
                 record.updated_at = iso(now);
                 persist_task_trigger_record(state, &user_id, &record).await?;
@@ -522,12 +673,10 @@ pub async fn trigger_due_task_triggers(
                 record.last_error = Some(summary.clone());
                 record.failure_reason = Some(summary);
                 record.last_run_status = Some("failed".to_string());
-                if record.kind == "interval"
-                    && record.failure_policy == "keep_active"
-                    && record.enabled
-                {
+                let driver = task_trigger_driver_for_record(&record)?;
+                if driver.keep_active_after_failure(&record) {
                     record.status = "active".to_string();
-                    record.next_run_at = advance_next_run_at(&record, now)?;
+                    record.next_run_at = driver.next_after_run(&record, now)?;
                 } else {
                     if record.failure_policy == "pause" {
                         record.enabled = false;
@@ -591,6 +740,42 @@ async fn start_task_trigger_run(
     Ok(info)
 }
 
+async fn task_trigger_dependency_wait_reason(
+    state: &AppState,
+    user_id: &str,
+    record: &TaskTriggerRecord,
+) -> Result<Option<String>, ApiError> {
+    let (Some(task_id), Some(action_id)) =
+        (record.task_id.as_deref(), record.task_action_id.as_deref())
+    else {
+        return Ok(None);
+    };
+    task_action_dependency_wait_reason(&state.storage, user_id, task_id, action_id).await
+}
+
+fn dependency_retry_at(state: &AppState, now: OffsetDateTime) -> Option<String> {
+    let delay_seconds = state.config.schedule_poll_interval_seconds.max(1) as i64;
+    Some(iso(now + TimeDuration::seconds(delay_seconds)))
+}
+
+fn apply_waiting_dependencies_to_task_trigger(
+    record: &mut TaskTriggerRecord,
+    reason: &str,
+    retry_at: Option<String>,
+    now: OffsetDateTime,
+) {
+    record.last_error = Some(reason.to_string());
+    record.failure_reason = None;
+    record.last_run_status = Some("waiting_dependencies".to_string());
+    if record.enabled {
+        record.status = "active".to_string();
+    }
+    if let Some(retry_at) = retry_at {
+        record.next_run_at = Some(retry_at);
+    }
+    record.updated_at = iso(now);
+}
+
 async fn load_task_trigger_state(
     state: &AppState,
     user_id: &str,
@@ -633,7 +818,14 @@ fn public_task_trigger_value(state: &AppState, user_id: &str, record: &TaskTrigg
 fn public_task_trigger_from_record_value(mut value: Value) -> Value {
     if let Some(object) = value.as_object_mut() {
         object.remove("enable_on_confirm");
-        object.insert("trigger_type".to_string(), json!("time"));
+        let trigger_type = object
+            .get("trigger_type")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or(TIME_TRIGGER_TYPE)
+            .to_string();
+        object.insert("trigger_type".to_string(), json!(trigger_type));
     }
     value
 }
@@ -903,9 +1095,10 @@ fn apply_failed_task_trigger_run(
     record.last_error = Some(summary.clone());
     record.failure_reason = Some(summary);
     record.last_run_status = Some(info.status.clone());
-    if record.kind == "interval" && record.failure_policy == "keep_active" && record.enabled {
+    let driver = task_trigger_driver_for_record(record)?;
+    if driver.keep_active_after_failure(record) {
         record.status = "active".to_string();
-        record.next_run_at = advance_next_run_at(record, now)?;
+        record.next_run_at = driver.next_after_run(record, now)?;
     } else {
         if record.failure_policy == "pause" {
             record.enabled = false;
@@ -955,6 +1148,19 @@ fn clean_optional_link_id(value: Option<String>) -> Option<String> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string)
+}
+
+fn task_trigger_driver_for_type(value: &str) -> Result<&'static dyn TaskTriggerDriver, ApiError> {
+    match value.trim() {
+        "" | TIME_TRIGGER_TYPE => Ok(&TIME_TASK_TRIGGER_DRIVER),
+        _ => Err(ApiError::bad_request("trigger_type must be one of: time")),
+    }
+}
+
+fn task_trigger_driver_for_record(
+    record: &TaskTriggerRecord,
+) -> Result<&'static dyn TaskTriggerDriver, ApiError> {
+    task_trigger_driver_for_type(&record.trigger_type)
 }
 
 fn normalize_kind(value: &str) -> Result<&'static str, ApiError> {
@@ -1035,7 +1241,7 @@ fn normalize_run_at(value: Option<&str>, timezone: &str) -> Result<Option<String
     Ok(Some(iso(parse_datetime(value)?)))
 }
 
-fn compute_initial_next_run_at(
+fn compute_time_trigger_initial_next_run_at(
     kind: &str,
     run_at: Option<&str>,
     interval_seconds: Option<u64>,
@@ -1062,7 +1268,7 @@ fn compute_initial_next_run_at(
     Ok(Some(iso(next)))
 }
 
-fn advance_next_run_at(
+fn advance_time_trigger_next_run_at(
     record: &TaskTriggerRecord,
     now: OffsetDateTime,
 ) -> Result<Option<String>, ApiError> {
@@ -1121,7 +1327,7 @@ fn has_datetime_offset(value: &str) -> bool {
     value[time_start..].contains('+') || value[time_start..].contains('-')
 }
 
-fn should_skip_missed_run(
+fn should_skip_missed_time_run(
     record: &TaskTriggerRecord,
     next_run_at: OffsetDateTime,
     now: OffsetDateTime,
@@ -1132,13 +1338,6 @@ fn should_skip_missed_run(
     }
     let tolerance = TimeDuration::seconds(poll_interval_seconds.max(1) as i64);
     next_run_at + tolerance < now
-}
-
-fn task_trigger_limit_reached(record: &TaskTriggerRecord) -> bool {
-    record.kind == "interval"
-        && record
-            .max_runs
-            .is_some_and(|max_runs| record.run_count >= max_runs)
 }
 
 async fn task_trigger_target_completed(
@@ -1162,11 +1361,9 @@ fn should_complete_task_trigger_action(record: &TaskTriggerRecord, trigger: &str
     if trigger != "scheduled" {
         return false;
     }
-    record.kind == "once"
-        || (record.kind == "interval"
-            && record
-                .max_runs
-                .is_some_and(|max_runs| record.run_count.saturating_add(1) >= max_runs))
+    task_trigger_driver_for_record(record)
+        .map(|driver| driver.should_complete_action_on_scheduled_run(record))
+        .unwrap_or(false)
 }
 
 fn iso(value: OffsetDateTime) -> String {
@@ -1177,6 +1374,10 @@ fn iso(value: OffsetDateTime) -> String {
 
 fn default_kind() -> String {
     "once".to_string()
+}
+
+fn default_trigger_type() -> String {
+    TIME_TRIGGER_TYPE.to_string()
 }
 
 fn default_timezone() -> String {
@@ -1218,6 +1419,7 @@ mod tests {
         TaskTriggerRecord {
             trigger_id: "trg-test".to_string(),
             user_id: "alice".to_string(),
+            trigger_type: "time".to_string(),
             title: "Daily report".to_string(),
             prompt: "Write a report".to_string(),
             kind: "interval".to_string(),
@@ -1337,6 +1539,68 @@ mod tests {
         assert_eq!(record.failure_reason, None);
         assert_eq!(record.status, "active");
         assert!(record.enabled);
+    }
+
+    #[test]
+    fn time_task_trigger_driver_controls_schedule_calculation() -> Result<(), ApiError> {
+        let driver = task_trigger_driver_for_type("time")?;
+        assert_eq!(driver.trigger_type(), "time");
+
+        let now = parse_datetime("2026-06-01T00:00:00Z")?;
+        let mut record = task_trigger_record();
+        record.kind = "interval".to_string();
+        record.interval_seconds = Some(60);
+        record.next_run_at = Some("2026-06-01T00:00:00Z".to_string());
+        record.missed_run_policy = "skip".to_string();
+
+        assert!(matches!(
+            driver.scheduled_decision(&record, now, 15)?,
+            TaskTriggerDriverDecision::Fire
+        ));
+
+        let later = parse_datetime("2026-06-01T00:01:01Z")?;
+        assert_eq!(
+            driver.next_after_run(&record, later)?.as_deref(),
+            Some("2026-06-01T00:02:00Z")
+        );
+
+        let very_late = parse_datetime("2026-06-01T00:02:00Z")?;
+        assert!(matches!(
+            driver.scheduled_decision(&record, very_late, 15)?,
+            TaskTriggerDriverDecision::SkipMissed { .. }
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn waiting_dependencies_keeps_task_trigger_active_for_retry() -> Result<(), ApiError> {
+        let mut record = task_trigger_record();
+        record.kind = "once".to_string();
+        record.next_run_at = Some("2026-06-01T00:00:00Z".to_string());
+        let now = parse_datetime("2026-06-01T00:00:00Z")?;
+        let retry_at = Some("2026-06-01T00:00:30Z".to_string());
+
+        apply_waiting_dependencies_to_task_trigger(
+            &mut record,
+            "Waiting for dependencies: act-research",
+            retry_at.clone(),
+            now,
+        );
+
+        assert_eq!(record.status, "active");
+        assert!(record.enabled);
+        assert_eq!(
+            record.last_run_status.as_deref(),
+            Some("waiting_dependencies")
+        );
+        assert_eq!(
+            record.last_error.as_deref(),
+            Some("Waiting for dependencies: act-research")
+        );
+        assert_eq!(record.failure_reason, None);
+        assert_eq!(record.next_run_at, retry_at);
+        assert_eq!(record.updated_at, "2026-06-01T00:00:00Z");
+        Ok(())
     }
 
     #[test]

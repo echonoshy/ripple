@@ -375,6 +375,7 @@ fn task_payload_from_schedule_input(input: TaskTriggerCreateInput) -> Value {
     let trigger = json!({
         "title": title.clone(),
         "prompt": prompt.clone(),
+        "trigger_type": input.trigger_type,
         "kind": input.kind,
         "timezone": input.timezone,
         "run_at": input.run_at,

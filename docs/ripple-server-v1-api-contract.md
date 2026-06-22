@@ -73,7 +73,7 @@ Tasks 是当前持久 follow-up 和多步工作状态的主 API，不是旧兼�
 - `POST /v1/tasks/:task_id/confirm` 将 candidate task/action 确认为可执行状态。
 - `POST /v1/tasks/:task_id/run-now` 从 task 的 `source_session_id` 构建一次 Codex run，并把进展写回 task events/actions。
 - `GET /v1/tasks/:task_id/actions`、`POST /v1/tasks/:task_id/actions`、`PATCH /v1/tasks/:task_id/actions/:action_id` 管理 task actions。
-- `GET /v1/tasks/:task_id/triggers` 返回 task-scoped triggers。当前 time trigger 使用 `task_triggers` 存储，并在 response 中提供 `trigger_id` / `trigger_type`。
+- `GET /v1/tasks/:task_id/triggers` 返回 task-scoped triggers。TaskTrigger 通过 `trigger_type` 区分 driver；当前唯一已启用 driver 是 `time`，使用 `task_triggers` 存储，并在 response 中提供 `trigger_id` / `trigger_type`。
 - `POST /v1/tasks/:task_id/actions/:action_id/triggers` 为指定 action 创建 future/recurring trigger。
 - `POST /v1/tasks/:task_id/triggers/:trigger_id/run-now` 立即触发 task-linked trigger。
 - `GET /v1/tasks/:task_id/events` 返回 task timeline。

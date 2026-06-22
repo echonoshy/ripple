@@ -153,6 +153,7 @@ export class WorkspaceUploadConflictError extends Error {
 export interface TaskTriggerCreateInput {
   title: string;
   prompt: string;
+  trigger_type?: "time";
   kind: "once" | "interval";
   timezone: string;
   run_at?: string | null;

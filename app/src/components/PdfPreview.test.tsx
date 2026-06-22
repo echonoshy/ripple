@@ -15,6 +15,9 @@ function testPdfPreviewRendersPagesToCanvas() {
   assert.match(source, /getDocument\(\{\s*data:/);
   assert.match(source, /getPage\(pageNumber\)/);
   assert.match(source, /getViewport\(\{\s*scale/);
+  assert.match(source, /pageScaleWidth/);
+  assert.match(source, /pageScaleHeight/);
+  assert.match(source, /Math\.min\(pageScaleWidth,\s*pageScaleHeight\)/);
   assert.match(source, /canvas/);
   assert.match(source, /render\(\{\s*canvasContext/);
 }
@@ -37,5 +40,15 @@ function testPdfPreviewExposesLoadingErrorAndPageLabels() {
 }
 
 testPdfPreviewExposesLoadingErrorAndPageLabels();
+
+function testFullscreenPdfPreviewBoundsPageScaleByViewportHeight() {
+  assert.match(source, /FULLSCREEN_PAGE_VERTICAL_CHROME_PX/);
+  assert.match(source, /availableHeight/);
+  assert.match(source, /fullscreen \? Math\.max/);
+  assert.match(source, /setAvailableHeight/);
+  assert.match(source, /canvas\.style\.height = `\$\{Math\.floor\(viewport\.height\)\}px`/);
+}
+
+testFullscreenPdfPreviewBoundsPageScaleByViewportHeight();
 
 console.log("pdf preview tests passed");

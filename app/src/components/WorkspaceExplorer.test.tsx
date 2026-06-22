@@ -7,6 +7,7 @@ import { I18nProvider, type LocalePreference } from "@/i18n";
 import WorkspaceExplorer, {
   displayError,
   getBoundedSplitPercent,
+  getSplitPercentFromHorizontalResize,
   getSplitPercentFromVerticalResize,
   getWorkspacePreviewKind,
   getWorkspaceParentPath,
@@ -179,6 +180,7 @@ function testWorkspaceExplorerPageShowsLazyDirectoryTree() {
   assert.match(source, /treeExpandedPaths/);
   assert.match(source, /seedTreeListing/);
   assert.match(source, /revealWorkspacePathInTree/);
+  assert.match(source, /--ripple-workspace-list-column/);
   assert.match(source, /<WorkspaceTreePanel\s+key=\{userId\}/);
   assert.match(html, /data-ripple-workspace-tree="navigation"/);
   assert.ok(html.includes('data-ripple-workspace-tree-entry="/workspace"'));
@@ -186,7 +188,7 @@ function testWorkspaceExplorerPageShowsLazyDirectoryTree() {
   assert.match(html, /aria-label="Workspace folders"/);
   assert.match(html, /aria-current="page"/);
   assert.match(html, /lg:grid-cols-\[244px_minmax\(0,1fr\)\]/);
-  assert.match(htmlWithPreview, /lg:grid-cols-\[244px_minmax\(0,1fr\)_minmax\(280px,360px\)\]/);
+  assert.match(htmlWithPreview, /lg:grid-cols-\[244px_var\(--ripple-workspace-list-column\)\]/);
   assert.match(html, /clients/);
   assert.doesNotMatch(html, /data-ripple-workspace-place=/);
 }
@@ -848,11 +850,41 @@ function testWorkspaceExplorerPagePreviewSupportsMobileVerticalResize() {
   assert.match(source, /--ripple-workspace-list-row/);
   assert.match(source, /grid-rows-\[var\(--ripple-workspace-list-row\)\]/);
   assert.match(source, /lg:grid-rows-none/);
+  assert.match(source, /data-ripple-workspace-preview-resize="mobile"/);
   assert.match(source, /isPagePresentation[\s\S]*\?[\s\S]*"[^"]*lg:hidden/);
-  assert.match(html, /data-ripple-workspace-preview-resize/);
+  assert.match(html, /data-ripple-workspace-preview-resize="mobile"/);
 }
 
 testWorkspaceExplorerPagePreviewSupportsMobileVerticalResize();
+
+function testWorkspaceExplorerPagePreviewSupportsDesktopHorizontalResize() {
+  const source = readWorkspaceExplorerImplementationSource();
+  const html = renderExplorer({
+    presentation: "page",
+    testInitialPreview: {
+      path: "/workspace/reports/quarterly.pdf",
+      name: "quarterly.pdf",
+      size_bytes: 123,
+      modified_at: "2026-05-17T00:00:00Z",
+      mime_type: "application/pdf",
+      encoding: "utf-8",
+      content: "",
+      truncated: false,
+    },
+  });
+
+  assert.match(source, /data-ripple-workspace-preview-resize="desktop"/);
+  assert.match(source, /cursor-col-resize/);
+  assert.match(source, /document\.body\.style\.cursor = axis === "horizontal"/);
+  assert.match(source, /\? "col-resize" : "row-resize"/);
+  assert.match(source, /getSplitPercentFromHorizontalResize/);
+  assert.match(source, /pointerX: moveEvent\.clientX/);
+  assert.match(html, /data-ripple-workspace-preview-resize="desktop"/);
+  assert.match(html, /data-ripple-workspace-preview="preview" class="relative flex min-h-0/);
+  assert.match(html, /aria-orientation="vertical"/);
+}
+
+testWorkspaceExplorerPagePreviewSupportsDesktopHorizontalResize();
 
 function testWorkspaceExplorerTouchPreviewClicksAvoidDragInterference() {
   const source = readWorkspaceExplorerImplementationSource();
@@ -937,6 +969,38 @@ function testWorkspaceExplorerCalculatesVerticalPreviewResizeFromPointer() {
 
 testWorkspaceExplorerCalculatesVerticalPreviewResizeFromPointer();
 
+function testWorkspaceExplorerCalculatesHorizontalPreviewResizeFromPointer() {
+  assert.equal(
+    getSplitPercentFromHorizontalResize({
+      containerLeft: 100,
+      containerWidth: 1000,
+      leadingColumnWidth: 244,
+      pointerX: 654,
+    }),
+    31
+  );
+  assert.equal(
+    getSplitPercentFromHorizontalResize({
+      containerLeft: 100,
+      containerWidth: 1000,
+      leadingColumnWidth: 244,
+      pointerX: 50,
+    }),
+    0
+  );
+  assert.equal(
+    getSplitPercentFromHorizontalResize({
+      containerLeft: 100,
+      containerWidth: 1000,
+      leadingColumnWidth: 244,
+      pointerX: 1400,
+    }),
+    100
+  );
+}
+
+testWorkspaceExplorerCalculatesHorizontalPreviewResizeFromPointer();
+
 function testWorkspaceExplorerExposesPreviewResizeHandle() {
   const html = renderExplorer({
     testInitialPreview: {
@@ -953,7 +1017,7 @@ function testWorkspaceExplorerExposesPreviewResizeHandle() {
 
   assert.match(html, /aria-label="Resize preview panel"/);
   assert.match(html, /aria-orientation="horizontal"/);
-  assert.match(html, /data-ripple-workspace-preview-resize/);
+  assert.match(html, /data-ripple-workspace-preview-resize="default"/);
 }
 
 testWorkspaceExplorerExposesPreviewResizeHandle();

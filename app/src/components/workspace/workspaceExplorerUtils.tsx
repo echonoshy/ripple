@@ -37,6 +37,22 @@ export function getSplitPercentFromVerticalResize({
   return getBoundedSplitPercent(((pointerY - containerTop) / containerHeight) * 100);
 }
 
+export function getSplitPercentFromHorizontalResize({
+  containerLeft,
+  containerWidth,
+  leadingColumnWidth,
+  pointerX,
+}: {
+  containerLeft: number;
+  containerWidth: number;
+  leadingColumnWidth: number;
+  pointerX: number;
+}): number {
+  if (!Number.isFinite(containerWidth) || containerWidth <= 0) return DEFAULT_SPLIT_PERCENT;
+  const splitWidth = pointerX - containerLeft - Math.max(0, leadingColumnWidth);
+  return getBoundedSplitPercent((splitWidth / containerWidth) * 100);
+}
+
 export function getSplitPercentAfterFileDoubleClick(currentSplitPercent: number): number {
   return currentSplitPercent >= MAX_SPLIT_PERCENT ? DEFAULT_SPLIT_PERCENT : currentSplitPercent;
 }

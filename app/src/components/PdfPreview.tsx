@@ -21,6 +21,8 @@ interface PdfPageProps {
 }
 
 const PAGE_HORIZONTAL_PADDING_PX = 24;
+const FULLSCREEN_PAGE_HORIZONTAL_PADDING_PX = 48;
+const FULLSCREEN_PAGE_VERTICAL_CHROME_PX = 40;
 type PdfJsModule = typeof import("pdfjs-dist/legacy/build/pdf.mjs");
 let pdfJsModulePromise: Promise<PdfJsModule> | null = null;
 let pdfWorkerConfigured = false;
@@ -48,6 +50,7 @@ function PdfPage({ pdfDocument, pageNumber, filename, fullscreen = false }: PdfP
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [isNearViewport, setIsNearViewport] = useState(false);
   const [availableWidth, setAvailableWidth] = useState(0);
+  const [availableHeight, setAvailableHeight] = useState(0);
   const [pageHeight, setPageHeight] = useState<number | null>(null);
   const [renderError, setRenderError] = useState<string | null>(null);
 
@@ -55,22 +58,33 @@ function PdfPage({ pdfDocument, pageNumber, filename, fullscreen = false }: PdfP
     const node = wrapperRef.current;
     if (!node) return;
 
-    const updateWidth = () => {
+    const updateSize = () => {
       const measuredWidth = node.getBoundingClientRect().width;
-      setAvailableWidth(Math.max(0, measuredWidth - PAGE_HORIZONTAL_PADDING_PX));
+      const horizontalPadding = fullscreen
+        ? FULLSCREEN_PAGE_HORIZONTAL_PADDING_PX
+        : PAGE_HORIZONTAL_PADDING_PX;
+      const viewportNode = node.parentElement?.parentElement;
+      const measuredHeight = viewportNode?.getBoundingClientRect().height || 0;
+      setAvailableWidth(Math.max(0, measuredWidth - horizontalPadding));
+      setAvailableHeight(
+        fullscreen ? Math.max(0, measuredHeight - FULLSCREEN_PAGE_VERTICAL_CHROME_PX) : 0
+      );
     };
 
-    updateWidth();
+    updateSize();
 
     if (typeof ResizeObserver === "undefined") {
-      window.addEventListener("resize", updateWidth);
-      return () => window.removeEventListener("resize", updateWidth);
+      window.addEventListener("resize", updateSize);
+      return () => window.removeEventListener("resize", updateSize);
     }
 
-    const resizeObserver = new ResizeObserver(updateWidth);
+    const resizeObserver = new ResizeObserver(updateSize);
     resizeObserver.observe(node);
+    if (node.parentElement?.parentElement) {
+      resizeObserver.observe(node.parentElement.parentElement);
+    }
     return () => resizeObserver.disconnect();
-  }, []);
+  }, [fullscreen]);
 
   useEffect(() => {
     const node = wrapperRef.current;
@@ -107,7 +121,12 @@ function PdfPage({ pdfDocument, pageNumber, filename, fullscreen = false }: PdfP
         if (cancelled) return;
 
         const baseViewport = page.getViewport({ scale: 1 });
-        const scale = Math.max(0.1, availableWidth / baseViewport.width);
+        const pageScaleWidth = availableWidth / baseViewport.width;
+        const pageScaleHeight =
+          fullscreen && availableHeight > 0
+            ? availableHeight / baseViewport.height
+            : pageScaleWidth;
+        const scale = Math.max(0.1, Math.min(pageScaleWidth, pageScaleHeight));
         const viewport = page.getViewport({ scale });
         const canvas = canvasRef.current;
         const canvasContext = canvas?.getContext("2d");
@@ -141,7 +160,7 @@ function PdfPage({ pdfDocument, pageNumber, filename, fullscreen = false }: PdfP
       cancelled = true;
       renderTask?.cancel();
     };
-  }, [availableWidth, isNearViewport, pageNumber, pdfDocument]);
+  }, [availableHeight, availableWidth, fullscreen, isNearViewport, pageNumber, pdfDocument]);
 
   return (
     <div

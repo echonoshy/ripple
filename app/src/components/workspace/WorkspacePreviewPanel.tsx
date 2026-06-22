@@ -30,6 +30,8 @@ import {
   formatModified,
 } from "./workspaceExplorerUtils";
 
+type WorkspacePreviewResizeAxis = "horizontal" | "vertical";
+
 export interface WorkspaceDocumentPreview {
   blob: Blob;
   filename: string;
@@ -57,8 +59,14 @@ interface WorkspacePreviewPanelProps {
   onRevert: () => void;
   onSave: () => void;
   onDraftChange: (value: string) => void;
-  onResizeStart: (event: React.PointerEvent<HTMLDivElement>) => void;
-  onResizeKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void;
+  onResizeStart: (
+    event: React.PointerEvent<HTMLDivElement>,
+    axis: WorkspacePreviewResizeAxis
+  ) => void;
+  onResizeKeyDown: (
+    event: React.KeyboardEvent<HTMLDivElement>,
+    axis: WorkspacePreviewResizeAxis
+  ) => void;
 }
 
 export function WorkspacePreviewPanel({
@@ -91,31 +99,58 @@ export function WorkspacePreviewPanel({
   return (
     <section
       data-ripple-workspace-preview="preview"
-      className={
-        isPagePresentation
-          ? "flex min-h-0 flex-col overflow-hidden bg-white"
-          : "relative flex min-h-0 flex-col overflow-hidden bg-white"
-      }
+      className="relative flex min-h-0 flex-col overflow-hidden bg-white"
     >
-      <div
-        role="separator"
-        aria-label={t("files.resizePreviewPanel")}
-        aria-orientation="horizontal"
-        aria-valuemin={MIN_SPLIT_PERCENT}
-        aria-valuemax={MAX_SPLIT_PERCENT}
-        aria-valuenow={splitPercent}
-        data-ripple-workspace-preview-resize
-        tabIndex={0}
-        onPointerDown={onResizeStart}
-        onKeyDown={onResizeKeyDown}
-        className={
-          isPagePresentation
-            ? "group absolute top-0 right-0 left-0 z-20 flex h-3 -translate-y-1/2 cursor-row-resize items-center justify-center bg-transparent transition-colors outline-none hover:bg-[#E8F0FF]/70 focus:bg-[#E8F0FF]/70 lg:hidden"
-            : "group absolute top-0 right-0 left-0 z-20 flex h-3 -translate-y-1/2 cursor-row-resize items-center justify-center bg-transparent transition-colors outline-none hover:bg-[#E8F0FF]/70 focus:bg-[#E8F0FF]/70"
-        }
-      >
-        <span className="h-0.5 w-12 rounded-full bg-[#1456F0] opacity-0 transition-opacity group-hover:opacity-100 group-focus:opacity-100" />
-      </div>
+      {isPagePresentation ? (
+        <>
+          <div
+            role="separator"
+            aria-label={t("files.resizePreviewPanel")}
+            aria-orientation="horizontal"
+            aria-valuemin={MIN_SPLIT_PERCENT}
+            aria-valuemax={MAX_SPLIT_PERCENT}
+            aria-valuenow={splitPercent}
+            data-ripple-workspace-preview-resize="mobile"
+            tabIndex={0}
+            onPointerDown={(event) => onResizeStart(event, "vertical")}
+            onKeyDown={(event) => onResizeKeyDown(event, "vertical")}
+            className="group absolute top-0 right-0 left-0 z-20 flex h-3 -translate-y-1/2 cursor-row-resize items-center justify-center bg-transparent transition-colors outline-none hover:bg-[#E8F0FF]/70 focus:bg-[#E8F0FF]/70 lg:hidden"
+          >
+            <span className="h-0.5 w-12 rounded-full bg-[#1456F0] opacity-0 transition-opacity group-hover:opacity-100 group-focus:opacity-100" />
+          </div>
+          <div
+            role="separator"
+            aria-label={t("files.resizePreviewPanel")}
+            aria-orientation="vertical"
+            aria-valuemin={MIN_SPLIT_PERCENT}
+            aria-valuemax={MAX_SPLIT_PERCENT}
+            aria-valuenow={splitPercent}
+            data-ripple-workspace-preview-resize="desktop"
+            tabIndex={0}
+            onPointerDown={(event) => onResizeStart(event, "horizontal")}
+            onKeyDown={(event) => onResizeKeyDown(event, "horizontal")}
+            className="group absolute top-0 bottom-0 left-0 z-20 hidden w-3 -translate-x-1/2 cursor-col-resize items-center justify-center bg-transparent transition-colors outline-none hover:bg-[#E8F0FF]/70 focus:bg-[#E8F0FF]/70 lg:flex"
+          >
+            <span className="h-12 w-0.5 rounded-full bg-[#1456F0] opacity-0 transition-opacity group-hover:opacity-100 group-focus:opacity-100" />
+          </div>
+        </>
+      ) : (
+        <div
+          role="separator"
+          aria-label={t("files.resizePreviewPanel")}
+          aria-orientation="horizontal"
+          aria-valuemin={MIN_SPLIT_PERCENT}
+          aria-valuemax={MAX_SPLIT_PERCENT}
+          aria-valuenow={splitPercent}
+          data-ripple-workspace-preview-resize="default"
+          tabIndex={0}
+          onPointerDown={(event) => onResizeStart(event, "vertical")}
+          onKeyDown={(event) => onResizeKeyDown(event, "vertical")}
+          className="group absolute top-0 right-0 left-0 z-20 flex h-3 -translate-y-1/2 cursor-row-resize items-center justify-center bg-transparent transition-colors outline-none hover:bg-[#E8F0FF]/70 focus:bg-[#E8F0FF]/70"
+        >
+          <span className="h-0.5 w-12 rounded-full bg-[#1456F0] opacity-0 transition-opacity group-hover:opacity-100 group-focus:opacity-100" />
+        </div>
+      )}
       <div
         className={
           isPagePresentation

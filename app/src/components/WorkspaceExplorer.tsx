@@ -39,6 +39,7 @@ import {
   displayError,
   getBoundedSplitPercent,
   getSplitPercentAfterFileDoubleClick,
+  getSplitPercentFromHorizontalResize,
   getSplitPercentFromVerticalResize,
   getWorkspacePreviewKind,
   canMoveEntriesToDirectory,
@@ -85,6 +86,7 @@ export {
   displayError,
   getBoundedSplitPercent,
   getSplitPercentAfterFileDoubleClick,
+  getSplitPercentFromHorizontalResize,
   getSplitPercentFromVerticalResize,
   getWorkspacePathBreadcrumbs,
   getWorkspaceParentPath,
@@ -107,6 +109,8 @@ const WORKSPACE_CONTEXT_MENU_WIDTH = 220;
 const WORKSPACE_FILE_CONTEXT_MENU_HEIGHT = 244;
 const WORKSPACE_DIRECTORY_CONTEXT_MENU_HEIGHT = 208;
 const WORKSPACE_EMPTY_CONTEXT_MENU_HEIGHT = 132;
+const WORKSPACE_TREE_COLUMN_WIDTH = 244;
+type WorkspacePreviewResizeAxis = "horizontal" | "vertical";
 
 function workspaceContextMenuHeight(entry: WorkspaceEntry | null): number {
   if (!entry) return WORKSPACE_EMPTY_CONTEXT_MENU_HEIGHT;
@@ -164,6 +168,7 @@ export default function WorkspaceExplorer({
   testInitialListing,
 }: WorkspaceExplorerProps) {
   const { locale, t } = useI18n();
+  const isPagePresentation = presentation === "page";
   const initialPath =
     testInitialListing?.path || getCachedWorkspaceLastPath(userId) || DEFAULT_WORKSPACE_PATH;
   const [currentPath, setCurrentPath] = useState(initialPath);
@@ -369,7 +374,7 @@ export default function WorkspaceExplorer({
   }, []);
 
   const handlePreviewResizeStart = useCallback(
-    (event: React.PointerEvent<HTMLDivElement>) => {
+    (event: React.PointerEvent<HTMLDivElement>, axis: WorkspacePreviewResizeAxis) => {
       event.preventDefault();
       event.stopPropagation();
 
@@ -378,13 +383,24 @@ export default function WorkspaceExplorer({
 
       const handlePointerMove = (moveEvent: PointerEvent) => {
         const rect = gridNode.getBoundingClientRect();
-        updateSplitPercent(
-          getSplitPercentFromVerticalResize({
-            containerTop: rect.top,
-            containerHeight: rect.height,
-            pointerY: moveEvent.clientY,
-          })
-        );
+        if (axis === "horizontal") {
+          updateSplitPercent(
+            getSplitPercentFromHorizontalResize({
+              containerLeft: rect.left,
+              containerWidth: rect.width,
+              leadingColumnWidth: isPagePresentation ? WORKSPACE_TREE_COLUMN_WIDTH : 0,
+              pointerX: moveEvent.clientX,
+            })
+          );
+        } else {
+          updateSplitPercent(
+            getSplitPercentFromVerticalResize({
+              containerTop: rect.top,
+              containerHeight: rect.height,
+              pointerY: moveEvent.clientY,
+            })
+          );
+        }
       };
       const handlePointerUp = () => {
         window.removeEventListener("pointermove", handlePointerMove);
@@ -393,22 +409,28 @@ export default function WorkspaceExplorer({
         document.body.style.userSelect = "";
       };
 
-      document.body.style.cursor = "row-resize";
+      document.body.style.cursor = axis === "horizontal" ? "col-resize" : "row-resize";
       document.body.style.userSelect = "none";
       window.addEventListener("pointermove", handlePointerMove);
       window.addEventListener("pointerup", handlePointerUp);
     },
-    [updateSplitPercent]
+    [isPagePresentation, updateSplitPercent]
   );
 
   const handlePreviewResizeKeyDown = useCallback(
-    (event: React.KeyboardEvent<HTMLDivElement>) => {
+    (event: React.KeyboardEvent<HTMLDivElement>, axis: WorkspacePreviewResizeAxis) => {
       const step = event.shiftKey ? 10 : 4;
-      if (event.key === "ArrowUp") {
+      if (
+        (axis === "vertical" && event.key === "ArrowUp") ||
+        (axis === "horizontal" && event.key === "ArrowLeft")
+      ) {
         event.preventDefault();
         updateSplitPercent(splitPercentRef.current - step);
       }
-      if (event.key === "ArrowDown") {
+      if (
+        (axis === "vertical" && event.key === "ArrowDown") ||
+        (axis === "horizontal" && event.key === "ArrowRight")
+      ) {
         event.preventDefault();
         updateSplitPercent(splitPercentRef.current + step);
       }
@@ -1448,11 +1470,14 @@ export default function WorkspaceExplorer({
     ? t("files.searchQuery", { query: normalizedQuery })
     : currentLocationPath;
   const mobilePathDetail = isSearchMode ? searchModeLabel(searchScope, t) : null;
-  const isPagePresentation = presentation === "page";
   const workspaceGridStyle:
-    | (React.CSSProperties & { "--ripple-workspace-list-row"?: string })
+    | (React.CSSProperties & {
+        "--ripple-workspace-list-column"?: string;
+        "--ripple-workspace-list-row"?: string;
+      })
     | undefined = !isPreviewPanelHidden
     ? {
+        "--ripple-workspace-list-column": `minmax(280px, ${splitPercent}%) minmax(280px, 1fr)`,
         "--ripple-workspace-list-row": `minmax(96px, ${splitPercent}%) minmax(0, 1fr)`,
       }
     : undefined;
@@ -1563,7 +1588,7 @@ export default function WorkspaceExplorer({
           isPagePresentation
             ? isPreviewPanelHidden
               ? "grid-rows-[minmax(0,1fr)] lg:grid-cols-[244px_minmax(0,1fr)] lg:grid-rows-none"
-              : "grid-rows-[var(--ripple-workspace-list-row)] lg:grid-cols-[244px_minmax(0,1fr)_minmax(280px,360px)] lg:grid-rows-none"
+              : "grid-rows-[var(--ripple-workspace-list-row)] lg:grid-cols-[244px_var(--ripple-workspace-list-column)] lg:grid-rows-none"
             : isPreviewPanelHidden
               ? "grid-rows-[minmax(0,1fr)]"
               : "grid-rows-[var(--ripple-workspace-list-row)]"

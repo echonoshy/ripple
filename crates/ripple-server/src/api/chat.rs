@@ -27,7 +27,8 @@ use crate::codex::events::{
 };
 use crate::jobs::{AgentRunCreateRequest, AgentRunInfo};
 use crate::sessions::{
-    extract_title_from_messages, record_usage, CreateSessionInput, SessionRecord, SessionStatus,
+    extract_title_from_messages, record_usage, validate_session_id, CreateSessionInput,
+    SessionRecord, SessionStatus,
 };
 use crate::state::AppState;
 use crate::user::user_id_from_headers;
@@ -174,6 +175,7 @@ pub async fn chat_completions(
     let (model, preset_effort) = state.config.resolve_model(request.model.as_deref());
     let effort = request.effort.clone().or(preset_effort);
     if let Some(session_id) = request.session_id.as_deref() {
+        validate_session_id(session_id).map_err(ApiError::bad_request)?;
         let _ = state
             .sessions
             .recover_stale_context_compaction(&user_id, session_id)
@@ -758,6 +760,7 @@ async fn load_or_create_session(
     request: &ChatCompletionRequest,
 ) -> Result<SessionRecord, ApiError> {
     if let Some(session_id) = request.session_id.as_deref() {
+        validate_session_id(session_id).map_err(ApiError::bad_request)?;
         if let Some(session) = state.sessions.load(user_id, session_id).await? {
             return Ok(session);
         }
@@ -765,7 +768,7 @@ async fn load_or_create_session(
     assert_can_create_session(state, user_id).await?;
     Ok(state
         .sessions
-        .create_session(
+        .create_session_with_id(
             user_id,
             CreateSessionInput {
                 model: request.model.clone(),
@@ -774,6 +777,7 @@ async fn load_or_create_session(
                 context_folder_path: None,
                 project_id: None,
             },
+            request.session_id.as_deref(),
         )
         .await?)
 }

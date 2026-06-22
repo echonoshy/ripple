@@ -189,6 +189,20 @@ pub struct CreateSessionInput {
     pub project_id: Option<String>,
 }
 
+pub fn validate_session_id(session_id: &str) -> Result<(), String> {
+    if session_id.is_empty() || session_id.len() > 64 {
+        return Err("session_id must be 1-64 characters".to_string());
+    }
+    if session_id
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    {
+        Ok(())
+    } else {
+        Err("session_id must match ^[a-zA-Z0-9_-]{1,64}$".to_string())
+    }
+}
+
 impl SessionManager {
     pub fn new(config: Arc<AppConfig>, sandboxes: SandboxManager) -> Self {
         let storage = Storage::new(config.clone()).expect("failed to initialize Ripple storage");
@@ -223,8 +237,26 @@ impl SessionManager {
         user_id: &str,
         input: CreateSessionInput,
     ) -> anyhow::Result<SessionRecord> {
+        self.create_session_with_id(user_id, input, None).await
+    }
+
+    pub async fn create_session_with_id(
+        &self,
+        user_id: &str,
+        input: CreateSessionInput,
+        session_id: Option<&str>,
+    ) -> anyhow::Result<SessionRecord> {
         self.sandboxes.ensure_sandbox(user_id)?;
-        let session_id = format!("srv-{}", &Uuid::new_v4().simple().to_string()[..12]);
+        let session_id = match session_id {
+            Some(session_id) => {
+                validate_session_id(session_id).map_err(anyhow::Error::msg)?;
+                if self.load(user_id, session_id).await?.is_some() {
+                    anyhow::bail!("session_id already exists");
+                }
+                session_id.to_string()
+            }
+            None => self.next_generated_session_id(user_id).await?,
+        };
         let context_folder_path =
             self.normalize_context_folder_path(user_id, input.context_folder_path.as_deref())?;
         self.deleted
@@ -270,6 +302,15 @@ impl SessionManager {
             .await
             .insert((user_id.to_string(), session_id), session.clone());
         Ok(session)
+    }
+
+    async fn next_generated_session_id(&self, user_id: &str) -> anyhow::Result<String> {
+        loop {
+            let session_id = format!("srv-{}", &Uuid::new_v4().simple().to_string()[..12]);
+            if !self.storage.session_exists(user_id, &session_id).await? {
+                return Ok(session_id);
+            }
+        }
     }
 
     pub async fn list_sessions(&self, user_id: &str) -> anyhow::Result<Vec<SessionInfo>> {
@@ -1264,6 +1305,63 @@ mod tests {
                 .model,
             "codex-high"
         );
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn create_session_with_id_uses_valid_caller_supplied_id() -> anyhow::Result<()> {
+        let root = std::env::temp_dir().join(format!("ripple-session-test-{}", Uuid::new_v4()));
+        let config = test_config(&root);
+        let manager = SessionManager::new(config.clone(), SandboxManager::new(config));
+        let user_id = "alice";
+
+        let session = manager
+            .create_session_with_id(
+                user_id,
+                CreateSessionInput {
+                    model: None,
+                    max_turns: None,
+                    system_prompt: None,
+                    context_folder_path: None,
+                    project_id: None,
+                },
+                Some("CallerSession123"),
+            )
+            .await?;
+
+        assert_eq!(session.session_id, "CallerSession123");
+        assert!(manager.load(user_id, "CallerSession123").await?.is_some());
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn create_session_with_id_rejects_unsafe_caller_supplied_id() -> anyhow::Result<()> {
+        let root = std::env::temp_dir().join(format!("ripple-session-test-{}", Uuid::new_v4()));
+        let config = test_config(&root);
+        let manager = SessionManager::new(config.clone(), SandboxManager::new(config));
+
+        let err = manager
+            .create_session_with_id(
+                "alice",
+                CreateSessionInput {
+                    model: None,
+                    max_turns: None,
+                    system_prompt: None,
+                    context_folder_path: None,
+                    project_id: None,
+                },
+                Some("../outside"),
+            )
+            .await
+            .expect_err("unsafe session id should be rejected");
+
+        assert!(err
+            .to_string()
+            .contains("session_id must match ^[a-zA-Z0-9_-]{1,64}$"));
 
         let _ = std::fs::remove_dir_all(root);
         Ok(())

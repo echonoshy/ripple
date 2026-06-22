@@ -56,6 +56,12 @@
 
 `cursor` 当前是稳定的 offset 字符串，客户端应只把它当 opaque token 传回。
 
+## Chat And Sessions
+
+- `POST /v1/chat/completions` 可带 `session_id`。如果当前 `user_id + session_id` 已存在，后端复用该 session；如果不存在，后端用调用方传入的 `session_id` 创建新 session；如果未传，后端生成 `srv-...`。
+- 调用方传入的 `session_id` 必须匹配 `[a-zA-Z0-9_-]{1,64}`。这是为了保证 session runtime 目录和 SQLite 主键都安全可控。
+- 响应继续返回 `x-ripple-session-id` header 和 body 内的 `session_id`，调用方可用它确认最终使用的 session。
+
 ## Runs
 
 - `GET /v1/runs/:job_id/events` 返回 SSE，每个 JSON event 带 `event_version: 1`。

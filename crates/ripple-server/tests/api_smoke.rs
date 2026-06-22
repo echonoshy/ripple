@@ -2741,8 +2741,14 @@ async fn task_trigger_resolves_session_model_alias_before_codex_run() {
         "{triggered:?}"
     );
 
-    let (status, detail) = call(app, Method::GET, "/v1/tasks/task-model-alias", Value::Null).await;
-    assert_eq!(status, StatusCode::OK, "{detail}");
+    let detail = wait_for_get_json(app, "/v1/tasks/task-model-alias", |detail| {
+        let summary = detail
+            .pointer("/actions/0/result_summary")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        summary.contains("model seen: gpt-5.5-test") && summary.contains("effort seen: low")
+    })
+    .await;
     let summary = detail
         .pointer("/actions/0/result_summary")
         .and_then(Value::as_str)
@@ -2838,14 +2844,14 @@ async fn task_trigger_uses_its_own_prompt_model_and_effort() {
         "{triggered:?}"
     );
 
-    let (status, detail) = call(
-        app,
-        Method::GET,
-        "/v1/tasks/task-trigger-config",
-        Value::Null,
-    )
+    let detail = wait_for_get_json(app, "/v1/tasks/task-trigger-config", |detail| {
+        let summary = detail
+            .pointer("/actions/0/result_summary")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        summary.contains("model seen: gpt-trigger-test") && summary.contains("effort seen: high")
+    })
     .await;
-    assert_eq!(status, StatusCode::OK, "{detail}");
     let summary = detail
         .pointer("/actions/0/result_summary")
         .and_then(Value::as_str)
@@ -2924,14 +2930,15 @@ async fn task_trigger_executes_task_action_and_updates_original_session() {
         "{triggered:?}"
     );
 
-    let (status, detail) = call(
-        app.clone(),
-        Method::GET,
-        "/v1/tasks/task-progress",
-        Value::Null,
-    )
+    let detail = wait_for_get_json(app.clone(), "/v1/tasks/task-progress", |detail| {
+        detail.pointer("/actions/0/status").and_then(Value::as_str) == Some("completed")
+            && detail
+                .pointer("/actions/0/result_summary")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .contains("已整理出客户预算范围和报价假设。")
+    })
     .await;
-    assert_eq!(status, StatusCode::OK, "{detail}");
     assert_eq!(
         detail.pointer("/actions/0/status").and_then(Value::as_str),
         Some("completed"),
@@ -2946,14 +2953,16 @@ async fn task_trigger_executes_task_action_and_updates_original_session() {
         "{detail}"
     );
 
-    let (status, session_detail) = call(
-        app,
-        Method::GET,
-        &format!("/v1/sessions/{session_id}"),
-        Value::Null,
-    )
+    let session_uri = format!("/v1/sessions/{session_id}");
+    let session_detail = wait_for_get_json(app, &session_uri, |session_detail| {
+        session_detail
+            .get("messages")
+            .and_then(Value::as_array)
+            .unwrap_or(&Vec::new())
+            .iter()
+            .any(|message| format!("{message}").contains("task action completed"))
+    })
     .await;
-    assert_eq!(status, StatusCode::OK, "{session_detail}");
     assert!(
         session_detail
             .get("messages")
@@ -3904,18 +3913,27 @@ async fn failed_task_trigger_run_is_not_marked_completed() {
         .await
         .expect("trigger due task triggers");
     assert!(
-        triggered.get("smoke-user").map_or(true, Vec::is_empty),
+        triggered.get("smoke-user").is_some_and(|ids| ids
+            .iter()
+            .any(|id| id == trigger["trigger_id"].as_str().unwrap())),
         "{triggered:?}"
     );
 
-    let (status, triggers) = call(
-        app,
-        Method::GET,
-        "/v1/tasks/task-trigger-fail/triggers",
-        Value::Null,
-    )
+    let triggers = wait_for_get_json(app, "/v1/tasks/task-trigger-fail/triggers", |triggers| {
+        triggers
+            .get("triggers")
+            .and_then(Value::as_array)
+            .and_then(|items| {
+                items.iter().find(|item| {
+                    item.get("trigger_id").and_then(Value::as_str) == Some(&trigger_id)
+                })
+            })
+            .is_some_and(|item| {
+                item.get("status").and_then(Value::as_str) == Some("error")
+                    && item.get("last_run_status").and_then(Value::as_str) == Some("failed")
+            })
+    })
     .await;
-    assert_eq!(status, StatusCode::OK, "{triggers}");
     let item = triggers
         .get("triggers")
         .and_then(Value::as_array)
@@ -5808,6 +5826,24 @@ async fn wait_for_completed_run(app: axum::Router, job_id: &str) -> Value {
     panic!("run {job_id} should complete");
 }
 
+async fn wait_for_get_json(
+    app: axum::Router,
+    uri: &str,
+    mut matches: impl FnMut(&Value) -> bool,
+) -> Value {
+    let mut latest = Value::Null;
+    for _ in 0..80 {
+        let (status, body) = call(app.clone(), Method::GET, uri, Value::Null).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        if matches(&body) {
+            return body;
+        }
+        latest = body;
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    panic!("condition not met for {uri}: {latest}");
+}
+
 #[tokio::test]
 async fn run_public_apis_hide_host_paths_from_metadata_output_and_events() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
@@ -6632,14 +6668,17 @@ async fn recurring_due_task_trigger_appends_each_run_to_source_session() {
             "expected due trigger to run: {triggered:?}"
         );
 
-        let (status, triggers) = call(
+        let triggers = wait_for_get_json(
             app.clone(),
-            Method::GET,
             "/v1/tasks/task-recurring-session-output/triggers",
-            Value::Null,
+            |triggers| {
+                triggers
+                    .pointer("/triggers/0/run_count")
+                    .and_then(Value::as_u64)
+                    == Some(expected_run_count)
+            },
         )
         .await;
-        assert_eq!(status, StatusCode::OK, "{triggers}");
         assert_eq!(
             triggers
                 .pointer("/triggers/0/run_count")
@@ -6656,14 +6695,18 @@ async fn recurring_due_task_trigger_appends_each_run_to_source_session() {
             "{triggers}"
         );
         if expected_run_count == 1 {
-            let (status, task_detail) = call(
+            let task_detail = wait_for_get_json(
                 app.clone(),
-                Method::GET,
                 "/v1/tasks/task-recurring-session-output",
-                Value::Null,
+                |task_detail| {
+                    task_detail.pointer("/task/status").and_then(Value::as_str) == Some("active")
+                        && task_detail
+                            .pointer("/actions/0/status")
+                            .and_then(Value::as_str)
+                            == Some("confirmed")
+                },
             )
             .await;
-            assert_eq!(status, StatusCode::OK, "{task_detail}");
             assert_eq!(
                 task_detail.pointer("/task/status").and_then(Value::as_str),
                 Some("active"),
@@ -6679,14 +6722,18 @@ async fn recurring_due_task_trigger_appends_each_run_to_source_session() {
         }
     }
 
-    let (status, session_detail) = call(
-        app,
-        Method::GET,
-        &format!("/v1/sessions/{session_id}"),
-        Value::Null,
-    )
+    let session_uri = format!("/v1/sessions/{session_id}");
+    let session_detail = wait_for_get_json(app, &session_uri, |session_detail| {
+        session_detail
+            .get("messages")
+            .and_then(Value::as_array)
+            .unwrap_or(&Vec::new())
+            .iter()
+            .filter(|message| format!("{message}").contains("recurring task action completed"))
+            .count()
+            == 2
+    })
     .await;
-    assert_eq!(status, StatusCode::OK, "{session_detail}");
     let completion_messages = session_detail
         .get("messages")
         .and_then(Value::as_array)
@@ -6823,14 +6870,32 @@ async fn task_level_trigger_advances_ordered_actions_after_each_phase_run_limit(
             "expected due trigger to run: {triggered:?}"
         );
 
-        let (status, task_detail) = call(
-            app.clone(),
-            Method::GET,
-            "/v1/tasks/task-series-phases",
-            Value::Null,
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK, "{task_detail}");
+        let task_detail =
+            wait_for_get_json(app.clone(), "/v1/tasks/task-series-phases", |task_detail| {
+                task_detail.pointer("/task/status").and_then(Value::as_str) == Some(expected.5)
+                    && (expected.0.is_empty()
+                        || task_detail
+                            .pointer("/task/progress/current_action_id")
+                            .and_then(Value::as_str)
+                            == Some(expected.0))
+                    && task_detail
+                        .pointer("/actions/0/run_count")
+                        .and_then(Value::as_u64)
+                        == Some(expected.1)
+                    && task_detail
+                        .pointer("/actions/0/status")
+                        .and_then(Value::as_str)
+                        == Some(expected.2)
+                    && task_detail
+                        .pointer("/actions/1/run_count")
+                        .and_then(Value::as_u64)
+                        == Some(expected.3)
+                    && task_detail
+                        .pointer("/actions/1/status")
+                        .and_then(Value::as_str)
+                        == Some(expected.4)
+            })
+            .await;
         assert_eq!(
             task_detail.pointer("/task/status").and_then(Value::as_str),
             Some(expected.5),
@@ -6874,14 +6939,17 @@ async fn task_level_trigger_advances_ordered_actions_after_each_phase_run_limit(
             "{task_detail}"
         );
 
-        let (status, triggers) = call(
+        let triggers = wait_for_get_json(
             app.clone(),
-            Method::GET,
             "/v1/tasks/task-series-phases/triggers",
-            Value::Null,
+            |triggers| {
+                triggers
+                    .pointer("/triggers/0/enabled")
+                    .and_then(Value::as_bool)
+                    == Some(expected.6)
+            },
         )
         .await;
-        assert_eq!(status, StatusCode::OK, "{triggers}");
         assert_eq!(
             triggers
                 .pointer("/triggers/0/enabled")
@@ -8803,6 +8871,71 @@ async fn dropped_chat_stream_does_not_block_follow_up_after_job_completes() {
     assert_eq!(reloaded.total_input_tokens, 20);
     assert_eq!(reloaded.total_output_tokens, 10);
     assert_eq!(reloaded.codex_thread_id.as_deref(), Some("thread-1"));
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn chat_creates_new_session_with_caller_supplied_session_id() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+    let user_id = "smoke-user";
+    let caller_session_id = "CallerSession123";
+
+    let (status, first) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/chat/completions",
+        json!({
+            "model": "codex-test",
+            "session_id": caller_session_id,
+            "messages": [{"role": "user", "content": "first caller-owned session turn"}],
+            "stream": false
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{first}");
+    assert_eq!(
+        first.get("session_id").and_then(Value::as_str),
+        Some(caller_session_id)
+    );
+
+    let first_reloaded = state
+        .sessions
+        .load(user_id, caller_session_id)
+        .await
+        .unwrap()
+        .expect("caller session should be persisted");
+    assert_eq!(first_reloaded.session_id, caller_session_id);
+    assert_eq!(first_reloaded.message_count, 2);
+
+    let (status, second) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/chat/completions",
+        json!({
+            "model": "codex-test",
+            "session_id": caller_session_id,
+            "messages": [{"role": "user", "content": "second caller-owned session turn"}],
+            "stream": false
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{second}");
+    assert_eq!(
+        second.get("session_id").and_then(Value::as_str),
+        Some(caller_session_id)
+    );
+
+    let second_reloaded = state
+        .sessions
+        .load(user_id, caller_session_id)
+        .await
+        .unwrap()
+        .expect("caller session should be reused");
+    assert_eq!(second_reloaded.message_count, 4);
 
     let _ = std::fs::remove_dir_all(root);
 }

@@ -263,6 +263,10 @@ pub fn router(state: AppState) -> Router {
             "/sessions/:session_id/permissions/resolve",
             post(sessions::resolve_permission_request),
         )
+        .route(
+            "/sessions/:session_id/user-input/resolve",
+            post(sessions::resolve_user_input_request),
+        )
         .routes(utoipa_axum::routes!(chat::poll_session_connector_auth))
         .routes(utoipa_axum::routes!(sessions::cancel_connector_auth))
         .route("/sessions/:session_id/usage", get(sessions::session_usage))

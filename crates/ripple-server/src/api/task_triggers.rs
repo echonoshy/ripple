@@ -1282,6 +1282,7 @@ fn agent_run_info_from_record(record: &Value) -> Option<AgentRunInfo> {
             .and_then(Value::as_str)
             .map(str::to_string),
         pending_approval: None,
+        pending_user_input: None,
         metadata: record.clone(),
     })
 }
@@ -1774,6 +1775,7 @@ mod tests {
             stderr_tail: "stderr failure".to_string(),
             error: None,
             pending_approval: None,
+            pending_user_input: None,
             metadata: json!({
                 "trigger_id": "trg-test",
                 "task_trigger_reason": trigger

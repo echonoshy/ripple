@@ -1,7 +1,7 @@
 use serde_json::Value;
 use sqlx::{Row, SqlitePool};
 
-pub const CURRENT_SCHEMA_VERSION: i64 = 9;
+pub const CURRENT_SCHEMA_VERSION: i64 = 10;
 
 const SCHEMA_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS sessions (
@@ -124,6 +124,25 @@ CREATE TABLE IF NOT EXISTS file_refs (
     linked_session_id TEXT
 );
 
+CREATE TABLE IF NOT EXISTS token_usage_events (
+    event_id TEXT PRIMARY KEY NOT NULL,
+    user_id TEXT NOT NULL,
+    session_id TEXT,
+    job_id TEXT,
+    task_trigger_id TEXT,
+    turn_id TEXT,
+    source TEXT NOT NULL,
+    input_tokens INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    total_tokens INTEGER NOT NULL DEFAULT 0,
+    cached_input_tokens INTEGER NOT NULL DEFAULT 0,
+    reasoning_output_tokens INTEGER NOT NULL DEFAULT 0,
+    model_context_window INTEGER,
+    occurred_at TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    record_json TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS user_profiles (
     user_id TEXT PRIMARY KEY NOT NULL,
     avatar_uri TEXT,
@@ -198,6 +217,12 @@ CREATE INDEX IF NOT EXISTS idx_documents_user_updated
     ON documents(user_id, updated_at);
 CREATE INDEX IF NOT EXISTS idx_file_refs_user_workspace_path
     ON file_refs(user_id, workspace_path);
+CREATE INDEX IF NOT EXISTS idx_token_usage_events_user_occurred
+    ON token_usage_events(user_id, occurred_at);
+CREATE INDEX IF NOT EXISTS idx_token_usage_events_user_session
+    ON token_usage_events(user_id, session_id);
+CREATE INDEX IF NOT EXISTS idx_token_usage_events_user_job
+    ON token_usage_events(user_id, job_id);
 CREATE INDEX IF NOT EXISTS idx_auth_users_status
     ON auth_users(status);
 CREATE INDEX IF NOT EXISTS idx_auth_sessions_user
@@ -432,6 +457,7 @@ async fn ensure_schema_migrations(pool: &SqlitePool) -> anyhow::Result<()> {
         (5_i64, "session_context_folder_scope"),
         (8_i64, "task_system_v1"),
         (9_i64, "task_triggers_replace_schedules"),
+        (10_i64, "token_usage_events_v1"),
     ] {
         sqlx::query("INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (?, ?)")
             .bind(version)

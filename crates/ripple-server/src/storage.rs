@@ -46,6 +46,25 @@ impl TokenUsageBreakdown {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TokenUsageEventRecord {
+    pub event_id: String,
+    pub user_id: String,
+    pub session_id: Option<String>,
+    pub job_id: Option<String>,
+    pub task_trigger_id: Option<String>,
+    pub turn_id: Option<String>,
+    pub source: String,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub total_tokens: u64,
+    pub cached_input_tokens: u64,
+    pub reasoning_output_tokens: u64,
+    pub model_context_window: Option<u64>,
+    pub occurred_at: String,
+    pub record_json: Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FileRefRecord {
     pub file_id: String,
     pub user_id: String,
@@ -103,6 +122,7 @@ impl Storage {
         self.initialized
             .get_or_try_init(|| async {
                 schema::initialize_schema(&self.pool).await?;
+                self.backfill_legacy_token_usage_events().await?;
                 Ok(())
             })
             .await
@@ -117,6 +137,45 @@ impl Storage {
         Ok(row
             .get::<Option<i64>, _>("version")
             .unwrap_or(CURRENT_SCHEMA_VERSION))
+    }
+
+    async fn backfill_legacy_token_usage_events(&self) -> anyhow::Result<()> {
+        sqlx::query(
+            r#"
+            INSERT OR IGNORE INTO token_usage_events (
+                event_id, user_id, session_id, job_id, task_trigger_id, turn_id, source,
+                input_tokens, output_tokens, total_tokens, cached_input_tokens,
+                reasoning_output_tokens, model_context_window, occurred_at, created_at, record_json
+            )
+            SELECT
+                'legacy-session:' || user_id || ':' || session_id,
+                user_id,
+                session_id,
+                NULL,
+                NULL,
+                NULL,
+                'legacy_session',
+                total_input_tokens,
+                total_output_tokens,
+                total_input_tokens + total_output_tokens,
+                0,
+                0,
+                NULL,
+                last_active,
+                strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+                '{}'
+            FROM sessions AS s
+            WHERE (total_input_tokens > 0 OR total_output_tokens > 0)
+              AND NOT EXISTS (
+                SELECT 1 FROM token_usage_events AS e
+                WHERE e.user_id = s.user_id
+                  AND e.session_id = s.session_id
+              )
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 
     pub async fn save_session(&self, record: &SessionRecord) -> anyhow::Result<()> {
@@ -298,13 +357,8 @@ impl Storage {
     }
 
     pub async fn total_tokens_used(&self, user_id: &str) -> anyhow::Result<u64> {
-        self.initialize().await?;
-        let row = sqlx::query("SELECT SUM(total_input_tokens + total_output_tokens) AS total FROM sessions WHERE user_id = ?")
-            .bind(user_id)
-            .fetch_one(&self.pool)
-            .await?;
-        let total = row.get::<Option<i64>, _>("total").unwrap_or(0);
-        i64_to_u64(total)
+        let breakdown = self.token_usage_breakdown(user_id).await?;
+        Ok(breakdown.total_tokens())
     }
 
     pub async fn token_usage_breakdown(
@@ -314,13 +368,28 @@ impl Storage {
         self.initialize().await?;
         let row = sqlx::query(
             r#"
+            WITH usage_rows AS (
+              SELECT input_tokens AS input, output_tokens AS output
+              FROM token_usage_events
+              WHERE user_id = ?
+              UNION ALL
+              SELECT total_input_tokens AS input, total_output_tokens AS output
+              FROM sessions AS s
+              WHERE s.user_id = ?
+                AND (s.total_input_tokens > 0 OR s.total_output_tokens > 0)
+                AND NOT EXISTS (
+                  SELECT 1 FROM token_usage_events AS e
+                  WHERE e.user_id = s.user_id
+                    AND e.session_id = s.session_id
+                )
+            )
             SELECT
-              SUM(total_input_tokens) AS input,
-              SUM(total_output_tokens) AS output
-            FROM sessions
-            WHERE user_id = ?
+              SUM(input) AS input,
+              SUM(output) AS output
+            FROM usage_rows
             "#,
         )
+        .bind(user_id)
         .bind(user_id)
         .fetch_one(&self.pool)
         .await?;
@@ -339,14 +408,30 @@ impl Storage {
         self.initialize().await?;
         let row_daily = sqlx::query(
             r#"
+            WITH usage_rows AS (
+              SELECT input_tokens AS input, output_tokens AS output
+              FROM token_usage_events
+              WHERE user_id = ?
+                AND occurred_at >= strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-1 day')
+              UNION ALL
+              SELECT total_input_tokens AS input, total_output_tokens AS output
+              FROM sessions AS s
+              WHERE s.user_id = ?
+                AND s.last_active >= strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-1 day')
+                AND (s.total_input_tokens > 0 OR s.total_output_tokens > 0)
+                AND NOT EXISTS (
+                  SELECT 1 FROM token_usage_events AS e
+                  WHERE e.user_id = s.user_id
+                    AND e.session_id = s.session_id
+                )
+            )
             SELECT
-              SUM(total_input_tokens) AS input,
-              SUM(total_output_tokens) AS output
-            FROM sessions
-            WHERE user_id = ?
-              AND last_active >= strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-1 day')
+              SUM(input) AS input,
+              SUM(output) AS output
+            FROM usage_rows
             "#,
         )
+        .bind(user_id)
         .bind(user_id)
         .fetch_one(&self.pool)
         .await?;
@@ -355,14 +440,30 @@ impl Storage {
 
         let row_weekly = sqlx::query(
             r#"
+            WITH usage_rows AS (
+              SELECT input_tokens AS input, output_tokens AS output
+              FROM token_usage_events
+              WHERE user_id = ?
+                AND occurred_at >= strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-7 days')
+              UNION ALL
+              SELECT total_input_tokens AS input, total_output_tokens AS output
+              FROM sessions AS s
+              WHERE s.user_id = ?
+                AND s.last_active >= strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-7 days')
+                AND (s.total_input_tokens > 0 OR s.total_output_tokens > 0)
+                AND NOT EXISTS (
+                  SELECT 1 FROM token_usage_events AS e
+                  WHERE e.user_id = s.user_id
+                    AND e.session_id = s.session_id
+                )
+            )
             SELECT
-              SUM(total_input_tokens) AS input,
-              SUM(total_output_tokens) AS output
-            FROM sessions
-            WHERE user_id = ?
-              AND last_active >= strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-7 days')
+              SUM(input) AS input,
+              SUM(output) AS output
+            FROM usage_rows
             "#,
         )
+        .bind(user_id)
         .bind(user_id)
         .fetch_one(&self.pool)
         .await?;
@@ -379,6 +480,56 @@ impl Storage {
                 total_output_tokens: i64_to_u64(weekly_output)?,
             },
         ))
+    }
+
+    pub async fn upsert_token_usage_event(
+        &self,
+        event: &TokenUsageEventRecord,
+    ) -> anyhow::Result<()> {
+        self.initialize().await?;
+        sqlx::query(
+            r#"
+            INSERT INTO token_usage_events (
+                event_id, user_id, session_id, job_id, task_trigger_id, turn_id, source,
+                input_tokens, output_tokens, total_tokens, cached_input_tokens,
+                reasoning_output_tokens, model_context_window, occurred_at, created_at, record_json
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'), ?)
+            ON CONFLICT(event_id) DO UPDATE SET
+                user_id = excluded.user_id,
+                session_id = excluded.session_id,
+                job_id = excluded.job_id,
+                task_trigger_id = excluded.task_trigger_id,
+                turn_id = excluded.turn_id,
+                source = excluded.source,
+                input_tokens = excluded.input_tokens,
+                output_tokens = excluded.output_tokens,
+                total_tokens = excluded.total_tokens,
+                cached_input_tokens = excluded.cached_input_tokens,
+                reasoning_output_tokens = excluded.reasoning_output_tokens,
+                model_context_window = excluded.model_context_window,
+                occurred_at = excluded.occurred_at,
+                record_json = excluded.record_json
+            "#,
+        )
+        .bind(&event.event_id)
+        .bind(&event.user_id)
+        .bind(&event.session_id)
+        .bind(&event.job_id)
+        .bind(&event.task_trigger_id)
+        .bind(&event.turn_id)
+        .bind(&event.source)
+        .bind(u64_to_i64(event.input_tokens)?)
+        .bind(u64_to_i64(event.output_tokens)?)
+        .bind(u64_to_i64(event.total_tokens)?)
+        .bind(u64_to_i64(event.cached_input_tokens)?)
+        .bind(u64_to_i64(event.reasoning_output_tokens)?)
+        .bind(event.model_context_window.map(u64_to_i64).transpose()?)
+        .bind(&event.occurred_at)
+        .bind(json_text(&event.record_json)?)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 
     pub async fn session_exists(&self, user_id: &str, session_id: &str) -> anyhow::Result<bool> {
@@ -897,6 +1048,72 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn token_usage_breakdown_prefers_ledger_without_double_counting_sessions(
+    ) -> anyhow::Result<()> {
+        let root =
+            std::env::temp_dir().join(format!("ripple-storage-test-{}", uuid::Uuid::new_v4()));
+        let storage = Storage::open(root.join(".ripple/ripple.sqlite"))?;
+        let record = SessionRecord {
+            session_id: "srv-token-ledger".to_string(),
+            user_id: "alice".to_string(),
+            title: "tokens".to_string(),
+            pinned: false,
+            project_id: None,
+            project_name: None,
+            project_root: None,
+            context_folder_path: None,
+            model: "codex-test".to_string(),
+            max_turns: 200,
+            caller_system_prompt: None,
+            total_input_tokens: 120,
+            total_output_tokens: 30,
+            last_input_tokens: 120,
+            created_at: "2026-05-22T00:00:00Z".to_string(),
+            last_active: "2026-05-22T00:00:01Z".to_string(),
+            status: "idle".to_string(),
+            message_count: 1,
+            messages: Vec::new(),
+            pending_question: None,
+            pending_options: None,
+            pending_permission_request: None,
+            pending_connector_auth: None,
+            pending_schedule_request: None,
+            codex_thread_id: None,
+            memory_disabled: false,
+            plan_steps: Vec::new(),
+            plan_progress: None,
+        };
+        storage.save_session(&record).await?;
+        storage
+            .upsert_token_usage_event(&TokenUsageEventRecord {
+                event_id: "codex-job:agent-test:turn-1".to_string(),
+                user_id: "alice".to_string(),
+                session_id: Some("srv-token-ledger".to_string()),
+                job_id: Some("agent-test".to_string()),
+                task_trigger_id: None,
+                turn_id: Some("turn-1".to_string()),
+                source: "codex_job".to_string(),
+                input_tokens: 10,
+                output_tokens: 5,
+                total_tokens: 15,
+                cached_input_tokens: 1,
+                reasoning_output_tokens: 2,
+                model_context_window: Some(200_000),
+                occurred_at: "2026-05-22T00:00:02Z".to_string(),
+                record_json: serde_json::json!({"usage": "test"}),
+            })
+            .await?;
+
+        let breakdown = storage.token_usage_breakdown("alice").await?;
+
+        assert_eq!(breakdown.total_input_tokens, 10);
+        assert_eq!(breakdown.total_output_tokens, 5);
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn token_usage_by_period_sums_input_and_output_tokens() -> anyhow::Result<()> {
         let root =
             std::env::temp_dir().join(format!("ripple-storage-test-{}", uuid::Uuid::new_v4()));
@@ -956,6 +1173,79 @@ mod tests {
         assert_eq!(daily.total_output_tokens, 30);
         assert_eq!(weekly.total_input_tokens, 200);
         assert_eq!(weekly.total_output_tokens, 50);
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn token_usage_by_period_filters_ledger_events_by_occurrence_time() -> anyhow::Result<()>
+    {
+        let root =
+            std::env::temp_dir().join(format!("ripple-storage-test-{}", uuid::Uuid::new_v4()));
+        let storage = Storage::open(root.join(".ripple/ripple.sqlite"))?;
+        let now = time::OffsetDateTime::now_utc();
+        let format_time = |time: time::OffsetDateTime| {
+            time.format(&time::format_description::well_known::Rfc3339)
+                .unwrap()
+        };
+        let record = SessionRecord {
+            session_id: "srv-token-ledger-window".to_string(),
+            user_id: "alice".to_string(),
+            title: "tokens".to_string(),
+            pinned: false,
+            project_id: None,
+            project_name: None,
+            project_root: None,
+            context_folder_path: None,
+            model: "codex-test".to_string(),
+            max_turns: 200,
+            caller_system_prompt: None,
+            total_input_tokens: 120,
+            total_output_tokens: 30,
+            last_input_tokens: 120,
+            created_at: format_time(now),
+            last_active: format_time(now),
+            status: "idle".to_string(),
+            message_count: 1,
+            messages: Vec::new(),
+            pending_question: None,
+            pending_options: None,
+            pending_permission_request: None,
+            pending_connector_auth: None,
+            pending_schedule_request: None,
+            codex_thread_id: None,
+            memory_disabled: false,
+            plan_steps: Vec::new(),
+            plan_progress: None,
+        };
+        storage.save_session(&record).await?;
+        storage
+            .upsert_token_usage_event(&TokenUsageEventRecord {
+                event_id: "codex-job:agent-window:turn-1".to_string(),
+                user_id: "alice".to_string(),
+                session_id: Some("srv-token-ledger-window".to_string()),
+                job_id: Some("agent-window".to_string()),
+                task_trigger_id: None,
+                turn_id: Some("turn-1".to_string()),
+                source: "codex_job".to_string(),
+                input_tokens: 10,
+                output_tokens: 5,
+                total_tokens: 15,
+                cached_input_tokens: 0,
+                reasoning_output_tokens: 0,
+                model_context_window: None,
+                occurred_at: format_time(now - Duration::from_secs(9 * 24 * 60 * 60)),
+                record_json: serde_json::json!({"usage": "old"}),
+            })
+            .await?;
+
+        let (daily, weekly) = storage.token_usage_by_period("alice").await?;
+
+        assert_eq!(daily.total_input_tokens, 0);
+        assert_eq!(daily.total_output_tokens, 0);
+        assert_eq!(weekly.total_input_tokens, 0);
+        assert_eq!(weekly.total_output_tokens, 0);
 
         let _ = std::fs::remove_dir_all(root);
         Ok(())

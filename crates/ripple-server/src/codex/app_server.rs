@@ -528,6 +528,7 @@ pub struct CodexAppServerProvider {
     reaper_started: Arc<AtomicBool>,
     active_turns: Arc<Mutex<HashMap<String, ActiveTurn>>>,
     pending_approvals: Arc<Mutex<HashMap<String, Value>>>,
+    pending_user_inputs: Arc<Mutex<HashMap<String, Value>>>,
 }
 
 impl CodexAppServerProvider {
@@ -541,6 +542,7 @@ impl CodexAppServerProvider {
             reaper_started: Arc::new(AtomicBool::new(false)),
             active_turns: Arc::new(Mutex::new(HashMap::new())),
             pending_approvals: Arc::new(Mutex::new(HashMap::new())),
+            pending_user_inputs: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -603,6 +605,7 @@ impl CodexAppServerProvider {
         }
         self.active_turns.lock().await.remove(&job_id);
         self.pending_approvals.lock().await.remove(&job_id);
+        self.pending_user_inputs.lock().await.remove(&job_id);
         drop(turn_rx);
 
         let final_type = match status {
@@ -761,7 +764,10 @@ impl CodexAppServerProvider {
                 {
                     continue;
                 }
-                if self.handle_user_input_request(session, &message).await? {
+                if self
+                    .handle_user_input_request(request, job_id, session, &message)
+                    .await?
+                {
                     continue;
                 }
                 if is_unsupported_server_request(&message) {
@@ -871,6 +877,8 @@ impl CodexAppServerProvider {
 
     async fn handle_user_input_request(
         &self,
+        request: &AgentRunnerRequest,
+        job_id: &str,
         session: &Arc<CodexAppServerSession>,
         message: &Value,
     ) -> anyhow::Result<bool> {
@@ -878,15 +886,85 @@ impl CodexAppServerProvider {
             return Ok(false);
         }
         let request_id = message.get("id").cloned().unwrap_or(Value::Null);
-        session
-            .respond(
-                request_id,
-                json!({
-                    "answers": {}
-                }),
-            )
-            .await?;
+        if request.session_id.is_none() {
+            session
+                .respond(
+                    request_id,
+                    json!({
+                        "answers": {}
+                    }),
+                )
+                .await?;
+            return Ok(true);
+        }
+        let params = message.get("params").cloned().unwrap_or_else(|| json!({}));
+        self.pending_user_inputs.lock().await.insert(
+            job_id.to_string(),
+            json!({
+                "type": "codex_user_input",
+                "job_id": job_id,
+                "session_id": request.session_id,
+                "request_id": request_id,
+                "thread_id": params.get("threadId").or_else(|| params.get("thread_id")).cloned().unwrap_or(Value::Null),
+                "turn_id": params.get("turnId").or_else(|| params.get("turn_id")).cloned().unwrap_or(Value::Null),
+                "item_id": params.get("itemId").or_else(|| params.get("item_id")).cloned().unwrap_or(Value::Null),
+                "questions": params.get("questions").cloned().unwrap_or_else(|| json!([])),
+                "auto_resolution_ms": params.get("autoResolutionMs").cloned().unwrap_or(Value::Null)
+            }),
+        );
         Ok(true)
+    }
+
+    pub async fn pending_user_input(&self, job_id: &str) -> Option<Value> {
+        self.pending_user_inputs.lock().await.get(job_id).cloned()
+    }
+
+    pub async fn resolve_user_input(
+        &self,
+        job_id: &str,
+        request_id: &Value,
+        answers: Value,
+    ) -> bool {
+        let active = self.active_turns.lock().await.get(job_id).cloned();
+        let Some(active) = active else {
+            return false;
+        };
+        let pending = self.pending_user_inputs.lock().await.get(job_id).cloned();
+        let Some(pending) = pending else {
+            return false;
+        };
+        if pending.get("request_id") != Some(request_id) {
+            return false;
+        }
+        if active
+            .session
+            .respond(request_id.clone(), json!({ "answers": answers }))
+            .await
+            .is_err()
+        {
+            return false;
+        }
+        self.pending_user_inputs.lock().await.remove(job_id);
+        true
+    }
+
+    pub async fn archive_thread(
+        &self,
+        user_id: String,
+        workspace_root: PathBuf,
+        thread_id: String,
+    ) -> anyhow::Result<Value> {
+        let session = CodexAppServerSession::new(user_id, self.config.clone(), workspace_root);
+        let result = async {
+            session.ensure_started().await?;
+            session.ensure_initialized().await?;
+            session
+                .request("thread/archive", json!({ "threadId": thread_id }))
+                .await
+        }
+        .await;
+        session.shutdown().await;
+        result
     }
 
     async fn ensure_thread(
@@ -1181,6 +1259,7 @@ impl CodexAppServerProvider {
     pub async fn cancel(&self, job_id: &str) -> bool {
         let active = self.active_turns.lock().await.get(job_id).cloned();
         self.pending_approvals.lock().await.remove(job_id);
+        self.pending_user_inputs.lock().await.remove(job_id);
         let Some(active) = active else {
             return false;
         };
@@ -1261,11 +1340,18 @@ impl CodexAppServerProvider {
                 .request("account/rateLimits/read", json!({}))
                 .await
                 .ok();
+            let usage = session.request("account/usage/read", json!({})).await.ok();
+            let config_requirements = session
+                .request("configRequirements/read", json!({}))
+                .await
+                .ok();
             Ok(json!({
                 "available": true,
                 "models": models,
                 "model_provider_capabilities": model_provider_capabilities,
-                "rate_limits": rate_limits
+                "rate_limits": rate_limits,
+                "usage": usage,
+                "config_requirements": config_requirements
             }))
         }
         .await;
@@ -1373,8 +1459,10 @@ impl CodexAppServerProvider {
         }
         if !active_job_ids.is_empty() {
             let mut approvals = self.pending_approvals.lock().await;
+            let mut user_inputs = self.pending_user_inputs.lock().await;
             for job_id in active_job_ids {
                 approvals.remove(&job_id);
+                user_inputs.remove(&job_id);
             }
         }
         for session in sessions {
@@ -1386,6 +1474,7 @@ impl CodexAppServerProvider {
 
     async fn release_job_session(&self, job_id: &str) -> bool {
         self.pending_approvals.lock().await.remove(job_id);
+        self.pending_user_inputs.lock().await.remove(job_id);
         let released = {
             let mut state = self.pools.lock().await;
             let Some((pool_key, worker_id)) = state.job_to_worker.remove(job_id) else {

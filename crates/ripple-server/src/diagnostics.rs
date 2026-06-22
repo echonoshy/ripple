@@ -221,6 +221,7 @@ pub async fn doctor_report(config: &AppConfig) -> Value {
             &config.codex.codex_executable,
             config.codex.enabled,
         ),
+        codex_app_server_runtime_config_check(config),
         executable_check(
             "connector_nsjail",
             "connectors",
@@ -355,6 +356,55 @@ async fn codex_linux_sandbox_check(config: &AppConfig) -> DoctorCheck {
             }),
         ),
     }
+}
+
+fn codex_app_server_runtime_config_check(config: &AppConfig) -> DoctorCheck {
+    let args = &config.codex.app_server_args;
+    let has_app_server = args.iter().any(|arg| arg == "app-server");
+    let has_stdio_listen = args
+        .windows(2)
+        .any(|window| window[0] == "--listen" && window[1] == "stdio://");
+    let listen = if has_stdio_listen {
+        json!("stdio://")
+    } else {
+        Value::Null
+    };
+    let details = json!({
+        "enabled": config.codex.enabled,
+        "codex_executable": config.codex.codex_executable,
+        "app_server_args": args,
+        "listen": listen,
+        "sandbox_type": config.codex.sandbox_type,
+        "approval_policy": config.codex.approval_policy,
+        "managed_permissions_profile": "ripple-managed",
+        "worker_pool": {
+            "max_workers_per_pool": config.codex.max_workers_per_pool,
+            "max_total_pool_workers": config.codex.max_total_pool_workers,
+            "idle_timeout_seconds": config.codex.idle_timeout_seconds
+        }
+    });
+    if !config.codex.enabled {
+        return DoctorCheck::warn(
+            "codex_app_server_runtime",
+            "runtime",
+            "Codex app-server runtime is disabled.",
+            details,
+        );
+    }
+    if !has_app_server || !has_stdio_listen {
+        return DoctorCheck::fail(
+            "codex_app_server_runtime",
+            "runtime",
+            "Codex runtime must launch `codex app-server --listen stdio://`.",
+            details,
+        );
+    }
+    DoctorCheck::pass(
+        "codex_app_server_runtime",
+        "runtime",
+        "Codex app-server runtime configuration is ready.",
+        details,
+    )
 }
 
 async fn connector_nsjail_config_check(config: &AppConfig) -> DoctorCheck {

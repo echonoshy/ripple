@@ -5,7 +5,7 @@ use axum::extract::{Path, Query, State};
 use axum::http::HeaderMap;
 use axum::Json;
 use serde::{Deserialize, Deserializer, Serialize};
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 
 use crate::api::chat::{
     collect_chat_image_events, finalize_chat_run_for_session, image_event_to_message_block,
@@ -590,13 +590,24 @@ pub async fn delete_session(
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
     let session_run_lock = state.sessions.session_lock(&user_id, &session_id);
     let _session_run_guard = session_run_lock.lock_owned().await;
+    let codex_thread_id = state
+        .sessions
+        .load(&user_id, &session_id)
+        .await?
+        .and_then(|session| trimmed_codex_thread_id(session.codex_thread_id.as_deref()));
     let stopped = state
         .jobs
         .cancel_session_run(&user_id, &session_id)
         .await?
         .is_some();
     if state.sessions.delete_session(&user_id, &session_id).await? {
-        Ok(Json(json!({ "ok": true, "stopped": stopped })))
+        let codex_thread_archived =
+            archive_session_codex_thread(&state, &user_id, codex_thread_id).await;
+        Ok(Json(json!({
+            "ok": true,
+            "stopped": stopped,
+            "codex_thread_archived": codex_thread_archived
+        })))
     } else {
         Err(ApiError::not_found("Session not found"))
     }
@@ -618,12 +629,43 @@ pub async fn clear_session_context(
     if session.status_kind().is_busy() {
         return Err(ApiError::conflict("Session is currently running"));
     }
+    let codex_thread_id = trimmed_codex_thread_id(session.codex_thread_id.as_deref());
     let Some(message_count) = state.sessions.clear_context(&user_id, &session_id).await? else {
         return Err(ApiError::not_found("Session not found"));
     };
-    Ok(Json(
-        json!({ "ok": true, "session_id": session_id, "message_count": message_count }),
-    ))
+    let codex_thread_archived =
+        archive_session_codex_thread(&state, &user_id, codex_thread_id).await;
+    Ok(Json(json!({
+        "ok": true,
+        "session_id": session_id,
+        "message_count": message_count,
+        "codex_thread_archived": codex_thread_archived
+    })))
+}
+
+fn trimmed_codex_thread_id(thread_id: Option<&str>) -> Option<String> {
+    thread_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+async fn archive_session_codex_thread(
+    state: &AppState,
+    user_id: &str,
+    thread_id: Option<String>,
+) -> bool {
+    let Some(thread_id) = thread_id else {
+        return false;
+    };
+    let Ok(workspace_root) = state.sandboxes.ensure_sandbox(user_id) else {
+        return false;
+    };
+    state
+        .jobs
+        .archive_codex_thread(user_id.to_string(), workspace_root, thread_id)
+        .await
+        .is_ok()
 }
 
 pub async fn compact_session_context(
@@ -936,6 +978,163 @@ pub struct PermissionResolveInput {
     job_id: Option<String>,
     #[serde(default)]
     request_id: Option<Value>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UserInputResolveInput {
+    #[serde(default)]
+    answer: Option<String>,
+    #[serde(default)]
+    answers: Option<Value>,
+    #[serde(default)]
+    job_id: Option<String>,
+    #[serde(default)]
+    request_id: Option<Value>,
+}
+
+pub async fn resolve_user_input_request(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(session_id): Path<String>,
+    Json(input): Json<UserInputResolveInput>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
+    recover_session_run_state(&state, &user_id, &session_id).await?;
+    let Some(mut session) = state.sessions.load(&user_id, &session_id).await? else {
+        return Err(ApiError::not_found("Session not found"));
+    };
+    let (job_id, pending) = if let Some(job_id) = input.job_id.clone() {
+        let Some(info) = state.jobs.info_for_user(&job_id, &user_id).await? else {
+            return Err(ApiError::not_found("Agent run not found"));
+        };
+        let Some(pending) = info.pending_user_input.clone() else {
+            return Err(ApiError::conflict("No pending user input request"));
+        };
+        (job_id, pending)
+    } else {
+        state
+            .jobs
+            .pending_user_input_for_session(&user_id, &session_id)
+            .await?
+            .ok_or_else(|| ApiError::conflict("No pending user input request"))?
+    };
+    let request_id = input
+        .request_id
+        .clone()
+        .or_else(|| pending.get("request_id").cloned())
+        .ok_or_else(|| ApiError::bad_request("Pending user input request is missing request_id"))?;
+    let answers = normalize_user_input_answers(&input, &pending)?;
+    let resolved = state
+        .jobs
+        .resolve_user_input_for_user(&job_id, &user_id, &request_id, answers.clone())
+        .await
+        .map_err(|err| ApiError::bad_request(err.to_string()))?;
+    if !resolved {
+        return Err(ApiError::conflict(
+            "Pending user input request is no longer active",
+        ));
+    }
+    session.pending_question = None;
+    session.pending_options = None;
+    session.set_status(SessionStatus::Running);
+    state.sessions.save_record(session).await?;
+    tokio::spawn(finalize_resolved_permission_session(
+        state.clone(),
+        user_id.clone(),
+        session_id.clone(),
+        job_id.clone(),
+    ));
+    Ok(Json(json!({
+        "ok": true,
+        "session_id": session_id,
+        "job_id": job_id,
+        "answers": answers
+    })))
+}
+
+fn normalize_user_input_answers(
+    input: &UserInputResolveInput,
+    pending: &Value,
+) -> Result<Value, ApiError> {
+    if let Some(answers) = &input.answers {
+        return normalize_user_input_answer_value(
+            answers,
+            first_user_input_question_id(pending).as_deref(),
+        );
+    }
+    if let Some(answer) = input.answer.as_deref() {
+        let Some(question_id) = first_user_input_question_id(pending) else {
+            return Err(ApiError::bad_request(
+                "Pending user input request is missing a question id",
+            ));
+        };
+        let mut object = Map::new();
+        object.insert(
+            question_id,
+            json!({ "answers": answer_value_strings(&json!(answer)) }),
+        );
+        return Ok(Value::Object(object));
+    }
+    Err(ApiError::bad_request("answers or answer is required"))
+}
+
+fn normalize_user_input_answer_value(
+    value: &Value,
+    fallback_question_id: Option<&str>,
+) -> Result<Value, ApiError> {
+    let mut object = Map::new();
+    if let Some(answers_by_id) = value.as_object() {
+        for (question_id, answer_value) in answers_by_id {
+            let raw_answers = answer_value.get("answers").unwrap_or(answer_value);
+            let answers = answer_value_strings(raw_answers);
+            if answers.is_empty() {
+                continue;
+            }
+            object.insert(question_id.clone(), json!({ "answers": answers }));
+        }
+    } else if let Some(question_id) = fallback_question_id {
+        let answers = answer_value_strings(value);
+        if !answers.is_empty() {
+            object.insert(question_id.to_string(), json!({ "answers": answers }));
+        }
+    } else {
+        return Err(ApiError::bad_request(
+            "answers must be an object when the question id is unknown",
+        ));
+    }
+    if object.is_empty() {
+        return Err(ApiError::bad_request(
+            "answers must include at least one non-empty answer",
+        ));
+    }
+    Ok(Value::Object(object))
+}
+
+fn first_user_input_question_id(pending: &Value) -> Option<String> {
+    pending
+        .get("questions")
+        .and_then(Value::as_array)
+        .and_then(|questions| questions.first())
+        .and_then(|question| question.get("id").and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn answer_value_strings(value: &Value) -> Vec<String> {
+    match value {
+        Value::Array(values) => values.iter().filter_map(answer_scalar_string).collect(),
+        _ => answer_scalar_string(value).into_iter().collect(),
+    }
+}
+
+fn answer_scalar_string(value: &Value) -> Option<String> {
+    match value {
+        Value::String(text) => Some(text.trim().to_string()).filter(|text| !text.is_empty()),
+        Value::Number(number) => Some(number.to_string()),
+        Value::Bool(value) => Some(value.to_string()),
+        _ => None,
+    }
 }
 
 pub async fn resolve_permission_request(

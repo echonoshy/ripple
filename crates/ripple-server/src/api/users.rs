@@ -187,6 +187,7 @@ async fn user_profile_json(
     user_id: &str,
     auth: &AuthContext,
 ) -> Result<Value, ApiError> {
+    state.jobs.backfill_token_usage_for_user(user_id).await?;
     let usage = user_usage(state, user_id).await.unwrap_or(json!({}));
     let stored_profile = state.storage.user_profile(user_id).await?;
     let auth_user = state.storage.auth_user_by_id(user_id).await?;

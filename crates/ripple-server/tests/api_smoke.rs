@@ -5605,6 +5605,93 @@ async fn router_serves_session_lifecycle_routes() {
 }
 
 #[tokio::test]
+async fn session_clear_and_delete_archive_codex_threads() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+    let user_id = "smoke-user";
+
+    let (status, first) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/sessions",
+        json!({"model": "codex-test"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{first}");
+    let first_id = first
+        .get("session_id")
+        .and_then(Value::as_str)
+        .expect("session id")
+        .to_string();
+    let mut first_record = state
+        .sessions
+        .load(user_id, &first_id)
+        .await
+        .unwrap()
+        .expect("session");
+    first_record.codex_thread_id = Some("thread-clear-archive".to_string());
+    state.sessions.save_record(first_record).await.unwrap();
+
+    let (status, cleared) = call(
+        app.clone(),
+        Method::POST,
+        &format!("/v1/sessions/{first_id}/context/clear"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{cleared}");
+    assert_eq!(
+        cleared
+            .get("codex_thread_archived")
+            .and_then(Value::as_bool),
+        Some(true),
+        "{cleared}"
+    );
+
+    let (status, second) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/sessions",
+        json!({"model": "codex-test"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{second}");
+    let second_id = second
+        .get("session_id")
+        .and_then(Value::as_str)
+        .expect("session id")
+        .to_string();
+    let mut second_record = state
+        .sessions
+        .load(user_id, &second_id)
+        .await
+        .unwrap()
+        .expect("session");
+    second_record.codex_thread_id = Some("thread-delete-archive".to_string());
+    state.sessions.save_record(second_record).await.unwrap();
+
+    let (status, deleted) = call(
+        app,
+        Method::DELETE,
+        &format!("/v1/sessions/{second_id}"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{deleted}");
+    assert_eq!(
+        deleted
+            .get("codex_thread_archived")
+            .and_then(Value::as_bool),
+        Some(true),
+        "{deleted}"
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
 async fn compact_session_context_triggers_codex_thread_compaction() {
     let root = std::env::temp_dir().join(format!("ripple-api-compact-{}", Uuid::new_v4()));
     let fake_codex = write_fake_codex_app_server(&root);
@@ -5840,6 +5927,44 @@ async fn runs_route_completes_with_fake_codex_app_server() {
     assert!(events.contains("\"type\":\"codex.notification\""));
     assert!(events.contains("\"type\":\"runner.completed\""));
     assert!(events.contains("data: [DONE]"));
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn runs_route_usage_counts_toward_user_token_usage() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (_state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+
+    let job_id = start_fake_ids_run(app.clone(), "[ids] count this run usage").await;
+    let final_run = wait_for_completed_run(app.clone(), &job_id).await;
+    assert_eq!(
+        final_run.get("status").and_then(Value::as_str),
+        Some("completed")
+    );
+
+    let (status, profile) = call(app, Method::GET, "/v1/users/me", Value::Null).await;
+    assert_eq!(status, StatusCode::OK, "{profile}");
+    assert_eq!(
+        profile
+            .pointer("/usage/total_input_tokens")
+            .and_then(Value::as_u64),
+        Some(10)
+    );
+    assert_eq!(
+        profile
+            .pointer("/usage/total_output_tokens")
+            .and_then(Value::as_u64),
+        Some(5)
+    );
+    assert_eq!(
+        profile
+            .pointer("/usage/total_tokens")
+            .and_then(Value::as_u64),
+        Some(15)
+    );
 
     let _ = std::fs::remove_dir_all(root);
 }

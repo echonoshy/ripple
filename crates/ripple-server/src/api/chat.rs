@@ -513,6 +513,9 @@ async fn finish_codex_chat_response(
         } else {
             SessionStatus::Failed.as_str().to_string()
         };
+        session.pending_permission_request = None;
+        session.pending_question = None;
+        session.pending_options = None;
         let _ = state.sessions.save_record_if_exists(session).await?;
         let error = final_info
             .error
@@ -555,6 +558,8 @@ async fn finish_codex_chat_response(
     );
     session.set_status(SessionStatus::Idle);
     session.pending_permission_request = None;
+    session.pending_question = None;
+    session.pending_options = None;
     let _ = state
         .sessions
         .save_record_if_exists(session.clone())
@@ -819,6 +824,16 @@ async fn wait_for_chat_run(
                         .save_record_if_exists(session.clone())
                         .await?;
                 }
+                if let Some(runtime_event) = extract_codex_runtime_event(&event) {
+                    let public_runtime_event =
+                        sanitize_user_visible_value(state, user_id, &runtime_event);
+                    if record_session_runtime_event(session, &public_runtime_event) {
+                        let _ = state
+                            .sessions
+                            .save_record_if_exists(session.clone())
+                            .await?;
+                    }
+                }
             }
         }
         if let Some(approval) = info.pending_approval.clone() {
@@ -831,6 +846,18 @@ async fn wait_for_chat_run(
             return Err(ApiError::conflict(json!({
                 "message": "Codex approval required",
                 "approval": approval
+            })));
+        }
+        if let Some(user_input) = info.pending_user_input.clone() {
+            let public_user_input = sanitize_user_visible_value(state, user_id, &user_input);
+            record_session_pending_user_input(session, &public_user_input);
+            let _ = state
+                .sessions
+                .save_record_if_exists(session.clone())
+                .await?;
+            return Err(ApiError::conflict(json!({
+                "message": "Codex user input required",
+                "user_input": public_user_input
             })));
         }
         if TERMINAL_STATUSES.contains(&info.status.as_str()) {
@@ -852,6 +879,90 @@ async fn wait_for_chat_run(
         }
         sleep(Duration::from_millis(50)).await;
     }
+}
+
+fn record_session_pending_user_input(session: &mut SessionRecord, user_input: &Value) {
+    session.set_status(SessionStatus::AwaitingUserInput);
+    session.pending_question = user_input_question(user_input)
+        .or_else(|| Some("Codex is waiting for your input.".to_string()));
+    session.pending_options = user_input_options(user_input);
+}
+
+fn record_session_runtime_event(session: &mut SessionRecord, event: &Value) -> bool {
+    match event.get("type").and_then(Value::as_str) {
+        Some("user_input_requested") => {
+            record_session_pending_user_input(session, event);
+            true
+        }
+        Some("thread_status_changed") => {
+            let status = event.get("status").and_then(Value::as_str).unwrap_or("");
+            let pending_input = event
+                .pointer("/runtime/pendingUserInputRequests")
+                .and_then(Value::as_u64)
+                .unwrap_or(0)
+                > 0;
+            if pending_input || status == "waitingOnUserInput" {
+                session.set_status(SessionStatus::WaitingForUser);
+                return true;
+            }
+            if status == "running"
+                && session.pending_permission_request.is_none()
+                && session.pending_question.is_none()
+            {
+                session.set_status(SessionStatus::Running);
+                return true;
+            }
+            if status == "failed"
+                || status == "systemError"
+                || event
+                    .pointer("/runtime/hasSystemError")
+                    .and_then(Value::as_bool)
+                    == Some(true)
+            {
+                session.set_status(SessionStatus::Failed);
+                return true;
+            }
+            false
+        }
+        _ => false,
+    }
+}
+
+fn user_input_question(user_input: &Value) -> Option<String> {
+    user_input
+        .get("questions")
+        .and_then(Value::as_array)
+        .and_then(|questions| questions.first())
+        .and_then(|question| {
+            question
+                .get("question")
+                .or_else(|| question.get("prompt"))
+                .and_then(Value::as_str)
+        })
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn user_input_options(user_input: &Value) -> Option<Vec<String>> {
+    let labels = user_input
+        .get("questions")
+        .and_then(Value::as_array)
+        .and_then(|questions| questions.first())
+        .and_then(|question| question.get("options"))
+        .and_then(Value::as_array)?
+        .iter()
+        .filter_map(|option| {
+            option
+                .get("label")
+                .or_else(|| option.get("value"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+        })
+        .collect::<Vec<_>>();
+    (!labels.is_empty()).then_some(labels)
 }
 
 fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
@@ -922,6 +1033,9 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
                     }
                     if let Some(runtime_event) = extract_codex_runtime_event(&event) {
                         let public_runtime_event = sanitize_user_visible_value(&state, &user_id, &runtime_event);
+                        if record_session_runtime_event(&mut session, &public_runtime_event) {
+                            let _ = state.sessions.save_record_if_exists(session.clone()).await;
+                        }
                         yield Ok::<Bytes, Infallible>(sse_json(&public_runtime_event));
                         last_emit = now_epoch_seconds();
                         continue;
@@ -978,6 +1092,13 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
                 yield Ok::<Bytes, Infallible>(sse_json(&json!({"type": "approval_required", "approval": public_approval})));
                 break;
             }
+            if let Some(user_input) = info.pending_user_input.clone() {
+                let public_user_input = sanitize_user_visible_value(&state, &user_id, &user_input);
+                record_session_pending_user_input(&mut session, &public_user_input);
+                let _ = state.sessions.save_record_if_exists(session.clone()).await;
+                yield Ok::<Bytes, Infallible>(sse_json(&json!({"type": "user_input_required", "user_input": public_user_input})));
+                break;
+            }
             if TERMINAL_STATUSES.contains(&info.status.as_str()) {
                 if info.status == "completed" {
                     let output_text = read_run_output(&state, &user_id, &info).await;
@@ -1030,6 +1151,8 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
                     );
                     session.set_status(SessionStatus::Idle);
                     session.pending_permission_request = None;
+                    session.pending_question = None;
+                    session.pending_options = None;
                     let _ = state.sessions.save_record_if_exists(session.clone()).await;
                     if let Some(fallback_title) = title_fallback {
                         spawn_session_title_generation(
@@ -1054,6 +1177,9 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
                     } else {
                         SessionStatus::Failed.as_str().to_string()
                     };
+                    session.pending_permission_request = None;
+                    session.pending_question = None;
+                    session.pending_options = None;
                     let _ = state.sessions.save_record_if_exists(session.clone()).await;
                     let error_type = if info.status == "cancelled" { "cancelled" } else { "server_error" };
                     yield Ok::<Bytes, Infallible>(sse_json(&stream_error_for_user(&state, &user_id, &info.error.unwrap_or_else(|| "Codex run failed".to_string()), error_type)));
@@ -1139,6 +1265,8 @@ async fn reconcile_stale_active_session(
     }
     .to_string();
     session.pending_permission_request = None;
+    session.pending_question = None;
+    session.pending_options = None;
     clear_session_plan(session);
     let _ = state
         .sessions
@@ -1168,6 +1296,8 @@ pub(crate) async fn finalize_chat_run_for_session(
     }
     .to_string();
     session.pending_permission_request = None;
+    session.pending_question = None;
+    session.pending_options = None;
     clear_session_plan(&mut session);
     let _ = state
         .sessions
@@ -1198,6 +1328,8 @@ pub(crate) async fn recover_session_run_state(
         .await?
     else {
         session.pending_permission_request = None;
+        session.pending_question = None;
+        session.pending_options = None;
         session.set_status(SessionStatus::Failed);
         let _ = state.sessions.save_record_if_exists(session).await?;
         return Ok(());
@@ -1245,6 +1377,8 @@ async fn finalize_stale_completed_chat_run(
     record_usage(session, &usage);
     session.set_status(SessionStatus::Idle);
     session.pending_permission_request = None;
+    session.pending_question = None;
+    session.pending_options = None;
     clear_session_plan(session);
     let _ = state
         .sessions

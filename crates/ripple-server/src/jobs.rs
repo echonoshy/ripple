@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
@@ -12,9 +12,10 @@ use uuid::Uuid;
 use crate::codex::app_server::{
     AgentRunnerRequest, AgentRunnerResult, AgentRunnerStatus, CodexAppServerProvider,
 };
+use crate::codex::events::extract_usage_event;
 use crate::config::AppConfig;
 use crate::redaction::redact_text;
-use crate::storage::Storage;
+use crate::storage::{Storage, TokenUsageEventRecord};
 
 #[derive(Clone)]
 pub struct JobManager {
@@ -79,6 +80,8 @@ pub struct AgentRunInfo {
     pub error: Option<String>,
     #[serde(default)]
     pub pending_approval: Option<Value>,
+    #[serde(default)]
+    pub pending_user_input: Option<Value>,
     #[serde(default, skip_serializing)]
     pub metadata: Value,
 }
@@ -261,6 +264,8 @@ impl JobManager {
                 }
             }
             job.updated_at = now_iso();
+            let usage_snapshot = JobTokenUsageSnapshot::from_job(&job);
+            let _ = record_job_token_usage_events(&storage, usage_snapshot).await;
             let _ = save_job_record_to_storage(&storage, &job).await;
         });
 
@@ -329,11 +334,24 @@ impl JobManager {
             summary: create.summary,
             output_schema: create.output_schema,
             max_runtime_seconds: create.max_runtime_seconds.clamp(1, 86_400),
-            user_id: Some(user_id),
-            session_id,
+            user_id: Some(user_id.clone()),
+            session_id: session_id.clone(),
             metadata: metadata.clone(),
         };
         let result = self.provider.run(request, job_dir).await?;
+        let usage_snapshot = JobTokenUsageSnapshot {
+            job_id: result.job_id.clone(),
+            user_id: Some(user_id),
+            session_id,
+            task_trigger_id: metadata
+                .get("task_trigger_id")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            events_file: Some(result.events_file.clone()),
+            updated_at: now_iso(),
+            metadata: metadata.clone(),
+        };
+        let _ = record_job_token_usage_events(&self.storage, usage_snapshot).await;
         Ok(info_from_internal_result(prompt, cwd, metadata, result))
     }
 
@@ -348,6 +366,17 @@ impl JobManager {
             .await
     }
 
+    pub async fn archive_codex_thread(
+        &self,
+        user_id: String,
+        workspace_root: PathBuf,
+        thread_id: String,
+    ) -> anyhow::Result<Value> {
+        self.provider
+            .archive_thread(user_id, workspace_root, thread_id)
+            .await
+    }
+
     pub async fn list_user(&self, user_id: &str) -> anyhow::Result<Vec<AgentRunInfo>> {
         let mut merged = HashMap::<String, AgentRunInfo>::new();
         for record in self.storage.list_jobs_for_user(user_id).await? {
@@ -359,13 +388,49 @@ impl JobManager {
         for job in jobs.values() {
             let job = job.read().await;
             if job.user_id.as_deref() == Some(user_id) {
-                let info = info_from_job(&job, self.provider.pending_approval(&job.job_id).await);
+                let info = info_from_job(
+                    &job,
+                    self.provider.pending_approval(&job.job_id).await,
+                    self.provider.pending_user_input(&job.job_id).await,
+                );
                 merged.insert(info.job_id.clone(), info);
             }
         }
         let mut infos = merged.into_values().collect::<Vec<_>>();
         infos.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
         Ok(infos)
+    }
+
+    pub async fn backfill_token_usage_for_user(&self, user_id: &str) -> anyhow::Result<()> {
+        for record in self.storage.list_jobs_for_user(user_id).await? {
+            let Some(info) = info_from_record(&record) else {
+                continue;
+            };
+            if !is_terminal_run_status(&info.status) {
+                continue;
+            }
+            if let Some(snapshot) = JobTokenUsageSnapshot::from_info(user_id, &info) {
+                record_job_token_usage_events(&self.storage, snapshot).await?;
+            }
+        }
+
+        let snapshots = {
+            let jobs = self.jobs.read().await;
+            let mut snapshots = Vec::new();
+            for job in jobs.values() {
+                let job = job.read().await;
+                if job.user_id.as_deref() == Some(user_id)
+                    && is_terminal_run_status(job.status.as_str())
+                {
+                    snapshots.push(JobTokenUsageSnapshot::from_job(&job));
+                }
+            }
+            snapshots
+        };
+        for snapshot in snapshots {
+            record_job_token_usage_events(&self.storage, snapshot).await?;
+        }
+        Ok(())
     }
 
     pub async fn recover_interrupted_stored_runs(&self) -> anyhow::Result<usize> {
@@ -387,6 +452,7 @@ impl JobManager {
         Ok(Some(info_from_job(
             &job,
             self.provider.pending_approval(job_id).await,
+            self.provider.pending_user_input(job_id).await,
         )))
     }
 
@@ -402,6 +468,7 @@ impl JobManager {
                 return Ok(Some(info_from_job(
                     &job,
                     self.provider.pending_approval(job_id).await,
+                    self.provider.pending_user_input(job_id).await,
                 )));
             }
             return Ok(None);
@@ -440,6 +507,36 @@ impl JobManager {
             }
         }
         false
+    }
+
+    pub async fn pending_user_input_for_session(
+        &self,
+        user_id: &str,
+        session_id: &str,
+    ) -> anyhow::Result<Option<(String, Value)>> {
+        let candidate_job_ids = {
+            let jobs = self.jobs.read().await;
+            let mut candidate_job_ids = Vec::new();
+            for (job_id, job) in jobs.iter() {
+                let job = job.read().await;
+                if job.user_id.as_deref() == Some(user_id)
+                    && job.session_id.as_deref() == Some(session_id)
+                    && matches!(
+                        job.status,
+                        AgentRunnerStatus::Queued | AgentRunnerStatus::Running
+                    )
+                {
+                    candidate_job_ids.push(job_id.clone());
+                }
+            }
+            candidate_job_ids
+        };
+        for job_id in candidate_job_ids {
+            if let Some(pending) = self.provider.pending_user_input(&job_id).await {
+                return Ok(Some((job_id, pending)));
+            }
+        }
+        Ok(None)
     }
 
     pub async fn has_active_task_trigger_run(&self, user_id: &str, task_trigger_id: &str) -> bool {
@@ -536,6 +633,34 @@ impl JobManager {
             .await)
     }
 
+    pub async fn resolve_user_input_for_user(
+        &self,
+        job_id: &str,
+        user_id: &str,
+        request_id: &Value,
+        answers: Value,
+    ) -> anyhow::Result<bool> {
+        {
+            let jobs = self.jobs.read().await;
+            let Some(job) = jobs.get(job_id) else {
+                return Ok(false);
+            };
+            let job = job.read().await;
+            if job.user_id.as_deref() != Some(user_id)
+                || !matches!(
+                    job.status,
+                    AgentRunnerStatus::Queued | AgentRunnerStatus::Running
+                )
+            {
+                return Ok(false);
+            }
+        }
+        Ok(self
+            .provider
+            .resolve_user_input(job_id, request_id, answers)
+            .await)
+    }
+
     pub async fn cancel_for_user(
         &self,
         job_id: &str,
@@ -563,6 +688,7 @@ impl JobManager {
         Ok(Some(info_from_job(
             &job,
             self.provider.pending_approval(job_id).await,
+            self.provider.pending_user_input(job_id).await,
         )))
     }
 
@@ -666,7 +792,11 @@ impl JobManager {
     }
 }
 
-fn info_from_job(job: &ExternalAgentJob, pending_approval: Option<Value>) -> AgentRunInfo {
+fn info_from_job(
+    job: &ExternalAgentJob,
+    pending_approval: Option<Value>,
+    pending_user_input: Option<Value>,
+) -> AgentRunInfo {
     AgentRunInfo {
         job_id: job.job_id.clone(),
         provider: job.provider.clone(),
@@ -692,6 +822,7 @@ fn info_from_job(job: &ExternalAgentJob, pending_approval: Option<Value>) -> Age
         stderr_tail: redact_text(&job.stderr_tail),
         error: job.error.as_deref().map(redact_text),
         pending_approval,
+        pending_user_input,
         metadata: job.metadata.clone(),
     }
 }
@@ -725,6 +856,7 @@ fn info_from_internal_result(
         stderr_tail: redact_text(&result.stderr_tail),
         error: result.error.as_deref().map(redact_text),
         pending_approval: None,
+        pending_user_input: None,
         metadata,
     }
 }
@@ -737,6 +869,179 @@ fn merge_metadata(left: Value, right: Value) -> Value {
         }
     }
     Value::Object(base)
+}
+
+#[derive(Clone)]
+struct JobTokenUsageSnapshot {
+    job_id: String,
+    user_id: Option<String>,
+    session_id: Option<String>,
+    task_trigger_id: Option<String>,
+    events_file: Option<PathBuf>,
+    updated_at: String,
+    metadata: Value,
+}
+
+impl JobTokenUsageSnapshot {
+    fn from_job(job: &ExternalAgentJob) -> Self {
+        Self {
+            job_id: job.job_id.clone(),
+            user_id: job.user_id.clone(),
+            session_id: job.session_id.clone(),
+            task_trigger_id: job
+                .metadata
+                .get("task_trigger_id")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            events_file: job.events_file.clone(),
+            updated_at: job.updated_at.clone(),
+            metadata: job.metadata.clone(),
+        }
+    }
+
+    fn from_info(user_id: &str, info: &AgentRunInfo) -> Option<Self> {
+        Some(Self {
+            job_id: info.job_id.clone(),
+            user_id: Some(user_id.to_string()),
+            session_id: info
+                .metadata
+                .get("session_id")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            task_trigger_id: info
+                .metadata
+                .get("task_trigger_id")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            events_file: info.events_file.as_deref().map(PathBuf::from),
+            updated_at: info.updated_at.clone(),
+            metadata: info.metadata.clone(),
+        })
+    }
+}
+
+struct JobUsageUpdate {
+    key: String,
+    turn_id: Option<String>,
+    occurred_at: String,
+    usage: Value,
+    event: Value,
+}
+
+async fn record_job_token_usage_events(
+    storage: &Storage,
+    snapshot: JobTokenUsageSnapshot,
+) -> anyhow::Result<()> {
+    let Some(user_id) = snapshot.user_id.clone() else {
+        return Ok(());
+    };
+    let Some(events_file) = snapshot.events_file.as_deref() else {
+        return Ok(());
+    };
+    let updates = latest_usage_updates(events_file).await?;
+    for update in updates {
+        let input_tokens = usage_u64(&update.usage, "prompt_tokens");
+        let output_tokens = usage_u64(&update.usage, "completion_tokens");
+        let total_tokens = usage_u64(&update.usage, "total_tokens")
+            .max(input_tokens.saturating_add(output_tokens));
+        if total_tokens == 0 {
+            continue;
+        }
+        storage
+            .upsert_token_usage_event(&TokenUsageEventRecord {
+                event_id: format!("codex-job:{}:{}", snapshot.job_id, update.key),
+                user_id: user_id.clone(),
+                session_id: snapshot.session_id.clone(),
+                job_id: Some(snapshot.job_id.clone()),
+                task_trigger_id: snapshot.task_trigger_id.clone(),
+                turn_id: update.turn_id.clone(),
+                source: "codex_job".to_string(),
+                input_tokens,
+                output_tokens,
+                total_tokens,
+                cached_input_tokens: usage_u64(&update.usage, "cached_input_tokens"),
+                reasoning_output_tokens: usage_u64(&update.usage, "reasoning_output_tokens"),
+                model_context_window: update
+                    .usage
+                    .get("model_context_window")
+                    .and_then(Value::as_u64),
+                occurred_at: update.occurred_at,
+                record_json: json!({
+                    "usage": update.usage,
+                    "event": update.event,
+                    "job": {
+                        "job_id": snapshot.job_id.clone(),
+                        "session_id": snapshot.session_id.clone(),
+                        "task_trigger_id": snapshot.task_trigger_id.clone(),
+                        "updated_at": snapshot.updated_at.clone(),
+                        "metadata": snapshot.metadata.clone()
+                    }
+                }),
+            })
+            .await?;
+    }
+    Ok(())
+}
+
+async fn latest_usage_updates(events_file: &Path) -> anyhow::Result<Vec<JobUsageUpdate>> {
+    let contents = match tokio::fs::read_to_string(events_file).await {
+        Ok(contents) => contents,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(err) => return Err(err.into()),
+    };
+    let mut latest = BTreeMap::<String, JobUsageUpdate>::new();
+    for line in contents
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
+        let Ok(event) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
+        let Some(update) = usage_update_from_event(event) else {
+            continue;
+        };
+        latest.insert(update.key.clone(), update);
+    }
+    Ok(latest.into_values().collect())
+}
+
+fn usage_update_from_event(event: Value) -> Option<JobUsageUpdate> {
+    let usage = extract_usage_event(&event)?;
+    let message = event.pointer("/data/message")?;
+    let turn_id = message
+        .pointer("/params/turnId")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let sequence = event
+        .get("sequence")
+        .and_then(Value::as_u64)
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+    let key = turn_id
+        .as_deref()
+        .map(|turn_id| format!("turn:{turn_id}"))
+        .unwrap_or_else(|| format!("event:{sequence}"));
+    let occurred_at = event
+        .get("created_at")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .unwrap_or_else(now_iso);
+    Some(JobUsageUpdate {
+        key,
+        turn_id,
+        occurred_at,
+        usage,
+        event,
+    })
+}
+
+fn usage_u64(value: &Value, key: &str) -> u64 {
+    value.get(key).and_then(Value::as_u64).unwrap_or(0)
+}
+
+fn is_terminal_run_status(status: &str) -> bool {
+    matches!(status, "completed" | "failed" | "cancelled")
 }
 
 async fn save_job_record_to_storage(
@@ -824,6 +1129,7 @@ impl StoredJobRecord {
             stderr_tail: redact_text(&Self::str(record, "stderr_tail")),
             error: record.get("error").and_then(Value::as_str).map(redact_text),
             pending_approval: None,
+            pending_user_input: None,
             metadata: record.clone(),
         })
     }

@@ -51,4 +51,14 @@ function testFullscreenPdfPreviewBoundsPageScaleByViewportHeight() {
 
 testFullscreenPdfPreviewBoundsPageScaleByViewportHeight();
 
+function testFullscreenPdfPreviewUsesActualFrameWidth() {
+  assert.match(source, /const frameRef = useRef<HTMLDivElement \| null>\(null\)/);
+  assert.match(source, /frameRef\.current\?\.getBoundingClientRect\(\)\.width/);
+  assert.match(source, /resizeObserver\.observe\(frameNode\)/);
+  assert.match(source, /fullscreen\s*\?\s*"mx-auto flex w-full justify-center"/);
+  assert.doesNotMatch(source, /fullscreen \? "mx-auto flex w-full max-w-5xl/);
+}
+
+testFullscreenPdfPreviewUsesActualFrameWidth();
+
 console.log("pdf preview tests passed");

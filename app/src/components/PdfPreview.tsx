@@ -20,8 +20,6 @@ interface PdfPageProps {
   fullscreen?: boolean;
 }
 
-const PAGE_HORIZONTAL_PADDING_PX = 24;
-const FULLSCREEN_PAGE_HORIZONTAL_PADDING_PX = 48;
 const FULLSCREEN_PAGE_VERTICAL_CHROME_PX = 40;
 type PdfJsModule = typeof import("pdfjs-dist/legacy/build/pdf.mjs");
 let pdfJsModulePromise: Promise<PdfJsModule> | null = null;
@@ -47,6 +45,7 @@ function readablePdfError(error: unknown): string {
 function PdfPage({ pdfDocument, pageNumber, filename, fullscreen = false }: PdfPageProps) {
   const { t } = useI18n();
   const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const frameRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [isNearViewport, setIsNearViewport] = useState(false);
   const [availableWidth, setAvailableWidth] = useState(0);
@@ -57,15 +56,14 @@ function PdfPage({ pdfDocument, pageNumber, filename, fullscreen = false }: PdfP
   useEffect(() => {
     const node = wrapperRef.current;
     if (!node) return;
+    const frameNode = frameRef.current;
 
     const updateSize = () => {
-      const measuredWidth = node.getBoundingClientRect().width;
-      const horizontalPadding = fullscreen
-        ? FULLSCREEN_PAGE_HORIZONTAL_PADDING_PX
-        : PAGE_HORIZONTAL_PADDING_PX;
+      const measuredWidth =
+        frameRef.current?.getBoundingClientRect().width ?? node.getBoundingClientRect().width;
       const viewportNode = node.parentElement?.parentElement;
       const measuredHeight = viewportNode?.getBoundingClientRect().height || 0;
-      setAvailableWidth(Math.max(0, measuredWidth - horizontalPadding));
+      setAvailableWidth(Math.max(0, measuredWidth));
       setAvailableHeight(
         fullscreen ? Math.max(0, measuredHeight - FULLSCREEN_PAGE_VERTICAL_CHROME_PX) : 0
       );
@@ -80,6 +78,9 @@ function PdfPage({ pdfDocument, pageNumber, filename, fullscreen = false }: PdfP
 
     const resizeObserver = new ResizeObserver(updateSize);
     resizeObserver.observe(node);
+    if (frameNode) {
+      resizeObserver.observe(frameNode);
+    }
     if (node.parentElement?.parentElement) {
       resizeObserver.observe(node.parentElement.parentElement);
     }
@@ -168,7 +169,14 @@ function PdfPage({ pdfDocument, pageNumber, filename, fullscreen = false }: PdfP
       data-ripple-pdf-page={pageNumber}
       className={fullscreen ? "w-full px-3 py-4 sm:px-6" : "w-full px-3 py-3 sm:px-4"}
     >
-      <div className="mx-auto flex w-full max-w-5xl justify-center">
+      <div
+        ref={frameRef}
+        className={
+          fullscreen
+            ? "mx-auto flex w-full justify-center"
+            : "mx-auto flex w-full max-w-5xl justify-center"
+        }
+      >
         <div
           className="relative max-w-full overflow-hidden rounded-md border border-[#DEE0E3] bg-white shadow-[0_12px_30px_rgba(31,35,41,0.08)]"
           style={pageHeight ? { minHeight: Math.ceil(pageHeight) } : undefined}

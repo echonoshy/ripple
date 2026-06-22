@@ -379,6 +379,7 @@ fn complete_pending_response(
     id: &RequestId,
     pending_approvals: &mut HashMap<String, (String, String, String, String)>,
     pending_dynamic_tools: &mut HashMap<String, (String, String, String, String)>,
+    pending_user_inputs: &mut HashMap<String, (String, String, String, String)>,
 ) {
     let Some(key) = id.as_string_key() else {
         return;
@@ -386,6 +387,8 @@ fn complete_pending_response(
     if let Some((thread_id, turn_id, item_id, text)) = pending_approvals.remove(key) {
         complete_turn(&thread_id, &turn_id, &item_id, &text);
     } else if let Some((thread_id, turn_id, item_id, text)) = pending_dynamic_tools.remove(key) {
+        complete_turn(&thread_id, &turn_id, &item_id, &text);
+    } else if let Some((thread_id, turn_id, item_id, text)) = pending_user_inputs.remove(key) {
         complete_turn(&thread_id, &turn_id, &item_id, &text);
     }
 }
@@ -521,6 +524,7 @@ fn main() {
     let mut thread_has_task_tool: HashMap<String, bool> = HashMap::new();
     let mut pending_approvals: HashMap<String, (String, String, String, String)> = HashMap::new();
     let mut pending_dynamic_tools: HashMap<String, (String, String, String, String)> = HashMap::new();
+    let mut pending_user_inputs: HashMap<String, (String, String, String, String)> = HashMap::new();
 
     for line_result in stdin.lock().lines() {
         let Ok(line) = line_result else {
@@ -529,7 +533,12 @@ fn main() {
         let request_id = extract_id(&line);
         if is_response(&line) {
             if let Some(id) = request_id.as_ref() {
-                complete_pending_response(id, &mut pending_approvals, &mut pending_dynamic_tools);
+                complete_pending_response(
+                    id,
+                    &mut pending_approvals,
+                    &mut pending_dynamic_tools,
+                    &mut pending_user_inputs,
+                );
             }
             continue;
         }
@@ -540,6 +549,36 @@ fn main() {
                 send(format!("{{\"id\":{},\"result\":{{}}}}", id.raw_json()));
             }
             (_, Some("initialized")) => {}
+            (Some(id), Some("model/list")) => {
+                send(format!(
+                    "{{\"id\":{},\"result\":{{\"data\":[{{\"id\":\"codex-test\",\"model\":\"codex-test\",\"displayName\":\"Codex Test Runtime\",\"description\":\"Fake runtime model for Ripple smoke tests\",\"hidden\":false,\"supportedReasoningEfforts\":[{{\"reasoningEffort\":\"medium\",\"description\":\"Balanced\"}}],\"defaultReasoningEffort\":\"medium\",\"inputModalities\":[\"text\"],\"supportsPersonality\":false,\"additionalSpeedTiers\":[],\"serviceTiers\":[],\"defaultServiceTier\":null,\"isDefault\":true,\"upgrade\":null,\"upgradeInfo\":null,\"availabilityNux\":null}}],\"nextCursor\":null}}}}",
+                    id.raw_json()
+                ));
+            }
+            (Some(id), Some("modelProvider/capabilities/read")) => {
+                send(format!(
+                    "{{\"id\":{},\"result\":{{\"namespaceTools\":true,\"imageGeneration\":true,\"webSearch\":true}}}}",
+                    id.raw_json()
+                ));
+            }
+            (Some(id), Some("account/rateLimits/read")) => {
+                send(format!(
+                    "{{\"id\":{},\"result\":{{\"rateLimits\":{{\"primary\":{{\"usedPercent\":12}}}},\"rateLimitsByLimitId\":null,\"rateLimitResetCredits\":null}}}}",
+                    id.raw_json()
+                ));
+            }
+            (Some(id), Some("account/usage/read")) => {
+                send(format!(
+                    "{{\"id\":{},\"result\":{{\"usage\":{{\"totalTokens\":1234,\"inputTokens\":900,\"outputTokens\":334}}}}}}",
+                    id.raw_json()
+                ));
+            }
+            (Some(id), Some("configRequirements/read")) => {
+                send(format!(
+                    "{{\"id\":{},\"result\":{{\"status\":\"ok\",\"requirements\":[]}}}}",
+                    id.raw_json()
+                ));
+            }
             (Some(id), Some("thread/start")) => {
                 thread_counter += 1;
                 let thread_id = format!("thread-{thread_counter}");
@@ -587,6 +626,9 @@ fn main() {
                 let thread_json = json_string(&thread_id);
                 send(format!("{{\"method\":\"item/started\",\"params\":{{\"threadId\":{thread_json},\"turnId\":\"compact-turn\",\"item\":{{\"id\":\"compact-1\",\"type\":\"contextCompaction\"}}}}}}"));
                 send(format!("{{\"method\":\"item/completed\",\"params\":{{\"threadId\":{thread_json},\"turnId\":\"compact-turn\",\"item\":{{\"id\":\"compact-1\",\"type\":\"contextCompaction\"}}}}}}"));
+            }
+            (Some(id), Some("thread/archive")) => {
+                send(format!("{{\"id\":{},\"result\":{{}}}}", id.raw_json()));
             }
             (Some(id), Some("turn/start")) => {
                 turn_counter += 1;
@@ -662,6 +704,30 @@ fn main() {
 
                 if line.contains("[fail]") {
                     fail_turn(&thread_id, &turn_id, &item_id, "fake codex failed");
+                    continue;
+                }
+
+                if line.contains("[request-user-input]") {
+                    let user_input_request_id = format!("user-input-{turn_counter}");
+                    pending_user_inputs.insert(
+                        user_input_request_id.clone(),
+                        (
+                            thread_id.clone(),
+                            turn_id.clone(),
+                            item_id.clone(),
+                            "user input skipped".to_string(),
+                        ),
+                    );
+                    send(format!(
+                        "{{\"method\":\"thread/status/changed\",\"params\":{{\"threadId\":{},\"status\":\"waitingOnUserInput\",\"runtime\":{{\"pendingUserInputRequests\":1}}}}}}",
+                        json_string(&thread_id)
+                    ));
+                    send(format!(
+                        "{{\"id\":{},\"method\":\"item/tool/requestUserInput\",\"params\":{{\"threadId\":{},\"turnId\":{},\"itemId\":\"input-item\",\"questions\":[{{\"id\":\"budget\",\"header\":\"预算\",\"question\":\"客户预算是多少？\",\"options\":[{{\"label\":\"10 万以内\",\"description\":\"按低预算方案继续\"}}]}}],\"autoResolutionMs\":null}}}}",
+                        json_string(&user_input_request_id),
+                        json_string(&thread_id),
+                        json_string(&turn_id)
+                    ));
                     continue;
                 }
 
@@ -862,7 +928,12 @@ fn main() {
                 complete_turn(&thread_id, &turn_id, &item_id, &text);
             }
             (Some(id), None) => {
-                complete_pending_response(id, &mut pending_approvals, &mut pending_dynamic_tools);
+                complete_pending_response(
+                    id,
+                    &mut pending_approvals,
+                    &mut pending_dynamic_tools,
+                    &mut pending_user_inputs,
+                );
             }
             (Some(id), Some("turn/interrupt" | "turn/steer")) => {
                 send(format!("{{\"id\":{},\"result\":{{}}}}", id.raw_json()));
@@ -4818,6 +4889,12 @@ async fn maturity_contract_routes_report_limits_security_and_diagnostics() {
         .is_some_and(|checks| checks.iter().any(|check| {
             check.get("name").and_then(Value::as_str) == Some("config.security")
         })));
+    assert!(doctor
+        .get("checks")
+        .and_then(Value::as_array)
+        .is_some_and(|checks| checks.iter().any(|check| {
+            check.get("name").and_then(Value::as_str) == Some("codex_app_server_runtime")
+        })));
 
     let _ = std::fs::remove_dir_all(root);
 }
@@ -5763,6 +5840,164 @@ async fn runs_route_completes_with_fake_codex_app_server() {
     assert!(events.contains("\"type\":\"codex.notification\""));
     assert!(events.contains("\"type\":\"runner.completed\""));
     assert!(events.contains("data: [DONE]"));
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn codex_runtime_route_reads_catalog_capabilities_and_limits() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (_state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+
+    let (status, runtime) = call(app, Method::GET, "/v1/runtime/codex", Value::Null).await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        runtime.get("available").and_then(Value::as_bool),
+        Some(true)
+    );
+    assert_eq!(
+        runtime.pointer("/models/data/0/id").and_then(Value::as_str),
+        Some("codex-test")
+    );
+    assert_eq!(
+        runtime
+            .pointer("/model_provider_capabilities/webSearch")
+            .and_then(Value::as_bool),
+        Some(true)
+    );
+    assert_eq!(
+        runtime
+            .pointer("/rate_limits/rateLimits/primary/usedPercent")
+            .and_then(Value::as_u64),
+        Some(12)
+    );
+    assert_eq!(
+        runtime
+            .pointer("/usage/usage/totalTokens")
+            .and_then(Value::as_u64),
+        Some(1234)
+    );
+    assert_eq!(
+        runtime
+            .pointer("/config_requirements/status")
+            .and_then(Value::as_str),
+        Some("ok")
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn runs_route_surfaces_codex_user_input_requests() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (_state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+
+    let job_id = start_fake_ids_run(app.clone(), "[request-user-input] collect budget").await;
+    let final_run = wait_for_completed_run(app.clone(), &job_id).await;
+    assert_eq!(
+        final_run.get("stdout_tail").and_then(Value::as_str),
+        Some("user input skipped")
+    );
+
+    let response = app
+        .oneshot(request(
+            Method::GET,
+            &format!("/v1/runs/{job_id}/events?from_start=true&follow=false"),
+            Value::Null,
+            true,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let events = response_text(response).await;
+    assert!(events.contains("\"type\":\"user_input_requested\""));
+    assert!(events.contains("客户预算是多少？"));
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn chat_user_input_request_waits_and_resolves_session() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+    let user_id = "smoke-user";
+
+    let (status, pending) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/chat/completions",
+        json!({
+            "model": "codex-test",
+            "messages": [{"role": "user", "content": "[request-user-input] 整理报价"}],
+            "stream": false
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{pending}");
+    assert_eq!(
+        pending.pointer("/detail/message").and_then(Value::as_str),
+        Some("Codex user input required")
+    );
+    let session_id = pending
+        .pointer("/detail/user_input/session_id")
+        .and_then(Value::as_str)
+        .expect("session id")
+        .to_string();
+    assert_eq!(
+        pending
+            .pointer("/detail/user_input/questions/0/question")
+            .and_then(Value::as_str),
+        Some("客户预算是多少？")
+    );
+
+    let waiting = state
+        .sessions
+        .load(user_id, &session_id)
+        .await
+        .unwrap()
+        .expect("session");
+    assert_eq!(waiting.status, "awaiting_user_input");
+    assert_eq!(
+        waiting.pending_question.as_deref(),
+        Some("客户预算是多少？")
+    );
+
+    let (status, resolved) = call(
+        app.clone(),
+        Method::POST,
+        &format!("/v1/sessions/{session_id}/user-input/resolve"),
+        json!({"answers": {"budget": ["10 万以内"]}}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{resolved}");
+    assert_eq!(resolved.get("ok").and_then(Value::as_bool), Some(true));
+
+    let mut idle = None;
+    for _ in 0..80 {
+        let session = state
+            .sessions
+            .load(user_id, &session_id)
+            .await
+            .unwrap()
+            .expect("session");
+        if session.status == "idle" && session.pending_question.is_none() {
+            idle = Some(session);
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    let idle = idle.expect("session should be finalized after user input answer");
+    assert!(idle
+        .messages
+        .iter()
+        .any(|message| format!("{message}").contains("user input skipped")));
 
     let _ = std::fs::remove_dir_all(root);
 }

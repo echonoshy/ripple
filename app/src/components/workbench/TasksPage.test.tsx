@@ -223,6 +223,35 @@ function testTasksPageShowsPendingConfirmationTriggers() {
   assert.doesNotMatch(html, />Paused</);
 }
 
+function testTasksPageShowsPendingConfirmationTaskStatus() {
+  const pendingTask: TaskInfo = {
+    ...task,
+    status: "needs_confirmation",
+    requiresConfirmation: true,
+  };
+  const html = renderTasksPage("en-US", {
+    tasks: [pendingTask],
+  });
+
+  assert.match(html, />Needs confirmation</);
+  assert.doesNotMatch(html, /needs_confirmation/);
+}
+
+function testTasksPageStacksMobileSummaryActionsBelowTitle() {
+  const source = readFileSync(new URL("./TasksPage.tsx", import.meta.url), "utf8");
+  const summaryStart = source.indexOf('data-ripple-task-summary="true"');
+  const progressStart = source.indexOf('{t("tasks.progress")}', summaryStart);
+  assert.notEqual(summaryStart, -1);
+  assert.notEqual(progressStart, -1);
+  const summaryHeaderSource = source.slice(summaryStart, progressStart);
+
+  assert.match(summaryHeaderSource, /flex-col/);
+  assert.match(summaryHeaderSource, /sm:flex-row/);
+  assert.match(summaryHeaderSource, /sm:justify-between/);
+  assert.match(summaryHeaderSource, /w-full/);
+  assert.match(summaryHeaderSource, /sm:w-auto/);
+}
+
 function testTasksPageShowsFailedTriggersAsErrors() {
   const failedTrigger: TaskTriggerInfo = {
     ...triggers[0],
@@ -410,6 +439,8 @@ testPrimaryNavigationNoLongerIncludesAutos();
 testTasksPageKeepsAutomationOutOfPrimaryNavigation();
 testTasksPageUsesFocusSplitLayout();
 testTasksPageShowsPendingConfirmationTriggers();
+testTasksPageShowsPendingConfirmationTaskStatus();
+testTasksPageStacksMobileSummaryActionsBelowTitle();
 testTasksPageShowsFailedTriggersAsErrors();
 testTasksPageShowsCompletedTriggersAsCompleted();
 testTasksPageExposesTriggerEditingControls();

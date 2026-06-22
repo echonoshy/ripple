@@ -761,6 +761,9 @@ impl CodexAppServerProvider {
                 {
                     continue;
                 }
+                if self.handle_user_input_request(session, &message).await? {
+                    continue;
+                }
                 if is_unsupported_server_request(&message) {
                     let request_id = message.get("id").cloned().unwrap_or(Value::Null);
                     let method = message.get("method").and_then(Value::as_str).unwrap_or("");
@@ -860,6 +863,26 @@ impl CodexAppServerProvider {
                         }
                     ],
                     "success": success
+                }),
+            )
+            .await?;
+        Ok(true)
+    }
+
+    async fn handle_user_input_request(
+        &self,
+        session: &Arc<CodexAppServerSession>,
+        message: &Value,
+    ) -> anyhow::Result<bool> {
+        if message.get("method").and_then(Value::as_str) != Some("item/tool/requestUserInput") {
+            return Ok(false);
+        }
+        let request_id = message.get("id").cloned().unwrap_or(Value::Null);
+        session
+            .respond(
+                request_id,
+                json!({
+                    "answers": {}
                 }),
             )
             .await?;
@@ -1206,6 +1229,44 @@ impl CodexAppServerProvider {
                     }),
                 )
                 .await
+        }
+        .await;
+        session.shutdown().await;
+        result
+    }
+
+    pub async fn runtime_info(
+        &self,
+        user_id: String,
+        workspace_root: PathBuf,
+    ) -> anyhow::Result<Value> {
+        let session = CodexAppServerSession::new(user_id, self.config.clone(), workspace_root);
+        let result = async {
+            session.ensure_started().await?;
+            session.ensure_initialized().await?;
+            let models = session
+                .request(
+                    "model/list",
+                    json!({
+                        "limit": 100,
+                        "includeHidden": true
+                    }),
+                )
+                .await?;
+            let model_provider_capabilities = session
+                .request("modelProvider/capabilities/read", json!({}))
+                .await
+                .ok();
+            let rate_limits = session
+                .request("account/rateLimits/read", json!({}))
+                .await
+                .ok();
+            Ok(json!({
+                "available": true,
+                "models": models,
+                "model_provider_capabilities": model_provider_capabilities,
+                "rate_limits": rate_limits
+            }))
         }
         .await;
         session.shutdown().await;

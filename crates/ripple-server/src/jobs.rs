@@ -117,6 +117,14 @@ impl JobManager {
         }
     }
 
+    pub async fn codex_runtime_info(
+        &self,
+        user_id: String,
+        workspace_root: PathBuf,
+    ) -> anyhow::Result<Value> {
+        self.provider.runtime_info(user_id, workspace_root).await
+    }
+
     pub async fn start(
         &self,
         create: AgentRunCreateRequest,

@@ -94,6 +94,44 @@ pub fn extract_codex_runtime_event(event: &Value) -> Option<Value> {
             }
             Some(payload)
         }
+        "model/rerouted" => {
+            let mut payload = base_runtime_event("model_rerouted", method, &params);
+            if let Some(object) = payload.as_object_mut() {
+                copy_param_as(object, &params, "fromModel", "from_model");
+                copy_param_as(object, &params, "toModel", "to_model");
+                copy_param_as(object, &params, "reason", "reason");
+            }
+            Some(payload)
+        }
+        "model/verification" => {
+            let mut payload = base_runtime_event("model_verification", method, &params);
+            if let Some(object) = payload.as_object_mut() {
+                object.insert(
+                    "verifications".to_string(),
+                    params
+                        .get("verifications")
+                        .cloned()
+                        .unwrap_or_else(|| json!([])),
+                );
+            }
+            Some(payload)
+        }
+        "thread/status/changed" => {
+            let mut payload = base_runtime_event("thread_status_changed", method, &params);
+            if let Some(object) = payload.as_object_mut() {
+                for key in ["status", "runtime"] {
+                    if let Some(value) = params.get(key) {
+                        object.insert(key.to_string(), value.clone());
+                    }
+                }
+            }
+            Some(payload)
+        }
+        "item/tool/requestUserInput" => Some(user_input_requested_event(
+            method,
+            &params,
+            message.get("id").cloned(),
+        )),
         "warning" | "configWarning" | "deprecationNotice" | "guardianWarning" | "turn/warning" => {
             let mut payload = base_runtime_event("codex_warning", method, &params);
             if let Some(object) = payload.as_object_mut() {
@@ -226,6 +264,41 @@ fn tool_delta_event(method: &str, params: &Value, kind: &str) -> Value {
         }
     }
     payload
+}
+
+fn user_input_requested_event(method: &str, params: &Value, request_id: Option<Value>) -> Value {
+    let mut payload = base_runtime_event("user_input_requested", method, params);
+    if let Some(object) = payload.as_object_mut() {
+        if let Some(request_id) = request_id {
+            object.insert("request_id".to_string(), request_id);
+        }
+        object.insert(
+            "questions".to_string(),
+            params
+                .get("questions")
+                .cloned()
+                .unwrap_or_else(|| json!([])),
+        );
+        object.insert(
+            "auto_resolution_ms".to_string(),
+            params
+                .get("autoResolutionMs")
+                .cloned()
+                .unwrap_or(Value::Null),
+        );
+    }
+    payload
+}
+
+fn copy_param_as(
+    object: &mut serde_json::Map<String, Value>,
+    params: &Value,
+    source: &str,
+    target: &str,
+) {
+    if let Some(value) = params.get(source) {
+        object.insert(target.to_string(), value.clone());
+    }
 }
 
 fn context_compaction_event(method: &str, params: &Value) -> Value {
@@ -518,6 +591,97 @@ mod tests {
         assert_eq!(
             runtime_event.get("message").and_then(Value::as_str),
             Some("Reconnecting... 2/5")
+        );
+    }
+
+    #[test]
+    fn extracts_model_status_and_user_input_runtime_events() {
+        let model = json!({
+            "type": "codex.notification",
+            "data": {
+                "message": {
+                    "method": "model/rerouted",
+                    "params": {
+                        "threadId": "thread-1",
+                        "turnId": "turn-1",
+                        "fromModel": "gpt-5-mini",
+                        "toModel": "gpt-5",
+                        "reason": "highRiskCyberActivity"
+                    }
+                }
+            }
+        });
+        let status = json!({
+            "type": "codex.notification",
+            "data": {
+                "message": {
+                    "method": "thread/status/changed",
+                    "params": {
+                        "threadId": "thread-1",
+                        "status": "waitingOnUserInput",
+                        "runtime": {
+                            "pendingUserInputRequests": 1
+                        }
+                    }
+                }
+            }
+        });
+        let user_input = json!({
+            "type": "codex.notification",
+            "data": {
+                "message": {
+                    "id": "input-1",
+                    "method": "item/tool/requestUserInput",
+                    "params": {
+                        "threadId": "thread-1",
+                        "turnId": "turn-1",
+                        "itemId": "item-1",
+                        "questions": [{
+                            "id": "budget",
+                            "header": "预算",
+                            "question": "客户预算是多少？",
+                            "options": [{
+                                "label": "10 万以内",
+                                "description": "按低预算方案继续"
+                            }]
+                        }],
+                        "autoResolutionMs": null
+                    }
+                }
+            }
+        });
+
+        let model_event = extract_codex_runtime_event(&model).expect("model reroute event");
+        let status_event = extract_codex_runtime_event(&status).expect("thread status event");
+        let input_event = extract_codex_runtime_event(&user_input).expect("user input event");
+
+        assert_eq!(
+            model_event.get("type").and_then(Value::as_str),
+            Some("model_rerouted")
+        );
+        assert_eq!(
+            model_event.get("from_model").and_then(Value::as_str),
+            Some("gpt-5-mini")
+        );
+        assert_eq!(
+            status_event.get("type").and_then(Value::as_str),
+            Some("thread_status_changed")
+        );
+        assert_eq!(
+            status_event
+                .pointer("/runtime/pendingUserInputRequests")
+                .and_then(Value::as_u64),
+            Some(1)
+        );
+        assert_eq!(
+            input_event.get("type").and_then(Value::as_str),
+            Some("user_input_requested")
+        );
+        assert_eq!(
+            input_event
+                .pointer("/questions/0/question")
+                .and_then(Value::as_str),
+            Some("客户预算是多少？")
         );
     }
 

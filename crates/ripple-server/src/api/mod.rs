@@ -164,6 +164,7 @@ pub fn router(state: AppState) -> Router {
 
     let protected_v1: OpenApiRouter<AppState> = OpenApiRouter::new()
         .routes(utoipa_axum::routes!(models::list_models))
+        .routes(utoipa_axum::routes!(models::codex_runtime_info))
         .routes(utoipa_axum::routes!(models::system_info))
         .route("/tasks", get(tasks::list_tasks).post(tasks::create_task))
         .route(

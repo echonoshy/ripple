@@ -64,15 +64,22 @@ crates/
     src/sandbox.rs     # user sandbox 路径与运行时目录
     src/sessions.rs    # session store
     src/jobs.rs        # run/job store
-src/
-  interfaces/
-    app/               # Vite + React 主 App 客户端，含 Tauri desktop/iOS/Android shell
-  skills/              # 共享 skills，部分 skill 可带 Python helper
+  bilibili-cli/        # repo-local Bilibili connector CLI
+  podcast-cli/         # repo-local podcast helper CLI
+app/                   # Vite + React 主 App 客户端
+  src/                 # Web / Tauri 共享前端代码
+  src-tauri/           # Tauri desktop / iOS / Android shell
+  src-tauri/gen/       # Tauri 生成的原生工程骨架；build/cache 产物仍应忽略
+skills/                # 共享 skills，部分 skill 可带 Python helper
+assets/                # App / 站点共用视觉资源和截图
 docs/                  # 开发文档
 sites/                 # 面向展示/产品说明的站点内容
 config/                # YAML 配置
 scripts/               # CLI 安装和维护脚本
+vendor/                # repo-local connector CLI 安装位置，通过脚本维护
 ```
+
+本地运行和构建会生成若干不属于源码主结构的目录，例如 `.ripple/`、`target/`、`app/node_modules/`、`app/dist/`、`app/src-tauri/target/`、`app/src-tauri/gen/**/build/`、`.android-sdk/`、`.gradle/`、`.codex/`、`.agents/`、`.superpowers/`。这些目录应保持 ignored，不要提交。
 
 ## 常用命令
 

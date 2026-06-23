@@ -9333,6 +9333,7 @@ async fn chat_stream_converts_model_connector_auth_request_to_event_without_leak
     assert!(body.contains("\"ripple_event_type\":\"connector_auth_required\""));
     assert!(body.contains("\"connector\":\"google_workspace\""));
     assert!(!body.contains("<ripple_connector_auth_request>"));
+    assert_eq!(body.matches("data: [DONE]").count(), 1);
     assert!(body.contains("data: [DONE]"));
 
     let reloaded = state
@@ -9343,6 +9344,62 @@ async fn chat_stream_converts_model_connector_auth_request_to_event_without_leak
         .expect("session");
     assert_eq!(reloaded.status, "awaiting_user_input");
     assert!(reloaded.pending_connector_auth.is_some());
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn chat_stream_approval_waiting_state_emits_response_completed() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (_state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+
+    let response = app
+        .oneshot(response_request(
+            json!({
+                "model": "codex-test",
+                "messages": [{"role": "user", "content": "[approval] run a fake command"}],
+                "stream": true
+            }),
+            true,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response_text(response).await;
+
+    assert!(body.contains("\"ripple_event_type\":\"approval_required\""));
+    assert!(body.contains("\"type\":\"response.completed\""));
+    assert_eq!(body.matches("data: [DONE]").count(), 1);
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn chat_stream_user_input_waiting_state_emits_response_completed() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (_state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+
+    let response = app
+        .oneshot(response_request(
+            json!({
+                "model": "codex-test",
+                "messages": [{"role": "user", "content": "[request-user-input] collect budget"}],
+                "stream": true
+            }),
+            true,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response_text(response).await;
+
+    assert!(body.contains("\"ripple_event_type\":\"user_input_required\""));
+    assert!(body.contains("\"type\":\"response.completed\""));
+    assert_eq!(body.matches("data: [DONE]").count(), 1);
 
     let _ = std::fs::remove_dir_all(root);
 }

@@ -1253,6 +1253,7 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
                 session.pending_permission_request = Some(public_approval.clone());
                 let _ = state.sessions.save_record_if_exists(session.clone()).await;
                 yield Ok::<Bytes, Infallible>(sse_for_event(&json!({"type": "approval_required", "approval": public_approval})));
+                yield Ok::<Bytes, Infallible>(assistant_done_sse(&model, &response_id, &session_id, emitted.clone(), latest_usage.clone()));
                 break;
             }
             if let Some(user_input) = info.pending_user_input.clone() {
@@ -1260,6 +1261,7 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
                 record_session_pending_user_input(&mut session, &public_user_input);
                 let _ = state.sessions.save_record_if_exists(session.clone()).await;
                 yield Ok::<Bytes, Infallible>(sse_for_event(&json!({"type": "user_input_required", "user_input": public_user_input})));
+                yield Ok::<Bytes, Infallible>(assistant_done_sse(&model, &response_id, &session_id, emitted.clone(), latest_usage.clone()));
                 break;
             }
             if TERMINAL_STATUSES.contains(&info.status.as_str()) {
@@ -1292,7 +1294,6 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
                                 yield Ok::<Bytes, Infallible>(assistant_delta_sse(&response_id, &response_item_id, &message));
                             }
                             yield Ok::<Bytes, Infallible>(assistant_done_sse(&model, &response_id, &session_id, message, latest_usage.clone()));
-                            yield Ok::<Bytes, Infallible>(Bytes::from_static(b"data: [DONE]\n\n"));
                             break;
                         }
                         Ok(None) => {}

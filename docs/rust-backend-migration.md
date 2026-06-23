@@ -27,7 +27,7 @@ crates/ripple-server/
 - user sandbox、workspace root 分离配置、session metadata/messages、workspace 文件 API、documents、user profile/quota。
 - Notion、Google Workspace、Feishu/Lark、Bilibili connector 授权、状态、账号列表和断开。
 - Codex app-server JSON-RPC provider、worker pool、session 级 chat/compaction 互斥、`/v1/runs`、`/v1/responses`。
-- Responses-compatible `/v1/responses` 非流式和 SSE 响应、Codex event 映射、token usage 持久化、workspace attachment 和 image 事件导入；chat image input 只接受 workspace/local/inline data image，远程 HTTP(S) image URL 会在进入 Codex app-server 前拒绝。
+- Responses-style subset `/v1/responses` 非流式和 SSE 响应、Codex event 映射、token usage 持久化、workspace attachment 和 image 事件导入；chat image input 只接受 workspace/local/inline data image，远程 HTTP(S) image URL 会在进入 Codex app-server 前拒绝。
 - 模型厂商兼容不在 Ripple 内实现 OpenAI-compatible proxy 或厂商 adapter；该边界由 Codex app-server 的 `model_provider` / Responses API 支持负责。Ripple 的 `/v1/responses` 只是外部客户端协议 façade。
 - Codex approval bridge、session stop/delete/context clear/suspend/resume、sandbox teardown cancellation。
 - Tasks / TaskActions CRUD、session task listing、task event/progress、run-now、Task Trigger API、due time trigger loop，以及 chat-side `codex_app.task_update` 动态工具。`wait_user` 会持久化澄清问题和缺失字段；`complete_task` 会写入结果摘要和完成时间。time trigger 是 Task Trigger 的一种触发器 driver，到期后走 TaskAction 执行链路并回写原 session。

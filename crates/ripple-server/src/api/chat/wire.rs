@@ -210,11 +210,7 @@ pub(crate) fn sse_for_event(value: &Value) -> Bytes {
     )
 }
 
-pub(crate) fn assistant_delta_sse(
-    response_id: &str,
-    item_id: &str,
-    delta: &str,
-) -> Bytes {
+pub(crate) fn assistant_delta_sse(response_id: &str, item_id: &str, delta: &str) -> Bytes {
     response_output_text_delta_sse(response_id, item_id, delta)
 }
 

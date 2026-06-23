@@ -2006,10 +2006,7 @@ async fn chat_dynamic_task_tool_updates_task_progress() {
     .await;
     assert_eq!(status, StatusCode::OK, "{chat}");
     assert!(
-        chat.pointer("/choices/0/message/content")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .contains("task action completed"),
+        response_output_text(&chat).contains("task action completed"),
         "{chat}"
     );
 
@@ -3334,8 +3331,8 @@ async fn task_run_now_rejects_when_source_session_is_running() {
     let chat_session_id = session_id.clone();
     let chat_handle = tokio::spawn(async move {
         call_response(
-        chat_app,
-        json!({
+            chat_app,
+            json!({
                 "model": "codex-test",
                 "session_id": chat_session_id,
                 "messages": [{"role": "user", "content": "[slow] keep this session busy"}]
@@ -4103,18 +4100,12 @@ async fn chat_dynamic_task_tool_creates_task_and_action() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{chat}");
-    let content = chat
-        .pointer("/choices/0/message/content")
-        .and_then(Value::as_str)
-        .unwrap_or("");
+    let content = response_output_text(&chat);
     assert!(
         content.contains("task tool saved"),
         "assistant should continue after task_update: {chat}"
     );
-    let session_id = chat
-        .get("session_id")
-        .and_then(Value::as_str)
-        .expect("session id");
+    let session_id = response_session_id(&chat).expect("session id");
 
     let (status, tasks) = call(app.clone(), Method::GET, "/v1/tasks", Value::Null).await;
     assert_eq!(status, StatusCode::OK, "{tasks}");
@@ -4182,10 +4173,7 @@ async fn chat_dynamic_task_tool_creates_single_reminder_task_trigger() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{chat}");
-    let content = chat
-        .pointer("/choices/0/message/content")
-        .and_then(Value::as_str)
-        .unwrap_or("");
+    let content = response_output_text(&chat);
     assert!(
         content.contains("reminder tool saved"),
         "assistant should continue after reminder task_update: {chat}"
@@ -4282,9 +4270,10 @@ async fn openapi_docs_are_public_and_keep_v1_auth_unchanged() {
         Some("Ripple Server API")
     );
     assert!(spec.pointer("/paths/~1health/get").is_some());
+    assert!(spec.pointer("/paths/~1v1~1responses/post").is_some());
     assert!(spec
         .pointer("/paths/~1v1~1chat~1completions/post")
-        .is_some());
+        .is_none());
     assert!(spec.pointer("/paths/~1v1~1runs/get").is_some());
     assert!(spec.pointer("/paths/~1v1~1runs/post").is_some());
     assert!(spec
@@ -4303,7 +4292,7 @@ async fn openapi_docs_are_public_and_keep_v1_auth_unchanged() {
         .pointer("/components/securitySchemes/apiKeyAuth")
         .is_some());
     assert!(spec
-        .pointer("/components/schemas/ChatCompletionRequest/properties/outputSchema")
+        .pointer("/components/schemas/ResponsesCreateRequest/properties/text")
         .is_some());
 
     let docs = app
@@ -8021,20 +8010,18 @@ async fn chat_route_confirms_pending_task_trigger_without_starting_codex() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
-        chat.pointer("/event/type").and_then(Value::as_str),
+        chat.pointer("/ripple_event/type").and_then(Value::as_str),
         Some("task_created")
     );
     assert_eq!(
-        chat.pointer("/event/task/title").and_then(Value::as_str),
+        chat.pointer("/ripple_event/task/title")
+            .and_then(Value::as_str),
         Some("Check build")
     );
 
     let reloaded = state
         .sessions
-        .load(
-            user_id,
-            chat.get("session_id").and_then(Value::as_str).unwrap(),
-        )
+        .load(user_id, response_session_id(&chat).unwrap())
         .await
         .unwrap()
         .expect("session");
@@ -8106,34 +8093,31 @@ async fn chat_route_proposes_task_trigger_with_fake_codex_extraction() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
-        chat.pointer("/event/type").and_then(Value::as_str),
+        chat.pointer("/ripple_event/type").and_then(Value::as_str),
         Some("task_trigger_proposed")
     );
     assert_eq!(
-        chat.pointer("/event/task_trigger/title")
+        chat.pointer("/ripple_event/task_trigger/title")
             .and_then(Value::as_str),
         Some("Check build")
     );
     assert_eq!(
-        chat.pointer("/event/task_trigger/interval_seconds")
+        chat.pointer("/ripple_event/task_trigger/interval_seconds")
             .and_then(Value::as_u64),
         Some(3600)
     );
     assert_eq!(
-        chat.pointer("/event/task_trigger/enabled")
+        chat.pointer("/ripple_event/task_trigger/enabled")
             .and_then(Value::as_bool),
         Some(true)
     );
     assert_eq!(
-        chat.pointer("/choices/0/message/content")
-            .and_then(Value::as_str),
-        chat.pointer("/event/message").and_then(Value::as_str)
+        Some(response_output_text(&chat)),
+        chat.pointer("/ripple_event/message")
+            .and_then(Value::as_str)
     );
 
-    let session_id = chat
-        .get("session_id")
-        .and_then(Value::as_str)
-        .expect("session id");
+    let session_id = response_session_id(&chat).expect("session id");
     let reloaded = state
         .sessions
         .load(user_id, session_id)
@@ -8184,21 +8168,18 @@ async fn chat_route_asks_details_before_complex_external_task_trigger_proposal()
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
-        chat.pointer("/event/type").and_then(Value::as_str),
+        chat.pointer("/ripple_event/type").and_then(Value::as_str),
         Some("task_trigger_clarification_required")
     );
     let message = chat
-        .pointer("/event/message")
+        .pointer("/ripple_event/message")
         .and_then(Value::as_str)
         .expect("clarification message");
     assert!(message.contains("新闻来源"), "{message}");
     assert!(message.contains("飞书"), "{message}");
     assert!(message.contains("失败"), "{message}");
 
-    let session_id = chat
-        .get("session_id")
-        .and_then(Value::as_str)
-        .expect("session id");
+    let session_id = response_session_id(&chat).expect("session id");
     let reloaded = state
         .sessions
         .load(user_id, session_id)
@@ -8275,18 +8256,20 @@ async fn chat_route_continues_task_trigger_clarification_with_user_followup() {
     .await;
     assert_eq!(status, StatusCode::OK, "{proposal}");
     assert_eq!(
-        proposal.pointer("/event/type").and_then(Value::as_str),
+        proposal
+            .pointer("/ripple_event/type")
+            .and_then(Value::as_str),
         Some("task_trigger_proposed")
     );
     assert_eq!(
         proposal
-            .pointer("/event/task_trigger/interval_seconds")
+            .pointer("/ripple_event/task_trigger/interval_seconds")
             .and_then(Value::as_u64),
         Some(604_800)
     );
     assert!(
         proposal
-            .pointer("/event/task_trigger/prompt")
+            .pointer("/ripple_event/task_trigger/prompt")
             .and_then(Value::as_str)
             .is_some_and(|prompt| prompt.contains("M4 Pro") && prompt.contains("M5 Pro")),
         "{proposal}"
@@ -8315,16 +8298,15 @@ async fn chat_route_completes_non_streaming_with_fake_codex_app_server() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
-        chat.pointer("/choices/0/message/content")
-            .and_then(Value::as_str),
+        Some(response_output_text(&chat)),
         Some("fake codex completed")
     );
     assert_eq!(
-        chat.pointer("/usage/prompt_tokens").and_then(Value::as_u64),
+        chat.pointer("/usage/input_tokens").and_then(Value::as_u64),
         Some(10)
     );
     let session_id = chat
-        .get("session_id")
+        .pointer("/metadata/ripple_session_id")
         .and_then(Value::as_str)
         .expect("session id")
         .to_string();
@@ -8358,17 +8340,12 @@ async fn chat_route_completes_non_streaming_with_fake_codex_app_server() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
-        follow_up
-            .pointer("/choices/0/message/content")
-            .and_then(Value::as_str),
+        Some(response_output_text(&follow_up)),
         Some("fake codex completed")
     );
     let reloaded = state
         .sessions
-        .load(
-            user_id,
-            follow_up.get("session_id").and_then(Value::as_str).unwrap(),
-        )
+        .load(user_id, response_session_id(&follow_up).unwrap())
         .await
         .unwrap()
         .expect("session");
@@ -8429,19 +8406,16 @@ async fn chat_route_starts_connector_auth_from_session_control_action() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
-        chat.pointer("/connector_auth/type").and_then(Value::as_str),
+        chat.pointer("/ripple_event/type").and_then(Value::as_str),
         Some("connector_auth_required")
     );
     assert_eq!(
-        chat.pointer("/connector_auth/connector")
+        chat.pointer("/ripple_event/connector")
             .and_then(Value::as_str),
         Some("notion")
     );
 
-    let session_id = chat
-        .get("session_id")
-        .and_then(Value::as_str)
-        .expect("session id");
+    let session_id = response_session_id(&chat).expect("session id");
     let reloaded = state
         .sessions
         .load("smoke-user", session_id)
@@ -8480,24 +8454,18 @@ async fn chat_route_converts_model_connector_auth_request_to_event() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
-        chat.pointer("/connector_auth/type").and_then(Value::as_str),
+        chat.pointer("/ripple_event/type").and_then(Value::as_str),
         Some("connector_auth_required")
     );
     assert_eq!(
-        chat.pointer("/connector_auth/connector")
+        chat.pointer("/ripple_event/connector")
             .and_then(Value::as_str),
         Some("google_workspace")
     );
-    let assistant_text = chat
-        .pointer("/choices/0/message/content")
-        .and_then(Value::as_str)
-        .unwrap_or("");
+    let assistant_text = response_output_text(&chat);
     assert!(!assistant_text.contains("<ripple_connector_auth_request>"));
 
-    let session_id = chat
-        .get("session_id")
-        .and_then(Value::as_str)
-        .expect("session id");
+    let session_id = response_session_id(&chat).expect("session id");
     let reloaded = state
         .sessions
         .load("smoke-user", session_id)
@@ -8527,17 +8495,13 @@ async fn chat_route_does_not_start_connector_auth_from_user_keywords_before_code
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert!(chat.get("connector_auth").is_none());
+    assert!(chat.get("ripple_event").is_none());
     assert_eq!(
-        chat.pointer("/choices/0/message/content")
-            .and_then(Value::as_str),
+        Some(response_output_text(&chat)),
         Some("fake codex completed")
     );
 
-    let session_id = chat
-        .get("session_id")
-        .and_then(Value::as_str)
-        .expect("session id");
+    let session_id = response_session_id(&chat).expect("session id");
     let reloaded = state
         .sessions
         .load("smoke-user", session_id)
@@ -8569,10 +8533,9 @@ async fn chat_route_reads_local_workspace_pdf_without_connector_auth() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert!(chat.get("connector_auth").is_none());
+    assert!(chat.get("ripple_event").is_none());
     assert_eq!(
-        chat.pointer("/choices/0/message/content")
-            .and_then(Value::as_str),
+        Some(response_output_text(&chat)),
         Some("fake codex completed")
     );
 
@@ -8597,11 +8560,7 @@ async fn chat_generates_async_summary_title_without_public_run() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    let session_id = chat
-        .get("session_id")
-        .and_then(Value::as_str)
-        .expect("session id")
-        .to_string();
+    let session_id = response_session_id(&chat).expect("session id").to_string();
 
     let mut title = String::new();
     for _ in 0..40 {
@@ -8811,9 +8770,7 @@ async fn chat_sessions_for_same_user_execute_in_parallel_with_isolated_fake_code
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
-        second_chat
-            .pointer("/choices/0/message/content")
-            .and_then(Value::as_str),
+        Some(response_output_text(&second_chat)),
         Some("fake codex completed thread-1 turn-1")
     );
 
@@ -8835,9 +8792,7 @@ async fn chat_sessions_for_same_user_execute_in_parallel_with_isolated_fake_code
     assert_eq!(first_response.status(), StatusCode::OK);
     let first_chat = response_json(first_response).await;
     assert_eq!(
-        first_chat
-            .pointer("/choices/0/message/content")
-            .and_then(Value::as_str),
+        Some(response_output_text(&first_chat)),
         Some("fake codex completed thread-1 turn-1")
     );
 
@@ -8906,7 +8861,8 @@ async fn concurrent_chat_requests_for_same_session_start_single_run() {
     let proposed = [first_body.clone(), second_body.clone()]
         .into_iter()
         .filter(|body| {
-            body.pointer("/event/type").and_then(Value::as_str) == Some("task_trigger_proposed")
+            body.pointer("/ripple_event/type").and_then(Value::as_str)
+                == Some("task_trigger_proposed")
         })
         .count();
     assert_eq!(proposed, 1, "only one request should start extraction");
@@ -8944,8 +8900,7 @@ async fn codex_app_server_does_not_inherit_server_secret_env() {
 
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
-        chat.pointer("/choices/0/message/content")
-            .and_then(Value::as_str),
+        Some(response_output_text(&chat)),
         Some("env clean proxy present")
     );
 
@@ -9004,8 +8959,7 @@ async fn chat_session_bound_to_context_folder_runs_from_that_folder() {
     .await;
     assert_eq!(status, StatusCode::OK, "{chat}");
     assert_eq!(
-        chat.pointer("/choices/0/message/content")
-            .and_then(Value::as_str),
+        Some(response_output_text(&chat)),
         Some("context folder prompt present")
     );
 
@@ -9063,11 +9017,7 @@ async fn chat_follow_up_resumes_codex_thread_without_replaying_turns() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    let session_id = first
-        .get("session_id")
-        .and_then(Value::as_str)
-        .expect("session id")
-        .to_string();
+    let session_id = response_session_id(&first).expect("session id").to_string();
 
     let (status, follow_up) = call_response(
         app,
@@ -9080,10 +9030,7 @@ async fn chat_follow_up_resumes_codex_thread_without_replaying_turns() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "follow-up response: {follow_up}");
-    let content = follow_up
-        .pointer("/choices/0/message/content")
-        .and_then(Value::as_str)
-        .expect("follow-up content");
+    let content = response_output_text(&follow_up);
     assert!(
         content.starts_with("fake codex completed thread-1 turn-"),
         "follow-up should resume the original thread, got {content:?}"
@@ -9163,10 +9110,7 @@ async fn chat_recovers_restart_stale_running_job_before_starting_follow_up() {
         .is_some_and(|value| value.contains("restarted")));
     let reloaded = state
         .sessions
-        .load(
-            user_id,
-            follow_up.get("session_id").and_then(Value::as_str).unwrap(),
-        )
+        .load(user_id, response_session_id(&follow_up).unwrap())
         .await
         .unwrap()
         .expect("session");
@@ -9186,7 +9130,7 @@ async fn dropped_chat_stream_does_not_block_follow_up_after_job_completes() {
     let response = app
         .clone()
         .oneshot(response_request(
-                json!({
+            json!({
                 "model": "codex-test",
                 "messages": [{"role": "user", "content": "[slow] stream that will disconnect"}],
                 "stream": true
@@ -9232,18 +9176,13 @@ async fn dropped_chat_stream_does_not_block_follow_up_after_job_completes() {
     .await;
     assert_eq!(status, StatusCode::OK, "follow-up response: {follow_up}");
     assert_eq!(
-        follow_up
-            .pointer("/choices/0/message/content")
-            .and_then(Value::as_str),
+        Some(response_output_text(&follow_up)),
         Some("fake codex completed")
     );
 
     let reloaded = state
         .sessions
-        .load(
-            user_id,
-            follow_up.get("session_id").and_then(Value::as_str).unwrap(),
-        )
+        .load(user_id, response_session_id(&follow_up).unwrap())
         .await
         .unwrap()
         .expect("session");
@@ -9279,10 +9218,7 @@ async fn chat_creates_new_session_with_caller_supplied_session_id() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{first}");
-    assert_eq!(
-        first.get("session_id").and_then(Value::as_str),
-        Some(caller_session_id)
-    );
+    assert_eq!(response_session_id(&first), Some(caller_session_id));
 
     let first_reloaded = state
         .sessions
@@ -9304,10 +9240,7 @@ async fn chat_creates_new_session_with_caller_supplied_session_id() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{second}");
-    assert_eq!(
-        second.get("session_id").and_then(Value::as_str),
-        Some(caller_session_id)
-    );
+    assert_eq!(response_session_id(&second), Some(caller_session_id));
 
     let second_reloaded = state
         .sessions
@@ -9330,7 +9263,7 @@ async fn chat_stream_completes_with_fake_codex_app_server() {
 
     let response = app
         .oneshot(response_request(
-                json!({
+            json!({
                 "model": "codex-test",
                 "messages": [{"role": "user", "content": "stream hello from chat"}],
                 "stream": true
@@ -9355,7 +9288,7 @@ async fn chat_stream_completes_with_fake_codex_app_server() {
         .to_string();
     let body = response_text(response).await;
     assert!(body.contains("\"role\":\"assistant\""));
-    assert!(body.contains("\"content\":\"fake codex completed\""));
+    assert!(body.contains("\"delta\":\"fake codex completed\""));
     assert!(body.contains("data: [DONE]"));
 
     let reloaded = state
@@ -9380,7 +9313,7 @@ async fn chat_stream_converts_model_connector_auth_request_to_event_without_leak
 
     let response = app
         .oneshot(response_request(
-                json!({
+            json!({
                 "model": "codex-test",
                 "messages": [{"role": "user", "content": "[model-auth-alpha] summarize my inbox"}],
                 "stream": true
@@ -9397,7 +9330,7 @@ async fn chat_stream_converts_model_connector_auth_request_to_event_without_leak
         .expect("session header")
         .to_string();
     let body = response_text(response).await;
-    assert!(body.contains("\"type\":\"connector_auth_required\""));
+    assert!(body.contains("\"ripple_event_type\":\"connector_auth_required\""));
     assert!(body.contains("\"connector\":\"google_workspace\""));
     assert!(!body.contains("<ripple_connector_auth_request>"));
     assert!(body.contains("data: [DONE]"));
@@ -9442,21 +9375,21 @@ async fn chat_stream_forwards_codex_runtime_tool_plan_and_image_events() {
         .to_string();
     let body = response_text(response).await;
 
-    assert!(body.contains("\"type\":\"task_plan_updated\""));
+    assert!(body.contains("\"ripple_event_type\":\"task_plan_updated\""));
     assert!(body.contains("\"currentTask\":\"Inspect workspace\""));
-    assert!(body.contains("\"type\":\"tool_call\""));
+    assert!(body.contains("\"ripple_event_type\":\"tool_call\""));
     assert!(body.contains("\"name\":\"command_execution\""));
-    assert!(body.contains("\"type\":\"tool_output_delta\""));
+    assert!(body.contains("\"ripple_event_type\":\"tool_output_delta\""));
     assert!(body.contains("\"delta\":\"hello\\n\""));
-    assert!(body.contains("\"type\":\"tool_result\""));
-    assert!(body.contains("\"type\":\"file_change_patch_updated\""));
-    assert!(body.contains("\"type\":\"image_view\""));
+    assert!(body.contains("\"ripple_event_type\":\"tool_result\""));
+    assert!(body.contains("\"ripple_event_type\":\"file_change_patch_updated\""));
+    assert!(body.contains("\"ripple_event_type\":\"image_view\""));
     assert!(body.contains("\"workspace_path\":\"/workspace/images/source.png\""));
-    assert!(body.contains("\"type\":\"image_generation\""));
+    assert!(body.contains("\"ripple_event_type\":\"image_generation\""));
     assert!(body.contains("\"workspace_path\":\"/workspace/outputs/images/"));
     assert!(body.contains("/img-1.png\""));
-    assert!(body.contains("\"type\":\"usage\""));
-    assert!(body.contains("\"content\":\"fake codex completed\""));
+    assert!(body.contains("\"ripple_event_type\":\"usage\""));
+    assert!(body.contains("\"delta\":\"fake codex completed\""));
     assert!(body.contains("data: [DONE]"));
 
     let image_workspace_path = state
@@ -9822,7 +9755,7 @@ async fn chat_stream_does_not_start_connector_auth_from_user_keywords_before_cod
 
     let response = app
         .oneshot(response_request(
-                json!({
+            json!({
                 "model": "codex-test",
                 "messages": [{"role": "user", "content": "请连接 Notion"}],
                 "stream": true
@@ -9840,9 +9773,9 @@ async fn chat_stream_does_not_start_connector_auth_from_user_keywords_before_cod
         Some("text/event-stream")
     );
     let body = response_text(response).await;
-    assert!(!body.contains("\"type\":\"connector_auth_required\""));
+    assert!(!body.contains("\"ripple_event_type\":\"connector_auth_required\""));
     assert!(!body.contains("\"connector\":\"notion\""));
-    assert!(body.contains("\"content\":\"fake codex completed\""));
+    assert!(body.contains("\"delta\":\"fake codex completed\""));
     assert!(body.contains("data: [DONE]"));
 
     let _ = std::fs::remove_dir_all(root);
@@ -9879,7 +9812,7 @@ async fn chat_stream_cancels_pending_task_trigger_without_codex() {
 
     let response = app
         .oneshot(response_request(
-                json!({
+            json!({
                 "model": "codex-test",
                 "session_id": session.session_id,
                 "messages": [{"role": "user", "content": "取消"}],
@@ -9891,7 +9824,7 @@ async fn chat_stream_cancels_pending_task_trigger_without_codex() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     let body = response_text(response).await;
-    assert!(body.contains("\"type\":\"task_trigger_cancelled\""));
+    assert!(body.contains("\"ripple_event_type\":\"task_trigger_cancelled\""));
     assert!(body.contains("data: [DONE]"));
 
     let reloaded = state

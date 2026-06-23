@@ -74,8 +74,8 @@ use wire::{
 
 const TERMINAL_STATUSES: &[&str] = &["completed", "failed", "cancelled"];
 
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
-pub struct ChatCompletionRequest {
+#[derive(Debug, Deserialize)]
+pub struct InternalChatRequest {
     pub model: Option<String>,
     pub messages: Vec<Value>,
     pub stream: Option<bool>,
@@ -103,7 +103,7 @@ pub struct ResponsesCreateRequest {
 }
 
 impl ResponsesCreateRequest {
-    fn into_chat_request(self) -> Result<ChatCompletionRequest, ApiError> {
+    fn into_chat_request(self) -> Result<InternalChatRequest, ApiError> {
         let session_id =
             responses_session_id(self.previous_response_id.as_deref(), self.metadata.as_ref())?;
         let effort = self
@@ -119,7 +119,7 @@ impl ResponsesCreateRequest {
             .and_then(Value::as_str)
             .map(str::to_string);
         let output_schema = responses_output_schema(self.text.as_ref());
-        Ok(ChatCompletionRequest {
+        Ok(InternalChatRequest {
             model: self.model,
             messages: responses_input_to_messages(self.input, self.instructions)?,
             stream: self.stream,
@@ -257,7 +257,7 @@ struct CodexChatStart {
     user_id: String,
     session: SessionRecord,
     workspace_root: PathBuf,
-    request: ChatCompletionRequest,
+    request: InternalChatRequest,
     model: String,
     effort: Option<String>,
     user_input: String,
@@ -319,7 +319,7 @@ pub async fn create_response(
 async fn handle_chat_request(
     state: AppState,
     headers: HeaderMap,
-    request: ChatCompletionRequest,
+    request: InternalChatRequest,
 ) -> Result<Response<Body>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
     let workspace_root = state.sandboxes.ensure_sandbox(&user_id)?;
@@ -858,7 +858,7 @@ pub async fn poll_session_connector_auth(
         session.set_status(SessionStatus::Running);
         clear_session_plan(&mut session);
         state.sessions.save_record(session.clone()).await?;
-        let chat_request = ChatCompletionRequest {
+        let chat_request = InternalChatRequest {
             model: request.model,
             messages: vec![json!({"role": "user", "content": resume_user_input})],
             stream: request.stream,
@@ -927,7 +927,7 @@ pub async fn poll_session_connector_auth(
 async fn load_or_create_session(
     state: &AppState,
     user_id: &str,
-    request: &ChatCompletionRequest,
+    request: &InternalChatRequest,
 ) -> Result<SessionRecord, ApiError> {
     if let Some(session_id) = request.session_id.as_deref() {
         validate_session_id(session_id).map_err(ApiError::bad_request)?;

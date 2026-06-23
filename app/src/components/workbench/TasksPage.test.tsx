@@ -413,6 +413,65 @@ function testTasksPageFilterRowDoesNotLookLikeRefreshProgress() {
   assert.doesNotMatch(filterRowSource, /overflow-x-auto/);
 }
 
+function testTasksPageUsesMobileIndexAndDetailSubpages() {
+  const source = readFileSync(new URL("./TasksPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /data-ripple-task-mobile-index-page="true"/);
+  assert.match(source, /data-ripple-task-mobile-detail-page="true"/);
+  assert.match(source, /selectedMobileTaskId/);
+  assert.match(source, /closeMobileTaskDetail/);
+  assert.match(
+    source,
+    /<MobilePageHeader[\s\S]*?title=\{mobileDetailTask\.title\}[\s\S]*?onBack=\{closeMobileTaskDetail\}/
+  );
+}
+
+function testTasksPageHidesStatusFiltersOnMobile() {
+  const source = readFileSync(new URL("./TasksPage.tsx", import.meta.url), "utf8");
+  const html = renderTasksPage("en-US");
+
+  assert.match(source, /data-ripple-task-desktop-filter-row="true"/);
+  assert.match(source, /isDesktopTaskLayout \? \(/);
+  assert.match(
+    source,
+    /data-ripple-task-desktop-filter-row="true"[\s\S]*?className="[^"]*hidden[^"]*lg:flex/
+  );
+  assert.doesNotMatch(source, /data-ripple-task-mobile-filter-row/);
+  assert.doesNotMatch(html, />All</);
+  assert.doesNotMatch(html, />Open</);
+  assert.doesNotMatch(html, />Waiting</);
+  assert.doesNotMatch(html, />Blocked</);
+  assert.doesNotMatch(html, />Done</);
+}
+
+function testTasksMobileCardsAreSeparatedWithoutActiveSelection() {
+  const source = readFileSync(new URL("./TasksPage.tsx", import.meta.url), "utf8");
+  const html = renderTasksPage("en-US");
+
+  assert.match(source, /data-ripple-task-card="true"/);
+  assert.match(
+    source,
+    /const selected = isDesktopTaskLayout && selectedTask\?\.taskId === task\.taskId/
+  );
+  assert.match(source, /border-\[#DEE0E3\]/);
+  assert.match(source, /shadow-\[0_1px_2px_rgba\(31,35,41,0\.04\)\]/);
+  assert.doesNotMatch(html, /shadow-\[inset_3px_0_0_#1456F0\]/);
+}
+
+function testTasksMobileDetailSupportsSwipeBackGesture() {
+  const source = readFileSync(new URL("./TasksPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /framer-motion/);
+  assert.match(source, /shouldClaimMobileSwipeBack/);
+  assert.match(source, /resolveTaskDetailBackSwipeRelease/);
+  assert.match(source, /closeMobileTaskDetailWithSwipeCommit/);
+  assert.match(source, /data-ripple-task-detail-swipe-sheet="true"/);
+  assert.match(source, /onPointerDownCapture=\{handleTaskDetailSwipePointerDown\}/);
+  assert.match(source, /onPointerMoveCapture=\{handleTaskDetailSwipePointerMove\}/);
+  assert.match(source, /onPointerUpCapture=\{handleTaskDetailSwipePointerUp\}/);
+  assert.match(source, /onTouchMoveCapture=\{handleTaskDetailSwipeTouchMoveCapture\}/);
+}
+
 function testTasksPageReloadIsNotKeyedToSelectionChanges() {
   const source = readFileSync(new URL("./TasksPage.tsx", import.meta.url), "utf8");
   const loadTasksStart = source.indexOf("const loadTasks = useCallback");
@@ -452,6 +511,10 @@ testTriggerFormDoesNotDuplicateStepContentFields();
 testTasksPageLoadingStateDoesNotClaimFailure();
 testTasksPageDistinguishesFilteredEmptyState();
 testTasksPageFilterRowDoesNotLookLikeRefreshProgress();
+testTasksPageUsesMobileIndexAndDetailSubpages();
+testTasksPageHidesStatusFiltersOnMobile();
+testTasksMobileCardsAreSeparatedWithoutActiveSelection();
+testTasksMobileDetailSupportsSwipeBackGesture();
 testTasksPageReloadIsNotKeyedToSelectionChanges();
 testTasksPageRequiresConfirmationForDestructiveActions();
 

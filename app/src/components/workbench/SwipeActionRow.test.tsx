@@ -41,11 +41,11 @@ function testSwipeActionsAreHiddenUntilInteraction() {
   );
 
   assert.match(html, /data-ripple-swipe-row="true"/);
-  assert.match(html, /data-ripple-swipe-actions="leading"[^>]*opacity-0/);
-  assert.match(html, /data-ripple-swipe-actions="trailing"[^>]*opacity-0/);
-  assert.match(html, /aria-label="Rename"/);
-  assert.match(html, /aria-label="Delete"/);
-  assert.match(html, /aria-label="Pin"/);
+  assert.match(html, /data-ripple-swipe-actions="leading"[^>]*aria-hidden="true"[^>]*opacity-0/);
+  assert.match(html, /data-ripple-swipe-actions="trailing"[^>]*aria-hidden="true"[^>]*opacity-0/);
+  assert.match(html, /aria-label="Rename"[^>]*aria-hidden="true"[^>]*tabindex="-1"/);
+  assert.match(html, /aria-label="Delete"[^>]*aria-hidden="true"[^>]*tabindex="-1"/);
+  assert.match(html, /aria-label="Pin"[^>]*aria-hidden="true"[^>]*tabindex="-1"/);
   assert.match(html, /class="relative w-full/);
 }
 

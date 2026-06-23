@@ -254,6 +254,16 @@ function testSessionRowsExposeIosStyleSwipeActions() {
   assert.match(html, /data-ripple-swipe-actions="leading"[^>]*opacity-0/);
 }
 
+function testMobileSessionDeleteRemainsSingleAction() {
+  assert.doesNotMatch(mobileSessionsPageSource, /confirmingDeleteSessionId/);
+  assert.doesNotMatch(mobileSessionsPageSource, /sessions\.confirmDelete/);
+  assert.match(
+    mobileSessionsPageSource,
+    /onDeleteSession\(activeMenuSession\.sessionId,\s*event\);/
+  );
+  assert.match(mobileSessionsPageSource, /onDeleteSession\(session\.sessionId,\s*event\);/);
+}
+
 function testMobileSessionChromeUsesMotionPresence() {
   assert.match(
     mobileSessionsPageSource,
@@ -318,6 +328,7 @@ testSessionRowsUseMobileActionSheetForOptions();
 testSessionOptionsSheetEscapesBlurredRowsWithSharedPortal();
 testMobileSessionSearchHasExplicitCancelState();
 testSessionRowsExposeIosStyleSwipeActions();
+testMobileSessionDeleteRemainsSingleAction();
 testMobileSessionChromeUsesMotionPresence();
 testMobileSessionSearchPanelSitsCloserToHeaderControls();
 testMobileSessionRowsUseReadableTypeScale();

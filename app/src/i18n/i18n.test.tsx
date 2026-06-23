@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
@@ -12,6 +13,8 @@ import {
   type LocalePreference,
   useI18n,
 } from "./index";
+
+const i18nSource = readFileSync(new URL("./index.tsx", import.meta.url), "utf8");
 
 function testSupportedLocalesAreLimitedToChineseAndEnglish() {
   assert.deepEqual(SUPPORTED_LOCALES, ["zh-CN", "en-US"]);
@@ -73,6 +76,15 @@ function testProviderSuppliesTranslationsAndPreference() {
   assert.match(html, />Language</);
 }
 
+function testSessionDeleteConfirmationCopyIsNotRegistered() {
+  const sessionsBlocks = i18nSource.match(/sessions: \{[\s\S]*?runStatus: \{/g) ?? [];
+
+  assert.equal(sessionsBlocks.length, 2);
+  for (const sessionsBlock of sessionsBlocks) {
+    assert.doesNotMatch(sessionsBlock, /confirmDelete/);
+  }
+}
+
 function testUseI18nFallsBackToDefaultChineseWithoutProvider() {
   function Probe() {
     const { locale, t } = useI18n();
@@ -97,6 +109,7 @@ testResolvesLocaleFromSystemLanguages();
 testInterpolatesMessages();
 testFormatsDatesWithResolvedLocale();
 testProviderSuppliesTranslationsAndPreference();
+testSessionDeleteConfirmationCopyIsNotRegistered();
 testUseI18nFallsBackToDefaultChineseWithoutProvider();
 
 console.log("i18n tests passed");

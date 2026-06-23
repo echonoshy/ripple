@@ -9,11 +9,22 @@ use serde::Deserialize;
 
 use crate::api::ApiError;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct QrcodeQuery {
     content: String,
 }
 
+#[utoipa::path(
+    get,
+    path = "/v1/bilibili/qrcode.png",
+    tag = "connectors",
+    params(QrcodeQuery),
+    responses(
+        (status = 200, description = "Generated QR code PNG", body = Vec<u8>, content_type = "image/png"),
+        (status = 400, description = "Invalid QR content", body = crate::api::openapi::ApiErrorEnvelope)
+    )
+)]
 pub async fn qrcode_png(Query(query): Query<QrcodeQuery>) -> Result<Response<Body>, ApiError> {
     let content = query.content.trim();
     if content.is_empty() || content.len() > 2048 {

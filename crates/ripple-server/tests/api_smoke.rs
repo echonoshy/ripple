@@ -1037,6 +1037,11 @@ async fn response_text(response: axum::response::Response) -> String {
     String::from_utf8_lossy(&bytes).into_owned()
 }
 
+fn openapi_operation_pointer(path: &str, method: &str) -> String {
+    let escaped_path = path.replace('~', "~0").replace('/', "~1");
+    format!("/paths/{escaped_path}/{method}")
+}
+
 async fn response_bytes(response: axum::response::Response) -> Vec<u8> {
     to_bytes(response.into_body(), usize::MAX)
         .await
@@ -4269,8 +4274,115 @@ async fn openapi_docs_are_public_and_keep_v1_auth_unchanged() {
         spec.pointer("/info/title").and_then(Value::as_str),
         Some("Ripple Server API")
     );
-    assert!(spec.pointer("/paths/~1health/get").is_some());
-    assert!(spec.pointer("/paths/~1v1~1responses/post").is_some());
+    let documented_operations = [
+        ("/health", "get"),
+        ("/v1/bilibili/qrcode.png", "get"),
+        ("/v1/sandboxes/gogcli/oauth/callback", "get"),
+        ("/v1/auth/config", "get"),
+        ("/v1/auth/invite/claim", "post"),
+        ("/v1/auth/login", "post"),
+        ("/v1/auth/logout", "post"),
+        ("/v1/auth/password", "post"),
+        ("/v1/models", "get"),
+        ("/v1/runtime/codex", "get"),
+        ("/v1/info", "get"),
+        ("/v1/responses", "post"),
+        ("/v1/health/ready", "get"),
+        ("/v1/diagnostics/doctor", "get"),
+        ("/v1/users/me", "get"),
+        ("/v1/users/me/profile", "patch"),
+        ("/v1/users/me/avatar", "post"),
+        ("/v1/users/me/avatar", "delete"),
+        ("/v1/users/me/avatar/{file_name}", "get"),
+        ("/v1/sessions", "get"),
+        ("/v1/sessions", "post"),
+        ("/v1/sessions/overview", "get"),
+        ("/v1/sessions/suspended", "get"),
+        ("/v1/sessions/{session_id}", "get"),
+        ("/v1/sessions/{session_id}", "patch"),
+        ("/v1/sessions/{session_id}", "delete"),
+        ("/v1/sessions/{session_id}/tasks", "get"),
+        ("/v1/sessions/{session_id}/stop", "post"),
+        ("/v1/sessions/{session_id}/context/clear", "post"),
+        ("/v1/sessions/{session_id}/context/compact", "post"),
+        ("/v1/sessions/{session_id}/codex-thread", "get"),
+        ("/v1/sessions/{session_id}/suspend", "post"),
+        ("/v1/sessions/{session_id}/resume", "post"),
+        ("/v1/sessions/{session_id}/permissions/resolve", "post"),
+        ("/v1/sessions/{session_id}/user-input/resolve", "post"),
+        ("/v1/sessions/{session_id}/connector-auth/poll", "post"),
+        ("/v1/sessions/{session_id}/connector-auth/cancel", "post"),
+        ("/v1/sessions/{session_id}/usage", "get"),
+        ("/v1/tasks", "get"),
+        ("/v1/tasks", "post"),
+        ("/v1/tasks/{task_id}", "get"),
+        ("/v1/tasks/{task_id}", "patch"),
+        ("/v1/tasks/{task_id}", "delete"),
+        ("/v1/tasks/{task_id}/delete", "post"),
+        ("/v1/tasks/{task_id}/confirm", "post"),
+        ("/v1/tasks/{task_id}/run-now", "post"),
+        ("/v1/task-triggers", "get"),
+        ("/v1/tasks/{task_id}/actions", "get"),
+        ("/v1/tasks/{task_id}/actions", "post"),
+        ("/v1/tasks/{task_id}/actions/{action_id}", "patch"),
+        ("/v1/tasks/{task_id}/actions/{action_id}/triggers", "post"),
+        ("/v1/tasks/{task_id}/triggers", "get"),
+        ("/v1/tasks/{task_id}/triggers", "post"),
+        ("/v1/tasks/{task_id}/triggers/{trigger_id}", "patch"),
+        ("/v1/tasks/{task_id}/triggers/{trigger_id}", "delete"),
+        ("/v1/tasks/{task_id}/triggers/{trigger_id}/run-now", "post"),
+        ("/v1/tasks/{task_id}/events", "get"),
+        ("/v1/sandboxes", "get"),
+        ("/v1/sandboxes", "post"),
+        ("/v1/sandboxes", "delete"),
+        ("/v1/sandbox/info", "get"),
+        ("/v1/workspace", "get"),
+        ("/v1/workspace/search", "get"),
+        ("/v1/workspace/file", "get"),
+        ("/v1/workspace/file", "put"),
+        ("/v1/workspace/rename", "post"),
+        ("/v1/workspace/delete", "post"),
+        ("/v1/workspace/create", "post"),
+        ("/v1/workspace/paste", "post"),
+        ("/v1/workspace/upload", "post"),
+        ("/v1/workspace/attachments", "post"),
+        ("/v1/workspace/download", "get"),
+        ("/v1/workspace/preview", "get"),
+        ("/v1/capabilities", "get"),
+        ("/v1/skills", "get"),
+        ("/v1/skills", "post"),
+        ("/v1/skills/{skill_id}", "get"),
+        ("/v1/skills/{skill_id}", "patch"),
+        ("/v1/skills/{skill_id}", "delete"),
+        ("/v1/skills/{skill_id}/validate", "post"),
+        ("/v1/connectors", "get"),
+        ("/v1/connectors/{connector_name}/status", "get"),
+        ("/v1/connectors/{connector_name}/auth/start", "post"),
+        ("/v1/connectors/{connector_name}/auth/complete", "post"),
+        ("/v1/connectors/{connector_name}/auth/cancel", "post"),
+        ("/v1/connectors/{connector_name}/disconnect", "post"),
+        ("/v1/connectors/{connector_name}/accounts", "get"),
+        ("/v1/sandboxes/gogcli-accounts", "get"),
+        ("/v1/runs", "get"),
+        ("/v1/runs", "post"),
+        ("/v1/runs/{job_id}", "get"),
+        ("/v1/runs/{job_id}/events", "get"),
+        ("/v1/runs/{job_id}/output", "get"),
+        ("/v1/runs/{job_id}/steer", "post"),
+        ("/v1/runs/{job_id}/cancel", "post"),
+        ("/v1/documents", "get"),
+        ("/v1/documents", "post"),
+        ("/v1/documents/{document_id}", "get"),
+        ("/v1/documents/{document_id}", "patch"),
+        ("/v1/documents/{document_id}", "delete"),
+    ];
+    for (path, method) in documented_operations {
+        let pointer = openapi_operation_pointer(path, method);
+        assert!(
+            spec.pointer(&pointer).is_some(),
+            "missing OpenAPI operation {method} {path}"
+        );
+    }
     assert!(spec
         .pointer("/paths/~1v1~1chat~1completions/post")
         .is_none());

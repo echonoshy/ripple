@@ -34,6 +34,20 @@ pub(crate) struct TaskRunTriggerContext {
     pub(crate) max_runtime_seconds: Option<u64>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/tasks",
+    tag = "tasks",
+    params(crate::api::ListQuery),
+    responses(
+        (status = 200, description = "Paginated task list", body = serde_json::Value),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn list_tasks(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -44,6 +58,24 @@ pub async fn list_tasks(
     Ok(Json(task_list_response(&state, &user_id, records, &query)?))
 }
 
+#[utoipa::path(
+    get,
+    path = "/sessions/{session_id}/tasks",
+    tag = "tasks",
+    params(
+        ("session_id" = String, Path, description = "Session id"),
+        crate::api::ListQuery
+    ),
+    responses(
+        (status = 200, description = "Tasks linked to a session", body = serde_json::Value),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Session not found", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn list_session_tasks(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -59,6 +91,21 @@ pub async fn list_session_tasks(
     Ok(Json(task_list_response(&state, &user_id, records, &query)?))
 }
 
+#[utoipa::path(
+    post,
+    path = "/tasks",
+    tag = "tasks",
+    request_body = crate::api::openapi::GenericJsonObject,
+    responses(
+        (status = 200, description = "Created task", body = serde_json::Value),
+        (status = 400, description = "Invalid task payload", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn create_task(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -72,6 +119,21 @@ pub async fn create_task(
     })))
 }
 
+#[utoipa::path(
+    get,
+    path = "/tasks/{task_id}",
+    tag = "tasks",
+    params(("task_id" = String, Path, description = "Task id")),
+    responses(
+        (status = 200, description = "Task detail", body = serde_json::Value),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Task not found", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn get_task(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -87,6 +149,23 @@ pub async fn get_task(
     })))
 }
 
+#[utoipa::path(
+    patch,
+    path = "/tasks/{task_id}",
+    tag = "tasks",
+    params(("task_id" = String, Path, description = "Task id")),
+    request_body = crate::api::openapi::GenericJsonObject,
+    responses(
+        (status = 200, description = "Updated task", body = serde_json::Value),
+        (status = 400, description = "Invalid task update", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Task not found", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn update_task(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -137,6 +216,21 @@ pub async fn update_task(
     })))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/tasks/{task_id}",
+    tag = "tasks",
+    params(("task_id" = String, Path, description = "Task id")),
+    responses(
+        (status = 200, description = "Cancelled task", body = serde_json::Value),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Task not found", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn cancel_task(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -165,6 +259,21 @@ pub async fn cancel_task(
     })))
 }
 
+#[utoipa::path(
+    post,
+    path = "/tasks/{task_id}/delete",
+    tag = "tasks",
+    params(("task_id" = String, Path, description = "Task id")),
+    responses(
+        (status = 200, description = "Deleted task", body = serde_json::Value),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Task not found", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn delete_task(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -182,6 +291,22 @@ pub async fn delete_task(
     })))
 }
 
+#[utoipa::path(
+    post,
+    path = "/tasks/{task_id}/confirm",
+    tag = "tasks",
+    params(("task_id" = String, Path, description = "Task id")),
+    responses(
+        (status = 200, description = "Confirmed task", body = serde_json::Value),
+        (status = 400, description = "Invalid task state transition", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Task not found", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn confirm_task(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -224,6 +349,23 @@ pub async fn confirm_task(
     })))
 }
 
+#[utoipa::path(
+    post,
+    path = "/tasks/{task_id}/run-now",
+    tag = "tasks",
+    params(("task_id" = String, Path, description = "Task id")),
+    responses(
+        (status = 200, description = "Started task run", body = serde_json::Value),
+        (status = 400, description = "Task is not runnable", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Task not found", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 409, description = "Task dependencies are not ready", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn run_task_now(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -236,6 +378,21 @@ pub async fn run_task_now(
     ))
 }
 
+#[utoipa::path(
+    get,
+    path = "/tasks/{task_id}/actions",
+    tag = "tasks",
+    params(("task_id" = String, Path, description = "Task id")),
+    responses(
+        (status = 200, description = "Task actions", body = serde_json::Value),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Task not found", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn list_task_actions(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -252,6 +409,23 @@ pub async fn list_task_actions(
     })))
 }
 
+#[utoipa::path(
+    post,
+    path = "/tasks/{task_id}/actions",
+    tag = "tasks",
+    params(("task_id" = String, Path, description = "Task id")),
+    request_body = crate::api::openapi::GenericJsonObject,
+    responses(
+        (status = 200, description = "Created task action", body = serde_json::Value),
+        (status = 400, description = "Invalid task action payload", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Task not found", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn create_task_action(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -282,6 +456,26 @@ pub async fn create_task_action(
     Ok(Json(public_task_action_response(&state, &user_id, action)))
 }
 
+#[utoipa::path(
+    patch,
+    path = "/tasks/{task_id}/actions/{action_id}",
+    tag = "tasks",
+    params(
+        ("task_id" = String, Path, description = "Task id"),
+        ("action_id" = String, Path, description = "Task action id")
+    ),
+    request_body = crate::api::openapi::GenericJsonObject,
+    responses(
+        (status = 200, description = "Updated task action", body = serde_json::Value),
+        (status = 400, description = "Invalid task action update", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Task or action not found", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn update_task_action(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -299,6 +493,21 @@ pub async fn update_task_action(
     })))
 }
 
+#[utoipa::path(
+    get,
+    path = "/tasks/{task_id}/events",
+    tag = "tasks",
+    params(("task_id" = String, Path, description = "Task id")),
+    responses(
+        (status = 200, description = "Task timeline events", body = serde_json::Value),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Task not found", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn list_task_events(
     State(state): State<AppState>,
     headers: HeaderMap,

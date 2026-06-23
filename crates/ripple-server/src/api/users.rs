@@ -23,11 +23,24 @@ pub(crate) const USER_AVATAR_UPLOAD_BODY_LIMIT_BYTES: usize = 5 * 1024 * 1024;
 const USER_AVATAR_URI_PREFIX: &str = "/v1/users/me/avatar/";
 const USER_AVATAR_FIELD_NAME: &str = "avatar";
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, utoipa::ToSchema)]
 pub struct UserProfileUpdateRequest {
     pub display_name: Option<String>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/users/me",
+    tag = "users",
+    responses(
+        (status = 200, description = "Current user profile, usage, and limits", body = serde_json::Value),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn current_user_profile(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -38,6 +51,23 @@ pub async fn current_user_profile(
     Ok(Json(user_profile_json(&state, &user_id, &auth).await?))
 }
 
+#[utoipa::path(
+    patch,
+    path = "/users/me/profile",
+    tag = "users",
+    request_body = UserProfileUpdateRequest,
+    responses(
+        (status = 200, description = "Updated current user profile", body = serde_json::Value),
+        (status = 400, description = "Invalid profile update", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 403, description = "Profile is read-only for service auth", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "User not found", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn update_current_user_profile(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -67,6 +97,21 @@ pub async fn update_current_user_profile(
     Ok(Json(user_profile_json(&state, &user_id, &auth).await?))
 }
 
+#[utoipa::path(
+    post,
+    path = "/users/me/avatar",
+    tag = "users",
+    request_body(content = crate::api::openapi::GenericJsonObject, content_type = "multipart/form-data"),
+    responses(
+        (status = 200, description = "Updated current user avatar", body = serde_json::Value),
+        (status = 400, description = "Invalid avatar upload", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn upload_user_avatar(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -136,6 +181,22 @@ pub async fn upload_user_avatar(
     Ok(Json(user_profile_json(&state, &user_id, &auth).await?))
 }
 
+#[utoipa::path(
+    get,
+    path = "/users/me/avatar/{file_name}",
+    tag = "users",
+    params(("file_name" = String, Path, description = "Avatar file name")),
+    responses(
+        (status = 200, description = "Current user avatar bytes", body = Vec<u8>, content_type = "application/octet-stream"),
+        (status = 400, description = "Invalid avatar file name", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Avatar not found", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn get_user_avatar(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -165,6 +226,19 @@ pub async fn get_user_avatar(
         .map_err(|err| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/users/me/avatar",
+    tag = "users",
+    responses(
+        (status = 200, description = "Deleted current user avatar", body = serde_json::Value),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn delete_user_avatar(
     State(state): State<AppState>,
     headers: HeaderMap,

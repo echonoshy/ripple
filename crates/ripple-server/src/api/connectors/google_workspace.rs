@@ -63,7 +63,8 @@ struct OAuthIdentity {
     subject: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct GogcliCallbackQuery {
     state: Option<String>,
     code: Option<String>,
@@ -421,6 +422,20 @@ async fn disconnect_all(state: &AppState, user_id: &str) -> Result<Json<Value>, 
     )))
 }
 
+#[utoipa::path(
+    get,
+    path = "/sandboxes/gogcli-accounts",
+    tag = "connectors",
+    params(super::AccountsQuery),
+    responses(
+        (status = 200, description = "Google Workspace account list alias", body = serde_json::Value),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub(crate) async fn gogcli_accounts_alias(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -431,6 +446,13 @@ pub(crate) async fn gogcli_accounts_alias(
     accounts(&state, &user_id, query.check.unwrap_or(false)).await
 }
 
+#[utoipa::path(
+    get,
+    path = "/v1/sandboxes/gogcli/oauth/callback",
+    tag = "connectors",
+    params(GogcliCallbackQuery),
+    responses((status = 200, description = "Google Workspace OAuth callback HTML", body = String, content_type = "text/html"))
+)]
 pub(crate) async fn gogcli_oauth_callback(
     State(state): State<AppState>,
     OriginalUri(uri): OriginalUri,

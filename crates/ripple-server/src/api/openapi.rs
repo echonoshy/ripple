@@ -25,9 +25,19 @@ use utoipa_swagger_ui::{Config, SwaggerUi, Url};
     ),
     tags(
         (name = "health", description = "Server health and readiness endpoints"),
+        (name = "auth", description = "Browser user authentication endpoints"),
         (name = "models", description = "Model and runtime metadata"),
         (name = "chat", description = "OpenAI-compatible chat bridge"),
+        (name = "sessions", description = "Ripple session lifecycle endpoints"),
+        (name = "tasks", description = "Task and task action endpoints"),
+        (name = "task-triggers", description = "Task trigger scheduling endpoints"),
         (name = "runs", description = "Codex run lifecycle endpoints"),
+        (name = "users", description = "Current user profile and usage endpoints"),
+        (name = "sandboxes", description = "User sandbox management endpoints"),
+        (name = "workspace", description = "Workspace filesystem endpoints"),
+        (name = "documents", description = "Workspace document catalog endpoints"),
+        (name = "capabilities", description = "Unified runtime capability catalog"),
+        (name = "skills", description = "User and shared skill endpoints"),
         (name = "connectors", description = "User connector management endpoints")
     ),
     modifiers(&SecurityAddon)

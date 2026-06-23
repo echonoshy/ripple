@@ -24,11 +24,27 @@ use crate::workspace as ws;
 
 pub const WORKSPACE_UPLOAD_BODY_LIMIT_BYTES: usize = 128 * 1024 * 1024;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct WorkspacePathQuery {
     path: Option<String>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/workspace",
+    tag = "workspace",
+    params(WorkspacePathQuery),
+    responses(
+        (status = 200, description = "Workspace directory listing", body = serde_json::Value),
+        (status = 400, description = "Invalid workspace path", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn list_workspace(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -43,7 +59,8 @@ pub async fn list_workspace(
     ))
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct SearchQuery {
     q: Option<String>,
     limit: Option<usize>,
@@ -54,6 +71,21 @@ pub struct SearchQuery {
     max_file_bytes: Option<u64>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/workspace/search",
+    tag = "workspace",
+    params(SearchQuery),
+    responses(
+        (status = 200, description = "Workspace search result", body = serde_json::Value),
+        (status = 400, description = "Invalid search filter", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn search_workspace(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -101,12 +133,29 @@ fn validate_search_filter(name: &str, value: &str, allowed: &[&str]) -> Result<(
     )))
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct FileQuery {
     path: String,
     limit: Option<usize>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/workspace/file",
+    tag = "workspace",
+    params(FileQuery),
+    responses(
+        (status = 200, description = "Text file preview", body = serde_json::Value),
+        (status = 400, description = "Invalid workspace file path", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Sandbox or file not found", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn get_workspace_file(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -133,6 +182,23 @@ pub struct SaveFileInput {
     expected_modified_at: Option<String>,
 }
 
+#[utoipa::path(
+    put,
+    path = "/workspace/file",
+    tag = "workspace",
+    request_body = crate::api::openapi::GenericJsonObject,
+    responses(
+        (status = 200, description = "Saved text file preview", body = serde_json::Value),
+        (status = 400, description = "Invalid save payload or path", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Sandbox not found", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 409, description = "Save conflict", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn save_workspace_file(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -183,6 +249,21 @@ pub struct RenameInput {
     name: String,
 }
 
+#[utoipa::path(
+    post,
+    path = "/workspace/rename",
+    tag = "workspace",
+    request_body = crate::api::openapi::GenericJsonObject,
+    responses(
+        (status = 200, description = "Renamed workspace entry", body = serde_json::Value),
+        (status = 400, description = "Invalid rename payload or path", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn rename_workspace(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -197,7 +278,8 @@ pub async fn rename_workspace(
     ))
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct DownloadQuery {
     path: String,
 }
@@ -294,6 +376,23 @@ fn content_disposition_header(disposition_type: &str, filename: &str) -> HeaderV
     .unwrap_or_else(|_| HeaderValue::from_static("attachment"))
 }
 
+#[utoipa::path(
+    get,
+    path = "/workspace/download",
+    tag = "workspace",
+    params(DownloadQuery),
+    responses(
+        (status = 200, description = "Workspace file download", body = Vec<u8>, content_type = "application/octet-stream"),
+        (status = 304, description = "Workspace file not modified"),
+        (status = 400, description = "Invalid download path", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Workspace file not found", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn download_workspace_file(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -339,6 +438,23 @@ pub async fn download_workspace_file(
     Ok(response)
 }
 
+#[utoipa::path(
+    get,
+    path = "/workspace/preview",
+    tag = "workspace",
+    params(DownloadQuery),
+    responses(
+        (status = 200, description = "Workspace document preview PDF", body = Vec<u8>, content_type = "application/pdf"),
+        (status = 304, description = "Workspace preview not modified"),
+        (status = 400, description = "Invalid preview path", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Workspace preview not found", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn preview_workspace_file(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -378,6 +494,22 @@ pub async fn preview_workspace_file(
     Ok(response)
 }
 
+#[utoipa::path(
+    post,
+    path = "/workspace/attachments",
+    tag = "workspace",
+    request_body(content = crate::api::openapi::GenericJsonObject, content_type = "multipart/form-data"),
+    responses(
+        (status = 200, description = "Uploaded chat attachment into workspace", body = serde_json::Value),
+        (status = 400, description = "Invalid upload", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 409, description = "Upload conflict or quota limit", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn upload_workspace_attachment(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -386,6 +518,22 @@ pub async fn upload_workspace_attachment(
     save_workspace_attachment(state, headers, multipart).await
 }
 
+#[utoipa::path(
+    post,
+    path = "/workspace/upload",
+    tag = "workspace",
+    request_body(content = crate::api::openapi::GenericJsonObject, content_type = "multipart/form-data"),
+    responses(
+        (status = 200, description = "Uploaded files into workspace", body = serde_json::Value),
+        (status = 400, description = "Invalid upload", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 409, description = "Upload conflict or quota limit", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn upload_workspace_files(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -650,6 +798,23 @@ pub struct DeleteInput {
     confirm: bool,
 }
 
+#[utoipa::path(
+    post,
+    path = "/workspace/delete",
+    tag = "workspace",
+    request_body = crate::api::openapi::GenericJsonObject,
+    responses(
+        (status = 200, description = "Deleted workspace entry"),
+        (status = 400, description = "Invalid delete payload or path", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Sandbox or entry not found", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 428, description = "Confirmation required", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn delete_workspace(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -681,6 +846,21 @@ pub struct CreateInput {
     kind: String, // "file" | "directory"
 }
 
+#[utoipa::path(
+    post,
+    path = "/workspace/create",
+    tag = "workspace",
+    request_body = crate::api::openapi::GenericJsonObject,
+    responses(
+        (status = 200, description = "Created workspace file or directory", body = serde_json::Value),
+        (status = 400, description = "Invalid create payload or path", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn create_workspace(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -718,6 +898,22 @@ pub struct PasteInput {
     action: String, // "move" | "copy"
 }
 
+#[utoipa::path(
+    post,
+    path = "/workspace/paste",
+    tag = "workspace",
+    request_body = crate::api::openapi::GenericJsonObject,
+    responses(
+        (status = 200, description = "Moved or copied workspace entry", body = serde_json::Value),
+        (status = 400, description = "Invalid paste payload or path", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 409, description = "Paste conflict or quota limit", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn paste_workspace(
     State(state): State<AppState>,
     headers: HeaderMap,

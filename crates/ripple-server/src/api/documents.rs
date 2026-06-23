@@ -35,7 +35,8 @@ struct DocumentRecord {
     last_modified_at: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct DocumentListQuery {
     q: Option<String>,
     limit: Option<usize>,
@@ -67,6 +68,20 @@ where
     Option::<T>::deserialize(deserializer).map(Some)
 }
 
+#[utoipa::path(
+    get,
+    path = "/documents",
+    tag = "documents",
+    params(DocumentListQuery),
+    responses(
+        (status = 200, description = "Paginated document list", body = serde_json::Value),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn list_documents(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -102,6 +117,22 @@ pub async fn list_documents(
     })))
 }
 
+#[utoipa::path(
+    post,
+    path = "/documents",
+    tag = "documents",
+    request_body = crate::api::openapi::GenericJsonObject,
+    responses(
+        (status = 200, description = "Created document record", body = serde_json::Value),
+        (status = 400, description = "Invalid document create payload", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Workspace file not found", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn create_document(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -149,6 +180,21 @@ pub async fn create_document(
     ))
 }
 
+#[utoipa::path(
+    get,
+    path = "/documents/{document_id}",
+    tag = "documents",
+    params(("document_id" = String, Path, description = "Document id")),
+    responses(
+        (status = 200, description = "Document record", body = serde_json::Value),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Document not found", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn get_document(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -163,6 +209,23 @@ pub async fn get_document(
     ))
 }
 
+#[utoipa::path(
+    patch,
+    path = "/documents/{document_id}",
+    tag = "documents",
+    params(("document_id" = String, Path, description = "Document id")),
+    request_body = crate::api::openapi::GenericJsonObject,
+    responses(
+        (status = 200, description = "Updated document record", body = serde_json::Value),
+        (status = 400, description = "Invalid document update payload", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Document not found", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn update_document(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -200,6 +263,21 @@ pub async fn update_document(
     ))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/documents/{document_id}",
+    tag = "documents",
+    params(("document_id" = String, Path, description = "Document id")),
+    responses(
+        (status = 200, description = "Deleted document record", body = serde_json::Value),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Document not found", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn delete_document(
     State(state): State<AppState>,
     headers: HeaderMap,

@@ -18,7 +18,7 @@ use crate::user::user_id_from_headers;
 
 mod bilibili;
 mod feishu;
-mod google_workspace;
+pub(crate) mod google_workspace;
 
 #[cfg(test)]
 use bilibili::parse_bilibili_cookie_fields_from_crossdomain_url;
@@ -28,7 +28,6 @@ use bilibili::{
     bilibili_verify_credential_live,
 };
 pub(crate) use feishu::cancel_setup as cancel_feishu_setup;
-pub(crate) use google_workspace::{gogcli_accounts_alias, gogcli_oauth_callback};
 
 const BILIBILI_QRCODE_TTL_SECONDS: u64 = 180;
 const BILIBILI_PENDING_TTL_SECONDS: u64 = 600;

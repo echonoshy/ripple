@@ -25,7 +25,9 @@
 - `GET /docs` 提供 Swagger UI，默认读取 `/openapi.json`。
 - `server.api_docs.enabled` 可关闭文档入口；`server.api_docs.try_it_out_enabled` 控制 Swagger UI 是否默认展开 Try it out。
 - 文档入口不包含 API key，受保护 `/v1` API 的鉴权行为不变。
-- 当前优先自动覆盖 health、models/info、chat、runs 和 connector 管理接口。仍返回 `Json<Value>` 的响应会先以宽松 JSON schema 表达，后续类型化 response struct 后 schema 会进一步自动同步。
+- `/docs` 随当前 Rust 路由和 `#[utoipa::path]` annotation 在构建时生成；服务启动后会展示最新 `/openapi.json`，不维护手写静态 Swagger 文件。
+- 当前 `/docs` 覆盖 `api/mod.rs` 注册的公开和受保护接口，包括 auth、health、models/info、chat、sessions、tasks/task triggers、runs、users、sandboxes、workspace、documents、capabilities、skills 和 connector 管理接口。仍返回 `Json<Value>` 的响应会先以宽松 JSON schema 表达，后续类型化 response struct 后 schema 会进一步自动同步。
+- 新增后端接口时，应使用 `utoipa_axum::routes!(...)` 注册并补 `#[utoipa::path]` annotation；普通 `.route(...)` 只会注册服务路由，不会自动进入 OpenAPI。`api_smoke` 中的 OpenAPI 覆盖测试会校验当前主接口清单是否出现在 `/openapi.json`。
 
 ## Errors
 

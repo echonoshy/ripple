@@ -7,6 +7,19 @@ use crate::api::{audit_event, require_confirm, ApiError};
 use crate::state::AppState;
 use crate::user::user_id_from_headers;
 
+#[utoipa::path(
+    post,
+    path = "/sandboxes",
+    tag = "sandboxes",
+    responses(
+        (status = 200, description = "Created or ensured current user sandbox", body = serde_json::Value),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn create_sandbox(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -21,6 +34,20 @@ pub async fn create_sandbox(
     ))
 }
 
+#[utoipa::path(
+    get,
+    path = "/sandboxes",
+    tag = "sandboxes",
+    responses(
+        (status = 200, description = "Current user sandbox summary", body = serde_json::Value),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Sandbox not found", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn get_sandbox(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -36,6 +63,23 @@ pub async fn get_sandbox(
     ))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/sandboxes",
+    tag = "sandboxes",
+    request_body = crate::api::openapi::ConfirmationRequest,
+    responses(
+        (status = 200, description = "Deleted current user sandbox and data", body = serde_json::Value),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Sandbox not found", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 409, description = "Sandbox deletion conflict", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 428, description = "Confirmation required", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn delete_sandbox(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -73,6 +117,19 @@ pub async fn delete_sandbox(
     }
 }
 
+#[utoipa::path(
+    get,
+    path = "/sandbox/info",
+    tag = "sandboxes",
+    responses(
+        (status = 200, description = "Sandbox model and security posture", body = serde_json::Value),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn sandbox_info(State(state): State<AppState>) -> Json<Value> {
     let has_configured_workspaces_root = state.config.sandbox.workspaces_root.is_some();
     let workspaces_root = if has_configured_workspaces_root {

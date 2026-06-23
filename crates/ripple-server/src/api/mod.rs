@@ -26,7 +26,6 @@ use axum::extract::{DefaultBodyLimit, State};
 use axum::http::{HeaderValue, Request, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, patch, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -155,155 +154,116 @@ fn now_iso() -> String {
 }
 
 pub fn router(state: AppState) -> Router {
-    let public_v1 = Router::new()
-        .route("/auth/config", get(auth::auth_config))
-        .route("/auth/invite/claim", post(auth::claim_invite))
-        .route("/auth/login", post(auth::login))
-        .route("/auth/logout", post(auth::logout))
-        .route("/auth/password", post(auth::change_password));
+    let public_v1: OpenApiRouter<AppState> = OpenApiRouter::new()
+        .routes(utoipa_axum::routes!(auth::auth_config))
+        .routes(utoipa_axum::routes!(auth::claim_invite))
+        .routes(utoipa_axum::routes!(auth::login))
+        .routes(utoipa_axum::routes!(auth::logout))
+        .routes(utoipa_axum::routes!(auth::change_password));
 
     let protected_v1: OpenApiRouter<AppState> = OpenApiRouter::new()
         .routes(utoipa_axum::routes!(models::list_models))
         .routes(utoipa_axum::routes!(models::codex_runtime_info))
         .routes(utoipa_axum::routes!(models::system_info))
-        .route("/tasks", get(tasks::list_tasks).post(tasks::create_task))
-        .route(
-            "/tasks/:task_id",
-            get(tasks::get_task)
-                .patch(tasks::update_task)
-                .delete(tasks::cancel_task),
-        )
-        .route("/tasks/:task_id/delete", post(tasks::delete_task))
-        .route("/tasks/:task_id/confirm", post(tasks::confirm_task))
-        .route("/tasks/:task_id/run-now", post(tasks::run_task_now))
-        .route("/task-triggers", get(task_triggers::list_all_task_triggers))
-        .route(
-            "/tasks/:task_id/actions",
-            get(tasks::list_task_actions).post(tasks::create_task_action),
-        )
-        .route(
-            "/tasks/:task_id/actions/:action_id",
-            patch(tasks::update_task_action),
-        )
-        .route(
-            "/tasks/:task_id/actions/:action_id/triggers",
-            post(task_triggers::create_task_action_trigger),
-        )
-        .route(
-            "/tasks/:task_id/triggers",
-            get(task_triggers::list_task_triggers).post(task_triggers::create_task_trigger),
-        )
-        .route(
-            "/tasks/:task_id/triggers/:trigger_id",
-            patch(task_triggers::update_task_trigger).delete(task_triggers::delete_task_trigger),
-        )
-        .route(
-            "/tasks/:task_id/triggers/:trigger_id/run-now",
-            post(task_triggers::run_task_trigger_now),
-        )
-        .route("/tasks/:task_id/events", get(tasks::list_task_events))
+        .routes(utoipa_axum::routes!(tasks::list_tasks, tasks::create_task))
+        .routes(utoipa_axum::routes!(
+            tasks::get_task,
+            tasks::update_task,
+            tasks::cancel_task
+        ))
+        .routes(utoipa_axum::routes!(tasks::delete_task))
+        .routes(utoipa_axum::routes!(tasks::confirm_task))
+        .routes(utoipa_axum::routes!(tasks::run_task_now))
+        .routes(utoipa_axum::routes!(task_triggers::list_all_task_triggers))
+        .routes(utoipa_axum::routes!(
+            tasks::list_task_actions,
+            tasks::create_task_action
+        ))
+        .routes(utoipa_axum::routes!(tasks::update_task_action))
+        .routes(utoipa_axum::routes!(
+            task_triggers::create_task_action_trigger
+        ))
+        .routes(utoipa_axum::routes!(
+            task_triggers::list_task_triggers,
+            task_triggers::create_task_trigger
+        ))
+        .routes(utoipa_axum::routes!(
+            task_triggers::update_task_trigger,
+            task_triggers::delete_task_trigger
+        ))
+        .routes(utoipa_axum::routes!(task_triggers::run_task_trigger_now))
+        .routes(utoipa_axum::routes!(tasks::list_task_events))
         .routes(utoipa_axum::routes!(chat::create_response))
         .routes(utoipa_axum::routes!(health::ready))
         .routes(utoipa_axum::routes!(health::doctor))
-        .route("/users/me", get(users::current_user_profile))
-        .route(
-            "/users/me/profile",
-            patch(users::update_current_user_profile),
-        )
-        .route(
-            "/users/me/avatar",
-            post(users::upload_user_avatar)
-                .delete(users::delete_user_avatar)
-                .layer(DefaultBodyLimit::max(
+        .routes(utoipa_axum::routes!(users::current_user_profile))
+        .routes(utoipa_axum::routes!(users::update_current_user_profile))
+        .merge(
+            OpenApiRouter::new()
+                .routes(utoipa_axum::routes!(
+                    users::upload_user_avatar,
+                    users::delete_user_avatar
+                ))
+                .route_layer(DefaultBodyLimit::max(
                     users::USER_AVATAR_UPLOAD_BODY_LIMIT_BYTES,
                 )),
         )
-        .route("/users/me/avatar/:file_name", get(users::get_user_avatar))
-        .route(
-            "/sessions",
-            get(sessions::list_sessions).post(sessions::create_session),
-        )
-        .route("/sessions/overview", get(sessions::session_overview))
-        .route(
-            "/sessions/suspended",
-            get(sessions::list_suspended_sessions),
-        )
-        .route(
-            "/sessions/:session_id",
-            get(sessions::get_session)
-                .patch(sessions::update_session)
-                .delete(sessions::delete_session),
-        )
-        .route(
-            "/sessions/:session_id/tasks",
-            get(tasks::list_session_tasks),
-        )
-        .route("/sessions/:session_id/stop", post(sessions::stop_session))
-        .route(
-            "/sessions/:session_id/context/clear",
-            post(sessions::clear_session_context),
-        )
-        .route(
-            "/sessions/:session_id/context/compact",
-            post(sessions::compact_session_context),
-        )
-        .route(
-            "/sessions/:session_id/codex-thread",
-            get(sessions::get_session_codex_thread),
-        )
-        .route(
-            "/sessions/:session_id/suspend",
-            post(sessions::suspend_session),
-        )
-        .route(
-            "/sessions/:session_id/resume",
-            post(sessions::resume_session),
-        )
-        .route(
-            "/sessions/:session_id/permissions/resolve",
-            post(sessions::resolve_permission_request),
-        )
-        .route(
-            "/sessions/:session_id/user-input/resolve",
-            post(sessions::resolve_user_input_request),
-        )
+        .routes(utoipa_axum::routes!(users::get_user_avatar))
+        .routes(utoipa_axum::routes!(
+            sessions::list_sessions,
+            sessions::create_session
+        ))
+        .routes(utoipa_axum::routes!(sessions::session_overview))
+        .routes(utoipa_axum::routes!(sessions::list_suspended_sessions))
+        .routes(utoipa_axum::routes!(
+            sessions::get_session,
+            sessions::update_session,
+            sessions::delete_session
+        ))
+        .routes(utoipa_axum::routes!(tasks::list_session_tasks))
+        .routes(utoipa_axum::routes!(sessions::stop_session))
+        .routes(utoipa_axum::routes!(sessions::clear_session_context))
+        .routes(utoipa_axum::routes!(sessions::compact_session_context))
+        .routes(utoipa_axum::routes!(sessions::get_session_codex_thread))
+        .routes(utoipa_axum::routes!(sessions::suspend_session))
+        .routes(utoipa_axum::routes!(sessions::resume_session))
+        .routes(utoipa_axum::routes!(sessions::resolve_permission_request))
+        .routes(utoipa_axum::routes!(sessions::resolve_user_input_request))
         .routes(utoipa_axum::routes!(chat::poll_session_connector_auth))
         .routes(utoipa_axum::routes!(sessions::cancel_connector_auth))
-        .route("/sessions/:session_id/usage", get(sessions::session_usage))
-        .route(
-            "/sandboxes",
-            get(sandboxes::get_sandbox)
-                .post(sandboxes::create_sandbox)
-                .delete(sandboxes::delete_sandbox),
+        .routes(utoipa_axum::routes!(sessions::session_usage))
+        .routes(utoipa_axum::routes!(
+            sandboxes::get_sandbox,
+            sandboxes::create_sandbox,
+            sandboxes::delete_sandbox
+        ))
+        .routes(utoipa_axum::routes!(sandboxes::sandbox_info))
+        .routes(utoipa_axum::routes!(workspace::list_workspace))
+        .routes(utoipa_axum::routes!(workspace::search_workspace))
+        .routes(utoipa_axum::routes!(
+            workspace::get_workspace_file,
+            workspace::save_workspace_file
+        ))
+        .routes(utoipa_axum::routes!(workspace::rename_workspace))
+        .routes(utoipa_axum::routes!(workspace::delete_workspace))
+        .routes(utoipa_axum::routes!(workspace::create_workspace))
+        .routes(utoipa_axum::routes!(workspace::paste_workspace))
+        .merge(
+            OpenApiRouter::new()
+                .routes(utoipa_axum::routes!(workspace::upload_workspace_files))
+                .route_layer(DefaultBodyLimit::max(
+                    workspace::WORKSPACE_UPLOAD_BODY_LIMIT_BYTES,
+                )),
         )
-        .route("/sandbox/info", get(sandboxes::sandbox_info))
-        .route("/workspace", get(workspace::list_workspace))
-        .route("/workspace/search", get(workspace::search_workspace))
-        .route(
-            "/workspace/file",
-            get(workspace::get_workspace_file).put(workspace::save_workspace_file),
+        .merge(
+            OpenApiRouter::new()
+                .routes(utoipa_axum::routes!(workspace::upload_workspace_attachment))
+                .route_layer(DefaultBodyLimit::max(
+                    workspace::WORKSPACE_UPLOAD_BODY_LIMIT_BYTES,
+                )),
         )
-        .route("/workspace/rename", post(workspace::rename_workspace))
-        .route("/workspace/delete", post(workspace::delete_workspace))
-        .route("/workspace/create", post(workspace::create_workspace))
-        .route("/workspace/paste", post(workspace::paste_workspace))
-        .route(
-            "/workspace/upload",
-            post(workspace::upload_workspace_files).layer(DefaultBodyLimit::max(
-                workspace::WORKSPACE_UPLOAD_BODY_LIMIT_BYTES,
-            )),
-        )
-        .route(
-            "/workspace/attachments",
-            post(workspace::upload_workspace_attachment).layer(DefaultBodyLimit::max(
-                workspace::WORKSPACE_UPLOAD_BODY_LIMIT_BYTES,
-            )),
-        )
-        .route(
-            "/workspace/download",
-            get(workspace::download_workspace_file),
-        )
-        .route("/workspace/preview", get(workspace::preview_workspace_file))
+        .routes(utoipa_axum::routes!(workspace::download_workspace_file))
+        .routes(utoipa_axum::routes!(workspace::preview_workspace_file))
         .routes(utoipa_axum::routes!(capabilities::list_capabilities))
         .routes(utoipa_axum::routes!(skills::list_skills))
         .routes(utoipa_axum::routes!(skills::get_skill))
@@ -318,39 +278,36 @@ pub fn router(state: AppState) -> Router {
         .routes(utoipa_axum::routes!(connectors::connector_auth_cancel))
         .routes(utoipa_axum::routes!(connectors::connector_disconnect))
         .routes(utoipa_axum::routes!(connectors::connector_accounts))
-        .route(
-            "/sandboxes/gogcli-accounts",
-            get(connectors::gogcli_accounts_alias),
-        )
+        .routes(utoipa_axum::routes!(
+            connectors::google_workspace::gogcli_accounts_alias
+        ))
         .routes(utoipa_axum::routes!(runs::list_runs, runs::create_run))
         .routes(utoipa_axum::routes!(runs::get_run))
         .routes(utoipa_axum::routes!(runs::run_events))
         .routes(utoipa_axum::routes!(runs::run_output))
         .routes(utoipa_axum::routes!(runs::steer_run))
         .routes(utoipa_axum::routes!(runs::cancel_run))
-        .route(
-            "/documents",
-            get(documents::list_documents).post(documents::create_document),
-        )
-        .route(
-            "/documents/:document_id",
-            get(documents::get_document)
-                .patch(documents::update_document)
-                .delete(documents::delete_document),
-        )
+        .routes(utoipa_axum::routes!(
+            documents::list_documents,
+            documents::create_document
+        ))
+        .routes(utoipa_axum::routes!(
+            documents::get_document,
+            documents::update_document,
+            documents::delete_document
+        ))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             require_api_key,
         ));
 
-    let v1: OpenApiRouter<AppState> = OpenApiRouter::from(public_v1).merge(protected_v1);
+    let v1: OpenApiRouter<AppState> = public_v1.merge(protected_v1);
     let root: OpenApiRouter<AppState> = OpenApiRouter::with_openapi(openapi::base_openapi())
         .routes(utoipa_axum::routes!(health::health))
-        .route("/v1/bilibili/qrcode.png", get(bilibili::qrcode_png))
-        .route(
-            "/v1/sandboxes/gogcli/oauth/callback",
-            get(connectors::gogcli_oauth_callback),
-        )
+        .routes(utoipa_axum::routes!(bilibili::qrcode_png))
+        .routes(utoipa_axum::routes!(
+            connectors::google_workspace::gogcli_oauth_callback
+        ))
         .nest("/v1", v1);
     let (mut router, openapi) = root.split_for_parts();
     if state.config.api_docs.enabled {

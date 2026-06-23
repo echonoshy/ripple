@@ -348,6 +348,24 @@ pub struct TaskTriggerUpdateInput {
     failure_policy: Option<String>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/tasks/{task_id}/triggers",
+    tag = "task-triggers",
+    params(
+        ("task_id" = String, Path, description = "Task id"),
+        crate::api::ListQuery
+    ),
+    responses(
+        (status = 200, description = "Paginated task trigger list for one task", body = serde_json::Value),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Task not found", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn list_task_triggers(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -388,6 +406,20 @@ pub async fn list_task_triggers(
     })))
 }
 
+#[utoipa::path(
+    get,
+    path = "/task-triggers",
+    tag = "task-triggers",
+    params(crate::api::ListQuery),
+    responses(
+        (status = 200, description = "Paginated task trigger list for current user", body = serde_json::Value),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn list_all_task_triggers(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -431,6 +463,26 @@ pub async fn list_all_task_triggers(
     })))
 }
 
+#[utoipa::path(
+    post,
+    path = "/tasks/{task_id}/actions/{action_id}/triggers",
+    tag = "task-triggers",
+    params(
+        ("task_id" = String, Path, description = "Task id"),
+        ("action_id" = String, Path, description = "Task action id")
+    ),
+    request_body = crate::api::openapi::GenericJsonObject,
+    responses(
+        (status = 200, description = "Created task action trigger", body = serde_json::Value),
+        (status = 400, description = "Invalid trigger payload", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Task or action not found", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn create_task_action_trigger(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -490,6 +542,23 @@ pub async fn create_task_action_trigger(
     Ok(Json(public_task_trigger_from_record_value(trigger)))
 }
 
+#[utoipa::path(
+    post,
+    path = "/tasks/{task_id}/triggers",
+    tag = "task-triggers",
+    params(("task_id" = String, Path, description = "Task id")),
+    request_body = crate::api::openapi::GenericJsonObject,
+    responses(
+        (status = 200, description = "Created task trigger", body = serde_json::Value),
+        (status = 400, description = "Invalid trigger payload", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Task not found", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn create_task_trigger(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -594,6 +663,26 @@ pub(crate) async fn create_task_trigger_for_user(
     Ok(public_task_trigger_record_value(state, user_id, &record))
 }
 
+#[utoipa::path(
+    patch,
+    path = "/tasks/{task_id}/triggers/{trigger_id}",
+    tag = "task-triggers",
+    params(
+        ("task_id" = String, Path, description = "Task id"),
+        ("trigger_id" = String, Path, description = "Task trigger id")
+    ),
+    request_body = crate::api::openapi::GenericJsonObject,
+    responses(
+        (status = 200, description = "Updated task trigger", body = serde_json::Value),
+        (status = 400, description = "Invalid trigger update", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Task trigger not found", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn update_task_trigger(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -726,6 +815,24 @@ pub async fn update_task_trigger(
     Ok(Json(public_task_trigger_value(&state, &user_id, &record)))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/tasks/{task_id}/triggers/{trigger_id}",
+    tag = "task-triggers",
+    params(
+        ("task_id" = String, Path, description = "Task id"),
+        ("trigger_id" = String, Path, description = "Task trigger id")
+    ),
+    responses(
+        (status = 200, description = "Deleted task trigger", body = serde_json::Value),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Task trigger not found", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn delete_task_trigger(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -754,6 +861,26 @@ pub async fn delete_task_trigger(
     })))
 }
 
+#[utoipa::path(
+    post,
+    path = "/tasks/{task_id}/triggers/{trigger_id}/run-now",
+    tag = "task-triggers",
+    params(
+        ("task_id" = String, Path, description = "Task id"),
+        ("trigger_id" = String, Path, description = "Task trigger id")
+    ),
+    responses(
+        (status = 200, description = "Started task trigger run", body = serde_json::Value),
+        (status = 400, description = "Trigger cannot be run", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Task trigger not found", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 409, description = "Trigger dependencies are not ready", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn run_task_trigger_now(
     State(state): State<AppState>,
     headers: HeaderMap,

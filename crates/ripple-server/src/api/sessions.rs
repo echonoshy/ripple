@@ -83,6 +83,20 @@ struct SessionOverviewRun {
     prompt_preview: Option<String>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/sessions",
+    tag = "sessions",
+    params(crate::api::ListQuery),
+    responses(
+        (status = 200, description = "Paginated session list", body = serde_json::Value),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn list_sessions(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -105,6 +119,19 @@ pub async fn list_sessions(
     })))
 }
 
+#[utoipa::path(
+    get,
+    path = "/sessions/overview",
+    tag = "sessions",
+    responses(
+        (status = 200, description = "Session overview grouped for clients", body = serde_json::Value),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn session_overview(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -358,6 +385,21 @@ fn truncate_preview(value: &str, max_chars: usize) -> String {
     out
 }
 
+#[utoipa::path(
+    post,
+    path = "/sessions",
+    tag = "sessions",
+    request_body = crate::api::openapi::GenericJsonObject,
+    responses(
+        (status = 200, description = "Created session", body = serde_json::Value),
+        (status = 400, description = "Invalid session request", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn create_session(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -380,6 +422,21 @@ pub async fn create_session(
     ))
 }
 
+#[utoipa::path(
+    get,
+    path = "/sessions/{session_id}",
+    tag = "sessions",
+    params(("session_id" = String, Path, description = "Session id")),
+    responses(
+        (status = 200, description = "Session detail", body = serde_json::Value),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Session not found", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn get_session(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -531,6 +588,23 @@ fn append_image_blocks_to_session_detail(
     }
 }
 
+#[utoipa::path(
+    patch,
+    path = "/sessions/{session_id}",
+    tag = "sessions",
+    params(("session_id" = String, Path, description = "Session id")),
+    request_body = crate::api::openapi::GenericJsonObject,
+    responses(
+        (status = 200, description = "Updated session metadata", body = serde_json::Value),
+        (status = 400, description = "Invalid session update", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Session not found", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn update_session(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -582,6 +656,21 @@ pub async fn update_session(
     ))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/sessions/{session_id}",
+    tag = "sessions",
+    params(("session_id" = String, Path, description = "Session id")),
+    responses(
+        (status = 200, description = "Deleted session", body = serde_json::Value),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Session not found", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn delete_session(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -613,6 +702,22 @@ pub async fn delete_session(
     }
 }
 
+#[utoipa::path(
+    post,
+    path = "/sessions/{session_id}/context/clear",
+    tag = "sessions",
+    params(("session_id" = String, Path, description = "Session id")),
+    responses(
+        (status = 200, description = "Cleared session context", body = serde_json::Value),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Session not found", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 409, description = "Session is currently running", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn clear_session_context(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -668,6 +773,22 @@ async fn archive_session_codex_thread(
         .is_ok()
 }
 
+#[utoipa::path(
+    post,
+    path = "/sessions/{session_id}/context/compact",
+    tag = "sessions",
+    params(("session_id" = String, Path, description = "Session id")),
+    responses(
+        (status = 200, description = "Started context compaction", body = serde_json::Value),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Session not found", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 409, description = "Session cannot be compacted", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn compact_session_context(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -755,6 +876,22 @@ fn session_cwd_for_context_folder(workspace_root: &FsPath, session: &SessionReco
     workspace_root.to_path_buf()
 }
 
+#[utoipa::path(
+    get,
+    path = "/sessions/{session_id}/codex-thread",
+    tag = "sessions",
+    params(("session_id" = String, Path, description = "Session id")),
+    responses(
+        (status = 200, description = "Session Codex thread", body = serde_json::Value),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Session not found", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 409, description = "Session has no readable Codex thread", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn get_session_codex_thread(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -795,6 +932,21 @@ pub async fn get_session_codex_thread(
     })))
 }
 
+#[utoipa::path(
+    post,
+    path = "/sessions/{session_id}/stop",
+    tag = "sessions",
+    params(("session_id" = String, Path, description = "Session id")),
+    responses(
+        (status = 200, description = "Stopped current session work if present", body = serde_json::Value),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Session not found", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn stop_session(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -918,6 +1070,21 @@ async fn cancel_connector_runtime_if_needed(
     }
 }
 
+#[utoipa::path(
+    post,
+    path = "/sessions/{session_id}/suspend",
+    tag = "sessions",
+    params(("session_id" = String, Path, description = "Session id")),
+    responses(
+        (status = 200, description = "Suspended session", body = serde_json::Value),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Session not found or already suspended", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn suspend_session(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -941,6 +1108,21 @@ pub async fn suspend_session(
     })))
 }
 
+#[utoipa::path(
+    post,
+    path = "/sessions/{session_id}/resume",
+    tag = "sessions",
+    params(("session_id" = String, Path, description = "Session id")),
+    responses(
+        (status = 200, description = "Resumed session", body = serde_json::Value),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Suspended session not found", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn resume_session(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -960,6 +1142,19 @@ pub async fn resume_session(
     ))
 }
 
+#[utoipa::path(
+    get,
+    path = "/sessions/suspended",
+    tag = "sessions",
+    responses(
+        (status = 200, description = "Suspended session list", body = serde_json::Value),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn list_suspended_sessions(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -992,6 +1187,24 @@ pub struct UserInputResolveInput {
     request_id: Option<Value>,
 }
 
+#[utoipa::path(
+    post,
+    path = "/sessions/{session_id}/user-input/resolve",
+    tag = "sessions",
+    params(("session_id" = String, Path, description = "Session id")),
+    request_body = crate::api::openapi::GenericJsonObject,
+    responses(
+        (status = 200, description = "Resolved pending user-input request", body = serde_json::Value),
+        (status = 400, description = "Invalid resolve payload", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Session or run not found", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 409, description = "No active user-input request", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn resolve_user_input_request(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1137,6 +1350,24 @@ fn answer_scalar_string(value: &Value) -> Option<String> {
     }
 }
 
+#[utoipa::path(
+    post,
+    path = "/sessions/{session_id}/permissions/resolve",
+    tag = "sessions",
+    params(("session_id" = String, Path, description = "Session id")),
+    request_body = crate::api::openapi::GenericJsonObject,
+    responses(
+        (status = 200, description = "Resolved pending permission request", body = serde_json::Value),
+        (status = 400, description = "Invalid resolve payload", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Session or run not found", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 409, description = "No active permission request", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn resolve_permission_request(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1220,6 +1451,21 @@ async fn finalize_resolved_permission_session(
     }
 }
 
+#[utoipa::path(
+    get,
+    path = "/sessions/{session_id}/usage",
+    tag = "sessions",
+    params(("session_id" = String, Path, description = "Session id")),
+    responses(
+        (status = 200, description = "Session token usage snapshot", body = serde_json::Value),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Session not found", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
 pub async fn session_usage(
     State(state): State<AppState>,
     headers: HeaderMap,

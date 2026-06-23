@@ -8,7 +8,7 @@ use crate::api::ApiError;
 use crate::auth;
 use crate::state::AppState;
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, utoipa::ToSchema)]
 pub struct AuthClaimRequest {
     pub invite_code: String,
     pub login: String,
@@ -16,18 +16,24 @@ pub struct AuthClaimRequest {
     pub display_name: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, utoipa::ToSchema)]
 pub struct AuthLoginRequest {
     pub login: String,
     pub password: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, utoipa::ToSchema)]
 pub struct AuthPasswordChangeRequest {
     pub current_password: String,
     pub new_password: String,
 }
 
+#[utoipa::path(
+    get,
+    path = "/auth/config",
+    tag = "auth",
+    responses((status = 200, description = "User-auth configuration", body = serde_json::Value))
+)]
 pub async fn auth_config(State(state): State<AppState>) -> Json<Value> {
     Json(json!({
         "user_auth": {
@@ -38,6 +44,17 @@ pub async fn auth_config(State(state): State<AppState>) -> Json<Value> {
     }))
 }
 
+#[utoipa::path(
+    post,
+    path = "/auth/invite/claim",
+    tag = "auth",
+    request_body = AuthClaimRequest,
+    responses(
+        (status = 200, description = "Created user session token", body = serde_json::Value),
+        (status = 400, description = "Invalid invite claim", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "User auth is disabled", body = crate::api::openapi::ApiErrorEnvelope)
+    )
+)]
 pub async fn claim_invite(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -59,6 +76,18 @@ pub async fn claim_invite(
     Ok(Json(auth_token_json(token)))
 }
 
+#[utoipa::path(
+    post,
+    path = "/auth/login",
+    tag = "auth",
+    request_body = AuthLoginRequest,
+    responses(
+        (status = 200, description = "Created user session token", body = serde_json::Value),
+        (status = 400, description = "Invalid login request", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 401, description = "Invalid login credentials", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "User auth is disabled", body = crate::api::openapi::ApiErrorEnvelope)
+    )
+)]
 pub async fn login(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -87,6 +116,17 @@ pub async fn login(
     Ok(Json(auth_token_json(token)))
 }
 
+#[utoipa::path(
+    post,
+    path = "/auth/logout",
+    tag = "auth",
+    responses(
+        (status = 200, description = "Logout result", body = serde_json::Value),
+        (status = 401, description = "Missing or invalid user session token", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "User auth is disabled", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(("bearerAuth" = []))
+)]
 pub async fn logout(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -108,6 +148,19 @@ pub async fn logout(
     Ok(Json(json!({"ok": true, "revoked": revoked})))
 }
 
+#[utoipa::path(
+    post,
+    path = "/auth/password",
+    tag = "auth",
+    request_body = AuthPasswordChangeRequest,
+    responses(
+        (status = 200, description = "Password changed", body = serde_json::Value),
+        (status = 400, description = "Invalid password change request", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 401, description = "Missing or invalid user session token", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "User auth is disabled", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(("bearerAuth" = []))
+)]
 pub async fn change_password(
     State(state): State<AppState>,
     headers: HeaderMap,

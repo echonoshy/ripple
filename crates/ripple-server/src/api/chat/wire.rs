@@ -9,19 +9,54 @@ use axum::Json;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-pub(crate) fn chat_completion_payload(model: &str, session_id: &str, output_text: String) -> Value {
+pub(crate) fn response_id_for_session(session_id: &str) -> String {
+    format!("resp_{session_id}")
+}
+
+pub(crate) fn responses_payload(
+    model: &str,
+    session_id: &str,
+    output_text: String,
+    usage: Value,
+) -> Value {
+    responses_payload_with_id(
+        &response_id_for_session(session_id),
+        model,
+        session_id,
+        output_text,
+        usage,
+    )
+}
+
+pub(crate) fn responses_payload_with_id(
+    response_id: &str,
+    model: &str,
+    session_id: &str,
+    output_text: String,
+    usage: Value,
+) -> Value {
     json!({
-        "id": format!("chatcmpl-{}", &Uuid::new_v4().simple().to_string()[..24]),
-        "object": "chat.completion",
-        "created": now_epoch_seconds(),
+        "id": response_id,
+        "object": "response",
+        "created_at": now_epoch_seconds(),
+        "status": "completed",
         "model": model,
-        "choices": [{
-            "index": 0,
-            "message": {"role": "assistant", "content": output_text},
-            "finish_reason": "stop"
+        "output": [{
+            "id": format!("msg_{}", &Uuid::new_v4().simple().to_string()[..24]),
+            "type": "message",
+            "status": "completed",
+            "role": "assistant",
+            "content": [{
+                "type": "output_text",
+                "text": output_text.clone(),
+                "annotations": []
+            }]
         }],
-        "usage": empty_usage(),
-        "session_id": session_id
+        "output_text": output_text,
+        "usage": responses_usage(usage),
+        "metadata": {
+            "ripple_session_id": session_id
+        }
     })
 }
 
@@ -42,52 +77,14 @@ pub(crate) fn connector_auth_event_response_with_message(
     emit_message: bool,
 ) -> Response<Body> {
     let public_event = public_connector_auth_event(&event);
-    if stream_response {
-        let chunk_id = format!("chatcmpl-{}", &Uuid::new_v4().simple().to_string()[..24]);
-        let model_id = model.to_string();
-        let created = now_epoch_seconds();
-        let message = if emit_message {
-            event_message(&event)
-        } else {
-            String::new()
-        };
-        let stream = stream! {
-            yield Ok::<Bytes, Infallible>(Bytes::from(chunk(&chunk_id, &model_id, created, json!({"role": "assistant"}), None)));
-            yield Ok::<Bytes, Infallible>(sse_json(&public_event));
-            if !message.is_empty() {
-                yield Ok::<Bytes, Infallible>(Bytes::from(chunk(&chunk_id, &model_id, created, json!({"content": message}), None)));
-            }
-            yield Ok::<Bytes, Infallible>(Bytes::from(chunk(&chunk_id, &model_id, created, json!({}), Some("stop"))));
-            yield Ok::<Bytes, Infallible>(Bytes::from_static(b"data: [DONE]\n\n"));
-        };
-        let mut response = Response::new(Body::from_stream(stream));
-        response.headers_mut().insert(
-            header::CONTENT_TYPE,
-            HeaderValue::from_static("text/event-stream"),
-        );
-        response
-            .headers_mut()
-            .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
-        response.headers_mut().insert(
-            "x-ripple-session-id",
-            HeaderValue::from_str(session_id).unwrap_or_else(|_| HeaderValue::from_static("")),
-        );
-        return response;
-    }
-
-    let output_text = if emit_message {
-        event_message(&event)
-    } else {
-        String::new()
-    };
-    let mut payload = chat_completion_payload(model, session_id, output_text);
-    payload["connector_auth"] = public_event;
-    let mut response = Json(payload).into_response();
-    response.headers_mut().insert(
-        "x-ripple-session-id",
-        HeaderValue::from_str(session_id).unwrap_or_else(|_| HeaderValue::from_static("")),
-    );
-    response
+    responses_control_event_response(
+        model,
+        session_id,
+        public_event,
+        stream_response,
+        emit_message,
+        None,
+    )
 }
 
 pub(crate) fn control_plane_event_response(
@@ -96,21 +93,47 @@ pub(crate) fn control_plane_event_response(
     event: Value,
     stream_response: bool,
 ) -> Response<Body> {
-    let assistant_text = event_message(&event);
+    responses_control_event_response(
+        model,
+        session_id,
+        event.clone(),
+        stream_response,
+        true,
+        agent_stop_ask_user_event(&event),
+    )
+}
+
+fn responses_control_event_response(
+    model: &str,
+    session_id: &str,
+    event: Value,
+    stream_response: bool,
+    emit_message: bool,
+    stop_event: Option<Value>,
+) -> Response<Body> {
+    let assistant_text = if emit_message {
+        event_message(&event)
+    } else {
+        String::new()
+    };
+    let response_id = response_id_for_session(session_id);
     if stream_response {
-        let chunk_id = format!("chatcmpl-{}", &Uuid::new_v4().simple().to_string()[..24]);
+        let item_id = format!("msg_{}", &Uuid::new_v4().simple().to_string()[..24]);
         let model_id = model.to_string();
-        let created = now_epoch_seconds();
+        let stream_session_id = session_id.to_string();
+        let header_session_id = stream_session_id.clone();
+        let stream_event = ripple_stream_event(&event);
+        let stop_stream_event = stop_event.map(|event| ripple_stream_event(&event));
         let stream = stream! {
-            yield Ok::<Bytes, Infallible>(Bytes::from(chunk(&chunk_id, &model_id, created, json!({"role": "assistant"}), None)));
-            yield Ok::<Bytes, Infallible>(sse_json(&event));
-            if let Some(stop_event) = agent_stop_ask_user_event(&event) {
-                yield Ok::<Bytes, Infallible>(sse_json(&stop_event));
+            yield Ok::<Bytes, Infallible>(response_created_sse(&response_id, &model_id, &stream_session_id));
+            yield Ok::<Bytes, Infallible>(sse_named_json(stream_event.get("type").and_then(Value::as_str).unwrap_or("ripple.event"), &stream_event));
+            if let Some(stop_stream_event) = stop_stream_event {
+                yield Ok::<Bytes, Infallible>(sse_named_json(stop_stream_event.get("type").and_then(Value::as_str).unwrap_or("ripple.event"), &stop_stream_event));
             }
             if !assistant_text.is_empty() {
-                yield Ok::<Bytes, Infallible>(Bytes::from(chunk(&chunk_id, &model_id, created, json!({"content": assistant_text}), None)));
+                yield Ok::<Bytes, Infallible>(response_output_text_delta_sse(&response_id, &item_id, &assistant_text));
             }
-            yield Ok::<Bytes, Infallible>(Bytes::from(chunk(&chunk_id, &model_id, created, json!({}), Some("stop"))));
+            yield Ok::<Bytes, Infallible>(response_completed_sse(&response_id, &model_id, &stream_session_id, assistant_text, empty_usage()));
             yield Ok::<Bytes, Infallible>(Bytes::from_static(b"data: [DONE]\n\n"));
         };
         let mut response = Response::new(Body::from_stream(stream));
@@ -123,13 +146,14 @@ pub(crate) fn control_plane_event_response(
             .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
         response.headers_mut().insert(
             "x-ripple-session-id",
-            HeaderValue::from_str(session_id).unwrap_or_else(|_| HeaderValue::from_static("")),
+            HeaderValue::from_str(&header_session_id)
+                .unwrap_or_else(|_| HeaderValue::from_static("")),
         );
         return response;
     }
 
-    let mut payload = chat_completion_payload(model, session_id, assistant_text);
-    payload["event"] = event;
+    let mut payload = responses_payload(model, session_id, assistant_text, empty_usage());
+    payload["ripple_event"] = event;
     let mut response = Json(payload).into_response();
     response.headers_mut().insert(
         "x-ripple-session-id",
@@ -167,36 +191,95 @@ pub(crate) fn event_options(event: &Value) -> Option<Vec<String>> {
     )
 }
 
-pub(crate) fn chunk(
-    chunk_id: &str,
-    model: &str,
-    created: u64,
-    delta: Value,
-    finish_reason: Option<&str>,
-) -> String {
-    let mut choice = json!({"index": 0, "delta": delta, "finish_reason": finish_reason});
-    if finish_reason.is_none() {
-        choice["finish_reason"] = Value::Null;
-    }
-    format!(
-        "data: {}\n\n",
-        serde_json::to_string(&json!({
-            "id": chunk_id,
-            "object": "chat.completion.chunk",
-            "created": created,
-            "model": model,
-            "choices": [choice]
-        }))
-        .unwrap_or_else(|_| "{}".to_string())
-    )
-}
-
 pub(crate) fn sse_json(value: &Value) -> Bytes {
     let value = versioned_event(value);
     Bytes::from(format!(
         "data: {}\n\n",
         serde_json::to_string(&value).unwrap_or_else(|_| "{}".to_string())
     ))
+}
+
+pub(crate) fn sse_for_event(value: &Value) -> Bytes {
+    let event = ripple_stream_event(value);
+    sse_named_json(
+        event
+            .get("type")
+            .and_then(Value::as_str)
+            .unwrap_or("ripple.event"),
+        &event,
+    )
+}
+
+pub(crate) fn assistant_delta_sse(
+    response_id: &str,
+    item_id: &str,
+    delta: &str,
+) -> Bytes {
+    response_output_text_delta_sse(response_id, item_id, delta)
+}
+
+pub(crate) fn assistant_done_sse(
+    model: &str,
+    response_id: &str,
+    session_id: &str,
+    output_text: String,
+    usage: Value,
+) -> Bytes {
+    response_completed_sse(response_id, model, session_id, output_text, usage)
+}
+
+pub(crate) fn response_created_sse(response_id: &str, model: &str, session_id: &str) -> Bytes {
+    sse_named_json(
+        "response.created",
+        &json!({
+            "type": "response.created",
+            "response": {
+                "id": response_id,
+                "object": "response",
+                "created_at": now_epoch_seconds(),
+                "status": "in_progress",
+                "model": model,
+                "metadata": {
+                    "ripple_session_id": session_id
+                }
+            }
+        }),
+    )
+}
+
+pub(crate) fn response_output_text_delta_sse(
+    response_id: &str,
+    item_id: &str,
+    delta: &str,
+) -> Bytes {
+    sse_named_json(
+        "response.output_text.delta",
+        &json!({
+            "type": "response.output_text.delta",
+            "response_id": response_id,
+            "item_id": item_id,
+            "output_index": 0,
+            "content_index": 0,
+            "delta": delta
+        }),
+    )
+}
+
+pub(crate) fn response_completed_sse(
+    response_id: &str,
+    model: &str,
+    session_id: &str,
+    output_text: String,
+    usage: Value,
+) -> Bytes {
+    let response = responses_payload_with_id(response_id, model, session_id, output_text, usage);
+    sse_named_json(
+        "response.completed",
+        &json!({
+            "type": "response.completed",
+            "response": response
+        }),
+    )
 }
 
 pub(crate) fn stream_error(message: &str, error_type: &str) -> Value {
@@ -206,6 +289,13 @@ pub(crate) fn stream_error(message: &str, error_type: &str) -> Value {
             "type": error_type
         }
     })
+}
+
+fn sse_named_json(event_name: &str, value: &Value) -> Bytes {
+    Bytes::from(format!(
+        "event: {event_name}\ndata: {}\n\n",
+        serde_json::to_string(value).unwrap_or_else(|_| "{}".to_string())
+    ))
 }
 
 fn agent_stop_ask_user_event(event: &Value) -> Option<Value> {
@@ -234,6 +324,44 @@ fn empty_usage() -> Value {
     })
 }
 
+fn responses_usage(usage: Value) -> Value {
+    let input_tokens = usage
+        .get("prompt_tokens")
+        .or_else(|| usage.get("input_tokens"))
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let output_tokens = usage
+        .get("completion_tokens")
+        .or_else(|| usage.get("output_tokens"))
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let total_tokens = usage
+        .get("total_tokens")
+        .and_then(Value::as_u64)
+        .unwrap_or(input_tokens + output_tokens);
+    let cached_tokens = usage
+        .get("cached_input_tokens")
+        .or_else(|| usage.pointer("/input_tokens_details/cached_tokens"))
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let reasoning_tokens = usage
+        .get("reasoning_output_tokens")
+        .or_else(|| usage.pointer("/output_tokens_details/reasoning_tokens"))
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    json!({
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "total_tokens": total_tokens,
+        "input_tokens_details": {
+            "cached_tokens": cached_tokens
+        },
+        "output_tokens_details": {
+            "reasoning_tokens": reasoning_tokens
+        }
+    })
+}
+
 fn public_connector_auth_event(event: &Value) -> Value {
     let Some(object) = event.as_object() else {
         return event.clone();
@@ -246,6 +374,25 @@ fn public_connector_auth_event(event: &Value) -> Value {
         }
         !value.is_null()
     });
+    Value::Object(object)
+}
+
+fn ripple_stream_event(value: &Value) -> Value {
+    let value = versioned_event(value);
+    let Some(object) = value.as_object() else {
+        return json!({
+            "type": "ripple.event",
+            "event": value
+        });
+    };
+    let mut object = object.clone();
+    let original_type = object
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or("event")
+        .to_string();
+    object.insert("type".to_string(), json!(format!("ripple.{original_type}")));
+    object.insert("ripple_event_type".to_string(), json!(original_type));
     Value::Object(object)
 }
 

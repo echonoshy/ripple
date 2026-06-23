@@ -1316,6 +1316,52 @@ interface ChatStreamOptions {
   connectionTimeoutMs?: number;
 }
 
+function responseIdForSession(sessionId: string): string {
+  return `resp_${sessionId}`;
+}
+
+function normalizeRippleStreamEvent(value: Record<string, unknown>): Record<string, unknown> {
+  const type = typeof value.type === "string" ? value.type : "";
+  if (!type.startsWith("ripple.")) return value;
+  return {
+    ...value,
+    type:
+      typeof value.ripple_event_type === "string"
+        ? value.ripple_event_type
+        : type.slice("ripple.".length),
+  };
+}
+
+function usageFromResponsesUsage(value: unknown): UsageInfo | null {
+  if (!isRecord(value)) return null;
+  const inputTokens =
+    typeof value.input_tokens === "number"
+      ? value.input_tokens
+      : typeof value.prompt_tokens === "number"
+        ? value.prompt_tokens
+        : 0;
+  const outputTokens =
+    typeof value.output_tokens === "number"
+      ? value.output_tokens
+      : typeof value.completion_tokens === "number"
+        ? value.completion_tokens
+        : 0;
+  const inputDetails = isRecord(value.input_tokens_details) ? value.input_tokens_details : {};
+  const outputDetails = isRecord(value.output_tokens_details) ? value.output_tokens_details : {};
+  return {
+    prompt_tokens: inputTokens,
+    completion_tokens: outputTokens,
+    total_tokens:
+      typeof value.total_tokens === "number" ? value.total_tokens : inputTokens + outputTokens,
+    cached_input_tokens:
+      typeof inputDetails.cached_tokens === "number" ? inputDetails.cached_tokens : undefined,
+    reasoning_output_tokens:
+      typeof outputDetails.reasoning_tokens === "number"
+        ? outputDetails.reasoning_tokens
+        : undefined,
+  };
+}
+
 async function streamChatResponse(
   endpointPath: string,
   body: Record<string, unknown>,
@@ -1374,7 +1420,8 @@ async function streamChatResponse(
         }
 
         try {
-          const data = JSON.parse(msg.data);
+          const parsed = JSON.parse(msg.data);
+          const data = isRecord(parsed) ? normalizeRippleStreamEvent(parsed) : parsed;
 
           if (data.error) {
             callbacks.onError(new Error(data.error.message || String(data.error)));
@@ -1384,6 +1431,24 @@ async function streamChatResponse(
 
           if (data.type === "heartbeat") {
             callbacks.onHeartbeat?.();
+            return;
+          }
+
+          if (data.type === "response.created") {
+            return;
+          }
+
+          if (data.type === "response.output_text.delta") {
+            if (typeof data.delta === "string") {
+              callbacks.onMessageDelta(data.delta);
+            }
+            return;
+          }
+
+          if (data.type === "response.completed") {
+            const response = isRecord(data.response) ? data.response : {};
+            const usage = usageFromResponsesUsage(response.usage);
+            if (usage) callbacks.onUsage(usage);
             return;
           }
 
@@ -1563,12 +1628,13 @@ export async function sendChatMessage(
   options?: { signal?: AbortSignal; files?: ChatFileRef[] }
 ) {
   return streamChatResponse(
-    "/chat/completions",
+    "/responses",
     {
       model,
-      messages: [{ role: "user", content: buildChatMessageContent(content, options?.files || []) }],
+      input: [{ role: "user", content: buildChatMessageContent(content, options?.files || []) }],
       stream: true,
-      session_id: sessionId,
+      previous_response_id: responseIdForSession(sessionId),
+      metadata: { ripple_session_id: sessionId },
     },
     callbacks,
     { signal: options?.signal }
@@ -1584,10 +1650,10 @@ export async function sendSessionControlAction(
   options?: { signal?: AbortSignal }
 ) {
   return streamChatResponse(
-    "/chat/completions",
+    "/responses",
     {
       model,
-      messages: [
+      input: [
         {
           role: "user",
           content: [
@@ -1600,7 +1666,8 @@ export async function sendSessionControlAction(
         },
       ],
       stream: true,
-      session_id: sessionId,
+      previous_response_id: responseIdForSession(sessionId),
+      metadata: { ripple_session_id: sessionId },
     },
     callbacks,
     { signal: options?.signal }

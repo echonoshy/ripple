@@ -1499,7 +1499,61 @@ async function testChatStreamUsesServerConflictDetail() {
   assert.equal(reportedMessage, "Session already has work in progress");
 }
 
-async function testSessionControlActionUsesStructuredChatBlock() {
+async function testResponsesStreamDeltaFeedsChatCallbacks() {
+  const deltas: string[] = [];
+  const globals = globalThis as unknown as {
+    document?: Pick<Document, "addEventListener" | "removeEventListener"> & { hidden: boolean };
+    window?: Pick<Window, "fetch" | "setTimeout" | "clearTimeout">;
+  };
+  const previousDocument = globals.document;
+  const previousWindow = globals.window;
+  globals.document = {
+    hidden: false,
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
+  };
+  globals.window = {
+    fetch: (...args) => globalThis.fetch(...args),
+    setTimeout: globalThis.setTimeout,
+    clearTimeout: globalThis.clearTimeout,
+  };
+
+  try {
+    await withFetch(
+      async () =>
+        new Response(
+          [
+            'event: response.created\ndata: {"type":"response.created","response":{"id":"resp_session-1"}}\n\n',
+            'event: response.output_text.delta\ndata: {"type":"response.output_text.delta","delta":"hello"}\n\n',
+            'event: response.output_text.delta\ndata: {"type":"response.output_text.delta","delta":" world"}\n\n',
+            'event: response.completed\ndata: {"type":"response.completed","response":{"status":"completed"}}\n\n',
+            "data: [DONE]\n\n",
+          ].join(""),
+          {
+            status: 200,
+            headers: { "Content-Type": "text/event-stream" },
+          }
+        ),
+      async () => {
+        await sendChatMessage("session-1", "hi", "codex-test", {
+          onMessageDelta: (delta) => deltas.push(delta),
+          onToolCall: () => undefined,
+          onToolResult: () => undefined,
+          onUsage: () => undefined,
+          onComplete: () => undefined,
+          onError: () => undefined,
+        });
+      }
+    );
+  } finally {
+    globals.document = previousDocument;
+    globals.window = previousWindow;
+  }
+
+  assert.deepEqual(deltas, ["hello", " world"]);
+}
+
+async function testSessionControlActionUsesStructuredResponsesInput() {
   const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
   const globals = globalThis as unknown as {
     document?: Pick<Document, "addEventListener" | "removeEventListener"> & { hidden: boolean };
@@ -1556,10 +1610,10 @@ async function testSessionControlActionUsesStructuredChatBlock() {
     globals.window = previousWindow;
   }
 
-  assert.equal(requests[0]?.url, "http://140.143.229.103:8810/v1/chat/completions");
-  assert.equal(requests[0]?.body.session_id, "session-1");
-  const messages = requests[0]?.body.messages as Array<Record<string, unknown>>;
-  const content = messages[0]?.content as Array<Record<string, unknown>>;
+  assert.equal(requests[0]?.url, "http://140.143.229.103:8810/v1/responses");
+  assert.equal(requests[0]?.body.previous_response_id, "resp_session-1");
+  const input = requests[0]?.body.input as Array<Record<string, unknown>>;
+  const content = input[0]?.content as Array<Record<string, unknown>>;
   assert.deepEqual(content, [
     {
       type: "ripple_control_action",
@@ -1650,5 +1704,6 @@ test("api client behavior", async () => {
   await testFetchSessionsRejectsNetworkFailures();
   await testWorkspaceSearchDefaultsToNameScope();
   await testChatStreamUsesServerConflictDetail();
-  await testSessionControlActionUsesStructuredChatBlock();
+  await testResponsesStreamDeltaFeedsChatCallbacks();
+  await testSessionControlActionUsesStructuredResponsesInput();
 });

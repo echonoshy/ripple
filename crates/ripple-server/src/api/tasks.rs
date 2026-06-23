@@ -1019,11 +1019,24 @@ async fn persist_task_update_mutation(
         }
         "complete_task" => {
             let mut task = load_task(storage, user_id, task_id).await?;
+            let now = now_iso();
             set_task_status_internal(&mut task, "completed");
-            set_field(&mut task, "updated_at", json!(now_iso()));
+            set_field(&mut task, "updated_at", json!(now));
+            set_field(&mut task, "completed_at", json!(now));
+            let result_summary = arguments.get("result_summary").cloned();
+            if let Some(summary) = result_summary.clone() {
+                set_field(&mut task, "result_summary", summary);
+            }
             storage.upsert_task(user_id, &task).await?;
             disable_task_triggers_for_terminal_task(storage, user_id, task_id, "completed").await?;
-            append_task_event(storage, user_id, task_id, "task_completed", json!({})).await?;
+            append_task_event(
+                storage,
+                user_id,
+                task_id,
+                "task_completed",
+                json!({"result_summary": result_summary.unwrap_or(Value::Null)}),
+            )
+            .await?;
             let actions =
                 sort_task_actions_for_execution(storage.list_task_actions(user_id, task_id).await?);
             Ok(json!({
@@ -1143,6 +1156,12 @@ fn updates_for_action_mode(mode: &str, arguments: &Value) -> Result<Value, ApiEr
             object.insert("status".to_string(), json!("waiting_user"));
             if let Some(reason) = arguments.get("reason").cloned() {
                 object.insert("waiting_reason".to_string(), reason);
+            }
+            if let Some(question) = arguments.get("clarification_question").cloned() {
+                object.insert("clarification_question".to_string(), question);
+            }
+            if let Some(missing_fields) = arguments.get("missing_fields").cloned() {
+                object.insert("missing_fields".to_string(), missing_fields);
             }
         }
         _ => {}
@@ -2297,6 +2316,7 @@ fn allowed_action_transition(current: &str, next: &str) -> bool {
             | ("confirmed", "in_progress")
             | ("confirmed", "completed")
             | ("confirmed", "blocked")
+            | ("confirmed", "waiting_user")
             | ("confirmed", "cancelled")
             | ("in_progress", "completed")
             | ("in_progress", "confirmed")
@@ -3419,6 +3439,134 @@ mod tests {
             .await?
             .expect("task should persist");
         assert_eq!(task.get("status").and_then(Value::as_str), Some("active"));
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn task_update_wait_user_persists_question_fields_and_event() -> anyhow::Result<()> {
+        let (storage, root) = temp_storage()?;
+
+        persist_task_update(
+            &storage,
+            "alice",
+            Some("session-1"),
+            &json!({
+                "mode": "create",
+                "target": "task",
+                "task": {
+                    "task_id": "task-wait-user",
+                    "title": "准备周报",
+                    "objective": "准备并发送周报",
+                    "actions": [
+                        {
+                            "action_id": "act-draft",
+                            "title": "起草周报",
+                            "objective": "起草周报"
+                        }
+                    ]
+                }
+            }),
+        )
+        .await
+        .unwrap_or_else(|err| panic!("task_update create should persist: {err:?}"));
+
+        let output = persist_task_update(
+            &storage,
+            "alice",
+            Some("session-1"),
+            &json!({
+                "mode": "wait_user",
+                "target": "task",
+                "task_id": "task-wait-user",
+                "action_id": "act-draft",
+                "reason": "Need the reporting date range.",
+                "clarification_question": "这份周报覆盖哪几天？",
+                "missing_fields": ["date_range"]
+            }),
+        )
+        .await
+        .unwrap_or_else(|err| panic!("task_update wait_user should persist: {err:?}"));
+
+        assert_eq!(
+            output.pointer("/action/status").and_then(Value::as_str),
+            Some("waiting_user")
+        );
+        assert_eq!(
+            output
+                .pointer("/action/clarification_question")
+                .and_then(Value::as_str),
+            Some("这份周报覆盖哪几天？")
+        );
+        assert_eq!(
+            output
+                .pointer("/action/missing_fields/0")
+                .and_then(Value::as_str),
+            Some("date_range")
+        );
+        let events = storage.list_task_events("alice", "task-wait-user").await?;
+        assert!(events.iter().any(|event| {
+            event.get("event_type").and_then(Value::as_str) == Some("task_action_waiting_user")
+        }));
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn task_update_complete_task_persists_result_summary() -> anyhow::Result<()> {
+        let (storage, root) = temp_storage()?;
+
+        persist_task_update(
+            &storage,
+            "alice",
+            Some("session-1"),
+            &json!({
+                "mode": "create",
+                "target": "task",
+                "task": {
+                    "task_id": "task-complete-summary",
+                    "title": "整理发布计划",
+                    "objective": "整理发布计划",
+                    "actions": [
+                        {
+                            "action_id": "act-plan",
+                            "title": "整理计划",
+                            "objective": "整理计划"
+                        }
+                    ]
+                }
+            }),
+        )
+        .await
+        .unwrap_or_else(|err| panic!("task_update create should persist: {err:?}"));
+
+        let output = persist_task_update(
+            &storage,
+            "alice",
+            Some("session-1"),
+            &json!({
+                "mode": "complete_task",
+                "target": "task",
+                "task_id": "task-complete-summary",
+                "result_summary": "发布计划已经整理完成。"
+            }),
+        )
+        .await
+        .unwrap_or_else(|err| panic!("task_update complete_task should persist: {err:?}"));
+
+        assert_eq!(
+            output.pointer("/task/status").and_then(Value::as_str),
+            Some("completed")
+        );
+        assert_eq!(
+            output
+                .pointer("/task/result_summary")
+                .and_then(Value::as_str),
+            Some("发布计划已经整理完成。")
+        );
+        assert!(output.pointer("/task/completed_at").is_some());
 
         let _ = std::fs::remove_dir_all(root);
         Ok(())

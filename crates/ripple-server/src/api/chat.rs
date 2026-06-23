@@ -66,9 +66,10 @@ use recent_context::{recent_display_context, recent_task_triggers_context};
 use session_actions::handle_session_control_action;
 use title::spawn_session_title_generation;
 use wire::{
-    chat_completion_payload, chunk, connector_auth_event_response,
+    assistant_delta_sse, assistant_done_sse, connector_auth_event_response,
     connector_auth_event_response_with_message, control_plane_event_response, event_message,
-    event_options, public_control_plane_event, sse_json, stream_error,
+    event_options, public_control_plane_event, response_created_sse, response_id_for_session,
+    responses_payload, sse_for_event, sse_json, stream_error,
 };
 
 const TERMINAL_STATUSES: &[&str] = &["completed", "failed", "cancelled"];
@@ -86,6 +87,162 @@ pub struct ChatCompletionRequest {
     pub summary: Option<String>,
     #[serde(rename = "outputSchema")]
     pub output_schema: Option<Value>,
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct ResponsesCreateRequest {
+    pub model: Option<String>,
+    pub input: Value,
+    pub instructions: Option<String>,
+    pub stream: Option<bool>,
+    pub previous_response_id: Option<String>,
+    pub metadata: Option<Value>,
+    pub store: Option<bool>,
+    pub reasoning: Option<Value>,
+    pub text: Option<Value>,
+}
+
+impl ResponsesCreateRequest {
+    fn into_chat_request(self) -> Result<ChatCompletionRequest, ApiError> {
+        let session_id =
+            responses_session_id(self.previous_response_id.as_deref(), self.metadata.as_ref())?;
+        let effort = self
+            .reasoning
+            .as_ref()
+            .and_then(|value| value.get("effort"))
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        let summary = self
+            .reasoning
+            .as_ref()
+            .and_then(|value| value.get("summary"))
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        let output_schema = responses_output_schema(self.text.as_ref());
+        Ok(ChatCompletionRequest {
+            model: self.model,
+            messages: responses_input_to_messages(self.input, self.instructions)?,
+            stream: self.stream,
+            session_id,
+            temporary: self.store == Some(false),
+            max_turns: None,
+            effort,
+            summary,
+            output_schema,
+        })
+    }
+}
+
+fn responses_session_id(
+    previous_response_id: Option<&str>,
+    metadata: Option<&Value>,
+) -> Result<Option<String>, ApiError> {
+    let metadata_session_id = metadata
+        .and_then(|value| {
+            value
+                .get("ripple_session_id")
+                .or_else(|| value.get("session_id"))
+        })
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let session_id = metadata_session_id.or_else(|| {
+        previous_response_id
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| value.strip_prefix("resp_").unwrap_or(value))
+    });
+    let Some(session_id) = session_id else {
+        return Ok(None);
+    };
+    validate_session_id(session_id).map_err(ApiError::bad_request)?;
+    Ok(Some(session_id.to_string()))
+}
+
+fn responses_input_to_messages(
+    input: Value,
+    instructions: Option<String>,
+) -> Result<Vec<Value>, ApiError> {
+    let mut messages = Vec::new();
+    if let Some(instructions) = instructions
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+    {
+        messages.push(json!({"role": "system", "content": instructions}));
+    }
+    match input {
+        Value::String(text) => {
+            messages.push(json!({"role": "user", "content": text}));
+        }
+        Value::Array(items) => {
+            for item in items {
+                let Some(object) = item.as_object() else {
+                    return Err(ApiError::bad_request(
+                        "Responses input array entries must be objects",
+                    ));
+                };
+                let role = object.get("role").and_then(Value::as_str).unwrap_or("user");
+                let content = object
+                    .get("content")
+                    .cloned()
+                    .or_else(|| object.get("text").cloned())
+                    .unwrap_or(Value::Null);
+                messages.push(json!({
+                    "role": role,
+                    "content": normalize_responses_content(content)
+                }));
+            }
+        }
+        Value::Object(object) => {
+            let role = object.get("role").and_then(Value::as_str).unwrap_or("user");
+            let content = object
+                .get("content")
+                .cloned()
+                .or_else(|| object.get("text").cloned())
+                .unwrap_or(Value::Null);
+            messages.push(json!({
+                "role": role,
+                "content": normalize_responses_content(content)
+            }));
+        }
+        _ => {
+            return Err(ApiError::bad_request(
+                "Responses input must be a string, object, or array",
+            ));
+        }
+    }
+    Ok(messages)
+}
+
+fn normalize_responses_content(content: Value) -> Value {
+    match content {
+        Value::Array(items) => Value::Array(
+            items
+                .into_iter()
+                .map(|item| match item {
+                    Value::Object(mut object) => {
+                        if object.get("type").and_then(Value::as_str) == Some("output_text") {
+                            object.insert("type".to_string(), json!("text"));
+                        }
+                        Value::Object(object)
+                    }
+                    value => value,
+                })
+                .collect(),
+        ),
+        value => value,
+    }
+}
+
+fn responses_output_schema(text: Option<&Value>) -> Option<Value> {
+    let format = text?.get("format")?;
+    if format.get("type").and_then(Value::as_str) == Some("json_schema") {
+        return format
+            .get("schema")
+            .cloned()
+            .or_else(|| Some(format.clone()));
+    }
+    None
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
@@ -136,12 +293,12 @@ struct ChatRunFinal {
 
 #[utoipa::path(
     post,
-    path = "/chat/completions",
+    path = "/responses",
     tag = "chat",
-    request_body = ChatCompletionRequest,
+    request_body = ResponsesCreateRequest,
     responses(
-        (status = 200, description = "Chat completion response or SSE stream", body = serde_json::Value),
-        (status = 400, description = "Invalid chat request", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 200, description = "Responses API-compatible response or SSE stream", body = serde_json::Value),
+        (status = 400, description = "Invalid responses request", body = crate::api::openapi::ApiErrorEnvelope),
         (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
         (status = 409, description = "Session already has work in progress", body = crate::api::openapi::ApiErrorEnvelope)
     ),
@@ -150,10 +307,19 @@ struct ChatRunFinal {
         ("apiKeyAuth" = [])
     )
 )]
-pub async fn chat_completions(
+pub async fn create_response(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Json(request): Json<ChatCompletionRequest>,
+    Json(request): Json<ResponsesCreateRequest>,
+) -> Result<Response<Body>, ApiError> {
+    let request = request.into_chat_request()?;
+    handle_chat_request(state, headers, request).await
+}
+
+async fn handle_chat_request(
+    state: AppState,
+    headers: HeaderMap,
+    request: ChatCompletionRequest,
 ) -> Result<Response<Body>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
     let workspace_root = state.sandboxes.ensure_sandbox(&user_id)?;
@@ -578,13 +744,12 @@ async fn finish_codex_chat_response(
         );
     }
 
-    let mut payload = chat_completion_payload(&model, &session.session_id, output_text);
-    payload["usage"] = usage;
+    let mut payload = responses_payload(&model, &session.session_id, output_text, usage);
     if let Some(event) = prefix_event {
-        payload["connector_auth"] = event;
+        payload["ripple_event"] = event;
     }
     if let Some(event) = folder_context_event {
-        payload["folder_context_search"] = event;
+        payload["ripple_folder_context_search"] = event;
     }
     let mut response = Json(payload).into_response();
     response.headers_mut().insert(
@@ -980,24 +1145,23 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
         request_base_url,
     } = args;
     let session_id = session.session_id.clone();
-    let chunk_id = format!("chatcmpl-{}", &Uuid::new_v4().simple().to_string()[..24]);
-    let created = now_epoch_seconds();
+    let header_session_id = session_id.clone();
+    let response_id = response_id_for_session(&session_id);
+    let response_item_id = format!("msg_{}", &Uuid::new_v4().simple().to_string()[..24]);
     let events_file = info.events_file.as_ref().map(std::path::PathBuf::from);
     let job_id = info.job_id.clone();
     let stream = stream! {
+        yield Ok::<Bytes, Infallible>(response_created_sse(&response_id, &model, &session_id));
         if let Some(event) = prefix_event {
-            yield Ok::<Bytes, Infallible>(Bytes::from(chunk(&chunk_id, &model, created, json!({"role": "assistant"}), None)));
-            yield Ok::<Bytes, Infallible>(sse_json(&event));
+            yield Ok::<Bytes, Infallible>(sse_for_event(&event));
             let message = event_message(&event);
             if !message.is_empty() {
-                yield Ok::<Bytes, Infallible>(Bytes::from(chunk(&chunk_id, &model, created, json!({"content": format!("{message}\n\n")}), None)));
-                yield Ok::<Bytes, Infallible>(sse_json(&json!({"type": "new_turn"})));
+                yield Ok::<Bytes, Infallible>(assistant_delta_sse(&response_id, &response_item_id, &format!("{message}\n\n")));
+                yield Ok::<Bytes, Infallible>(sse_for_event(&json!({"type": "new_turn"})));
             }
-        } else {
-            yield Ok::<Bytes, Infallible>(Bytes::from(chunk(&chunk_id, &model, created, json!({"role": "assistant"}), None)));
         }
         if let Some(event) = folder_context_event {
-            yield Ok::<Bytes, Infallible>(sse_json(&event));
+            yield Ok::<Bytes, Infallible>(sse_for_event(&event));
         }
         let mut offset = 0_usize;
         let mut emitted = String::new();
@@ -1017,7 +1181,7 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
                         extract_image_event(&state, &user_id, &event, &workspace_root).await
                     {
                         image_events.push(image_event.clone());
-                        yield Ok::<Bytes, Infallible>(sse_json(&image_event));
+                        yield Ok::<Bytes, Infallible>(sse_for_event(&image_event));
                         last_emit = now_epoch_seconds();
                         continue;
                     }
@@ -1026,7 +1190,7 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
                             sanitize_user_visible_value(&state, &user_id, &plan_event);
                         record_session_plan_update(&mut session, &public_plan_event);
                         let _ = state.sessions.save_record_if_exists(session.clone()).await;
-                        yield Ok::<Bytes, Infallible>(sse_json(&public_plan_event));
+                        yield Ok::<Bytes, Infallible>(sse_for_event(&public_plan_event));
                         last_emit = now_epoch_seconds();
                         continue;
                     }
@@ -1035,13 +1199,13 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
                         if record_session_runtime_event(&mut session, &public_runtime_event) {
                             let _ = state.sessions.save_record_if_exists(session.clone()).await;
                         }
-                        yield Ok::<Bytes, Infallible>(sse_json(&public_runtime_event));
+                        yield Ok::<Bytes, Infallible>(sse_for_event(&public_runtime_event));
                         last_emit = now_epoch_seconds();
                         continue;
                     }
                     if let Some(tool_event) = extract_tool_event(&event) {
                         let public_tool_event = sanitize_user_visible_value(&state, &user_id, &tool_event);
-                        yield Ok::<Bytes, Infallible>(sse_json(&public_tool_event));
+                        yield Ok::<Bytes, Infallible>(sse_for_event(&public_tool_event));
                         last_emit = now_epoch_seconds();
                         continue;
                     }
@@ -1053,7 +1217,7 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
                             delta,
                         ) {
                             emitted.push_str(&delta);
-                            yield Ok::<Bytes, Infallible>(Bytes::from(chunk(&chunk_id, &model, created, json!({"content": delta}), None)));
+                            yield Ok::<Bytes, Infallible>(assistant_delta_sse(&response_id, &response_item_id, &delta));
                             last_emit = now_epoch_seconds();
                         }
                         continue;
@@ -1066,7 +1230,7 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
                             text,
                         ) {
                             emitted.push_str(&text);
-                            yield Ok::<Bytes, Infallible>(Bytes::from(chunk(&chunk_id, &model, created, json!({"content": text}), None)));
+                            yield Ok::<Bytes, Infallible>(assistant_delta_sse(&response_id, &response_item_id, &text));
                             last_emit = now_epoch_seconds();
                         }
                         continue;
@@ -1088,14 +1252,14 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
                 let public_approval = sanitize_user_visible_value(&state, &user_id, &approval);
                 session.pending_permission_request = Some(public_approval.clone());
                 let _ = state.sessions.save_record_if_exists(session.clone()).await;
-                yield Ok::<Bytes, Infallible>(sse_json(&json!({"type": "approval_required", "approval": public_approval})));
+                yield Ok::<Bytes, Infallible>(sse_for_event(&json!({"type": "approval_required", "approval": public_approval})));
                 break;
             }
             if let Some(user_input) = info.pending_user_input.clone() {
                 let public_user_input = sanitize_user_visible_value(&state, &user_id, &user_input);
                 record_session_pending_user_input(&mut session, &public_user_input);
                 let _ = state.sessions.save_record_if_exists(session.clone()).await;
-                yield Ok::<Bytes, Infallible>(sse_json(&json!({"type": "user_input_required", "user_input": public_user_input})));
+                yield Ok::<Bytes, Infallible>(sse_for_event(&json!({"type": "user_input_required", "user_input": public_user_input})));
                 break;
             }
             if TERMINAL_STATUSES.contains(&info.status.as_str()) {
@@ -1122,24 +1286,24 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
                     {
                         Ok(Some(event)) => {
                             let public_event = public_connector_auth_event(&event);
-                            yield Ok::<Bytes, Infallible>(sse_json(&public_event));
+                            yield Ok::<Bytes, Infallible>(sse_for_event(&public_event));
                             let message = event_message(&event);
                             if !message.is_empty() {
-                                yield Ok::<Bytes, Infallible>(Bytes::from(chunk(&chunk_id, &model, created, json!({"content": message}), None)));
+                                yield Ok::<Bytes, Infallible>(assistant_delta_sse(&response_id, &response_item_id, &message));
                             }
-                            yield Ok::<Bytes, Infallible>(Bytes::from(chunk(&chunk_id, &model, created, json!({}), Some("stop"))));
+                            yield Ok::<Bytes, Infallible>(assistant_done_sse(&model, &response_id, &session_id, message, latest_usage.clone()));
                             yield Ok::<Bytes, Infallible>(Bytes::from_static(b"data: [DONE]\n\n"));
                             break;
                         }
                         Ok(None) => {}
                         Err(err) => {
-                            yield Ok::<Bytes, Infallible>(sse_json(&stream_error_for_user(&state, &user_id, &format!("{err:?}"), "server_error")));
+                        yield Ok::<Bytes, Infallible>(sse_json(&stream_error_for_user(&state, &user_id, &format!("{err:?}"), "server_error")));
                             break;
                         }
                     }
                     if emitted.is_empty() && !output_text.is_empty() {
                         emitted = output_text.clone();
-                        yield Ok::<Bytes, Infallible>(Bytes::from(chunk(&chunk_id, &model, created, json!({"content": output_text}), None)));
+                        yield Ok::<Bytes, Infallible>(assistant_delta_sse(&response_id, &response_item_id, &output_text));
                     }
                     let title_fallback = append_chat_messages_with_images(
                         &mut session,
@@ -1167,9 +1331,9 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
                         );
                     }
                     if usage_total_tokens(&latest_usage) > 0 {
-                        yield Ok::<Bytes, Infallible>(sse_json(&json!({"type": "usage", "usage": latest_usage})));
+                        yield Ok::<Bytes, Infallible>(sse_for_event(&json!({"type": "usage", "usage": latest_usage})));
                     }
-                    yield Ok::<Bytes, Infallible>(Bytes::from(chunk(&chunk_id, &model, created, json!({}), Some("stop"))));
+                    yield Ok::<Bytes, Infallible>(assistant_done_sse(&model, &response_id, &session_id, emitted.clone(), latest_usage.clone()));
                 } else {
                     session.status = if info.status == "cancelled" {
                         SessionStatus::Cancelled.as_str().to_string()
@@ -1187,7 +1351,7 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
             }
             let now = now_epoch_seconds();
             if now.saturating_sub(last_emit) >= 8 {
-                yield Ok::<Bytes, Infallible>(sse_json(&json!({"type": "heartbeat", "ts": now})));
+                yield Ok::<Bytes, Infallible>(sse_for_event(&json!({"type": "heartbeat", "ts": now})));
                 last_emit = now;
             }
             sleep(Duration::from_millis(50)).await;
@@ -1204,7 +1368,7 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
         .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
     response.headers_mut().insert(
         "x-ripple-session-id",
-        HeaderValue::from_str(&session_id).unwrap_or_else(|_| HeaderValue::from_static("")),
+        HeaderValue::from_str(&header_session_id).unwrap_or_else(|_| HeaderValue::from_static("")),
     );
     response
 }
@@ -1837,6 +2001,12 @@ mod tests {
         let prompt = format!("{base_instructions}\n{turn_context}");
 
         assert!(!prompt.contains("proxy_on"));
+        assert!(prompt.contains(
+            "Do not implement model-provider, OpenAI-compatible, Responses API, or chat-completions adapters inside Ripple"
+        ));
+        assert!(prompt.contains(
+            "Model-provider compatibility is owned by the Codex app-server configuration"
+        ));
         assert!(prompt.contains("python --with <package> --"));
         assert!(
             prompt.contains("Do not install temporary Python packages with pip install --target")

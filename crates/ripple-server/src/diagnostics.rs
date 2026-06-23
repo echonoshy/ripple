@@ -6,6 +6,7 @@ use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
+use crate::codex::runtime_metadata::{app_server_protocol_metadata, permission_profile_metadata};
 use crate::config::{AppConfig, CliToolConfig};
 use crate::runtime_checks::{
     ensure_nsjail_config_hardened, nsjail_config_hardening_details, probe_codex_linux_sandbox,
@@ -376,7 +377,12 @@ fn codex_app_server_runtime_config_check(config: &AppConfig) -> DoctorCheck {
         "listen": listen,
         "sandbox_type": config.codex.sandbox_type,
         "approval_policy": config.codex.approval_policy,
-        "managed_permissions_profile": "ripple-managed",
+        "managed_permissions_profile": permission_profile_metadata(config)
+            .get("id")
+            .cloned()
+            .unwrap_or(Value::Null),
+        "permission_profile": permission_profile_metadata(config),
+        "app_server_protocol": app_server_protocol_metadata(),
         "worker_pool": {
             "max_workers_per_pool": config.codex.max_workers_per_pool,
             "max_total_pool_workers": config.codex.max_total_pool_workers,
@@ -687,6 +693,30 @@ mod tests {
         assert!(names.contains(&"codex_linux_sandbox"));
         assert!(names.contains(&"connector_nsjail_runtime"));
         assert!(names.contains(&"connector_nsjail_config"));
+        let codex_runtime = checks
+            .iter()
+            .find(|check| {
+                check.get("name").and_then(Value::as_str) == Some("codex_app_server_runtime")
+            })
+            .expect("codex app-server runtime check");
+        assert_eq!(
+            codex_runtime
+                .pointer("/details/permission_profile/id")
+                .and_then(Value::as_str),
+            Some("ripple_workspace")
+        );
+        assert_eq!(
+            codex_runtime
+                .pointer("/details/app_server_protocol/transport")
+                .and_then(Value::as_str),
+            Some("stdio")
+        );
+        assert!(codex_runtime
+            .pointer("/details/app_server_protocol/methods")
+            .and_then(Value::as_array)
+            .is_some_and(|methods| methods
+                .iter()
+                .any(|method| method == "account/workspaceMessages/read")));
 
         let _ = std::fs::remove_dir_all(root);
     }

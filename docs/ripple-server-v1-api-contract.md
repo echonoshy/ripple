@@ -58,9 +58,12 @@
 
 ## Chat And Sessions
 
+- `POST /v1/responses` 是新的主 chat 入口。请求使用 Responses-style `input`，可用 `previous_response_id=resp_<session_id>` 或 `metadata.ripple_session_id` 续接已有 Ripple session。
+- `/v1/responses` 返回 `object=response`、`output`、`output_text` 和 `metadata.ripple_session_id`；流式响应使用 `response.created`、`response.output_text.delta`、`response.completed`，Ripple 控制面事件以 `ripple.*` 扩展事件发送。
+- 响应继续返回 `x-ripple-session-id` header，调用方可用它确认最终使用的内部 session。
 - `POST /v1/chat/completions` 可带 `session_id`。如果当前 `user_id + session_id` 已存在，后端复用该 session；如果不存在，后端用调用方传入的 `session_id` 创建新 session；如果未传，后端生成 `srv-...`。
 - 调用方传入的 `session_id` 必须匹配 `[a-zA-Z0-9_-]{1,64}`。这是为了保证 session runtime 目录和 SQLite 主键都安全可控。
-- 响应继续返回 `x-ripple-session-id` header 和 body 内的 `session_id`，调用方可用它确认最终使用的 session。
+- `/v1/chat/completions` 是 legacy 兼容入口，仍返回 body 内的 `session_id`。
 
 ## Runs
 
@@ -87,7 +90,7 @@ Tasks 是当前持久 follow-up 和多步工作状态的主 API，不是旧兼�
 - `GET /v1/tasks/:task_id/events` 返回 task timeline。
 - `GET /v1/sessions/:session_id/tasks` 返回与 session 关联的 tasks。
 
-Chat 主链路会向 Codex 暴露 `codex_app.task_update` 动态工具。它只写 Ripple 控制面 task/action 状态，不要求 Codex 反向调用 Ripple HTTP API。支持 `propose`、`create`、`update_task`、`create_action`、`update_action`、`start_action`、`complete_action`、`block_action`、`wait_user` 和 `complete_task` 等模式。
+Chat 主链路会向 Codex 暴露 `codex_app.task_update` 动态工具。它只写 Ripple 控制面 task/action 状态，不要求 Codex 反向调用 Ripple HTTP API。支持 `propose`、`create`、`update_task`、`create_action`、`update_action`、`start_action`、`complete_action`、`block_action`、`wait_user` 和 `complete_task` 等模式。`wait_user` 会把 `reason`、`clarification_question` 和 `missing_fields` 持久化到 action，并产生 `task_action_waiting_user` event；`complete_task` 会写入 `result_summary` 和 `completed_at`。
 
 Task 是唯一任务语义。旧 standalone schedule API 和 `schedules` 表已移除；time trigger 统一作为 Task Trigger 的一种 driver 存在。Task-linked trigger 到期时会走 TaskAction 执行链路，复用原 session/Codex thread，并把结果写回 task events/actions 和 source session。后续 hook/event/webhook 类触发器也应挂在同一 task trigger 模型下。
 
@@ -108,7 +111,7 @@ Task 是唯一任务语义。旧 standalone schedule API 和 `schedules` 表已�
 
 - `POST /v1/connectors/:connector_name/auth/cancel` 取消当前 user 的待授权状态，幂等返回 `{ ok, connector, cancelled }`。它会清理 connector runtime pending state，例如 Google assisted OAuth、Feishu setup 进程、Bilibili QR pending state，并清掉该 user 相关 session 的 pending connector auth。
 - `POST /v1/connectors/:connector_name/disconnect` 是本地断开。它删除 Ripple user sandbox 里的 token、keyring、cookie 或 CLI 配置，不承诺撤销 provider 侧授权。Google 支持 `{ email }` 删除单个本地账号 token，也支持 `{ all: true }` 清理本地 Google keyring。
-- `GET /v1/capabilities` 返回内部统一能力目录，合并 connectors、runtime capabilities、Ripple shared skills 和当前 user workspace skills；前端普通用户页面不直接展示 runtime capability 分类。
+- `GET /v1/capabilities` 返回内部统一能力目录，合并 connectors、runtime capabilities、Ripple shared skills 和当前 user workspace skills；前端普通用户页面不直接展示 runtime capability 分类。runtime capability 条目会带 `runtime` 元数据，例如 Codex app-server stdio protocol、managed permission profile、workspace messages 方法，以及 image input 只接受 workspace/local/inline data image、拒绝远程 HTTP(S) URL 的策略。
 - `GET /v1/skills` 返回用户侧 skill 列表，不包含 runtime capability；skill 条目包含 `display_source`、`kind`、`runtime`、`entry`、`python_packages`、`content_hash` 和 `last_validated_at`。
 - `POST /v1/skills` 创建当前 user 的 skill；旧 text skill 字段保持兼容，新增字段支持创建 Python executable skill。创建后会立即校验，安全且通过时自动启用。
 - `GET /v1/skills/:skill_id` 返回单个 skill 详情。
@@ -120,7 +123,7 @@ Task 是唯一任务语义。旧 standalone schedule API 和 `schedules` 表已�
 
 - `GET /health`：公开活性检查。
 - `GET /v1/health/ready`：就绪检查，覆盖 SQLite、sandbox 目录、Codex executable。
-- `GET /v1/diagnostics/doctor`：管理员诊断，覆盖安全姿态、CORS、SQLite、目录、Codex executable、bwrap/Codex Linux sandbox probe、nsjail config/runtime probe、connector CLI 和 backup contract。
+- `GET /v1/diagnostics/doctor`：管理员诊断，覆盖安全姿态、CORS、SQLite、目录、Codex executable、Codex app-server protocol/permission profile、bwrap/Codex Linux sandbox probe、nsjail config/runtime probe、connector CLI 和 backup contract。
 
 CLI 同步提供：
 

@@ -202,7 +202,7 @@ pub fn router(state: AppState) -> Router {
             post(task_triggers::run_task_trigger_now),
         )
         .route("/tasks/:task_id/events", get(tasks::list_task_events))
-        .routes(utoipa_axum::routes!(chat::chat_completions))
+        .routes(utoipa_axum::routes!(chat::create_response))
         .routes(utoipa_axum::routes!(health::ready))
         .routes(utoipa_axum::routes!(health::doctor))
         .route("/users/me", get(users::current_user_profile))
@@ -1062,6 +1062,38 @@ mod tests {
             entry.get("id").and_then(Value::as_str) == Some("runtime:codex_web_search")
                 && entry.get("type").and_then(Value::as_str) == Some("runtime_capability")
         }));
+        let image_input = capabilities
+            .iter()
+            .find(|entry| {
+                entry.get("id").and_then(Value::as_str) == Some("runtime:codex_image_input")
+            })
+            .expect("image input runtime capability");
+        assert_eq!(
+            image_input
+                .pointer("/runtime/remote_image_urls")
+                .and_then(Value::as_str),
+            Some("rejected")
+        );
+        assert!(image_input
+            .get("description")
+            .and_then(Value::as_str)
+            .is_some_and(|description| !description.contains("remote images")));
+        let codex_runtime = capabilities
+            .iter()
+            .find(|entry| entry.get("id").and_then(Value::as_str) == Some("runtime:openai_codex"))
+            .expect("openai codex runtime capability");
+        assert_eq!(
+            codex_runtime
+                .pointer("/runtime/protocol/transport")
+                .and_then(Value::as_str),
+            Some("stdio")
+        );
+        assert!(codex_runtime
+            .pointer("/runtime/protocol/methods")
+            .and_then(Value::as_array)
+            .is_some_and(|methods| methods
+                .iter()
+                .any(|method| method == "permissionProfile/list")));
         assert!(capabilities.iter().any(|entry| {
             entry.get("id").and_then(Value::as_str) == Some("ripple:shared-demo")
                 && entry.get("type").and_then(Value::as_str) == Some("skill")
@@ -1809,21 +1841,48 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn chat_can_create_available_skill_without_starting_codex() {
+    async fn chat_completions_route_is_not_registered() {
         let state = test_state(vec!["service-key".to_string()]);
-        let workspace = state.sandboxes.ensure_sandbox("skill-chat-user").unwrap();
 
-        let (status, body) = request_json(
+        let (status, _body) = request_json(
             state,
             Method::POST,
             "/v1/chat/completions",
             "service-key",
-            Some("skill-chat-user"),
+            Some("legacy-chat-user"),
             Some(json!({
                 "model": "codex-test",
-                "messages": [{
+                "messages": [{"role": "user", "content": "hello"}],
+                "stream": false
+            })),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn responses_can_create_available_skill_without_starting_codex() {
+        let state = test_state(vec!["service-key".to_string()]);
+        let workspace = state
+            .sandboxes
+            .ensure_sandbox("responses-skill-user")
+            .unwrap();
+
+        let (status, body) = request_json(
+            state,
+            Method::POST,
+            "/v1/responses",
+            "service-key",
+            Some("responses-skill-user"),
+            Some(json!({
+                "model": "codex-test",
+                "input": [{
                     "role": "user",
-                    "content": "把这个流程保存成一个能力：每周整理项目进展，先列进展，再列风险，最后列下周行动。"
+                    "content": [{
+                        "type": "input_text",
+                        "text": "把这个流程保存成一个能力：每周整理项目进展，先列进展，再列风险，最后列下周行动。"
+                    }]
                 }],
                 "stream": false
             })),
@@ -1832,24 +1891,35 @@ mod tests {
 
         assert_eq!(status, StatusCode::OK);
         assert_eq!(
-            body.pointer("/event/type").and_then(Value::as_str),
+            body.pointer("/object").and_then(Value::as_str),
+            Some("response")
+        );
+        assert_eq!(
+            body.pointer("/status").and_then(Value::as_str),
+            Some("completed")
+        );
+        assert_eq!(
+            body.pointer("/output/0/type").and_then(Value::as_str),
+            Some("message")
+        );
+        assert_eq!(
+            body.pointer("/output/0/content/0/type")
+                .and_then(Value::as_str),
+            Some("output_text")
+        );
+        assert_eq!(
+            body.pointer("/ripple_event/type").and_then(Value::as_str),
             Some("skill_draft_created")
         );
-        assert_eq!(
-            body.pointer("/event/skill/desired_state")
-                .and_then(Value::as_str),
-            Some("enabled")
-        );
-        assert_eq!(
-            body.pointer("/event/skill/user_status")
-                .and_then(Value::as_str),
-            Some("available")
-        );
-        assert_eq!(
-            body.pointer("/event/skill/validation/passed")
-                .and_then(Value::as_bool),
-            Some(true)
-        );
+        assert!(body
+            .pointer("/metadata/ripple_session_id")
+            .and_then(Value::as_str)
+            .is_some());
+        assert!(body
+            .get("output_text")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .contains("能力"));
         assert!(workspace
             .join("skills/saved-conversation-skill/SKILL.md")
             .is_file());
@@ -1866,12 +1936,12 @@ mod tests {
         let (status, body) = request_json(
             state.clone(),
             Method::POST,
-            "/v1/chat/completions",
+            "/v1/responses",
             "service-key",
             Some("skill-chat-details-user"),
             Some(json!({
                 "model": "codex-test",
-                "messages": [{
+                "input": [{
                     "role": "user",
                     "content": "把这个流程保存成一个能力：处理消息"
                 }],
@@ -1882,11 +1952,11 @@ mod tests {
 
         assert_eq!(status, StatusCode::OK);
         assert_eq!(
-            body.pointer("/event/type").and_then(Value::as_str),
+            body.pointer("/ripple_event/type").and_then(Value::as_str),
             Some("skill_clarification_required")
         );
         let message = body
-            .pointer("/event/message")
+            .pointer("/ripple_event/message")
             .and_then(Value::as_str)
             .expect("clarification message");
         assert!(message.contains("使用场景"), "{message}");
@@ -1897,7 +1967,7 @@ mod tests {
             .is_file());
 
         let session_id = body
-            .get("session_id")
+            .pointer("/metadata/ripple_session_id")
             .and_then(Value::as_str)
             .expect("session id");
         let reloaded = state
@@ -1928,12 +1998,12 @@ mod tests {
         let (_status, first) = request_json(
             state.clone(),
             Method::POST,
-            "/v1/chat/completions",
+            "/v1/responses",
             "service-key",
             Some("skill-chat-followup-user"),
             Some(json!({
                 "model": "codex-test",
-                "messages": [{
+                "input": [{
                     "role": "user",
                     "content": "把这个流程保存成一个能力：处理消息"
                 }],
@@ -1942,20 +2012,20 @@ mod tests {
         )
         .await;
         let session_id = first
-            .get("session_id")
+            .pointer("/metadata/ripple_session_id")
             .and_then(Value::as_str)
             .expect("session id");
 
         let (status, second) = request_json(
             state,
             Method::POST,
-            "/v1/chat/completions",
+            "/v1/responses",
             "service-key",
             Some("skill-chat-followup-user"),
             Some(json!({
                 "model": "codex-test",
-                "session_id": session_id,
-                "messages": [{
+                "metadata": {"ripple_session_id": session_id},
+                "input": [{
                     "role": "user",
                     "content": "场景是整理飞书群里的项目更新；步骤是读取消息、提炼进展和风险；输出 Markdown 列表；发送消息前要确认；测试样例是给三条项目消息生成摘要。"
                 }],
@@ -1966,7 +2036,7 @@ mod tests {
 
         assert_eq!(status, StatusCode::OK);
         assert_eq!(
-            second.pointer("/event/type").and_then(Value::as_str),
+            second.pointer("/ripple_event/type").and_then(Value::as_str),
             Some("skill_draft_created")
         );
         assert!(workspace

@@ -12,6 +12,7 @@ use crate::capabilities::{
     connector_definitions, connector_info, related_connector_for_skill,
     related_skills_for_connector,
 };
+use crate::codex::runtime_metadata::runtime_capability_metadata;
 use crate::skills::{
     build_skill_manifest_with_options, read_user_skill_settings, write_user_skill_settings,
     SkillManifestEntry, SkillManifestOptions, UserSkillSettings,
@@ -119,7 +120,7 @@ async fn capability_catalog(state: &AppState, user_id: &str) -> Result<Vec<Value
         } else {
             "blocked_by_connector_auth"
         };
-        capabilities.push(json!({
+        let mut capability = json!({
             "id": format!("{id_prefix}:{}", connector.name),
             "type": capability_type,
             "name": connector.name,
@@ -132,7 +133,16 @@ async fn capability_catalog(state: &AppState, user_id: &str) -> Result<Vec<Value
             "related_skills": related_skills_for_connector(connector, &skills),
             "related_connector": Value::Null,
             "connector": connector_info(connector)
-        }));
+        });
+        if connector.kind == "runtime_capability" {
+            if let Some(object) = capability.as_object_mut() {
+                object.insert(
+                    "runtime".to_string(),
+                    runtime_capability_metadata(connector.name, &state.config),
+                );
+            }
+        }
+        capabilities.push(capability);
     }
     capabilities.extend(
         skills

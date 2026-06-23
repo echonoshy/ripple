@@ -1065,6 +1065,68 @@ async fn call(app: axum::Router, method: Method, uri: &str, body: Value) -> (Sta
     (status, body)
 }
 
+fn response_body_from_chat_intent(mut body: Value) -> Value {
+    let Some(object) = body.as_object_mut() else {
+        return body;
+    };
+    if let Some(messages) = object.remove("messages") {
+        object.insert("input".to_string(), messages);
+    }
+    if let Some(session_id) = object
+        .remove("session_id")
+        .and_then(|value| value.as_str().map(str::to_string))
+        .filter(|value| !value.is_empty())
+    {
+        object.insert(
+            "previous_response_id".to_string(),
+            json!(format!("resp_{session_id}")),
+        );
+        let metadata = object.entry("metadata").or_insert_with(|| json!({}));
+        if let Some(metadata) = metadata.as_object_mut() {
+            metadata.insert("ripple_session_id".to_string(), json!(session_id));
+        }
+    }
+    if let Some(output_schema) = object.remove("outputSchema") {
+        object.insert(
+            "text".to_string(),
+            json!({"format": {"type": "json_schema", "schema": output_schema}}),
+        );
+    }
+    body
+}
+
+async fn call_response(app: axum::Router, body: Value) -> (StatusCode, Value) {
+    call(
+        app,
+        Method::POST,
+        "/v1/responses",
+        response_body_from_chat_intent(body),
+    )
+    .await
+}
+
+fn response_request(body: Value, authorized: bool) -> Request<Body> {
+    request(
+        Method::POST,
+        "/v1/responses",
+        response_body_from_chat_intent(body),
+        authorized,
+    )
+}
+
+fn response_output_text(response: &Value) -> &str {
+    response
+        .get("output_text")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+}
+
+fn response_session_id(response: &Value) -> Option<&str> {
+    response
+        .pointer("/metadata/ripple_session_id")
+        .and_then(Value::as_str)
+}
+
 fn test_state_and_app(root: &Path) -> (AppState, axum::Router) {
     let state = AppState::new(test_config(root));
     let app = router(state.clone());
@@ -1933,10 +1995,8 @@ async fn chat_dynamic_task_tool_updates_task_progress() {
     .await;
     assert_eq!(status, StatusCode::OK, "{created}");
 
-    let (status, chat) = call(
+    let (status, chat) = call_response(
         app.clone(),
-        Method::POST,
-        "/v1/chat/completions",
         json!({
             "model": "codex-test",
             "messages": [{"role": "user", "content": "[tool-task-complete] 完成报价草稿"}],
@@ -3273,11 +3333,9 @@ async fn task_run_now_rejects_when_source_session_is_running() {
     let chat_app = app.clone();
     let chat_session_id = session_id.clone();
     let chat_handle = tokio::spawn(async move {
-        call(
-            chat_app,
-            Method::POST,
-            "/v1/chat/completions",
-            json!({
+        call_response(
+        chat_app,
+        json!({
                 "model": "codex-test",
                 "session_id": chat_session_id,
                 "messages": [{"role": "user", "content": "[slow] keep this session busy"}]
@@ -4035,10 +4093,8 @@ async fn chat_dynamic_task_tool_creates_task_and_action() {
     let (_state, app) =
         test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
 
-    let (status, chat) = call(
+    let (status, chat) = call_response(
         app.clone(),
-        Method::POST,
-        "/v1/chat/completions",
         json!({
             "model": "codex-test",
             "messages": [{"role": "user", "content": "[tool-task] 这个客户报价方案周五前要整理好"}],
@@ -4116,10 +4172,8 @@ async fn chat_dynamic_task_tool_creates_single_reminder_task_trigger() {
     let (_state, app) =
         test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
 
-    let (status, chat) = call(
+    let (status, chat) = call_response(
         app.clone(),
-        Method::POST,
-        "/v1/chat/completions",
         json!({
             "model": "codex-test",
             "messages": [{"role": "user", "content": "[tool-reminder] 提醒我，2分钟以后设置一个闹铃。"}],
@@ -6063,10 +6117,8 @@ async fn chat_user_input_request_waits_and_resolves_session() {
         test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
     let user_id = "smoke-user";
 
-    let (status, pending) = call(
+    let (status, pending) = call_response(
         app.clone(),
-        Method::POST,
-        "/v1/chat/completions",
         json!({
             "model": "codex-test",
             "messages": [{"role": "user", "content": "[request-user-input] 整理报价"}],
@@ -6373,10 +6425,8 @@ async fn codex_disabled_rejects_runs_chat_and_task_trigger_extraction_before_sta
         Some("codex_disabled")
     );
 
-    let (status, chat) = call(
+    let (status, chat) = call_response(
         app.clone(),
-        Method::POST,
-        "/v1/chat/completions",
         json!({
             "model": "codex-test",
             "messages": [{"role": "user", "content": "hello"}],
@@ -6390,10 +6440,8 @@ async fn codex_disabled_rejects_runs_chat_and_task_trigger_extraction_before_sta
         Some("codex_disabled")
     );
 
-    let (status, task_trigger_chat) = call(
+    let (status, task_trigger_chat) = call_response(
         app,
-        Method::POST,
-        "/v1/chat/completions",
         json!({
             "model": "codex-test",
             "messages": [{"role": "user", "content": "请 1 分钟后提醒我测试"}],
@@ -7961,10 +8009,8 @@ async fn chat_route_confirms_pending_task_trigger_without_starting_codex() {
     }));
     state.sessions.save_record(session.clone()).await.unwrap();
 
-    let (status, chat) = call(
+    let (status, chat) = call_response(
         app.clone(),
-        Method::POST,
-        "/v1/chat/completions",
         json!({
             "model": "codex-test",
             "session_id": session.session_id,
@@ -8049,10 +8095,8 @@ async fn chat_route_proposes_task_trigger_with_fake_codex_extraction() {
         test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
     let user_id = "smoke-user";
 
-    let (status, chat) = call(
+    let (status, chat) = call_response(
         app,
-        Method::POST,
-        "/v1/chat/completions",
         json!({
             "model": "codex-test",
             "messages": [{"role": "user", "content": "schedule this every hour: Check build"}],
@@ -8126,10 +8170,8 @@ async fn chat_route_asks_details_before_complex_external_task_trigger_proposal()
         test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
     let user_id = "smoke-user";
 
-    let (status, chat) = call(
+    let (status, chat) = call_response(
         app,
-        Method::POST,
-        "/v1/chat/completions",
         json!({
             "model": "codex-test",
             "messages": [{
@@ -8221,10 +8263,8 @@ async fn chat_route_continues_task_trigger_clarification_with_user_followup() {
     }));
     state.sessions.save_record(session.clone()).await.unwrap();
 
-    let (status, proposal) = call(
+    let (status, proposal) = call_response(
         app,
-        Method::POST,
-        "/v1/chat/completions",
         json!({
             "model": "codex-test",
             "session_id": session.session_id,
@@ -8261,10 +8301,8 @@ async fn chat_route_completes_non_streaming_with_fake_codex_app_server() {
         test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
     let user_id = "smoke-user";
 
-    let (status, chat) = call(
+    let (status, chat) = call_response(
         app.clone(),
-        Method::POST,
-        "/v1/chat/completions",
         json!({
             "model": "codex-test",
             "messages": [
@@ -8308,10 +8346,8 @@ async fn chat_route_completes_non_streaming_with_fake_codex_app_server() {
     assert_eq!(reloaded.last_input_tokens, 10);
     assert_eq!(reloaded.codex_thread_id.as_deref(), Some("thread-1"));
 
-    let (status, follow_up) = call(
+    let (status, follow_up) = call_response(
         app.clone(),
-        Method::POST,
-        "/v1/chat/completions",
         json!({
             "model": "codex-test",
             "session_id": session_id,
@@ -8371,10 +8407,8 @@ async fn chat_route_starts_connector_auth_from_session_control_action() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let (state, app) = test_state_and_app(&root);
 
-    let (status, chat) = call(
+    let (status, chat) = call_response(
         app,
-        Method::POST,
-        "/v1/chat/completions",
         json!({
             "model": "codex-test",
             "messages": [{
@@ -8435,10 +8469,8 @@ async fn chat_route_converts_model_connector_auth_request_to_event() {
     let (state, app) =
         test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
 
-    let (status, chat) = call(
+    let (status, chat) = call_response(
         app,
-        Method::POST,
-        "/v1/chat/completions",
         json!({
             "model": "codex-test",
             "messages": [{"role": "user", "content": "[model-auth-alpha] summarize my inbox"}],
@@ -8485,10 +8517,8 @@ async fn chat_route_does_not_start_connector_auth_from_user_keywords_before_code
     let (state, app) =
         test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
 
-    let (status, chat) = call(
+    let (status, chat) = call_response(
         app,
-        Method::POST,
-        "/v1/chat/completions",
         json!({
             "model": "codex-test",
             "messages": [{"role": "user", "content": "请读取 Google Drive 里的会议纪要"}],
@@ -8529,10 +8559,8 @@ async fn chat_route_reads_local_workspace_pdf_without_connector_auth() {
     let workspace = state.sandboxes.ensure_sandbox("smoke-user").unwrap();
     fs::write(workspace.join("动效plan.pdf"), b"%PDF fake").unwrap();
 
-    let (status, chat) = call(
+    let (status, chat) = call_response(
         app,
-        Method::POST,
-        "/v1/chat/completions",
         json!({
             "model": "codex-test",
             "messages": [{"role": "user", "content": "/workspace/动效plan.pdf\n\n这个讲了什么内容"}],
@@ -8559,10 +8587,8 @@ async fn chat_generates_async_summary_title_without_public_run() {
         test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
     let user_id = "smoke-user";
 
-    let (status, chat) = call(
+    let (status, chat) = call_response(
         app.clone(),
-        Method::POST,
-        "/v1/chat/completions",
         json!({
             "model": "codex-test",
             "messages": [{"role": "user", "content": "hello from chat"}],
@@ -8634,9 +8660,7 @@ async fn deleting_running_chat_session_does_not_recreate_session() {
     let chat_session_id = session_id.clone();
     let chat_task = tokio::spawn(async move {
         chat_app
-            .oneshot(request(
-                Method::POST,
-                "/v1/chat/completions",
+            .oneshot(response_request(
                 json!({
                     "model": "codex-test",
                     "session_id": chat_session_id,
@@ -8741,9 +8765,7 @@ async fn chat_sessions_for_same_user_execute_in_parallel_with_isolated_fake_code
     let first_session_for_task = first_session_id.clone();
     let first_chat_task = tokio::spawn(async move {
         first_app
-            .oneshot(request(
-                Method::POST,
-                "/v1/chat/completions",
+            .oneshot(response_request(
                 json!({
                     "model": "codex-test",
                     "session_id": first_session_for_task,
@@ -8777,10 +8799,8 @@ async fn chat_sessions_for_same_user_execute_in_parallel_with_isolated_fake_code
         "first chat session should enter running state"
     );
 
-    let (status, second_chat) = call(
+    let (status, second_chat) = call_response(
         app.clone(),
-        Method::POST,
-        "/v1/chat/completions",
         json!({
             "model": "codex-test",
             "session_id": second_session_id,
@@ -8849,11 +8869,9 @@ async fn concurrent_chat_requests_for_same_session_start_single_run() {
     let first_app = app.clone();
     let first_session_id = session_id.clone();
     let first = tokio::spawn(async move {
-        call(
-            first_app,
-            Method::POST,
-            "/v1/chat/completions",
-            json!({
+        call_response(
+        first_app,
+        json!({
                 "model": "codex-test",
                 "session_id": first_session_id,
                 "messages": [{"role": "user", "content": "schedule this every hour: [slow] Check build"}],
@@ -8865,11 +8883,9 @@ async fn concurrent_chat_requests_for_same_session_start_single_run() {
     let second_app = app.clone();
     let second_session_id = session_id.clone();
     let second = tokio::spawn(async move {
-        call(
-            second_app,
-            Method::POST,
-            "/v1/chat/completions",
-            json!({
+        call_response(
+        second_app,
+        json!({
                 "model": "codex-test",
                 "session_id": second_session_id,
                 "messages": [{"role": "user", "content": "schedule this every hour: [slow] Check build"}],
@@ -8911,10 +8927,8 @@ async fn codex_app_server_does_not_inherit_server_secret_env() {
     let old_http_proxy = std::env::var_os("HTTP_PROXY");
     std::env::set_var("RIPPLE_SECRET_SHOULD_NOT_LEAK", "secret-from-server-env");
     std::env::set_var("HTTP_PROXY", "http://proxy.example:8080");
-    let (status, chat) = call(
+    let (status, chat) = call_response(
         app,
-        Method::POST,
-        "/v1/chat/completions",
         json!({
             "model": "codex-test",
             "messages": [{"role": "user", "content": "[env-check] inspect environment"}],
@@ -8978,10 +8992,8 @@ async fn chat_session_bound_to_context_folder_runs_from_that_folder() {
         Some("/workspace/demo")
     );
 
-    let (status, chat) = call(
+    let (status, chat) = call_response(
         app.clone(),
-        Method::POST,
-        "/v1/chat/completions",
         json!({
             "model": "codex-test",
             "session_id": session_id,
@@ -9041,10 +9053,8 @@ async fn chat_follow_up_resumes_codex_thread_without_replaying_turns() {
     let (_state, app) =
         test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
 
-    let (status, first) = call(
+    let (status, first) = call_response(
         app.clone(),
-        Method::POST,
-        "/v1/chat/completions",
         json!({
             "model": "codex-test",
             "messages": [{"role": "user", "content": "start a persistent thread"}],
@@ -9059,10 +9069,8 @@ async fn chat_follow_up_resumes_codex_thread_without_replaying_turns() {
         .expect("session id")
         .to_string();
 
-    let (status, follow_up) = call(
+    let (status, follow_up) = call_response(
         app,
-        Method::POST,
-        "/v1/chat/completions",
         json!({
             "model": "codex-test",
             "session_id": session_id,
@@ -9130,10 +9138,8 @@ async fn chat_recovers_restart_stale_running_job_before_starting_follow_up() {
         .await
         .unwrap();
 
-    let (status, follow_up) = call(
+    let (status, follow_up) = call_response(
         app.clone(),
-        Method::POST,
-        "/v1/chat/completions",
         json!({
             "model": "codex-test",
             "session_id": session.session_id,
@@ -9179,10 +9185,8 @@ async fn dropped_chat_stream_does_not_block_follow_up_after_job_completes() {
 
     let response = app
         .clone()
-        .oneshot(request(
-            Method::POST,
-            "/v1/chat/completions",
-            json!({
+        .oneshot(response_request(
+                json!({
                 "model": "codex-test",
                 "messages": [{"role": "user", "content": "[slow] stream that will disconnect"}],
                 "stream": true
@@ -9216,10 +9220,8 @@ async fn dropped_chat_stream_does_not_block_follow_up_after_job_completes() {
         "background Codex job should complete, jobs: {last_jobs:?}"
     );
 
-    let (status, follow_up) = call(
+    let (status, follow_up) = call_response(
         app.clone(),
-        Method::POST,
-        "/v1/chat/completions",
         json!({
             "model": "codex-test",
             "session_id": session_id,
@@ -9266,10 +9268,8 @@ async fn chat_creates_new_session_with_caller_supplied_session_id() {
     let user_id = "smoke-user";
     let caller_session_id = "CallerSession123";
 
-    let (status, first) = call(
+    let (status, first) = call_response(
         app.clone(),
-        Method::POST,
-        "/v1/chat/completions",
         json!({
             "model": "codex-test",
             "session_id": caller_session_id,
@@ -9293,10 +9293,8 @@ async fn chat_creates_new_session_with_caller_supplied_session_id() {
     assert_eq!(first_reloaded.session_id, caller_session_id);
     assert_eq!(first_reloaded.message_count, 2);
 
-    let (status, second) = call(
+    let (status, second) = call_response(
         app.clone(),
-        Method::POST,
-        "/v1/chat/completions",
         json!({
             "model": "codex-test",
             "session_id": caller_session_id,
@@ -9331,10 +9329,8 @@ async fn chat_stream_completes_with_fake_codex_app_server() {
     let user_id = "smoke-user";
 
     let response = app
-        .oneshot(request(
-            Method::POST,
-            "/v1/chat/completions",
-            json!({
+        .oneshot(response_request(
+                json!({
                 "model": "codex-test",
                 "messages": [{"role": "user", "content": "stream hello from chat"}],
                 "stream": true
@@ -9383,10 +9379,8 @@ async fn chat_stream_converts_model_connector_auth_request_to_event_without_leak
         test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
 
     let response = app
-        .oneshot(request(
-            Method::POST,
-            "/v1/chat/completions",
-            json!({
+        .oneshot(response_request(
+                json!({
                 "model": "codex-test",
                 "messages": [{"role": "user", "content": "[model-auth-alpha] summarize my inbox"}],
                 "stream": true
@@ -9429,10 +9423,8 @@ async fn chat_stream_forwards_codex_runtime_tool_plan_and_image_events() {
     let user_id = "smoke-user";
 
     let response = app
-        .oneshot(request(
-            Method::POST,
-            "/v1/chat/completions",
-            json!({
+        .oneshot(response_request(
+                json!({
                 "model": "codex-test",
                 "messages": [{"role": "user", "content": "[runtime-events] stream rich codex events"}],
                 "stream": true
@@ -9519,10 +9511,8 @@ async fn session_detail_backfills_generated_images_from_run_events() {
 
     let response = app
         .clone()
-        .oneshot(request(
-            Method::POST,
-            "/v1/chat/completions",
-            json!({
+        .oneshot(response_request(
+                json!({
                 "model": "codex-test",
                 "messages": [{"role": "user", "content": "[runtime-events] stream rich codex events"}],
                 "stream": true
@@ -9599,10 +9589,8 @@ async fn chat_approval_bridge_resolves_fake_codex_request() {
         test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
     let user_id = "smoke-user";
 
-    let (status, pending) = call(
+    let (status, pending) = call_response(
         app.clone(),
-        Method::POST,
-        "/v1/chat/completions",
         json!({
             "model": "codex-test",
             "messages": [{"role": "user", "content": "[approval] run a fake command"}],
@@ -9719,10 +9707,8 @@ async fn cancelling_approval_run_clears_pending_approval() {
     let (state, app) =
         test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
 
-    let (status, pending) = call(
+    let (status, pending) = call_response(
         app.clone(),
-        Method::POST,
-        "/v1/chat/completions",
         json!({
             "model": "codex-test",
             "messages": [{"role": "user", "content": "[approval] run a fake command"}],
@@ -9793,10 +9779,8 @@ async fn session_detail_recovers_restart_stale_awaiting_permission_job() {
     let config = test_config_with_codex_executable(&root, fake_codex);
     let (_state, app) = test_state_and_app_with_config(config.clone());
 
-    let (status, pending) = call(
+    let (status, pending) = call_response(
         app,
-        Method::POST,
-        "/v1/chat/completions",
         json!({
             "model": "codex-test",
             "messages": [{"role": "user", "content": "[approval] run a fake command"}],
@@ -9837,10 +9821,8 @@ async fn chat_stream_does_not_start_connector_auth_from_user_keywords_before_cod
         test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
 
     let response = app
-        .oneshot(request(
-            Method::POST,
-            "/v1/chat/completions",
-            json!({
+        .oneshot(response_request(
+                json!({
                 "model": "codex-test",
                 "messages": [{"role": "user", "content": "请连接 Notion"}],
                 "stream": true
@@ -9896,10 +9878,8 @@ async fn chat_stream_cancels_pending_task_trigger_without_codex() {
     state.sessions.save_record(session.clone()).await.unwrap();
 
     let response = app
-        .oneshot(request(
-            Method::POST,
-            "/v1/chat/completions",
-            json!({
+        .oneshot(response_request(
+                json!({
                 "model": "codex-test",
                 "session_id": session.session_id,
                 "messages": [{"role": "user", "content": "取消"}],

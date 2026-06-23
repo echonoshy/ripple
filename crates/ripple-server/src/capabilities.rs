@@ -128,7 +128,7 @@ pub fn connector_definitions() -> &'static [ConnectorDefinition] {
         ConnectorDefinition {
             name: "codex_image_input",
             display_name: "Image Input",
-            description: "Accept uploaded or remote images through Codex native input items.",
+            description: "Accept uploaded workspace images and inline image data through Codex native input items.",
             auth_type: "runtime",
             kind: "runtime_capability",
             auth_flow: "none",

@@ -1033,6 +1033,42 @@ description: Use for viaim products, software downloads, technical support, afte
     }
 
     #[test]
+    fn viaim_product_support_manifest_routes_core_brand_and_earbud_queries() {
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .unwrap()
+            .to_path_buf();
+        let config = test_config(&repo_root, vec!["skills/*".to_string()]);
+
+        let entry = build_skill_manifest(&config, None)
+            .into_iter()
+            .find(|entry| entry.id == "ripple:viaim-product-support")
+            .unwrap();
+        let rendered = render_skill_manifest(&config, None);
+        let route_text = format!(
+            "{}\n{}",
+            entry.description,
+            entry.when_to_use.as_deref().unwrap_or("")
+        );
+
+        for required in [
+            "viaim",
+            "未来智能",
+            "iFLYBUDS",
+            "earbuds",
+            "headsets",
+            "company/product background",
+        ] {
+            assert!(
+                route_text.contains(required),
+                "viaim-product-support manifest routing text should mention {required}"
+            );
+        }
+        assert!(rendered.contains("when_to_use:"));
+    }
+
+    #[test]
     fn user_skills_default_to_pending_enable() {
         let root = std::env::temp_dir().join(format!("ripple-skills-test-{}", Uuid::new_v4()));
         let workspace = root.join("workspace");

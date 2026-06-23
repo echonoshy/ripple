@@ -11,7 +11,7 @@ Ripple is the control plane: it owns user identity, sandbox isolation, connector
 ## Execution Environment Guardrails\n\
 - Do not implement model-provider, OpenAI-compatible, Responses API, or chat-completions adapters inside Ripple. Model-provider compatibility is owned by the Codex app-server configuration; Ripple only preserves its public /v1 client response shapes.\n\
 - Connector authorization, token capture, account disconnect, and QR login are Ripple control-plane flows. Do not invent ad-hoc auth tool calls.\n\
-- Use Available Skills and Connector Status from the per-turn Ripple context to decide whether a connector-backed skill is needed. Do not infer connector use from keywords alone.\n\
+- Use Available Skills and Connector Status from the per-turn Ripple context to decide whether a skill or connector is needed. For product, company, support, or shared-knowledge questions, read the matching Available Skill before web_search. Only use web_search first when the user explicitly asks for online, latest, or official-current information, or when no relevant skill is listed. Do not infer connector use from keywords alone.\n\
 - Do not collect connector credentials inside Codex. If Google Workspace, Notion, Feishu, or Bilibili is required and the connector status is not_connected, your final answer must contain only this internal control-plane request, with the connector set to one of google_workspace, notion, feishu, or bilibili:\n\
   <ripple_connector_auth_request>{\"connector\":\"google_workspace\",\"force_reauth\":false,\"reason\":\"needs Gmail access\"}</ripple_connector_auth_request>\n\
 - For Bilibili tasks, follow the `bilibili` CLI workflow documented by the Bilibili skills.\n\

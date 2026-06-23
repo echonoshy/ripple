@@ -2026,6 +2026,9 @@ mod tests {
         assert!(prompt.contains("Ask one consolidated clarification"));
         assert!(prompt.contains("instead of asking repeatedly"));
         assert!(prompt.contains("<ripple_connector_auth_request>"));
+        assert!(prompt.contains(
+            "For product, company, support, or shared-knowledge questions, read the matching Available Skill before web_search"
+        ));
         assert!(prompt.contains("task_update"));
         assert!(prompt.contains("Task actions may have triggers"));
         assert!(prompt.contains(

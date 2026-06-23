@@ -245,6 +245,8 @@ export default function SwipeActionRow({
   const shouldRenderLeadingActions = !disabled && hasLeadingActions;
   const shouldRenderLeadingCommit = !disabled && !hasLeadingActions && hasRightCommit;
   const shouldRenderTrailingActions = !disabled && hasTrailingActions;
+  const isLeadingVisible = effectiveVisibleSide === "leading";
+  const isTrailingVisible = effectiveVisibleSide === "trailing";
 
   return (
     <div
@@ -256,6 +258,7 @@ export default function SwipeActionRow({
       {shouldRenderLeadingActions ? (
         <div
           data-ripple-swipe-actions="leading"
+          aria-hidden={!isLeadingVisible}
           className={`absolute inset-y-0 left-0 flex overflow-hidden rounded-2xl transition-opacity duration-100 ${getActionVisibilityClass(
             "leading"
           )} ${getActionPointerClass("leading")}`}
@@ -266,7 +269,9 @@ export default function SwipeActionRow({
               type="button"
               aria-label={action.label}
               title={action.label}
+              aria-hidden={!isLeadingVisible}
               disabled={disabled}
+              tabIndex={isLeadingVisible ? 0 : -1}
               onClick={(event) => {
                 event.stopPropagation();
                 if (disabled) return;
@@ -302,6 +307,7 @@ export default function SwipeActionRow({
       {shouldRenderTrailingActions ? (
         <div
           data-ripple-swipe-actions="trailing"
+          aria-hidden={!isTrailingVisible}
           className={`absolute inset-y-0 right-0 flex overflow-hidden rounded-2xl transition-opacity duration-100 ${getActionVisibilityClass(
             "trailing"
           )} ${getActionPointerClass("trailing")}`}
@@ -312,7 +318,9 @@ export default function SwipeActionRow({
               type="button"
               aria-label={action.label}
               title={action.label}
+              aria-hidden={!isTrailingVisible}
               disabled={disabled}
+              tabIndex={isTrailingVisible ? 0 : -1}
               onClick={(event) => {
                 event.stopPropagation();
                 if (disabled) return;

@@ -1,11 +1,13 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { animate, motion, useMotionValue, useReducedMotion } from "framer-motion";
 import {
   AlertTriangle,
   Check,
   CheckCircle2,
   ChevronDown,
+  ChevronRight,
   ChevronUp,
   CircleDot,
   Clock3,
@@ -66,6 +68,26 @@ import {
   WORKBENCH_STATUS_SUCCESS_CLASS,
   WORKBENCH_STATUS_WARNING_CLASS,
 } from "./stylePrimitives";
+import {
+  mobileStackCommitTransition,
+  mobileStackReturnTransition,
+  mobileSwipeBackConfig,
+  resolveMobileSwipeBackRelease,
+  shouldCancelMobileSwipeBack,
+  shouldClaimMobileSwipeBack,
+  shouldGuardMobileSwipeBackScroll,
+  shouldReleaseMobileSwipeBackScrollGuard,
+} from "./motionPrimitives";
+import {
+  currentMobileSwipeBackTimeMs,
+  ensureMobileSwipeBackScrollLock,
+  isInteractiveMobileSwipeBackTarget,
+  mobileSwipeBackViewportWidth,
+  releaseMobileSwipeBackScrollLock,
+  type MobileSwipeBackDragState,
+  type MobileSwipeBackScrollLockState,
+  type MobileSwipeBackTouchGuardState,
+} from "./mobileSwipeBack";
 import MobilePageHeader from "./MobilePageHeader";
 
 interface TasksPageProps {
@@ -89,6 +111,24 @@ interface TasksPageProps {
 
 type TaskFilter = "all" | "open" | "waiting" | "blocked" | "done";
 
+interface TaskDetailBackSwipeIntentInput {
+  startX?: number;
+  deltaX: number;
+  deltaY: number;
+  viewportWidth: number;
+}
+
+interface TaskDetailBackSwipeReleaseInput {
+  x: number;
+  velocityX: number;
+  viewportWidth: number;
+}
+
+interface TaskDetailBackSwipeReleaseResolution {
+  shouldCloseTask: boolean;
+  commitDistance: number;
+}
+
 const taskFilters: TaskFilter[] = ["all", "open", "waiting", "blocked", "done"];
 const editableActionStatuses: TaskActionInfo["status"][] = [
   "confirmed",
@@ -98,6 +138,56 @@ const editableActionStatuses: TaskActionInfo["status"][] = [
   "completed",
   "cancelled",
 ];
+const TASK_DETAIL_BACK_SWIPE_INTERACTIVE_SELECTOR = "[data-ripple-ignore-task-swipe]";
+
+function isInteractiveTaskDetailBackSwipeTarget(target: EventTarget | null): boolean {
+  return isInteractiveMobileSwipeBackTarget(target, TASK_DETAIL_BACK_SWIPE_INTERACTIVE_SELECTOR);
+}
+
+export function shouldGuardTaskDetailBackSwipeScroll({
+  startX,
+  deltaX,
+  deltaY,
+  viewportWidth,
+}: TaskDetailBackSwipeIntentInput): boolean {
+  return shouldGuardMobileSwipeBackScroll({ startX, deltaX, deltaY, viewportWidth });
+}
+
+export function shouldClaimTaskDetailBackSwipe({
+  startX,
+  deltaX,
+  deltaY,
+  viewportWidth,
+}: TaskDetailBackSwipeIntentInput): boolean {
+  return shouldClaimMobileSwipeBack({ startX, deltaX, deltaY, viewportWidth });
+}
+
+export function shouldCancelTaskDetailBackSwipe({
+  startX,
+  deltaX,
+  deltaY,
+  viewportWidth,
+}: TaskDetailBackSwipeIntentInput): boolean {
+  return shouldCancelMobileSwipeBack({ startX, deltaX, deltaY, viewportWidth });
+}
+
+export function shouldReleaseTaskDetailBackSwipeScrollGuard({
+  startX,
+  deltaX,
+  deltaY,
+  viewportWidth,
+}: TaskDetailBackSwipeIntentInput): boolean {
+  return shouldReleaseMobileSwipeBackScrollGuard({ startX, deltaX, deltaY, viewportWidth });
+}
+
+export function resolveTaskDetailBackSwipeRelease({
+  x,
+  velocityX,
+  viewportWidth,
+}: TaskDetailBackSwipeReleaseInput): TaskDetailBackSwipeReleaseResolution {
+  const release = resolveMobileSwipeBackRelease({ x, velocityX, viewportWidth });
+  return { shouldCloseTask: release.shouldCommit, commitDistance: release.commitDistance };
+}
 
 function statusLabel(status: string, t: ReturnType<typeof useI18n>["t"]): string {
   switch (status) {
@@ -438,6 +528,10 @@ const taskSoftPanelClass = "rounded-xl border border-[#EFF0F1] bg-[#F8F9FA]";
 const taskTimelineItemClass =
   "relative grid min-w-0 gap-1.5 border-l border-[#DEE0E3] pb-3 pl-3 last:pb-0 before:absolute before:top-1.5 before:-left-[4.5px] before:h-2 before:w-2 before:rounded-full before:bg-[#1456F0] before:ring-4 before:ring-white";
 
+function isDesktopTaskViewport(): boolean {
+  return typeof window !== "undefined" && window.matchMedia("(min-width: 1024px)").matches;
+}
+
 export default function TasksPage({
   userId,
   selectedTaskId,
@@ -457,11 +551,14 @@ export default function TasksPage({
   onDeleteTask,
 }: TasksPageProps) {
   const { locale, t } = useI18n();
+  const reduceMotion = useReducedMotion();
+  const taskDetailSwipeX = useMotionValue(0);
   const isControlled = tasks !== undefined;
   const [taskList, setTaskList] = useState<TaskInfo[]>(() => tasks || []);
   const [selectedId, setSelectedId] = useState<string | null>(
     selectedTaskId || tasks?.[0]?.taskId || null
   );
+  const [selectedMobileTaskId, setSelectedMobileTaskId] = useState<string | null>(null);
   const selectedIdRef = useRef<string | null>(selectedId);
   const [detailActions, setDetailActions] = useState<TaskActionInfo[]>(() => actions || []);
   const [taskEvents, setTaskEvents] = useState<TaskEventInfo[]>(() => events || []);
@@ -471,6 +568,8 @@ export default function TasksPage({
   const [internalError, setInternalError] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<TaskFilter>("all");
+  const [isDesktopTaskLayout, setIsDesktopTaskLayout] = useState(isDesktopTaskViewport);
+  const [isTaskDetailSwipeActive, setIsTaskDetailSwipeActive] = useState(false);
   const [confirmingTaskAction, setConfirmingTaskAction] = useState<string | null>(null);
   const [isActionFormOpen, setIsActionFormOpen] = useState(false);
   const [isActionSortMode, setIsActionSortMode] = useState(false);
@@ -491,6 +590,11 @@ export default function TasksPage({
   const [editingTriggerIntervalMinutes, setEditingTriggerIntervalMinutes] = useState("60");
   const [editingTriggerMaxRuns, setEditingTriggerMaxRuns] = useState("");
   const [confirmingTriggerDeleteId, setConfirmingTriggerDeleteId] = useState<string | null>(null);
+  const taskDetailSwipeDragStateRef = useRef<MobileSwipeBackDragState | null>(null);
+  const taskDetailSwipeTouchGuardStateRef = useRef<MobileSwipeBackTouchGuardState | null>(null);
+  const taskDetailSwipeScrollLockRef = useRef<MobileSwipeBackScrollLockState | null>(null);
+  const taskDetailSwipeAnimationRef = useRef<ReturnType<typeof animate> | null>(null);
+  const suppressNextTaskDetailSwipeClickRef = useRef(false);
 
   useEffect(() => {
     selectedIdRef.current = selectedId;
@@ -511,6 +615,19 @@ export default function TasksPage({
   useEffect(() => {
     if (triggers) setTriggerList(triggers);
   }, [triggers]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const media = window.matchMedia("(min-width: 1024px)");
+    const handleChange = () => setIsDesktopTaskLayout(media.matches);
+    handleChange();
+    if (typeof media.addEventListener === "function") {
+      media.addEventListener("change", handleChange);
+      return () => media.removeEventListener("change", handleChange);
+    }
+    media.addListener(handleChange);
+    return () => media.removeListener(handleChange);
+  }, []);
 
   const handleError = useCallback(
     (caught: unknown, fallback: string) => {
@@ -595,6 +712,13 @@ export default function TasksPage({
     () => filteredTasks.find((task) => task.taskId === selectedId) || filteredTasks[0] || null,
     [filteredTasks, selectedId]
   );
+  const mobileDetailTask = useMemo(
+    () =>
+      selectedMobileTaskId
+        ? taskList.find((task) => task.taskId === selectedMobileTaskId) || null
+        : null,
+    [selectedMobileTaskId, taskList]
+  );
 
   useEffect(() => {
     setIsActionSortMode(false);
@@ -605,6 +729,12 @@ export default function TasksPage({
     setEditingTriggerId(null);
     setConfirmingTriggerDeleteId(null);
   }, [selectedTask?.taskId]);
+
+  useEffect(() => {
+    if (selectedMobileTaskId && !mobileDetailTask) {
+      setSelectedMobileTaskId(null);
+    }
+  }, [mobileDetailTask, selectedMobileTaskId]);
 
   useEffect(() => {
     if (filteredTasks.length === 0) {
@@ -676,6 +806,332 @@ export default function TasksPage({
       void loadTaskDetail(taskId);
     },
     [loadTaskDetail, onSelectTask]
+  );
+
+  const stopTaskDetailSwipeAnimation = useCallback(() => {
+    taskDetailSwipeAnimationRef.current?.stop();
+    taskDetailSwipeAnimationRef.current = null;
+  }, []);
+
+  const releaseTaskDetailSwipeScrollLock = useCallback(() => {
+    releaseMobileSwipeBackScrollLock(taskDetailSwipeScrollLockRef.current);
+    taskDetailSwipeScrollLockRef.current = null;
+  }, []);
+
+  const animateTaskDetailSwipeTo = useCallback(
+    (target: number, onComplete?: () => void, transition = mobileStackReturnTransition) => {
+      stopTaskDetailSwipeAnimation();
+      if (reduceMotion) {
+        taskDetailSwipeX.set(target);
+        onComplete?.();
+        return;
+      }
+
+      const animation = animate(taskDetailSwipeX, target, transition);
+      taskDetailSwipeAnimationRef.current = animation;
+      void animation.then(() => {
+        if (taskDetailSwipeAnimationRef.current === animation) {
+          taskDetailSwipeAnimationRef.current = null;
+        }
+        onComplete?.();
+      });
+    },
+    [reduceMotion, stopTaskDetailSwipeAnimation, taskDetailSwipeX]
+  );
+
+  const resetTaskDetailSwipeState = useCallback(() => {
+    stopTaskDetailSwipeAnimation();
+    taskDetailSwipeDragStateRef.current = null;
+    taskDetailSwipeTouchGuardStateRef.current = null;
+    releaseTaskDetailSwipeScrollLock();
+    setIsTaskDetailSwipeActive(false);
+    taskDetailSwipeX.set(0);
+  }, [releaseTaskDetailSwipeScrollLock, stopTaskDetailSwipeAnimation, taskDetailSwipeX]);
+
+  const openMobileTaskDetail = useCallback(
+    (taskId: string) => {
+      resetTaskDetailSwipeState();
+      setSelectedMobileTaskId(taskId);
+      selectTask(taskId);
+    },
+    [resetTaskDetailSwipeState, selectTask]
+  );
+
+  const closeMobileTaskDetail = useCallback(() => {
+    resetTaskDetailSwipeState();
+    setSelectedMobileTaskId(null);
+  }, [resetTaskDetailSwipeState]);
+
+  const closeMobileTaskDetailWithSwipeCommit = useCallback(() => {
+    taskDetailSwipeDragStateRef.current = null;
+    taskDetailSwipeTouchGuardStateRef.current = null;
+    releaseTaskDetailSwipeScrollLock();
+    setIsTaskDetailSwipeActive(false);
+    setSelectedMobileTaskId(null);
+    const resetSwipeX = () => taskDetailSwipeX.set(0);
+    if (typeof window === "undefined") {
+      resetSwipeX();
+    } else {
+      window.requestAnimationFrame(resetSwipeX);
+    }
+  }, [releaseTaskDetailSwipeScrollLock, taskDetailSwipeX]);
+
+  useEffect(
+    () => () => {
+      stopTaskDetailSwipeAnimation();
+      releaseMobileSwipeBackScrollLock(taskDetailSwipeScrollLockRef.current);
+      taskDetailSwipeScrollLockRef.current = null;
+    },
+    [stopTaskDetailSwipeAnimation]
+  );
+
+  const handleTaskDetailSwipePointerDown = useCallback(
+    (event: React.PointerEvent<HTMLElement>) => {
+      if (!mobileDetailTask) return;
+      if (!event.isPrimary || event.pointerType !== "touch") return;
+      const viewportWidth = mobileSwipeBackViewportWidth();
+      if (viewportWidth >= mobileSwipeBackConfig.desktopMinWidth) return;
+      suppressNextTaskDetailSwipeClickRef.current = false;
+      if (isInteractiveTaskDetailBackSwipeTarget(event.target)) return;
+      stopTaskDetailSwipeAnimation();
+      const scrollElement = event.currentTarget;
+
+      taskDetailSwipeDragStateRef.current = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        viewportWidth,
+        claimed: false,
+        lastX: event.clientX,
+        lastTime: currentMobileSwipeBackTimeMs(),
+        velocityX: 0,
+        scrollElement,
+        startScrollTop: scrollElement.scrollTop,
+      };
+    },
+    [mobileDetailTask, stopTaskDetailSwipeAnimation]
+  );
+
+  const handleTaskDetailSwipePointerMove = useCallback(
+    (event: React.PointerEvent<HTMLElement>) => {
+      const dragState = taskDetailSwipeDragStateRef.current;
+      if (!dragState || dragState.pointerId !== event.pointerId) return;
+
+      const deltaX = event.clientX - dragState.startX;
+      const deltaY = event.clientY - dragState.startY;
+
+      if (
+        !dragState.claimed &&
+        shouldCancelTaskDetailBackSwipe({
+          startX: dragState.startX,
+          deltaX,
+          deltaY,
+          viewportWidth: dragState.viewportWidth,
+        })
+      ) {
+        taskDetailSwipeDragStateRef.current = null;
+        releaseTaskDetailSwipeScrollLock();
+        return;
+      }
+
+      if (
+        !dragState.claimed &&
+        shouldClaimTaskDetailBackSwipe({
+          startX: dragState.startX,
+          deltaX,
+          deltaY,
+          viewportWidth: dragState.viewportWidth,
+        })
+      ) {
+        dragState.claimed = true;
+        suppressNextTaskDetailSwipeClickRef.current = true;
+        setIsTaskDetailSwipeActive(true);
+        taskDetailSwipeScrollLockRef.current = ensureMobileSwipeBackScrollLock(
+          taskDetailSwipeScrollLockRef.current,
+          dragState.scrollElement,
+          dragState.startScrollTop
+        );
+        try {
+          event.currentTarget.setPointerCapture(event.pointerId);
+        } catch {
+          // Pointer capture can fail when the platform has already ended the gesture.
+        }
+      }
+
+      if (!dragState.claimed) return;
+
+      event.preventDefault();
+      const currentTime = currentMobileSwipeBackTimeMs();
+      const elapsed = Math.max(1, currentTime - dragState.lastTime);
+      dragState.velocityX = ((event.clientX - dragState.lastX) / elapsed) * 1000;
+      dragState.lastX = event.clientX;
+      dragState.lastTime = currentTime;
+      taskDetailSwipeX.set(Math.max(0, deltaX));
+    },
+    [releaseTaskDetailSwipeScrollLock, taskDetailSwipeX]
+  );
+
+  const handleTaskDetailSwipePointerUp = useCallback(
+    (event: React.PointerEvent<HTMLElement>) => {
+      const dragState = taskDetailSwipeDragStateRef.current;
+      if (!dragState || dragState.pointerId !== event.pointerId) return;
+
+      taskDetailSwipeDragStateRef.current = null;
+      releaseTaskDetailSwipeScrollLock();
+      try {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      } catch {
+        // Matching setPointerCapture may not have succeeded on every platform.
+      }
+
+      if (!dragState.claimed) return;
+      event.preventDefault();
+
+      const release = resolveTaskDetailBackSwipeRelease({
+        x: taskDetailSwipeX.get(),
+        velocityX: dragState.velocityX,
+        viewportWidth: dragState.viewportWidth,
+      });
+
+      if (!release.shouldCloseTask) {
+        animateTaskDetailSwipeTo(0, () => {
+          setIsTaskDetailSwipeActive(false);
+        });
+        return;
+      }
+
+      setIsTaskDetailSwipeActive(true);
+      animateTaskDetailSwipeTo(
+        dragState.viewportWidth,
+        closeMobileTaskDetailWithSwipeCommit,
+        mobileStackCommitTransition
+      );
+    },
+    [
+      animateTaskDetailSwipeTo,
+      closeMobileTaskDetailWithSwipeCommit,
+      releaseTaskDetailSwipeScrollLock,
+      taskDetailSwipeX,
+    ]
+  );
+
+  const handleTaskDetailSwipePointerCancel = useCallback(
+    (event: React.PointerEvent<HTMLElement>) => {
+      const dragState = taskDetailSwipeDragStateRef.current;
+      if (dragState && dragState.pointerId === event.pointerId) {
+        taskDetailSwipeDragStateRef.current = null;
+        releaseTaskDetailSwipeScrollLock();
+        animateTaskDetailSwipeTo(0, () => {
+          setIsTaskDetailSwipeActive(false);
+        });
+      }
+    },
+    [animateTaskDetailSwipeTo, releaseTaskDetailSwipeScrollLock]
+  );
+
+  const handleTaskDetailSwipeTouchStartCapture = useCallback(
+    (event: React.TouchEvent<HTMLElement>) => {
+      if (!mobileDetailTask) return;
+      if (event.touches.length !== 1) return;
+      const viewportWidth = mobileSwipeBackViewportWidth();
+      if (viewportWidth >= mobileSwipeBackConfig.desktopMinWidth) return;
+      if (isInteractiveTaskDetailBackSwipeTarget(event.target)) return;
+      const touch = event.touches[0];
+      if (!touch) return;
+      stopTaskDetailSwipeAnimation();
+      const scrollElement = event.currentTarget;
+
+      taskDetailSwipeTouchGuardStateRef.current = {
+        startX: touch.clientX,
+        startY: touch.clientY,
+        viewportWidth,
+        isGuarding: false,
+        scrollElement,
+        startScrollTop: scrollElement.scrollTop,
+      };
+    },
+    [mobileDetailTask, stopTaskDetailSwipeAnimation]
+  );
+
+  const handleTaskDetailSwipeTouchMoveCapture = useCallback(
+    (event: React.TouchEvent<HTMLElement>) => {
+      const guardState = taskDetailSwipeTouchGuardStateRef.current;
+      const touch = event.touches[0];
+      if (!guardState || !touch) return;
+
+      const deltaX = touch.clientX - guardState.startX;
+      const deltaY = touch.clientY - guardState.startY;
+
+      if (
+        guardState.isGuarding &&
+        shouldReleaseTaskDetailBackSwipeScrollGuard({
+          startX: guardState.startX,
+          deltaX,
+          deltaY,
+          viewportWidth: guardState.viewportWidth,
+        })
+      ) {
+        taskDetailSwipeTouchGuardStateRef.current = null;
+        releaseTaskDetailSwipeScrollLock();
+        return;
+      }
+
+      if (
+        !guardState.isGuarding &&
+        shouldCancelTaskDetailBackSwipe({
+          startX: guardState.startX,
+          deltaX,
+          deltaY,
+          viewportWidth: guardState.viewportWidth,
+        })
+      ) {
+        taskDetailSwipeTouchGuardStateRef.current = null;
+        releaseTaskDetailSwipeScrollLock();
+        return;
+      }
+
+      if (
+        guardState.isGuarding ||
+        shouldGuardTaskDetailBackSwipeScroll({
+          startX: guardState.startX,
+          deltaX,
+          deltaY,
+          viewportWidth: guardState.viewportWidth,
+        })
+      ) {
+        guardState.isGuarding = true;
+        event.preventDefault();
+        taskDetailSwipeScrollLockRef.current = ensureMobileSwipeBackScrollLock(
+          taskDetailSwipeScrollLockRef.current,
+          guardState.scrollElement,
+          guardState.startScrollTop
+        );
+      }
+    },
+    [releaseTaskDetailSwipeScrollLock]
+  );
+
+  const clearTaskDetailSwipeTouchGuard = useCallback(() => {
+    taskDetailSwipeTouchGuardStateRef.current = null;
+    if (!taskDetailSwipeDragStateRef.current?.claimed) releaseTaskDetailSwipeScrollLock();
+  }, [releaseTaskDetailSwipeScrollLock]);
+
+  const handleTaskDetailSwipeClickCapture = useCallback((event: React.MouseEvent<HTMLElement>) => {
+    if (!suppressNextTaskDetailSwipeClickRef.current) return;
+    suppressNextTaskDetailSwipeClickRef.current = false;
+    event.preventDefault();
+    event.stopPropagation();
+  }, []);
+
+  const selectTaskFromList = useCallback(
+    (taskId: string) => {
+      if (isDesktopTaskLayout) {
+        selectTask(taskId);
+        return;
+      }
+      openMobileTaskDetail(taskId);
+    },
+    [isDesktopTaskLayout, openMobileTaskDetail, selectTask]
   );
 
   const refresh = useCallback(() => {
@@ -1155,22 +1611,33 @@ export default function TasksPage({
       data-ripple-task-page="true"
       className={`flex h-full min-h-0 flex-col overflow-hidden ${WORKBENCH_PAGE_BACKGROUND_CLASS} text-[#1F2329]`}
     >
-      <MobilePageHeader
-        title={t("tasks.title")}
-        subtitle={t("tasks.total", { count: taskList.length })}
-        actions={
-          <button
-            type="button"
-            onClick={refresh}
-            aria-label={t("tasks.refresh")}
-            title={t("tasks.refresh")}
-            className={WORKBENCH_ICON_BUTTON_CLASS}
-            disabled={loading}
-          >
-            {loading ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
-          </button>
-        }
-      />
+      {mobileDetailTask ? (
+        <MobilePageHeader
+          title={mobileDetailTask.title}
+          subtitle={`${statusLabel(mobileDetailTask.status, t)} · ${progressText(
+            mobileDetailTask
+          )}`}
+          backLabel={t("tasks.backToTasks")}
+          onBack={closeMobileTaskDetail}
+        />
+      ) : (
+        <MobilePageHeader
+          title={t("tasks.title")}
+          subtitle={t("tasks.total", { count: taskList.length })}
+          actions={
+            <button
+              type="button"
+              onClick={refresh}
+              aria-label={t("tasks.refresh")}
+              title={t("tasks.refresh")}
+              className={WORKBENCH_ICON_BUTTON_CLASS}
+              disabled={loading}
+            >
+              {loading ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+            </button>
+          }
+        />
+      )}
 
       <div
         className={`min-h-0 flex-1 overflow-y-auto px-3 ${MOBILE_PAGE_TOP_SAFE_AREA_CLASS} ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS} md:px-6 lg:pt-5 lg:pb-5`}
@@ -1212,9 +1679,12 @@ export default function TasksPage({
             <section
               data-ripple-task-list="true"
               data-ripple-task-inbox="true"
-              className={`${taskPanelClass} min-h-0 overflow-hidden`}
+              data-ripple-task-mobile-index-page="true"
+              className={`${taskPanelClass} min-h-0 overflow-hidden ${
+                mobileDetailTask ? "hidden lg:block" : ""
+              }`}
             >
-              <div className="flex items-center justify-between gap-2 border-b border-[#EFF0F1] px-3 py-2.5">
+              <div className="hidden items-center justify-between gap-2 border-b border-[#EFF0F1] px-3 py-2.5 lg:flex">
                 <div className="min-w-0">
                   <h2 className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} truncate text-[#1F2329]`}>
                     {t("tasks.title")}
@@ -1227,18 +1697,23 @@ export default function TasksPage({
                   <Loader2 size={15} className="shrink-0 animate-spin text-[#646A73]" />
                 ) : null}
               </div>
-              <div className="flex min-w-0 flex-wrap gap-1.5 border-b border-[#EFF0F1] px-2.5 py-2">
-                {taskFilters.map((filter) => (
-                  <button
-                    key={filter}
-                    type="button"
-                    onClick={() => setActiveFilter(filter)}
-                    className={filterButtonClass(filter)}
-                  >
-                    {filterLabel(filter, t)}
-                  </button>
-                ))}
-              </div>
+              {isDesktopTaskLayout ? (
+                <div
+                  data-ripple-task-desktop-filter-row="true"
+                  className="hidden min-w-0 flex-wrap gap-1.5 border-b border-[#EFF0F1] px-2.5 py-2 lg:flex"
+                >
+                  {taskFilters.map((filter) => (
+                    <button
+                      key={filter}
+                      type="button"
+                      onClick={() => setActiveFilter(filter)}
+                      className={filterButtonClass(filter)}
+                    >
+                      {filterLabel(filter, t)}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
               <div className="grid content-start gap-2 p-2.5">
                 {filteredTasks.length === 0 && !loading ? (
                   <div
@@ -1248,16 +1723,17 @@ export default function TasksPage({
                   </div>
                 ) : null}
                 {filteredTasks.map((task) => {
-                  const selected = selectedTask?.taskId === task.taskId;
+                  const selected = isDesktopTaskLayout && selectedTask?.taskId === task.taskId;
                   return (
                     <button
                       key={task.taskId}
+                      data-ripple-task-card="true"
                       type="button"
-                      onClick={() => selectTask(task.taskId)}
-                      className={`group min-w-0 rounded-lg border px-3 py-2.5 text-left transition-colors ${
+                      onClick={() => selectTaskFromList(task.taskId)}
+                      className={`group min-w-0 rounded-xl border px-3.5 py-3 text-left transition-colors active:bg-[#EFF0F1] ${
                         selected
                           ? "border-[#BACEFD] bg-[#F0F5FF] shadow-[inset_3px_0_0_#1456F0]"
-                          : "border-transparent bg-white hover:border-[#DEE0E3] hover:bg-[#F8F9FA]"
+                          : "border-[#DEE0E3] bg-white shadow-[0_1px_2px_rgba(31,35,41,0.04)] hover:border-[#BACEFD] hover:bg-[#F8F9FA]"
                       }`}
                     >
                       <div className="flex min-w-0 items-start justify-between gap-2">
@@ -1276,6 +1752,10 @@ export default function TasksPage({
                         >
                           {statusLabel(task.status, t)}
                         </span>
+                        <ChevronRight
+                          size={16}
+                          className="hidden shrink-0 text-[#8F959E] group-hover:text-[#646A73] sm:block lg:hidden"
+                        />
                       </div>
                       <div className="mt-2 flex items-center justify-between gap-2">
                         <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-[#EFF0F1]">
@@ -1294,7 +1774,27 @@ export default function TasksPage({
               </div>
             </section>
 
-            <section data-ripple-task-detail="true" className="min-h-0">
+            <motion.section
+              data-ripple-task-detail="true"
+              data-ripple-task-mobile-detail-page="true"
+              data-ripple-task-detail-swipe-sheet="true"
+              data-ripple-task-detail-swiping={isTaskDetailSwipeActive ? "true" : "false"}
+              style={{ x: taskDetailSwipeX }}
+              className={`min-h-0 ${
+                mobileDetailTask ? "block" : "hidden lg:block"
+              } ${mobileDetailTask ? "touch-pan-y overflow-y-auto" : ""} ${
+                isTaskDetailSwipeActive ? "will-change-transform" : "will-change-auto"
+              } lg:will-change-auto`}
+              onPointerDownCapture={handleTaskDetailSwipePointerDown}
+              onPointerMoveCapture={handleTaskDetailSwipePointerMove}
+              onPointerUpCapture={handleTaskDetailSwipePointerUp}
+              onPointerCancelCapture={handleTaskDetailSwipePointerCancel}
+              onClickCapture={handleTaskDetailSwipeClickCapture}
+              onTouchStartCapture={handleTaskDetailSwipeTouchStartCapture}
+              onTouchMoveCapture={handleTaskDetailSwipeTouchMoveCapture}
+              onTouchEndCapture={clearTaskDetailSwipeTouchGuard}
+              onTouchCancelCapture={clearTaskDetailSwipeTouchGuard}
+            >
               {selectedTask ? (
                 <div className="grid min-h-full gap-3">
                   <div
@@ -2159,7 +2659,7 @@ export default function TasksPage({
                   {loading ? t("tasks.loading") : emptyTaskMessage}
                 </div>
               )}
-            </section>
+            </motion.section>
           </div>
         </div>
       </div>

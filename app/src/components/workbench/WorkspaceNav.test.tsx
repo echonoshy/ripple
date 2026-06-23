@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { I18nProvider, type LocalePreference } from "@/i18n";
 import type { WorkbenchSessionSummary } from "@/types";
 import WorkspaceNav from "./WorkspaceNav";
+
+const workspaceNavSource = readFileSync(new URL("./WorkspaceNav.tsx", import.meta.url), "utf8");
 
 function noop() {}
 
@@ -265,10 +268,17 @@ function testSessionRailDoesNotRenderAccountChrome() {
   assert.doesNotMatch(html, /Settings for/);
 }
 
+function testSessionDeleteRemainsSingleAction() {
+  assert.doesNotMatch(workspaceNavSource, /confirmingDeleteSessionId/);
+  assert.doesNotMatch(workspaceNavSource, /sessions\.confirmDelete/);
+  assert.match(workspaceNavSource, /onDeleteSession\(session\.sessionId,\s*event\);/);
+}
+
 testRendersPinnedSessionWithIcon();
 testRendersUnpinnedSessionWithoutPinIcon();
 testRendersSessionOptionsButton();
 testSessionOptionsButtonUsesChineseAccessibleLabel();
 testSessionRailDoesNotRenderAccountChrome();
+testSessionDeleteRemainsSingleAction();
 
 console.log("workspace nav tests passed");

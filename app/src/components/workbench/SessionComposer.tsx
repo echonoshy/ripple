@@ -449,6 +449,7 @@ export default function SessionComposer({
         <button
           ref={modelButtonRef}
           type="button"
+          data-ripple-composer-model-button
           aria-label={t("composer.selectModel")}
           title={t("composer.modelTitle", { model: formatModelName(selectedModel) })}
           onClick={handleModelButtonClick}

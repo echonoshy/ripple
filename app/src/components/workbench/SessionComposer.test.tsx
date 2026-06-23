@@ -197,6 +197,14 @@ function testComposerModelMenuUsesViewportPortal() {
   assert.doesNotMatch(source, /absolute bottom-full left-0/);
 }
 
+function testComposerModelButtonHasStableExplainerAnchor() {
+  const html = renderComposer();
+
+  assert.match(html, /data-ripple-composer-model-button/);
+  assert.match(html, /aria-label="Select model"/);
+  assert.match(html, /title="Model: Pro"/);
+}
+
 function testComposerModelMenuSelectsOnTouchPointerDown() {
   const source = readFileSync(new URL("./SessionComposer.tsx", import.meta.url), "utf8");
 
@@ -339,6 +347,7 @@ testBlockedComposerStillAllowsDraftingAndShowsStop();
 testComposerClearsIosHomeIndicatorAndUsesTouchSizedActions();
 testComposerUsesWorkbenchSurfaceScaleAndIndependentToolButtons();
 testComposerModelMenuUsesViewportPortal();
+testComposerModelButtonHasStableExplainerAnchor();
 testComposerModelMenuSelectsOnTouchPointerDown();
 testComposerModelMenuClosesWithExplicitCloseCallback();
 testHiddenComposerDoesNotCloseVisibleModelMenu();

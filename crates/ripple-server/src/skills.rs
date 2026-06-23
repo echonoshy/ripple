@@ -1356,5 +1356,121 @@ metadata:
 
         assert!(!names.contains(&"frontend-design"));
         assert!(!names.contains(&"ripple-automations"));
+        assert!(names.contains(&"ripple-ui-explainer"));
+
+        let rendered = render_skill_manifest(&config, None);
+        assert!(rendered.contains("ripple:ripple-ui-explainer"));
+        assert!(rendered.contains("Ripple UI screenshots"));
+    }
+
+    #[test]
+    fn ripple_ui_explainer_includes_code_backed_ui_references() {
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .unwrap()
+            .to_path_buf();
+        let skill_root = repo_root.join("skills/ripple-ui-explainer");
+
+        let skill = std::fs::read_to_string(skill_root.join("SKILL.md")).unwrap();
+        for reference in [
+            "references/navigation.md",
+            "references/chat-session.md",
+            "references/visual-recognition.md",
+            "references/model-selection.md",
+            "references/files.md",
+            "references/skills-connectors.md",
+            "references/settings.md",
+            "references/tasks.md",
+        ] {
+            assert!(
+                skill.contains(reference),
+                "SKILL.md should route readers to {reference}"
+            );
+        }
+
+        let model_selection =
+            std::fs::read_to_string(skill_root.join("references/model-selection.md")).unwrap();
+        for required in [
+            "Lite",
+            "Plus",
+            "Pro",
+            "Ultra",
+            "reasoning_effort",
+            "handleSelectModel",
+            "handleSelectDefaultModel",
+        ] {
+            assert!(
+                model_selection.contains(required),
+                "model-selection.md should mention {required}"
+            );
+        }
+
+        let chat_session =
+            std::fs::read_to_string(skill_root.join("references/chat-session.md")).unwrap();
+        for required in [
+            "Choose work folder",
+            "data-ripple-composer-model-button",
+            "data-ripple-composer-model-menu",
+            "data-ripple-composer-folder-button",
+            "pendingLocalImages",
+            "uploadPendingLocalImagesForSend",
+            "formal conversation",
+            "Do not describe this button as attaching a file",
+            "It does not open the Skills page",
+        ] {
+            assert!(
+                chat_session.contains(required),
+                "chat-session.md should mention {required}"
+            );
+        }
+
+        let visual_recognition =
+            std::fs::read_to_string(skill_root.join("references/visual-recognition.md")).unwrap();
+        for required in [
+            "Do not identify a control by icon alone",
+            "composer toolbar",
+            "header current-model badge",
+            "top Skills tab",
+            "If the screenshot target is ambiguous",
+        ] {
+            assert!(
+                visual_recognition.contains(required),
+                "visual-recognition.md should mention {required}"
+            );
+        }
+
+        for required in [
+            "For documented controls, answer with the exact expected behavior from the reference",
+            "Do not hedge with usually, generally, probably, or likely",
+            "Classify the control region before explaining behavior",
+        ] {
+            assert!(
+                skill.contains(required),
+                "SKILL.md should mention {required}"
+            );
+        }
+
+        let navigation =
+            std::fs::read_to_string(skill_root.join("references/navigation.md")).unwrap();
+        for required in ["mainNavItems", "mobileNavItems", "shouldShowInspector"] {
+            assert!(
+                navigation.contains(required),
+                "navigation.md should mention {required}"
+            );
+        }
+
+        let tasks = std::fs::read_to_string(skill_root.join("references/tasks.md")).unwrap();
+        for required in [
+            "confirmTask",
+            "runTaskNow",
+            "createTaskActionTrigger",
+            "runTaskTriggerNow",
+        ] {
+            assert!(
+                tasks.contains(required),
+                "tasks.md should mention {required}"
+            );
+        }
     }
 }

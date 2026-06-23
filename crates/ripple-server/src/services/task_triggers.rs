@@ -5,7 +5,7 @@ use crate::state::AppState;
 
 pub async fn task_trigger_loop(state: AppState) {
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(
-        state.config.schedule_poll_interval_seconds,
+        state.config.task_trigger_poll_interval_seconds,
     ));
     loop {
         interval.tick().await;

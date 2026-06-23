@@ -12,9 +12,6 @@ CREATE TABLE IF NOT EXISTS sessions (
     model TEXT NOT NULL,
     max_turns INTEGER NOT NULL,
     caller_system_prompt TEXT,
-    project_id TEXT,
-    project_name TEXT,
-    project_root TEXT,
     context_folder_path TEXT,
     total_input_tokens INTEGER NOT NULL DEFAULT 0,
     total_output_tokens INTEGER NOT NULL DEFAULT 0,
@@ -242,7 +239,9 @@ pub(super) async fn initialize_schema(pool: &SqlitePool) -> anyhow::Result<()> {
         sqlx::query(statement).execute(pool).await?;
     }
     ensure_schema_columns(pool).await?;
+    ensure_legacy_project_schema_removed(pool).await?;
     ensure_legacy_schedule_schema_removed(pool).await?;
+    ensure_legacy_auth_schema_removed(pool).await?;
     ensure_schema_migrations(pool).await?;
     Ok(())
 }
@@ -273,18 +272,6 @@ async fn ensure_schema_columns(pool: &SqlitePool) -> anyhow::Result<()> {
             "ALTER TABLE sessions ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0",
         ),
         (
-            "project_id",
-            "ALTER TABLE sessions ADD COLUMN project_id TEXT",
-        ),
-        (
-            "project_name",
-            "ALTER TABLE sessions ADD COLUMN project_name TEXT",
-        ),
-        (
-            "project_root",
-            "ALTER TABLE sessions ADD COLUMN project_root TEXT",
-        ),
-        (
             "context_folder_path",
             "ALTER TABLE sessions ADD COLUMN context_folder_path TEXT",
         ),
@@ -304,9 +291,6 @@ async fn ensure_schema_columns(pool: &SqlitePool) -> anyhow::Result<()> {
             sqlx::query(ddl).execute(pool).await?;
         }
     }
-    sqlx::query("UPDATE sessions SET project_id = NULL, project_name = NULL, project_root = NULL")
-        .execute(pool)
-        .await?;
     sqlx::query("DROP INDEX IF EXISTS idx_projects_user_last_active")
         .execute(pool)
         .await?;
@@ -324,6 +308,23 @@ async fn ensure_schema_columns(pool: &SqlitePool) -> anyhow::Result<()> {
         "DROP TABLE IF EXISTS session_actions",
     ] {
         sqlx::query(statement).execute(pool).await?;
+    }
+    Ok(())
+}
+
+async fn ensure_legacy_project_schema_removed(pool: &SqlitePool) -> anyhow::Result<()> {
+    let rows = sqlx::query("PRAGMA table_info(sessions)")
+        .fetch_all(pool)
+        .await?;
+    for column in ["project_id", "project_name", "project_root"] {
+        if rows
+            .iter()
+            .any(|row| row.get::<String, _>("name") == column)
+        {
+            sqlx::query(format!("ALTER TABLE sessions DROP COLUMN {column}").as_str())
+                .execute(pool)
+                .await?;
+        }
     }
     Ok(())
 }
@@ -429,6 +430,16 @@ async fn ensure_current_job_indexes(pool: &SqlitePool) -> anyhow::Result<()> {
         "CREATE INDEX IF NOT EXISTS idx_jobs_user_session ON jobs(user_id, session_id)",
         "CREATE INDEX IF NOT EXISTS idx_jobs_user_status ON jobs(user_id, status)",
         "CREATE INDEX IF NOT EXISTS idx_jobs_user_task_trigger ON jobs(user_id, task_trigger_id)",
+    ] {
+        sqlx::query(statement).execute(pool).await?;
+    }
+    Ok(())
+}
+
+async fn ensure_legacy_auth_schema_removed(pool: &SqlitePool) -> anyhow::Result<()> {
+    for statement in [
+        "DROP TABLE IF EXISTS api_keys",
+        "DROP TABLE IF EXISTS users",
     ] {
         sqlx::query(statement).execute(pool).await?;
     }

@@ -185,23 +185,20 @@ impl Storage {
             r#"
             INSERT INTO sessions (
                 user_id, session_id, title, pinned, model, max_turns, caller_system_prompt,
-                project_id, project_name, project_root, context_folder_path,
+                context_folder_path,
                 total_input_tokens, total_output_tokens, last_input_tokens,
                 created_at, last_active, status, message_count,
                 pending_question, pending_options_json, pending_permission_request_json,
                 pending_connector_auth_json, pending_control_request_json, codex_thread_id,
                 memory_disabled, plan_steps_json, plan_progress_json
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(user_id, session_id) DO UPDATE SET
                 title = excluded.title,
                 pinned = excluded.pinned,
                 model = excluded.model,
                 max_turns = excluded.max_turns,
                 caller_system_prompt = excluded.caller_system_prompt,
-                project_id = NULL,
-                project_name = NULL,
-                project_root = NULL,
                 context_folder_path = excluded.context_folder_path,
                 total_input_tokens = excluded.total_input_tokens,
                 total_output_tokens = excluded.total_output_tokens,
@@ -228,9 +225,6 @@ impl Storage {
         .bind(&record.model)
         .bind(i64::from(record.max_turns))
         .bind(&record.caller_system_prompt)
-        .bind(Option::<String>::None)
-        .bind(Option::<String>::None)
-        .bind(Option::<String>::None)
         .bind(&record.context_folder_path)
         .bind(u64_to_i64(record.total_input_tokens)?)
         .bind(u64_to_i64(record.total_output_tokens)?)
@@ -245,7 +239,7 @@ impl Storage {
             record.pending_permission_request.as_ref(),
         )?)
         .bind(json_option_text(record.pending_connector_auth.as_ref())?)
-        .bind(json_option_text(record.pending_schedule_request.as_ref())?)
+        .bind(json_option_text(record.pending_control_request.as_ref())?)
         .bind(&record.codex_thread_id)
         .bind(if record.memory_disabled { 1_i64 } else { 0_i64 })
         .bind(json_serialize_text(&record.plan_steps)?)
@@ -286,7 +280,7 @@ impl Storage {
             r#"
             SELECT user_id, session_id, title, model, max_turns, caller_system_prompt,
                    pinned,
-                   project_id, project_name, project_root, context_folder_path,
+                   context_folder_path,
                    total_input_tokens, total_output_tokens, last_input_tokens,
                    created_at, last_active, status, message_count,
                    pending_question, pending_options_json, pending_permission_request_json,
@@ -312,7 +306,7 @@ impl Storage {
             r#"
             SELECT user_id, session_id, title, model, max_turns, caller_system_prompt,
                    pinned,
-                   project_id, project_name, project_root, context_folder_path,
+                   context_folder_path,
                    total_input_tokens, total_output_tokens, last_input_tokens,
                    created_at, last_active, status, message_count,
                    pending_question, pending_options_json, pending_permission_request_json,
@@ -798,9 +792,6 @@ impl Storage {
             model: row.get("model"),
             max_turns: i64_to_u32(row.get::<i64, _>("max_turns"))?,
             caller_system_prompt: row.get("caller_system_prompt"),
-            project_id: None,
-            project_name: None,
-            project_root: None,
             context_folder_path: row.get("context_folder_path"),
             total_input_tokens: i64_to_u64(row.get::<i64, _>("total_input_tokens"))?,
             total_output_tokens: i64_to_u64(row.get::<i64, _>("total_output_tokens"))?,
@@ -820,7 +811,7 @@ impl Storage {
             pending_connector_auth: json_option_from_text(
                 row.get::<Option<String>, _>("pending_connector_auth_json"),
             )?,
-            pending_schedule_request: json_option_from_text(
+            pending_control_request: json_option_from_text(
                 row.get::<Option<String>, _>("pending_control_request_json"),
             )?,
             codex_thread_id: row.get("codex_thread_id"),
@@ -952,9 +943,6 @@ mod tests {
             user_id: "alice".to_string(),
             title: "hello".to_string(),
             pinned: true,
-            project_id: None,
-            project_name: None,
-            project_root: None,
             context_folder_path: Some("/workspace/demo".to_string()),
             model: "codex-test".to_string(),
             max_turns: 200,
@@ -971,7 +959,7 @@ mod tests {
             pending_options: None,
             pending_permission_request: None,
             pending_connector_auth: None,
-            pending_schedule_request: None,
+            pending_control_request: None,
             codex_thread_id: None,
             memory_disabled: false,
             plan_steps: Vec::new(),
@@ -990,7 +978,6 @@ mod tests {
             loaded.context_folder_path.as_deref(),
             Some("/workspace/demo")
         );
-        assert_eq!(loaded.project_root, None);
         assert_eq!(loaded.total_output_tokens, 2);
 
         let _ = std::fs::remove_dir_all(root);
@@ -1007,9 +994,6 @@ mod tests {
             user_id: "alice".to_string(),
             title: "tokens".to_string(),
             pinned: false,
-            project_id: None,
-            project_name: None,
-            project_root: None,
             context_folder_path: None,
             model: "codex-test".to_string(),
             max_turns: 200,
@@ -1026,7 +1010,7 @@ mod tests {
             pending_options: None,
             pending_permission_request: None,
             pending_connector_auth: None,
-            pending_schedule_request: None,
+            pending_control_request: None,
             codex_thread_id: None,
             memory_disabled: false,
             plan_steps: Vec::new(),
@@ -1058,9 +1042,6 @@ mod tests {
             user_id: "alice".to_string(),
             title: "tokens".to_string(),
             pinned: false,
-            project_id: None,
-            project_name: None,
-            project_root: None,
             context_folder_path: None,
             model: "codex-test".to_string(),
             max_turns: 200,
@@ -1077,7 +1058,7 @@ mod tests {
             pending_options: None,
             pending_permission_request: None,
             pending_connector_auth: None,
-            pending_schedule_request: None,
+            pending_control_request: None,
             codex_thread_id: None,
             memory_disabled: false,
             plan_steps: Vec::new(),
@@ -1128,9 +1109,6 @@ mod tests {
             user_id: "alice".to_string(),
             title: "tokens".to_string(),
             pinned: false,
-            project_id: None,
-            project_name: None,
-            project_root: None,
             context_folder_path: None,
             model: "codex-test".to_string(),
             max_turns: 200,
@@ -1147,7 +1125,7 @@ mod tests {
             pending_options: None,
             pending_permission_request: None,
             pending_connector_auth: None,
-            pending_schedule_request: None,
+            pending_control_request: None,
             codex_thread_id: None,
             memory_disabled: false,
             plan_steps: Vec::new(),
@@ -1194,9 +1172,6 @@ mod tests {
             user_id: "alice".to_string(),
             title: "tokens".to_string(),
             pinned: false,
-            project_id: None,
-            project_name: None,
-            project_root: None,
             context_folder_path: None,
             model: "codex-test".to_string(),
             max_turns: 200,
@@ -1213,7 +1188,7 @@ mod tests {
             pending_options: None,
             pending_permission_request: None,
             pending_connector_auth: None,
-            pending_schedule_request: None,
+            pending_control_request: None,
             codex_thread_id: None,
             memory_disabled: false,
             plan_steps: Vec::new(),
@@ -1328,7 +1303,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn initialize_clears_legacy_project_data() -> anyhow::Result<()> {
+    async fn initialize_removes_legacy_project_schema() -> anyhow::Result<()> {
         let root =
             std::env::temp_dir().join(format!("ripple-storage-test-{}", uuid::Uuid::new_v4()));
         let db_path = root.join(".ripple/ripple.sqlite");
@@ -1338,9 +1313,6 @@ mod tests {
             user_id: "alice".to_string(),
             title: "legacy".to_string(),
             pinned: false,
-            project_id: None,
-            project_name: None,
-            project_root: None,
             context_folder_path: None,
             model: "codex-test".to_string(),
             max_turns: 200,
@@ -1357,13 +1329,20 @@ mod tests {
             pending_options: None,
             pending_permission_request: None,
             pending_connector_auth: None,
-            pending_schedule_request: None,
+            pending_control_request: None,
             codex_thread_id: None,
             memory_disabled: false,
             plan_steps: Vec::new(),
             plan_progress: None,
         };
         storage.save_session(&record).await?;
+        for statement in [
+            "ALTER TABLE sessions ADD COLUMN project_id TEXT",
+            "ALTER TABLE sessions ADD COLUMN project_name TEXT",
+            "ALTER TABLE sessions ADD COLUMN project_root TEXT",
+        ] {
+            sqlx::query(statement).execute(&storage.pool).await?;
+        }
         sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS projects (
@@ -1393,6 +1372,33 @@ mod tests {
         .execute(&storage.pool)
         .await?;
         sqlx::query(
+            r#"
+            CREATE TABLE api_keys (
+                key_id TEXT PRIMARY KEY NOT NULL,
+                key_hash TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                user_id TEXT,
+                display_name TEXT,
+                created_at TEXT NOT NULL,
+                revoked_at TEXT
+            )
+            "#,
+        )
+        .execute(&storage.pool)
+        .await?;
+        sqlx::query(
+            r#"
+            CREATE TABLE users (
+                user_id TEXT PRIMARY KEY NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                record_json TEXT NOT NULL
+            )
+            "#,
+        )
+        .execute(&storage.pool)
+        .await?;
+        sqlx::query(
             "UPDATE sessions SET project_id = ?, project_name = ?, project_root = ? WHERE user_id = ? AND session_id = ?",
         )
         .bind("prj-demo")
@@ -1409,13 +1415,20 @@ mod tests {
             .load_session("alice", "srv-legacy-project")
             .await?
             .expect("session");
-        assert_eq!(loaded.project_id, None);
-        assert_eq!(loaded.project_name, None);
-        assert_eq!(loaded.project_root, None);
         assert_eq!(loaded.context_folder_path, None);
 
+        let columns = sqlx::query("PRAGMA table_info(sessions)")
+            .fetch_all(&storage.pool)
+            .await?
+            .into_iter()
+            .map(|row| row.get::<String, _>("name"))
+            .collect::<Vec<_>>();
+        assert!(!columns.iter().any(|column| column == "project_id"));
+        assert!(!columns.iter().any(|column| column == "project_name"));
+        assert!(!columns.iter().any(|column| column == "project_root"));
+
         let legacy_project_table = sqlx::query(
-            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'projects'",
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('projects', 'api_keys', 'users')",
         )
         .fetch_optional(&storage.pool)
         .await?;
@@ -1556,7 +1569,7 @@ mod tests {
         }));
 
         let table_rows = sqlx::query(
-            "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('schedules', 'task_triggers') ORDER BY name",
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'task_triggers'",
         )
         .fetch_all(&storage.pool)
         .await?;

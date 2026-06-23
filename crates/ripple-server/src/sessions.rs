@@ -33,12 +33,6 @@ pub struct SessionRecord {
     #[serde(default)]
     pub pinned: bool,
     #[serde(default)]
-    pub project_id: Option<String>,
-    #[serde(default)]
-    pub project_name: Option<String>,
-    #[serde(default)]
-    pub project_root: Option<String>,
-    #[serde(default)]
     pub context_folder_path: Option<String>,
     pub model: String,
     pub max_turns: u32,
@@ -59,7 +53,7 @@ pub struct SessionRecord {
     pub pending_options: Option<Vec<String>>,
     pub pending_permission_request: Option<Value>,
     pub pending_connector_auth: Option<Value>,
-    pub pending_schedule_request: Option<Value>,
+    pub pending_control_request: Option<Value>,
     pub codex_thread_id: Option<String>,
     #[serde(default)]
     pub memory_disabled: bool,
@@ -150,9 +144,6 @@ pub struct SessionInfo {
     pub session_id: String,
     pub title: String,
     pub pinned: bool,
-    pub project_id: Option<String>,
-    pub project_name: Option<String>,
-    pub project_root: Option<String>,
     pub context_folder_path: Option<String>,
     pub model: String,
     pub created_at: String,
@@ -172,7 +163,7 @@ pub struct SessionDetail {
     pub pending_question: Option<String>,
     pub pending_options: Option<Vec<String>>,
     pub pending_permission_request: Option<Value>,
-    pub pending_schedule_request: Option<Value>,
+    pub pending_control_request: Option<Value>,
     pub plan_steps: Vec<Value>,
     pub plan_progress: Option<Value>,
     pub task_steps: Vec<Value>,
@@ -185,8 +176,6 @@ pub struct CreateSessionInput {
     pub max_turns: Option<u32>,
     pub system_prompt: Option<String>,
     pub context_folder_path: Option<String>,
-    #[serde(default)]
-    pub project_id: Option<String>,
 }
 
 pub fn validate_session_id(session_id: &str) -> Result<(), String> {
@@ -269,9 +258,6 @@ impl SessionManager {
             user_id: user_id.to_string(),
             title: String::new(),
             pinned: false,
-            project_id: None,
-            project_name: None,
-            project_root: None,
             context_folder_path,
             model: input
                 .model
@@ -290,7 +276,7 @@ impl SessionManager {
             pending_options: None,
             pending_permission_request: None,
             pending_connector_auth: None,
-            pending_schedule_request: None,
+            pending_control_request: None,
             codex_thread_id: None,
             memory_disabled: false,
             plan_steps: Vec::new(),
@@ -443,9 +429,6 @@ impl SessionManager {
         if let Some(context_folder_path) = context_folder_path {
             record.context_folder_path =
                 self.normalize_context_folder_path(user_id, context_folder_path.as_deref())?;
-            record.project_id = None;
-            record.project_name = None;
-            record.project_root = None;
         }
 
         self.persist(&record).await?;
@@ -748,7 +731,7 @@ impl SessionManager {
         record.pending_options = None;
         record.pending_permission_request = None;
         record.pending_connector_auth = None;
-        record.pending_schedule_request = None;
+        record.pending_control_request = None;
         record.codex_thread_id = None;
         record.plan_steps.clear();
         record.plan_progress = None;
@@ -780,7 +763,7 @@ impl SessionManager {
         record.pending_question = None;
         record.pending_options = None;
         record.pending_permission_request = None;
-        record.pending_schedule_request = None;
+        record.pending_control_request = None;
         record.plan_steps.clear();
         record.plan_progress = None;
         self.save_record(record).await?;
@@ -863,9 +846,6 @@ impl SessionManager {
                 record.title.clone()
             },
             pinned: record.pinned,
-            project_id: None,
-            project_name: None,
-            project_root: None,
             context_folder_path: record.context_folder_path.clone(),
             model: record.model.clone(),
             created_at: record.created_at.clone(),
@@ -885,7 +865,7 @@ impl SessionManager {
             pending_question: record.pending_question.clone(),
             pending_options: record.pending_options.clone(),
             pending_permission_request: record.pending_permission_request.clone(),
-            pending_schedule_request: record.pending_schedule_request.clone(),
+            pending_control_request: record.pending_control_request.clone(),
             plan_steps: record.plan_steps.clone(),
             plan_progress: record.plan_progress.clone(),
             task_steps: record.plan_steps.clone(),
@@ -1038,7 +1018,7 @@ fn has_pending_user_work(record: &SessionRecord) -> bool {
             .is_some_and(|options| !options.is_empty())
         || record.pending_permission_request.is_some()
         || record.pending_connector_auth.is_some()
-        || record.pending_schedule_request.is_some()
+        || record.pending_control_request.is_some()
 }
 
 fn session_should_appear_in_list(record: &SessionRecord) -> bool {
@@ -1065,7 +1045,7 @@ fn session_should_appear_in_list(record: &SessionRecord) -> bool {
             .is_some_and(|options| !options.is_empty())
         || record.pending_permission_request.is_some()
         || record.pending_connector_auth.is_some()
-        || record.pending_schedule_request.is_some()
+        || record.pending_control_request.is_some()
         || !record.plan_steps.is_empty()
         || record.plan_progress.is_some()
     {
@@ -1149,8 +1129,8 @@ mod tests {
                 runtime_log_max_mb: 64,
                 runtime_log_cleanup_interval_seconds: 3600,
             },
-            schedule_extraction_max_runtime_seconds: 120,
-            schedule_poll_interval_seconds: 15,
+            task_trigger_extraction_max_runtime_seconds: 120,
+            task_trigger_poll_interval_seconds: 15,
             document_preview: crate::config::DocumentPreviewConfig {
                 cache_root: root.join("cache/previews"),
                 libreoffice_path: "soffice".to_string(),
@@ -1187,7 +1167,6 @@ mod tests {
                     max_turns: None,
                     system_prompt: None,
                     context_folder_path: None,
-                    project_id: None,
                 },
             )
             .await?;
@@ -1208,7 +1187,6 @@ mod tests {
                     max_turns: None,
                     system_prompt: None,
                     context_folder_path: None,
-                    project_id: None,
                 },
             )
             .await?;
@@ -1226,7 +1204,6 @@ mod tests {
                     max_turns: None,
                     system_prompt: None,
                     context_folder_path: None,
-                    project_id: None,
                 },
             )
             .await?;
@@ -1245,7 +1222,6 @@ mod tests {
                     max_turns: None,
                     system_prompt: None,
                     context_folder_path: None,
-                    project_id: None,
                 },
             )
             .await?;
@@ -1282,7 +1258,6 @@ mod tests {
                     max_turns: None,
                     system_prompt: None,
                     context_folder_path: None,
-                    project_id: None,
                 },
             )
             .await?;
@@ -1328,7 +1303,6 @@ mod tests {
                     max_turns: None,
                     system_prompt: None,
                     context_folder_path: None,
-                    project_id: None,
                 },
                 Some("CallerSession123"),
             )
@@ -1355,7 +1329,6 @@ mod tests {
                     max_turns: None,
                     system_prompt: None,
                     context_folder_path: None,
-                    project_id: None,
                 },
                 Some("../outside"),
             )
@@ -1387,7 +1360,6 @@ mod tests {
                     max_turns: None,
                     system_prompt: None,
                     context_folder_path: None,
-                    project_id: None,
                 },
             )
             .await?;
@@ -1407,7 +1379,6 @@ mod tests {
                     max_turns: None,
                     system_prompt: None,
                     context_folder_path: None,
-                    project_id: None,
                 },
             )
             .await?;
@@ -1451,7 +1422,6 @@ mod tests {
                     max_turns: None,
                     system_prompt: None,
                     context_folder_path: None,
-                    project_id: None,
                 },
             )
             .await?;
@@ -1463,7 +1433,7 @@ mod tests {
         session.pending_options = Some(vec!["yes".to_string()]);
         session.pending_permission_request = Some(serde_json::json!({"id": "approval"}));
         session.pending_connector_auth = Some(serde_json::json!({"connector": "notion"}));
-        session.pending_schedule_request = Some(serde_json::json!({"title": "schedule"}));
+        session.pending_control_request = Some(serde_json::json!({"title": "task trigger"}));
         session.codex_thread_id = Some("thread".to_string());
         session.plan_steps = vec![serde_json::json!({"step": "old"})];
         session.plan_progress = Some(serde_json::json!({"total": 1}));
@@ -1484,7 +1454,7 @@ mod tests {
         assert!(cleared.pending_options.is_none());
         assert!(cleared.pending_permission_request.is_none());
         assert!(cleared.pending_connector_auth.is_none());
-        assert!(cleared.pending_schedule_request.is_none());
+        assert!(cleared.pending_control_request.is_none());
         assert!(cleared.codex_thread_id.is_none());
         assert!(cleared.plan_steps.is_empty());
         assert!(cleared.plan_progress.is_none());
@@ -1508,7 +1478,6 @@ mod tests {
                     max_turns: None,
                     system_prompt: None,
                     context_folder_path: None,
-                    project_id: None,
                 },
             )
             .await?;
@@ -1526,7 +1495,6 @@ mod tests {
                     max_turns: None,
                     system_prompt: None,
                     context_folder_path: None,
-                    project_id: None,
                 },
             )
             .await?;
@@ -1565,7 +1533,6 @@ mod tests {
                     max_turns: None,
                     system_prompt: None,
                     context_folder_path: None,
-                    project_id: None,
                 },
             )
             .await?;
@@ -1622,7 +1589,6 @@ mod tests {
                     max_turns: None,
                     system_prompt: None,
                     context_folder_path: None,
-                    project_id: None,
                 },
             )
             .await?;
@@ -1671,7 +1637,6 @@ mod tests {
                     max_turns: None,
                     system_prompt: None,
                     context_folder_path: None,
-                    project_id: None,
                 },
             )
             .await?;
@@ -1721,7 +1686,6 @@ mod tests {
                     max_turns: None,
                     system_prompt: None,
                     context_folder_path: None,
-                    project_id: None,
                 },
             )
             .await?;
@@ -1763,7 +1727,6 @@ mod tests {
                     max_turns: None,
                     system_prompt: None,
                     context_folder_path: None,
-                    project_id: None,
                 },
             )
             .await?;
@@ -1805,7 +1768,6 @@ mod tests {
                     max_turns: None,
                     system_prompt: None,
                     context_folder_path: None,
-                    project_id: None,
                 },
             )
             .await?;
@@ -1844,7 +1806,6 @@ mod tests {
                     max_turns: None,
                     system_prompt: None,
                     context_folder_path: None,
-                    project_id: None,
                 },
             )
             .await?;
@@ -1887,7 +1848,6 @@ mod tests {
                     max_turns: None,
                     system_prompt: None,
                     context_folder_path: None,
-                    project_id: None,
                 },
             )
             .await?;
@@ -1907,7 +1867,6 @@ mod tests {
                     max_turns: None,
                     system_prompt: None,
                     context_folder_path: None,
-                    project_id: None,
                 },
             )
             .await?;

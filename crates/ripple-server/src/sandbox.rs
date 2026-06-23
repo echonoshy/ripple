@@ -799,8 +799,8 @@ mod tests {
                 runtime_log_max_mb: 64,
                 runtime_log_cleanup_interval_seconds: 3600,
             },
-            schedule_extraction_max_runtime_seconds: 120,
-            schedule_poll_interval_seconds: 15,
+            task_trigger_extraction_max_runtime_seconds: 120,
+            task_trigger_poll_interval_seconds: 15,
             document_preview: crate::config::DocumentPreviewConfig {
                 cache_root: root.join("cache/previews"),
                 libreoffice_path: "soffice".to_string(),

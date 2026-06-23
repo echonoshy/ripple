@@ -18,8 +18,8 @@ use uuid::Uuid;
 
 use crate::api::capabilities::catalog_skill_manifest_options_for_user;
 use crate::api::run_public::{sanitize_user_visible_text, sanitize_user_visible_value};
-use crate::api::schedule_chat::{maybe_handle_schedule_chat, ScheduleChatDecision};
 use crate::api::skill_chat::maybe_handle_skill_chat;
+use crate::api::task_trigger_chat::{maybe_handle_task_trigger_chat, TaskTriggerChatDecision};
 use crate::api::users::{assert_can_create_run, assert_can_create_session};
 use crate::api::ApiError;
 use crate::codex::events::{
@@ -244,7 +244,7 @@ pub async fn chat_completions(
             request.stream.unwrap_or(false),
         ));
     }
-    if let Some(decision) = maybe_handle_schedule_chat(
+    if let Some(decision) = maybe_handle_task_trigger_chat(
         &state,
         &user_id,
         &session,
@@ -273,7 +273,7 @@ pub async fn chat_completions(
     session.pending_permission_request = None;
     session.pending_question = None;
     session.pending_options = None;
-    session.pending_schedule_request = None;
+    session.pending_control_request = None;
     clear_session_plan(&mut session);
 
     if let Some(decision) = maybe_handle_connector_auth(
@@ -780,7 +780,6 @@ async fn load_or_create_session(
                 max_turns: request.max_turns,
                 system_prompt: None,
                 context_folder_path: None,
-                project_id: None,
             },
             request.session_id.as_deref(),
         )
@@ -1425,7 +1424,7 @@ async fn persist_control_plane_chat_event(
     session: &mut SessionRecord,
     user_content: &Value,
     user_input: &str,
-    decision: &ScheduleChatDecision,
+    decision: &TaskTriggerChatDecision,
 ) -> Result<Value, ApiError> {
     let public_event = public_control_plane_event(&decision.event);
     let _ = append_chat_messages(
@@ -1447,10 +1446,10 @@ async fn persist_control_plane_chat_event(
         session.pending_options = None;
     }
     session.pending_permission_request = None;
-    if decision.clear_pending_schedule {
-        session.pending_schedule_request = None;
-    } else if let Some(pending) = decision.pending_schedule_request.clone() {
-        session.pending_schedule_request = Some(pending);
+    if decision.clear_pending_control_request {
+        session.pending_control_request = None;
+    } else if let Some(pending) = decision.pending_control_request.clone() {
+        session.pending_control_request = Some(pending);
     }
     state.sessions.save_record(session.clone()).await?;
     Ok(public_event)
@@ -1789,8 +1788,8 @@ mod tests {
                 runtime_log_max_mb: 64,
                 runtime_log_cleanup_interval_seconds: 3600,
             },
-            schedule_extraction_max_runtime_seconds: 120,
-            schedule_poll_interval_seconds: 15,
+            task_trigger_extraction_max_runtime_seconds: 120,
+            task_trigger_poll_interval_seconds: 15,
             document_preview: crate::config::DocumentPreviewConfig {
                 cache_root: root.join("cache/previews"),
                 libreoffice_path: "soffice".to_string(),
@@ -2099,9 +2098,6 @@ mod tests {
             user_id: "alice".to_string(),
             title: String::new(),
             pinned: false,
-            project_id: None,
-            project_name: None,
-            project_root: None,
             context_folder_path: None,
             model: "codex-medium".to_string(),
             max_turns: 200,
@@ -2118,7 +2114,7 @@ mod tests {
             pending_options: None,
             pending_permission_request: None,
             pending_connector_auth: None,
-            pending_schedule_request: None,
+            pending_control_request: None,
             codex_thread_id: None,
             memory_disabled: false,
             plan_steps: Vec::new(),
@@ -2237,9 +2233,6 @@ mod tests {
             user_id: "alice".to_string(),
             title: String::new(),
             pinned: false,
-            project_id: None,
-            project_name: None,
-            project_root: None,
             context_folder_path: None,
             model: "codex-test".to_string(),
             max_turns: 200,
@@ -2256,7 +2249,7 @@ mod tests {
             pending_options: None,
             pending_permission_request: None,
             pending_connector_auth: Some(json!({"connector": "feishu"})),
-            pending_schedule_request: None,
+            pending_control_request: None,
             codex_thread_id: None,
             memory_disabled: false,
             plan_steps: Vec::new(),

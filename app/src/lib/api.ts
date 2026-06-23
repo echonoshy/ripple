@@ -586,9 +586,6 @@ interface RawSessionSummary {
   session_id: string;
   title: string;
   pinned?: boolean;
-  project_id?: string | null;
-  project_name?: string | null;
-  project_root?: string | null;
   context_folder_path?: string | null;
   model: string;
   created_at: string;
@@ -759,9 +756,6 @@ function normalizeSessionSummary(raw: RawSessionSummary): SessionSummary {
     sessionId: raw.session_id,
     title: raw.title,
     pinned: raw.pinned === true,
-    projectId: raw.project_id ?? null,
-    projectName: raw.project_name ?? null,
-    projectRoot: raw.project_root ?? null,
     contextFolderPath: raw.context_folder_path ?? null,
     model: raw.model,
     createdAt: raw.created_at,

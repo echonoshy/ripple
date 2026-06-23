@@ -45,16 +45,16 @@ const CANCEL_WORDS: &[&str] = &[
 const TRIGGER_DETAILS_MISSING_FIELD: &str = "trigger_details";
 
 #[derive(Debug)]
-pub(crate) struct ScheduleChatDecision {
+pub(crate) struct TaskTriggerChatDecision {
     pub(crate) event: Value,
     pub(crate) status: String,
-    pub(crate) clear_pending_schedule: bool,
-    pub(crate) pending_schedule_request: Option<Value>,
+    pub(crate) clear_pending_control_request: bool,
+    pub(crate) pending_control_request: Option<Value>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-struct SchedulePhaseDraft {
+struct TaskTriggerPhaseDraft {
     title: Option<String>,
     prompt: Option<String>,
     max_runs: Option<u64>,
@@ -62,7 +62,7 @@ struct SchedulePhaseDraft {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-struct ScheduleDraft {
+struct TaskTriggerDraft {
     title: Option<String>,
     prompt: Option<String>,
     kind: Option<String>,
@@ -78,26 +78,26 @@ struct ScheduleDraft {
     max_runtime_seconds: Option<u64>,
     max_runs: Option<u64>,
     #[serde(default)]
-    phases: Vec<SchedulePhaseDraft>,
+    phases: Vec<TaskTriggerPhaseDraft>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ScheduleExtractionResult {
-    is_schedule_request: bool,
+struct TaskTriggerExtractionResult {
+    is_task_trigger_request: bool,
     #[serde(default)]
     missing_fields: Vec<String>,
     clarification_question: Option<String>,
-    schedule: Option<ScheduleDraft>,
+    task_trigger: Option<TaskTriggerDraft>,
 }
 
-enum ScheduleExtractionError {
+enum TaskTriggerExtractionError {
     Api(ApiError),
     Invalid,
     Runtime,
 }
 
-pub(crate) async fn maybe_handle_schedule_chat(
+pub(crate) async fn maybe_handle_task_trigger_chat(
     state: &AppState,
     user_id: &str,
     session: &SessionRecord,
@@ -105,14 +105,14 @@ pub(crate) async fn maybe_handle_schedule_chat(
     user_input: &str,
     model: &str,
     effort: Option<String>,
-) -> Result<Option<ScheduleChatDecision>, ApiError> {
+) -> Result<Option<TaskTriggerChatDecision>, ApiError> {
     if let Some(pending) = session
-        .pending_schedule_request
+        .pending_control_request
         .as_ref()
         .filter(|value| value.is_object())
     {
-        if pending.get("type").and_then(Value::as_str) == Some("schedule_draft") {
-            return handle_pending_schedule_draft(
+        if pending.get("type").and_then(Value::as_str) == Some("task_trigger_draft") {
+            return handle_pending_task_trigger_draft(
                 state,
                 user_id,
                 session,
@@ -124,15 +124,17 @@ pub(crate) async fn maybe_handle_schedule_chat(
             )
             .await;
         }
-        return handle_pending_schedule_confirmation(state, user_id, session, pending, user_input)
-            .await;
+        return handle_pending_task_trigger_confirmation(
+            state, user_id, session, pending, user_input,
+        )
+        .await;
     }
 
-    if !is_schedule_intent(user_input) {
+    if !is_task_trigger_intent(user_input) {
         return Ok(None);
     }
 
-    let extraction = match extract_schedule_with_codex(
+    let extraction = match extract_task_trigger_with_codex(
         state,
         user_id,
         session,
@@ -144,27 +146,27 @@ pub(crate) async fn maybe_handle_schedule_chat(
     .await
     {
         Ok(extraction) => extraction,
-        Err(ScheduleExtractionError::Invalid) => {
-            return Ok(Some(idle_decision(schedule_extraction_failed_event(
-                "定时任务解析结果不合法，不是你的描述问题。请稍后重试。",
+        Err(TaskTriggerExtractionError::Invalid) => {
+            return Ok(Some(idle_decision(task_trigger_extraction_failed_event(
+                "任务触发器解析结果不合法，不是你的描述问题。请稍后重试。",
             ))));
         }
-        Err(ScheduleExtractionError::Api(err)) => return Err(err),
-        Err(ScheduleExtractionError::Runtime) => {
-            return Ok(Some(idle_decision(schedule_extraction_failed_event(
-                "定时任务解析服务失败，不是你的描述问题。请稍后重试。",
+        Err(TaskTriggerExtractionError::Api(err)) => return Err(err),
+        Err(TaskTriggerExtractionError::Runtime) => {
+            return Ok(Some(idle_decision(task_trigger_extraction_failed_event(
+                "任务触发器解析服务失败，不是你的描述问题。请稍后重试。",
             ))));
         }
     };
 
-    if !extraction.is_schedule_request {
+    if !extraction.is_task_trigger_request {
         return Ok(None);
     }
 
-    if let Some(clarification) = schedule_extraction_clarification(&extraction) {
+    if let Some(clarification) = task_trigger_extraction_clarification(&extraction) {
         return Ok(Some(awaiting_decision(
-            schedule_clarification_event(&clarification),
-            Some(schedule_draft_pending_value(
+            task_trigger_clarification_event(&clarification),
+            Some(task_trigger_draft_pending_value(
                 user_input,
                 &extraction,
                 &clarification,
@@ -172,27 +174,27 @@ pub(crate) async fn maybe_handle_schedule_chat(
         )));
     }
 
-    let proposal = match schedule_proposal_from_extraction(&extraction) {
+    let proposal = match task_trigger_proposal_from_extraction(&extraction) {
         Ok(Some(proposal)) => proposal,
         Ok(None) => return Ok(None),
         Err(_) => {
             return Ok(Some(awaiting_decision(
-                schedule_clarification_event(
-                    "这个定时任务还缺少有效的时间或执行内容，请补充后我再创建。",
+                task_trigger_clarification_event(
+                    "这个任务触发器还缺少有效的时间或执行内容，请补充后我再创建。",
                 ),
-                Some(schedule_draft_pending_value(
+                Some(task_trigger_draft_pending_value(
                     user_input,
                     &extraction,
-                    "这个定时任务还缺少有效的时间或执行内容，请补充后我再创建。",
+                    "这个任务触发器还缺少有效的时间或执行内容，请补充后我再创建。",
                 )),
             )));
         }
     };
 
-    if let Some(clarification) = schedule_detail_clarification(&proposal.payload) {
+    if let Some(clarification) = task_trigger_detail_clarification(&proposal.payload) {
         return Ok(Some(awaiting_decision(
-            schedule_clarification_event(&clarification),
-            Some(schedule_detail_pending_value(
+            task_trigger_clarification_event(&clarification),
+            Some(task_trigger_detail_pending_value(
                 user_input,
                 &proposal.payload,
                 &clarification,
@@ -201,12 +203,12 @@ pub(crate) async fn maybe_handle_schedule_chat(
     }
 
     Ok(Some(awaiting_decision(
-        schedule_proposal_event(&proposal),
+        task_trigger_proposal_event(&proposal),
         Some(proposal.payload),
     )))
 }
 
-async fn handle_pending_schedule_draft(
+async fn handle_pending_task_trigger_draft(
     state: &AppState,
     user_id: &str,
     session: &SessionRecord,
@@ -215,30 +217,30 @@ async fn handle_pending_schedule_draft(
     user_input: &str,
     model: &str,
     effort: Option<String>,
-) -> Result<Option<ScheduleChatDecision>, ApiError> {
-    if is_schedule_cancellation(user_input) {
-        return Ok(Some(ScheduleChatDecision {
-            event: schedule_cancelled_event("已取消创建这个定时任务。"),
+) -> Result<Option<TaskTriggerChatDecision>, ApiError> {
+    if is_task_trigger_cancellation(user_input) {
+        return Ok(Some(TaskTriggerChatDecision {
+            event: task_trigger_cancelled_event("已取消创建这个任务触发器。"),
             status: "idle".to_string(),
-            clear_pending_schedule: true,
-            pending_schedule_request: None,
+            clear_pending_control_request: true,
+            pending_control_request: None,
         }));
     }
 
-    if is_schedule_confirmation(user_input) {
+    if is_task_trigger_confirmation(user_input) {
         return Ok(Some(awaiting_decision(
-            schedule_clarification_event(
+            task_trigger_clarification_event(
                 pending
                     .get("clarification_question")
                     .and_then(Value::as_str)
-                    .unwrap_or("这个定时任务还缺少信息，请先补充。"),
+                    .unwrap_or("这个任务触发器还缺少信息，请先补充。"),
             ),
             Some(pending.clone()),
         )));
     }
 
-    let combined = combine_schedule_draft_followup(pending, user_input);
-    let extraction = match extract_schedule_with_codex(
+    let combined = combine_task_trigger_draft_followup(pending, user_input);
+    let extraction = match extract_task_trigger_with_codex(
         state,
         user_id,
         session,
@@ -250,27 +252,27 @@ async fn handle_pending_schedule_draft(
     .await
     {
         Ok(extraction) => extraction,
-        Err(ScheduleExtractionError::Invalid) => {
-            return Ok(Some(idle_decision(schedule_extraction_failed_event(
-                "定时任务解析结果不合法，不是你的描述问题。请稍后重试。",
+        Err(TaskTriggerExtractionError::Invalid) => {
+            return Ok(Some(idle_decision(task_trigger_extraction_failed_event(
+                "任务触发器解析结果不合法，不是你的描述问题。请稍后重试。",
             ))));
         }
-        Err(ScheduleExtractionError::Api(err)) => return Err(err),
-        Err(ScheduleExtractionError::Runtime) => {
-            return Ok(Some(idle_decision(schedule_extraction_failed_event(
-                "定时任务解析服务失败，不是你的描述问题。请稍后重试。",
+        Err(TaskTriggerExtractionError::Api(err)) => return Err(err),
+        Err(TaskTriggerExtractionError::Runtime) => {
+            return Ok(Some(idle_decision(task_trigger_extraction_failed_event(
+                "任务触发器解析服务失败，不是你的描述问题。请稍后重试。",
             ))));
         }
     };
 
-    if !extraction.is_schedule_request {
+    if !extraction.is_task_trigger_request {
         return Ok(None);
     }
 
-    if let Some(clarification) = schedule_extraction_clarification(&extraction) {
+    if let Some(clarification) = task_trigger_extraction_clarification(&extraction) {
         return Ok(Some(awaiting_decision(
-            schedule_clarification_event(&clarification),
-            Some(schedule_draft_pending_value(
+            task_trigger_clarification_event(&clarification),
+            Some(task_trigger_draft_pending_value(
                 pending
                     .get("original_user_input")
                     .and_then(Value::as_str)
@@ -281,14 +283,14 @@ async fn handle_pending_schedule_draft(
         )));
     }
 
-    let proposal = match schedule_proposal_from_extraction(&extraction) {
+    let proposal = match task_trigger_proposal_from_extraction(&extraction) {
         Ok(Some(proposal)) => proposal,
         Ok(None) => return Ok(None),
         Err(_) => {
-            let clarification = "这个定时任务还缺少有效的时间或执行内容，请补充后我再创建。";
+            let clarification = "这个任务触发器还缺少有效的时间或执行内容，请补充后我再创建。";
             return Ok(Some(awaiting_decision(
-                schedule_clarification_event(clarification),
-                Some(schedule_draft_pending_value(
+                task_trigger_clarification_event(clarification),
+                Some(task_trigger_draft_pending_value(
                     pending
                         .get("original_user_input")
                         .and_then(Value::as_str)
@@ -301,10 +303,10 @@ async fn handle_pending_schedule_draft(
     };
 
     if !pending_requested_trigger_details(pending) {
-        if let Some(clarification) = schedule_detail_clarification(&proposal.payload) {
+        if let Some(clarification) = task_trigger_detail_clarification(&proposal.payload) {
             return Ok(Some(awaiting_decision(
-                schedule_clarification_event(&clarification),
-                Some(schedule_detail_pending_value(
+                task_trigger_clarification_event(&clarification),
+                Some(task_trigger_detail_pending_value(
                     pending
                         .get("original_user_input")
                         .and_then(Value::as_str)
@@ -317,59 +319,64 @@ async fn handle_pending_schedule_draft(
     }
 
     Ok(Some(awaiting_decision(
-        schedule_proposal_event(&proposal),
+        task_trigger_proposal_event(&proposal),
         Some(proposal.payload),
     )))
 }
 
-async fn handle_pending_schedule_confirmation(
+async fn handle_pending_task_trigger_confirmation(
     state: &AppState,
     user_id: &str,
     session: &SessionRecord,
     pending: &Value,
     user_input: &str,
-) -> Result<Option<ScheduleChatDecision>, ApiError> {
-    if is_schedule_cancellation(user_input) {
-        return Ok(Some(ScheduleChatDecision {
-            event: schedule_cancelled_event(&build_schedule_cancelled_message(Some(pending))),
+) -> Result<Option<TaskTriggerChatDecision>, ApiError> {
+    if is_task_trigger_cancellation(user_input) {
+        return Ok(Some(TaskTriggerChatDecision {
+            event: task_trigger_cancelled_event(&build_task_trigger_cancelled_message(Some(
+                pending,
+            ))),
             status: "idle".to_string(),
-            clear_pending_schedule: true,
-            pending_schedule_request: None,
+            clear_pending_control_request: true,
+            pending_control_request: None,
         }));
     }
 
-    if is_schedule_confirmation(user_input) {
+    if is_task_trigger_confirmation(user_input) {
         let input = serde_json::from_value::<TaskTriggerCreateInput>(pending.clone())
             .map_err(|err| ApiError::bad_request(err.to_string()))?;
         let (task, actions) =
-            create_task_for_schedule_input(state, user_id, &session.session_id, input).await?;
+            create_task_for_trigger_input(state, user_id, &session.session_id, input).await?;
         let trigger = task_trigger_for_task_action(state, user_id, &task, actions.first()).await?;
-        let message = build_task_schedule_created_message(&task, trigger.as_ref());
-        return Ok(Some(ScheduleChatDecision {
+        let message = build_task_trigger_created_message(&task, trigger.as_ref());
+        return Ok(Some(TaskTriggerChatDecision {
             event: task_created_event(task, trigger, &message),
             status: "idle".to_string(),
-            clear_pending_schedule: true,
-            pending_schedule_request: None,
+            clear_pending_control_request: true,
+            pending_control_request: None,
         }));
     }
 
     Ok(Some(awaiting_decision(
-        schedule_pending_event(&build_schedule_pending_message(pending), pending.clone()),
+        task_trigger_pending_event(
+            &build_task_trigger_pending_message(pending),
+            pending.clone(),
+        ),
         None,
     )))
 }
 
-async fn create_task_for_schedule_input(
+async fn create_task_for_trigger_input(
     state: &AppState,
     user_id: &str,
     session_id: &str,
     input: TaskTriggerCreateInput,
 ) -> Result<(Value, Vec<Value>), ApiError> {
-    let task_payload = task_payload_from_schedule_input(input);
+    let task_payload = task_payload_from_trigger_input(input);
     create_task_from_payload(&state.storage, user_id, Some(session_id), &task_payload).await
 }
 
-fn task_payload_from_schedule_input(input: TaskTriggerCreateInput) -> Value {
+fn task_payload_from_trigger_input(input: TaskTriggerCreateInput) -> Value {
     let title = input.title;
     let prompt = input.prompt;
     let trigger = json!({
@@ -480,7 +487,7 @@ async fn task_trigger_for_task_action(
     }))
 }
 
-async fn extract_schedule_with_codex(
+async fn extract_task_trigger_with_codex(
     state: &AppState,
     user_id: &str,
     session: &SessionRecord,
@@ -488,16 +495,16 @@ async fn extract_schedule_with_codex(
     user_input: &str,
     model: &str,
     effort: Option<String>,
-) -> Result<ScheduleExtractionResult, ScheduleExtractionError> {
-    let prompt = build_schedule_extraction_prompt(user_input);
-    let max_runtime_seconds = state.config.schedule_extraction_max_runtime_seconds;
+) -> Result<TaskTriggerExtractionResult, TaskTriggerExtractionError> {
+    let prompt = build_task_trigger_extraction_prompt(user_input);
+    let max_runtime_seconds = state.config.task_trigger_extraction_max_runtime_seconds;
     let runtime_dir = state
         .sandboxes
         .session_dir(user_id, &session.session_id)
-        .map_err(|_| ScheduleExtractionError::Runtime)?;
+        .map_err(|_| TaskTriggerExtractionError::Runtime)?;
     assert_can_create_run(state, user_id, max_runtime_seconds)
         .await
-        .map_err(ScheduleExtractionError::Api)?;
+        .map_err(TaskTriggerExtractionError::Api)?;
     let create = AgentRunCreateRequest {
         prompt: prompt.clone(),
         provider: "codex".to_string(),
@@ -508,7 +515,7 @@ async fn extract_schedule_with_codex(
         model: Some(model.to_string()),
         effort,
         summary: None,
-        output_schema: Some(schedule_extraction_output_schema()),
+        output_schema: Some(task_trigger_extraction_output_schema()),
         max_runtime_seconds,
         task_trigger_id: None,
         task_trigger_title: None,
@@ -528,19 +535,19 @@ async fn extract_schedule_with_codex(
             runtime_dir.clone(),
         )
         .await
-        .map_err(|_| ScheduleExtractionError::Runtime)?;
+        .map_err(|_| TaskTriggerExtractionError::Runtime)?;
     let final_info =
-        wait_for_schedule_extraction(state, user_id, &info.job_id, max_runtime_seconds)
+        wait_for_task_trigger_extraction(state, user_id, &info.job_id, max_runtime_seconds)
             .await
-            .map_err(|_| ScheduleExtractionError::Runtime)?;
+            .map_err(|_| TaskTriggerExtractionError::Runtime)?;
     if final_info.status != "completed" {
-        return Err(ScheduleExtractionError::Runtime);
+        return Err(TaskTriggerExtractionError::Runtime);
     }
-    parse_schedule_extraction_output(&read_run_output(&final_info).await)
-        .map_err(|_| ScheduleExtractionError::Invalid)
+    parse_task_trigger_extraction_output(&read_run_output(&final_info).await)
+        .map_err(|_| TaskTriggerExtractionError::Invalid)
 }
 
-async fn wait_for_schedule_extraction(
+async fn wait_for_task_trigger_extraction(
     state: &AppState,
     user_id: &str,
     job_id: &str,
@@ -549,13 +556,15 @@ async fn wait_for_schedule_extraction(
     let deadline = Instant::now() + Duration::from_secs(max_runtime_seconds.max(1));
     loop {
         let Some(info) = state.jobs.info_for_user(job_id, user_id).await? else {
-            return Err(ApiError::not_found("Schedule extraction run not found"));
+            return Err(ApiError::not_found("Task trigger extraction run not found"));
         };
         if TERMINAL_STATUSES.contains(&info.status.as_str()) {
             return Ok(info);
         }
         if Instant::now() >= deadline {
-            return Err(ApiError::bad_request("Schedule extraction run timed out"));
+            return Err(ApiError::bad_request(
+                "Task trigger extraction run timed out",
+            ));
         }
         sleep(Duration::from_millis(50)).await;
     }
@@ -570,16 +579,16 @@ async fn read_run_output(info: &AgentRunInfo) -> String {
     info.stdout_tail.clone()
 }
 
-fn schedule_extraction_output_schema() -> Value {
+fn task_trigger_extraction_output_schema() -> Value {
     json!({
         "type": "object",
         "additionalProperties": false,
-        "required": ["is_schedule_request", "missing_fields", "clarification_question", "schedule"],
+        "required": ["is_task_trigger_request", "missing_fields", "clarification_question", "task_trigger"],
         "properties": {
-            "is_schedule_request": {"type": "boolean"},
+            "is_task_trigger_request": {"type": "boolean"},
             "missing_fields": {"type": "array", "items": {"type": "string"}},
             "clarification_question": {"type": ["string", "null"]},
-            "schedule": {
+            "task_trigger": {
                 "type": ["object", "null"],
                 "additionalProperties": false,
                 "required": [
@@ -633,66 +642,66 @@ fn schedule_extraction_output_schema() -> Value {
     })
 }
 
-fn build_schedule_extraction_prompt(user_input: &str) -> String {
+fn build_task_trigger_extraction_prompt(user_input: &str) -> String {
     format!(
-        "You are a strict schedule-request extractor for Ripple.\n\
+        "You are a strict task-trigger extractor for Ripple.\n\
 {}\n\n\
 Extract whether the user wants Ripple to create a future or recurring Codex task.\n\
 Return only data that matches the provided output schema.\n\n\
 Rules:\n\
-- Set is_schedule_request=true only when the user is asking to create a future/recurring task.\n\
+- Set is_task_trigger_request=true only when the user is asking to create a future/recurring task.\n\
 - For relative time such as '2 minutes later' or '2分钟以后', convert it to an absolute ISO 8601 run_at with timezone offset.\n\
 - Use kind='once' for one-time future tasks and kind='interval' for recurring tasks.\n\
-- For interval schedules, interval_seconds is required. For once schedules, run_at is required.\n\
+- For interval task triggers, interval_seconds is required. For once task triggers, run_at is required.\n\
 - For daily requests with a clock time, such as '每天 11:15', '每日11点15分', 'daily at 11:15', or 'every day at 11:15', use kind='interval', interval_seconds=86400, and set run_at to the next occurrence of that local clock time. Do not use the extraction time as run_at.\n\
 - For weekly requests such as '一周一次', '每周一次', '每星期一次', or 'weekly', use kind='interval' and interval_seconds=604800. If no start day/time is provided, leave run_at=null.\n\
 - If the user writes in Chinese and omits a timezone, prefer Asia/Shanghai for daily clock-time requests.\n\
-- If the user says to run a recurring task a fixed number of times, set schedule.max_runs to that count.\n\
-- If the user describes ordered phases such as 'A 做完再做 B', 'first A then B', or different instructions for run 1..N versus later runs, put each phase in schedule.phases with its own prompt and max_runs. Set schedule.max_runs to the sum of phase max_runs when every phase has a fixed count.\n\
-- For non-phased schedules, set schedule.phases=[] rather than duplicating schedule.prompt.\n\
-- If the user asks to run more than once but does not provide a recurrence interval, set schedule=null, include interval_seconds in missing_fields, and ask how often it should repeat.\n\
-- Always set schedule.summary=null. It is an internal Codex configuration field, not a free-form task description.\n\
-- Always set schedule.output_schema=null.\n\
-- schedule.prompt is the exact instruction Codex should receive when the schedule fires.\n\
-- Preserve execution-time intent in schedule.prompt. For example, if the user asks for a filename based on the execution date/time, say to compute it at execution time rather than hard-coding the extraction time.\n\
+- If the user says to run a recurring task a fixed number of times, set task_trigger.max_runs to that count.\n\
+- If the user describes ordered phases such as 'A 做完再做 B', 'first A then B', or different instructions for run 1..N versus later runs, put each phase in task_trigger.phases with its own prompt and max_runs. Set task_trigger.max_runs to the sum of phase max_runs when every phase has a fixed count.\n\
+- For non-phased task triggers, set task_trigger.phases=[] rather than duplicating task_trigger.prompt.\n\
+- If the user asks to run more than once but does not provide a recurrence interval, set task_trigger=null, include interval_seconds in missing_fields, and ask how often it should repeat.\n\
+- Always set task_trigger.summary=null. It is an internal Codex configuration field, not a free-form task description.\n\
+- Always set task_trigger.output_schema=null.\n\
+- task_trigger.prompt is the exact instruction Codex should receive when the trigger fires.\n\
+- Preserve execution-time intent in task_trigger.prompt. For example, if the user asks for a filename based on the execution date/time, say to compute it at execution time rather than hard-coding the extraction time.\n\
 - For task triggers that gather, search, summarize, or monitor information and then send/update an external service such as Feishu/Lark, Gmail, email, webhook, or chat, treat sources/scope, item count or output format, delivery target/method, and empty-result/failure behavior as important details. If they are absent, ask one concise clarification instead of proposing immediately.\n\
 - Do not execute the task now. Do not create timers, cron jobs, sleep loops, or background daemons.\n\
-- If required information is missing, set schedule=null, list missing_fields, and provide one concise clarification_question.\n\n\
+- If required information is missing, set task_trigger=null, list missing_fields, and provide one concise clarification_question.\n\n\
 User request:\n{}\n",
         current_time_context(),
         user_input.trim()
     )
 }
 
-fn schedule_draft_pending_value(
+fn task_trigger_draft_pending_value(
     original_user_input: &str,
-    extraction: &ScheduleExtractionResult,
+    extraction: &TaskTriggerExtractionResult,
     clarification: &str,
 ) -> Value {
     json!({
-        "type": "schedule_draft",
+        "type": "task_trigger_draft",
         "original_user_input": original_user_input.trim(),
         "missing_fields": extraction.missing_fields.clone(),
         "clarification_question": clarification,
-        "partial_schedule": extraction
-            .schedule
+        "partial_task_trigger": extraction
+            .task_trigger
             .as_ref()
-            .and_then(|schedule| serde_json::to_value(schedule).ok())
+            .and_then(|task_trigger| serde_json::to_value(task_trigger).ok())
             .unwrap_or(Value::Null)
     })
 }
 
-fn schedule_detail_pending_value(
+fn task_trigger_detail_pending_value(
     original_user_input: &str,
     payload: &Value,
     clarification: &str,
 ) -> Value {
     json!({
-        "type": "schedule_draft",
+        "type": "task_trigger_draft",
         "original_user_input": original_user_input.trim(),
         "missing_fields": [TRIGGER_DETAILS_MISSING_FIELD],
         "clarification_question": clarification,
-        "partial_schedule": payload
+        "partial_task_trigger": payload
     })
 }
 
@@ -707,7 +716,7 @@ fn pending_requested_trigger_details(pending: &Value) -> bool {
         })
 }
 
-fn combine_schedule_draft_followup(pending: &Value, user_input: &str) -> String {
+fn combine_task_trigger_draft_followup(pending: &Value, user_input: &str) -> String {
     let original = pending
         .get("original_user_input")
         .and_then(Value::as_str)
@@ -742,12 +751,12 @@ fn format_time(value: OffsetDateTime) -> String {
         .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string())
 }
 
-fn parse_schedule_extraction_output(text: &str) -> Result<ScheduleExtractionResult, String> {
-    serde_json::from_str::<ScheduleExtractionResult>(text.trim()).map_err(|err| err.to_string())
+fn parse_task_trigger_extraction_output(text: &str) -> Result<TaskTriggerExtractionResult, String> {
+    serde_json::from_str::<TaskTriggerExtractionResult>(text.trim()).map_err(|err| err.to_string())
 }
 
-fn schedule_extraction_clarification(result: &ScheduleExtractionResult) -> Option<String> {
-    if !result.is_schedule_request {
+fn task_trigger_extraction_clarification(result: &TaskTriggerExtractionResult) -> Option<String> {
+    if !result.is_task_trigger_request {
         return None;
     }
     if let Some(question) = result
@@ -761,14 +770,14 @@ fn schedule_extraction_clarification(result: &ScheduleExtractionResult) -> Optio
     if !result.missing_fields.is_empty() {
         return Some(format!("还需要补充：{}", result.missing_fields.join("、")));
     }
-    if result.schedule.is_none() {
-        return Some("还需要补充定时任务的时间和执行内容。".to_string());
+    if result.task_trigger.is_none() {
+        return Some("还需要补充任务触发器的时间和执行内容。".to_string());
     }
     None
 }
 
-fn schedule_detail_clarification(payload: &Value) -> Option<String> {
-    if !should_request_schedule_details(payload) {
+fn task_trigger_detail_clarification(payload: &Value) -> Option<String> {
+    if !should_request_task_trigger_details(payload) {
         return None;
     }
 
@@ -782,7 +791,7 @@ fn schedule_detail_clarification(payload: &Value) -> Option<String> {
     )
 }
 
-fn should_request_schedule_details(payload: &Value) -> bool {
+fn should_request_task_trigger_details(payload: &Value) -> bool {
     let text = format!(
         "{}\n{}",
         value_string(payload, "title"),
@@ -939,32 +948,32 @@ fn contains_any(text: &str, markers: &[&str]) -> bool {
     markers.iter().any(|marker| text.contains(marker))
 }
 
-struct ScheduleProposal {
+struct TaskTriggerProposal {
     payload: Value,
     message: String,
     question: String,
     options: Vec<String>,
 }
 
-fn schedule_proposal_from_extraction(
-    result: &ScheduleExtractionResult,
-) -> Result<Option<ScheduleProposal>, String> {
-    if !result.is_schedule_request {
+fn task_trigger_proposal_from_extraction(
+    result: &TaskTriggerExtractionResult,
+) -> Result<Option<TaskTriggerProposal>, String> {
+    if !result.is_task_trigger_request {
         return Ok(None);
     }
-    let Some(schedule) = result.schedule.as_ref() else {
+    let Some(task_trigger) = result.task_trigger.as_ref() else {
         return Ok(None);
     };
-    let payload = normalize_schedule_payload(schedule)?;
-    Ok(Some(ScheduleProposal {
-        message: build_schedule_confirmation_message(&payload),
-        question: "要创建这个定时任务吗？".to_string(),
+    let payload = normalize_task_trigger_payload(task_trigger)?;
+    Ok(Some(TaskTriggerProposal {
+        message: build_task_trigger_confirmation_message(&payload),
+        question: "要创建这个任务触发器吗？".to_string(),
         options: vec!["确认创建".to_string(), "取消".to_string()],
         payload,
     }))
 }
 
-fn normalize_schedule_payload(draft: &ScheduleDraft) -> Result<Value, String> {
+fn normalize_task_trigger_payload(draft: &TaskTriggerDraft) -> Result<Value, String> {
     let title = clean_optional_string(draft.title.as_deref())
         .ok_or_else(|| "title is required".to_string())?;
     let prompt = clean_optional_string(draft.prompt.as_deref())
@@ -994,17 +1003,17 @@ fn normalize_schedule_payload(draft: &ScheduleDraft) -> Result<Value, String> {
     }
 
     if kind == "once" && run_at.is_none() {
-        return Err("run_at is required for once schedules".to_string());
+        return Err("run_at is required for once task trigger".to_string());
     }
     if kind == "interval" && interval_seconds.is_none() {
-        return Err("interval_seconds is required for interval schedules".to_string());
+        return Err("interval_seconds is required for interval task trigger".to_string());
     }
     if kind != "interval" && draft.max_runs.is_some() {
-        return Err("max_runs is only supported for interval schedules".to_string());
+        return Err("max_runs is only supported for interval task trigger".to_string());
     }
-    let phases = normalize_schedule_phases(&draft.phases)?;
+    let phases = normalize_task_trigger_phases(&draft.phases)?;
     if !phases.is_empty() && kind != "interval" {
-        return Err("phased schedules require interval schedules".to_string());
+        return Err("phased task triggers require interval task triggers".to_string());
     }
     let phase_total_runs = if phases.is_empty() {
         None
@@ -1027,7 +1036,7 @@ fn normalize_schedule_payload(draft: &ScheduleDraft) -> Result<Value, String> {
     payload.insert("interval_seconds".to_string(), option_u64(interval_seconds));
     payload.insert(
         "enabled".to_string(),
-        json!(schedule_enabled_from_intent(&source_text, draft.enabled)),
+        json!(trigger_enabled_from_intent(&source_text, draft.enabled)),
     );
     payload.insert(
         "cwd".to_string(),
@@ -1060,7 +1069,9 @@ fn normalize_schedule_payload(draft: &ScheduleDraft) -> Result<Value, String> {
     Ok(value)
 }
 
-fn normalize_schedule_phases(draft_phases: &[SchedulePhaseDraft]) -> Result<Vec<Value>, String> {
+fn normalize_task_trigger_phases(
+    draft_phases: &[TaskTriggerPhaseDraft],
+) -> Result<Vec<Value>, String> {
     draft_phases
         .iter()
         .enumerate()
@@ -1201,7 +1212,7 @@ fn prefers_shanghai_timezone(text: &str) -> bool {
         .any(|ch| ('\u{4e00}'..='\u{9fff}').contains(&ch))
 }
 
-fn schedule_enabled_from_intent(text: &str, _extracted_enabled: Option<bool>) -> bool {
+fn trigger_enabled_from_intent(text: &str, _extracted_enabled: Option<bool>) -> bool {
     let normalized = text.to_ascii_lowercase();
     let explicit_disabled = [
         "不要启用",
@@ -1269,74 +1280,74 @@ fn option_u64(value: Option<u64>) -> Value {
     value.map(|value| json!(value)).unwrap_or(Value::Null)
 }
 
-fn schedule_proposal_event(proposal: &ScheduleProposal) -> Value {
+fn task_trigger_proposal_event(proposal: &TaskTriggerProposal) -> Value {
     json!({
-        "type": "schedule_proposed",
+        "type": "task_trigger_proposed",
         "message": proposal.message,
         "question": proposal.question,
         "options": proposal.options,
-        "schedule": proposal.payload
+        "task_trigger": proposal.payload
     })
 }
 
-fn schedule_clarification_event(message: &str) -> Value {
+fn task_trigger_clarification_event(message: &str) -> Value {
     json!({
-        "type": "schedule_clarification_required",
+        "type": "task_trigger_clarification_required",
         "message": message,
         "question": message,
         "options": []
     })
 }
 
-fn schedule_extraction_failed_event(message: &str) -> Value {
-    json!({"type": "schedule_extraction_failed", "message": message})
+fn task_trigger_extraction_failed_event(message: &str) -> Value {
+    json!({"type": "task_trigger_extraction_failed", "message": message})
 }
 
-fn task_created_event(task: Value, schedule: Option<Value>, message: &str) -> Value {
+fn task_created_event(task: Value, task_trigger: Option<Value>, message: &str) -> Value {
     json!({
         "type": "task_created",
         "message": message,
         "task": task,
-        "schedule": schedule
+        "task_trigger": task_trigger
     })
 }
 
-fn schedule_cancelled_event(message: &str) -> Value {
-    json!({"type": "schedule_cancelled", "message": message})
+fn task_trigger_cancelled_event(message: &str) -> Value {
+    json!({"type": "task_trigger_cancelled", "message": message})
 }
 
-fn schedule_pending_event(message: &str, payload: Value) -> Value {
+fn task_trigger_pending_event(message: &str, payload: Value) -> Value {
     json!({
-        "type": "schedule_pending_confirmation",
+        "type": "task_trigger_pending_confirmation",
         "message": message,
-        "question": "要创建这个定时任务吗？",
+        "question": "要创建这个任务触发器吗？",
         "options": ["确认创建", "取消"],
-        "schedule": payload
+        "task_trigger": payload
     })
 }
 
-fn idle_decision(event: Value) -> ScheduleChatDecision {
-    ScheduleChatDecision {
+fn idle_decision(event: Value) -> TaskTriggerChatDecision {
+    TaskTriggerChatDecision {
         event,
         status: "idle".to_string(),
-        clear_pending_schedule: false,
-        pending_schedule_request: None,
+        clear_pending_control_request: false,
+        pending_control_request: None,
     }
 }
 
 fn awaiting_decision(
     event: Value,
-    pending_schedule_request: Option<Value>,
-) -> ScheduleChatDecision {
-    ScheduleChatDecision {
+    pending_control_request: Option<Value>,
+) -> TaskTriggerChatDecision {
+    TaskTriggerChatDecision {
         event,
         status: "awaiting_user_input".to_string(),
-        clear_pending_schedule: false,
-        pending_schedule_request,
+        clear_pending_control_request: false,
+        pending_control_request,
     }
 }
 
-fn build_schedule_confirmation_message(payload: &Value) -> String {
+fn build_task_trigger_confirmation_message(payload: &Value) -> String {
     let title = value_string(payload, "title");
     let prompt = value_string(payload, "prompt");
     let phases = phase_summary(payload);
@@ -1366,7 +1377,7 @@ fn build_schedule_confirmation_message(payload: &Value) -> String {
         )
     };
     format!(
-        "我可以创建这个定时任务：\n\
+        "我可以创建这个任务触发器：\n\
 - 标题：{title}\n\
 - 类型：{}\n\
 - 时间：{timing}（时区：{}）\n\
@@ -1406,8 +1417,8 @@ fn phase_summary(payload: &Value) -> String {
     format!("\n- 阶段：{lines}")
 }
 
-fn build_task_schedule_created_message(task: &Value, schedule: Option<&Value>) -> String {
-    let next_line = schedule
+fn build_task_trigger_created_message(task: &Value, task_trigger: Option<&Value>) -> String {
+    let next_line = task_trigger
         .and_then(|record| record.get("next_run_at"))
         .and_then(Value::as_str)
         .map(|next| format!("下一次运行时间：{next}"))
@@ -1418,18 +1429,18 @@ fn build_task_schedule_created_message(task: &Value, schedule: Option<&Value>) -
     )
 }
 
-fn build_schedule_cancelled_message(payload: Option<&Value>) -> String {
+fn build_task_trigger_cancelled_message(payload: Option<&Value>) -> String {
     let title = payload
         .map(|value| value_string(value, "title"))
         .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| "这个定时任务".to_string());
+        .unwrap_or_else(|| "这个任务触发器".to_string());
     format!("已取消创建「{title}」。")
 }
 
-fn build_schedule_pending_message(payload: &Value) -> String {
+fn build_task_trigger_pending_message(payload: &Value) -> String {
     let title = value_string(payload, "title");
     let title = if title.is_empty() {
-        "这个定时任务".to_string()
+        "这个任务触发器".to_string()
     } else {
         title
     };
@@ -1474,7 +1485,7 @@ fn run_limit_label(payload: &Value) -> String {
     "不限次数".to_string()
 }
 
-fn is_schedule_intent(text: &str) -> bool {
+fn is_task_trigger_intent(text: &str) -> bool {
     let stripped = text.trim();
     if stripped.is_empty() {
         return false;
@@ -1485,6 +1496,7 @@ fn is_schedule_intent(text: &str) -> bool {
         "定时",
         "自动化",
         "自动执行",
+        "task_trigger",
         "schedule",
         "scheduled",
         "automation",
@@ -1503,6 +1515,8 @@ fn is_schedule_intent(text: &str) -> bool {
         "every week",
         "every month",
         "every year",
+        "every hour",
+        "hourly",
     ];
     explicit_markers
         .iter()
@@ -1510,12 +1524,12 @@ fn is_schedule_intent(text: &str) -> bool {
         .any(|marker| normalized.contains(marker))
 }
 
-fn is_schedule_confirmation(text: &str) -> bool {
+fn is_task_trigger_confirmation(text: &str) -> bool {
     let normalized = normalize_reply(text);
     CONFIRM_WORDS.iter().any(|word| normalized == *word)
 }
 
-fn is_schedule_cancellation(text: &str) -> bool {
+fn is_task_trigger_cancellation(text: &str) -> bool {
     let normalized = normalize_reply(text);
     CANCEL_WORDS.iter().any(|word| normalized == *word)
 }
@@ -1555,22 +1569,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn detects_schedule_intent_and_confirmation_words() {
-        assert!(!is_schedule_intent("5分钟后提醒我检查构建"));
-        assert!(is_schedule_intent("帮我创建一个新的自动化"));
-        assert!(is_schedule_intent("创建一个定时任务，5分钟后检查构建"));
-        assert!(is_schedule_intent("schedule this every day"));
-        assert!(is_schedule_intent(
+    fn detects_task_trigger_intent_and_confirmation_words() {
+        assert!(!is_task_trigger_intent("5分钟后提醒我检查构建"));
+        assert!(is_task_trigger_intent("帮我创建一个新的自动化"));
+        assert!(is_task_trigger_intent("创建一个定时任务，5分钟后检查构建"));
+        assert!(is_task_trigger_intent("schedule this every day"));
+        assert!(is_task_trigger_intent(
             "create automation to check prices every day"
         ));
-        assert!(!is_schedule_intent("帮我检查构建"));
-        assert!(is_schedule_confirmation("确认创建"));
-        assert!(is_schedule_cancellation("取消。"));
+        assert!(!is_task_trigger_intent("帮我检查构建"));
+        assert!(is_task_trigger_confirmation("确认创建"));
+        assert!(is_task_trigger_cancellation("取消。"));
     }
 
     #[test]
-    fn normalizes_schedule_payload() {
-        let draft = ScheduleDraft {
+    fn normalizes_task_trigger_payload() {
+        let draft = TaskTriggerDraft {
             title: Some("日报".to_string()),
             prompt: Some("生成日报".to_string()),
             kind: Some("interval".to_string()),
@@ -1588,7 +1602,7 @@ mod tests {
             phases: Vec::new(),
         };
 
-        let payload = normalize_schedule_payload(&draft).expect("payload");
+        let payload = normalize_task_trigger_payload(&draft).expect("payload");
 
         assert_eq!(payload.get("timezone").and_then(Value::as_str), Some("UTC"));
         assert_eq!(
@@ -1599,8 +1613,8 @@ mod tests {
     }
 
     #[test]
-    fn normalizes_phased_schedule_payload_and_sums_runs() {
-        let draft = ScheduleDraft {
+    fn normalizes_phased_task_trigger_payload_and_sums_runs() {
+        let draft = TaskTriggerDraft {
             title: Some("京东价格定时查询".to_string()),
             prompt: Some("分阶段查询价格并告知用户。".to_string()),
             kind: Some("interval".to_string()),
@@ -1616,12 +1630,12 @@ mod tests {
             max_runtime_seconds: None,
             max_runs: None,
             phases: vec![
-                SchedulePhaseDraft {
+                TaskTriggerPhaseDraft {
                     title: Some("查询 iPhone 价格".to_string()),
                     prompt: Some("去京东查询 iPhone 17 Pro Max 官方店铺价格。".to_string()),
                     max_runs: Some(5),
                 },
-                SchedulePhaseDraft {
+                TaskTriggerPhaseDraft {
                     title: Some("查询 Mac mini 价格".to_string()),
                     prompt: Some("去京东查询 Mac mini M4 价格。".to_string()),
                     max_runs: Some(2),
@@ -1629,7 +1643,7 @@ mod tests {
             ],
         };
 
-        let payload = normalize_schedule_payload(&draft).expect("payload");
+        let payload = normalize_task_trigger_payload(&draft).expect("payload");
 
         assert_eq!(payload.get("max_runs").and_then(Value::as_u64), Some(7));
         assert_eq!(
@@ -1647,7 +1661,7 @@ mod tests {
     }
 
     #[test]
-    fn phased_schedule_input_builds_task_level_trigger_and_action_dependencies() {
+    fn phased_task_trigger_input_builds_task_level_trigger_and_action_dependencies() {
         let input = serde_json::from_value::<TaskTriggerCreateInput>(json!({
             "title": "京东价格定时查询",
             "prompt": "分阶段查询价格并告知用户。",
@@ -1678,7 +1692,7 @@ mod tests {
         }))
         .expect("input");
 
-        let payload = task_payload_from_schedule_input(input);
+        let payload = task_payload_from_trigger_input(input);
 
         assert!(payload.get("trigger").is_some(), "{payload}");
         assert!(payload.pointer("/actions/0/trigger").is_none(), "{payload}");
@@ -1698,7 +1712,7 @@ mod tests {
 
     #[test]
     fn corrects_daily_time_requests_misread_as_once() {
-        let draft = ScheduleDraft {
+        let draft = TaskTriggerDraft {
             title: Some("新闻的猪突猛进".to_string()),
             prompt: Some(
                 "每天11:15 分， 搜一下最近的财经资讯， 把最重要的几条， 写到一个文件里面。"
@@ -1719,7 +1733,7 @@ mod tests {
             phases: Vec::new(),
         };
 
-        let payload = normalize_schedule_payload(&draft).expect("payload");
+        let payload = normalize_task_trigger_payload(&draft).expect("payload");
 
         assert_eq!(
             payload.get("kind").and_then(Value::as_str),
@@ -1739,8 +1753,8 @@ mod tests {
     }
 
     #[test]
-    fn asks_for_more_details_before_external_news_delivery_schedule() {
-        let draft = ScheduleDraft {
+    fn asks_for_more_details_before_external_news_delivery_task_trigger() {
+        let draft = TaskTriggerDraft {
             title: Some("每日 AI 新闻飞书发送".to_string()),
             prompt: Some(
                 "每天早上9点搜集一下 ai 相关的新闻，并且在飞书上给胡胖发消息，把新闻发给他。"
@@ -1761,8 +1775,8 @@ mod tests {
             phases: Vec::new(),
         };
 
-        let payload = normalize_schedule_payload(&draft).expect("payload");
-        let clarification = schedule_detail_clarification(&payload).expect("clarification");
+        let payload = normalize_task_trigger_payload(&draft).expect("payload");
+        let clarification = task_trigger_detail_clarification(&payload).expect("clarification");
 
         assert!(clarification.contains("新闻来源"));
         assert!(clarification.contains("飞书"));
@@ -1770,8 +1784,8 @@ mod tests {
     }
 
     #[test]
-    fn asks_for_more_details_before_external_monitor_update_schedule() {
-        let draft = ScheduleDraft {
+    fn asks_for_more_details_before_external_monitor_update_task_trigger() {
+        let draft = TaskTriggerDraft {
             title: Some("每日 issue 表格更新".to_string()),
             prompt: Some(
                 "每天早上9点监控 GitHub issue，如果有新条目就更新 Google Sheets。".to_string(),
@@ -1791,8 +1805,8 @@ mod tests {
             phases: Vec::new(),
         };
 
-        let payload = normalize_schedule_payload(&draft).expect("payload");
-        let clarification = schedule_detail_clarification(&payload).expect("clarification");
+        let payload = normalize_task_trigger_payload(&draft).expect("payload");
+        let clarification = task_trigger_detail_clarification(&payload).expect("clarification");
 
         assert!(clarification.contains("来源"));
         assert!(clarification.contains("更新"));
@@ -1800,8 +1814,8 @@ mod tests {
     }
 
     #[test]
-    fn does_not_ask_extra_details_for_simple_internal_schedule() {
-        let draft = ScheduleDraft {
+    fn does_not_ask_extra_details_for_simple_internal_task_trigger() {
+        let draft = TaskTriggerDraft {
             title: Some("检查构建".to_string()),
             prompt: Some("检查构建状态并总结结果。".to_string()),
             kind: Some("interval".to_string()),
@@ -1819,14 +1833,14 @@ mod tests {
             phases: Vec::new(),
         };
 
-        let payload = normalize_schedule_payload(&draft).expect("payload");
+        let payload = normalize_task_trigger_payload(&draft).expect("payload");
 
-        assert!(schedule_detail_clarification(&payload).is_none());
+        assert!(task_trigger_detail_clarification(&payload).is_none());
     }
 
     #[test]
     fn does_not_ask_extra_details_for_simple_external_reminder() {
-        let draft = ScheduleDraft {
+        let draft = TaskTriggerDraft {
             title: Some("飞书喝水提醒".to_string()),
             prompt: Some("每天早上9点在飞书发消息提醒我喝水。".to_string()),
             kind: Some("interval".to_string()),
@@ -1844,8 +1858,8 @@ mod tests {
             phases: Vec::new(),
         };
 
-        let payload = normalize_schedule_payload(&draft).expect("payload");
+        let payload = normalize_task_trigger_payload(&draft).expect("payload");
 
-        assert!(schedule_detail_clarification(&payload).is_none());
+        assert!(task_trigger_detail_clarification(&payload).is_none());
     }
 }

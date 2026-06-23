@@ -899,9 +899,6 @@ async function testFetchSessionsNormalizesBackendShape() {
           sessionId: "srv-normalized",
           title: "Normalized session",
           pinned: true,
-          projectId: null,
-          projectName: null,
-          projectRoot: null,
           contextFolderPath: null,
           model: "codex-medium",
           createdAt: "2026-05-18T00:00:00.000Z",
@@ -1139,9 +1136,6 @@ async function testCreateSessionPostsContextFolderPath() {
           status: "idle",
           changed_file_count: 0,
           pending_approval_count: 0,
-          project_id: null,
-          project_name: null,
-          project_root: null,
           context_folder_path: "/workspace/demo",
         }),
         { status: 200, headers: { "Content-Type": "application/json" } }
@@ -1152,9 +1146,6 @@ async function testCreateSessionPostsContextFolderPath() {
         model: "codex-test",
         contextFolderPath: "/workspace/demo",
       });
-      assert.equal(session.projectId, null);
-      assert.equal(session.projectName, null);
-      assert.equal(session.projectRoot, null);
       assert.equal(session.contextFolderPath, "/workspace/demo");
     }
   );
@@ -1194,9 +1185,6 @@ async function testFetchSessionDetailsNormalizesBackendShape() {
         sessionId: "srv-detail",
         title: "Detail session",
         pinned: false,
-        projectId: null,
-        projectName: null,
-        projectRoot: null,
         contextFolderPath: null,
         model: "codex-high",
         createdAt: "2026-05-18T00:00:00.000Z",

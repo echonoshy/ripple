@@ -1,7 +1,7 @@
 use serde_json::{json, Value};
 
-use crate::api::schedule_chat::ScheduleChatDecision;
 use crate::api::skills::{create_user_skill_draft, SkillDraftInput};
+use crate::api::task_trigger_chat::TaskTriggerChatDecision;
 use crate::api::ApiError;
 use crate::sessions::SessionRecord;
 use crate::state::AppState;
@@ -25,9 +25,9 @@ pub(crate) fn maybe_handle_skill_chat(
     user_id: &str,
     session: &SessionRecord,
     user_input: &str,
-) -> Result<Option<ScheduleChatDecision>, ApiError> {
+) -> Result<Option<TaskTriggerChatDecision>, ApiError> {
     if let Some(pending) = session
-        .pending_schedule_request
+        .pending_control_request
         .as_ref()
         .filter(|value| value.get("type").and_then(Value::as_str) == Some("skill_draft"))
     {
@@ -59,13 +59,13 @@ fn handle_pending_skill_draft(
     user_id: &str,
     pending: &Value,
     user_input: &str,
-) -> Result<ScheduleChatDecision, ApiError> {
+) -> Result<TaskTriggerChatDecision, ApiError> {
     if is_skill_cancellation(user_input) {
-        return Ok(ScheduleChatDecision {
+        return Ok(TaskTriggerChatDecision {
             event: skill_cancelled_event("已取消创建这个能力草稿。"),
             status: "idle".to_string(),
-            clear_pending_schedule: true,
-            pending_schedule_request: None,
+            clear_pending_control_request: true,
+            pending_control_request: None,
         });
     }
 
@@ -82,11 +82,11 @@ fn handle_pending_skill_draft(
 
     let workflow = combine_skill_draft_followup(pending, user_input);
     let skill = create_skill_from_workflow(state, user_id, &workflow)?;
-    Ok(ScheduleChatDecision {
+    Ok(TaskTriggerChatDecision {
         event: skill_draft_created_event(skill),
         status: "idle".to_string(),
-        clear_pending_schedule: true,
-        pending_schedule_request: None,
+        clear_pending_control_request: true,
+        pending_control_request: None,
     })
 }
 
@@ -322,23 +322,23 @@ fn skill_cancelled_event(message: &str) -> Value {
     })
 }
 
-fn idle_skill_decision(event: Value) -> ScheduleChatDecision {
-    ScheduleChatDecision {
+fn idle_skill_decision(event: Value) -> TaskTriggerChatDecision {
+    TaskTriggerChatDecision {
         event,
         status: "idle".to_string(),
-        clear_pending_schedule: false,
-        pending_schedule_request: None,
+        clear_pending_control_request: false,
+        pending_control_request: None,
     }
 }
 
 fn awaiting_skill_decision(
     event: Value,
-    pending_schedule_request: Option<Value>,
-) -> ScheduleChatDecision {
-    ScheduleChatDecision {
+    pending_control_request: Option<Value>,
+) -> TaskTriggerChatDecision {
+    TaskTriggerChatDecision {
         event,
         status: "awaiting_user_input".to_string(),
-        clear_pending_schedule: false,
-        pending_schedule_request,
+        clear_pending_control_request: false,
+        pending_control_request,
     }
 }

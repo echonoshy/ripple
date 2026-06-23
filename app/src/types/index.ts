@@ -500,9 +500,6 @@ export interface SessionSummary {
   sessionId: string;
   title: string;
   pinned: boolean;
-  projectId?: string | null;
-  projectName?: string | null;
-  projectRoot?: string | null;
   contextFolderPath?: string | null;
   model: string;
   createdAt: string;
@@ -606,9 +603,6 @@ export interface WorkbenchSessionSummary {
   sessionId: string;
   title: string;
   pinned: boolean;
-  projectId?: string | null;
-  projectName?: string | null;
-  projectRoot?: string | null;
   contextFolderPath?: string | null;
   status: WorkbenchSessionStatus;
   attention?: SessionAttention;

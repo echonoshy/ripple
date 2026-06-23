@@ -218,7 +218,7 @@ fn agent_stop_ask_user_event(event: &Value) -> Option<Value> {
             "message": event_message(event),
             "question": question,
             "options": options,
-            "schedule": event.get("schedule").cloned().unwrap_or_else(|| json!({}))
+            "task_trigger": event.get("task_trigger").cloned().unwrap_or_else(|| json!({}))
         }
     }))
 }

@@ -101,11 +101,11 @@ server:
   # workspace 为 cwd；具体 shell 命令仍由 Codex Linux sandbox 约束。
   codex_chat:
     max_runtime_seconds: 3600
-  # chat 侧定时任务创建意图的结构化提取超时。
-  schedule_extraction:
+  # chat 侧任务触发器创建意图的结构化提取超时。
+  task_trigger_extraction:
     max_runtime_seconds: 120
-  schedules:
-    # Ripple only checks due schedule metadata and starts Codex runs.
+  task_triggers:
+    # Ripple only checks due task trigger metadata and starts Codex runs.
     # User work still executes through Codex app-server.
     poll_interval_seconds: 15
   document_preview:

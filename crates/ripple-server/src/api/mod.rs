@@ -10,10 +10,10 @@ pub mod openapi;
 pub(crate) mod run_public;
 pub mod runs;
 pub mod sandboxes;
-pub mod schedule_chat;
 pub mod sessions;
 pub mod skill_chat;
 pub mod skills;
+pub mod task_trigger_chat;
 pub mod task_triggers;
 pub mod tasks;
 pub mod users;
@@ -656,8 +656,8 @@ mod tests {
                 runtime_log_max_mb: 64,
                 runtime_log_cleanup_interval_seconds: 3600,
             },
-            schedule_extraction_max_runtime_seconds: 120,
-            schedule_poll_interval_seconds: 15,
+            task_trigger_extraction_max_runtime_seconds: 120,
+            task_trigger_poll_interval_seconds: 15,
             document_preview: crate::config::DocumentPreviewConfig {
                 cache_root: root.join("cache/previews"),
                 libreoffice_path: "soffice".to_string(),
@@ -1909,7 +1909,7 @@ mod tests {
         assert_eq!(reloaded.status, "awaiting_user_input");
         assert_eq!(
             reloaded
-                .pending_schedule_request
+                .pending_control_request
                 .as_ref()
                 .and_then(|value| value.get("type"))
                 .and_then(Value::as_str),

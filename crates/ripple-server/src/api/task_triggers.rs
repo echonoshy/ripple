@@ -842,7 +842,7 @@ pub async fn trigger_due_task_triggers(
             match driver.scheduled_decision(
                 &record,
                 now,
-                state.config.schedule_poll_interval_seconds,
+                state.config.task_trigger_poll_interval_seconds,
             )? {
                 TaskTriggerDriverDecision::Pending => continue,
                 TaskTriggerDriverDecision::SkipMissed { next_run_at } => {
@@ -1011,7 +1011,7 @@ async fn task_trigger_dependency_wait_reason(
 }
 
 fn dependency_retry_at(state: &AppState, now: OffsetDateTime) -> Option<String> {
-    let delay_seconds = state.config.schedule_poll_interval_seconds.max(1) as i64;
+    let delay_seconds = state.config.task_trigger_poll_interval_seconds.max(1) as i64;
     Some(iso(now + TimeDuration::seconds(delay_seconds)))
 }
 

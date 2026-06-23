@@ -245,8 +245,8 @@ fn pending_kind(record: &SessionRecord) -> Option<String> {
         Some("question".to_string())
     } else if record.pending_connector_auth.is_some() {
         Some("connector_auth".to_string())
-    } else if record.pending_schedule_request.is_some() {
-        Some("schedule_request".to_string())
+    } else if record.pending_control_request.is_some() {
+        Some("task_trigger_request".to_string())
     } else {
         None
     }

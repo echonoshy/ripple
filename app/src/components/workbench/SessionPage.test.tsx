@@ -354,9 +354,6 @@ function testSessionPageShowsCurrentFolderBadge() {
     messageCount: 0,
     changedFileCount: 0,
     pendingApprovalCount: 0,
-    projectId: null,
-    projectName: null,
-    projectRoot: null,
     contextFolderPath: "/workspace/demo",
   };
   const html = renderToStaticMarkup(

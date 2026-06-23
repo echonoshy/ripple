@@ -24,8 +24,8 @@ pub struct AppConfig {
     pub logging: LoggingConfig,
     pub sandbox: SandboxConfig,
     pub codex: CodexConfig,
-    pub schedule_extraction_max_runtime_seconds: u64,
-    pub schedule_poll_interval_seconds: u64,
+    pub task_trigger_extraction_max_runtime_seconds: u64,
+    pub task_trigger_poll_interval_seconds: u64,
     pub document_preview: DocumentPreviewConfig,
     pub skills: SkillsConfig,
     pub public_base_url: Option<String>,
@@ -217,8 +217,8 @@ struct RawServer {
     cors: Option<RawCors>,
     sandbox: Option<RawSandbox>,
     codex_chat: Option<RawCodexChat>,
-    schedule_extraction: Option<RawScheduleExtraction>,
-    schedules: Option<RawSchedules>,
+    task_trigger_extraction: Option<RawTaskTriggerExtraction>,
+    task_triggers: Option<RawTaskTriggers>,
     document_preview: Option<RawDocumentPreview>,
     public_base_url: Option<String>,
     feishu: Option<RawFeishu>,
@@ -256,12 +256,12 @@ struct RawCodexChat {
 }
 
 #[derive(Debug, Default, Deserialize)]
-struct RawScheduleExtraction {
+struct RawTaskTriggerExtraction {
     max_runtime_seconds: Option<u64>,
 }
 
 #[derive(Debug, Default, Deserialize)]
-struct RawSchedules {
+struct RawTaskTriggers {
     poll_interval_seconds: Option<u64>,
 }
 
@@ -410,8 +410,8 @@ impl AppConfig {
             .codex
             .unwrap_or_default();
         let codex_chat = server.codex_chat.unwrap_or_default();
-        let schedule_extraction = server.schedule_extraction.unwrap_or_default();
-        let schedules = server.schedules.unwrap_or_default();
+        let task_trigger_extraction = server.task_trigger_extraction.unwrap_or_default();
+        let task_triggers = server.task_triggers.unwrap_or_default();
         let document_preview = server.document_preview.unwrap_or_default();
         let skills_raw = raw.skills.unwrap_or_default();
 
@@ -568,11 +568,14 @@ impl AppConfig {
                     .unwrap_or(DEFAULT_CODEX_RUNTIME_LOG_CLEANUP_INTERVAL_SECONDS)
                     .max(60),
             },
-            schedule_extraction_max_runtime_seconds: schedule_extraction
+            task_trigger_extraction_max_runtime_seconds: task_trigger_extraction
                 .max_runtime_seconds
                 .unwrap_or(120)
                 .max(1),
-            schedule_poll_interval_seconds: schedules.poll_interval_seconds.unwrap_or(15).max(1),
+            task_trigger_poll_interval_seconds: task_triggers
+                .poll_interval_seconds
+                .unwrap_or(15)
+                .max(1),
             document_preview: DocumentPreviewConfig {
                 cache_root: document_preview
                     .cache_root
@@ -981,20 +984,20 @@ server:
     }
 
     #[test]
-    fn parses_schedule_poll_interval() {
+    fn parses_task_trigger_poll_interval() {
         let config = with_temp_config(
-            "schedule-poll",
+            "task-trigger-poll",
             r#"
 server:
   api_keys: ["test-key"]
-  schedules:
+  task_triggers:
     poll_interval_seconds: 30
 "#,
             AppConfig::load,
         )
         .expect("load config");
 
-        assert_eq!(config.schedule_poll_interval_seconds, 30);
+        assert_eq!(config.task_trigger_poll_interval_seconds, 30);
     }
 
     #[test]

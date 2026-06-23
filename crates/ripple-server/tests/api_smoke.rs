@@ -78,8 +78,8 @@ fn test_config(root: &Path) -> AppConfig {
             runtime_log_max_mb: 64,
             runtime_log_cleanup_interval_seconds: 3600,
         },
-        schedule_extraction_max_runtime_seconds: 120,
-        schedule_poll_interval_seconds: 15,
+        task_trigger_extraction_max_runtime_seconds: 120,
+        task_trigger_poll_interval_seconds: 15,
         document_preview: DocumentPreviewConfig {
             cache_root: root.join("cache/previews"),
             libreoffice_path: "soffice".to_string(),
@@ -470,20 +470,20 @@ fn emit_runtime_events(thread_id: &str, turn_id: &str) {
     send(format!("{{\"method\":\"item/completed\",\"params\":{{\"threadId\":{thread_id},\"turnId\":{turn_id},\"item\":{{\"id\":\"img-1\",\"type\":\"imageGeneration\",\"status\":\"completed\",\"revisedPrompt\":\"tiny fake image\",\"result\":\"data:image/png;base64,SGVsbG8=\"}}}}}}"));
 }
 
-fn schedule_extraction_text() -> &'static str {
-    "{\"is_schedule_request\":true,\"missing_fields\":[],\"clarification_question\":null,\"schedule\":{\"title\":\"Check build\",\"prompt\":\"Check the build status\",\"kind\":\"interval\",\"timezone\":\"UTC\",\"run_at\":null,\"interval_seconds\":3600,\"enabled\":false,\"cwd\":null,\"model\":null,\"effort\":null,\"summary\":null,\"output_schema\":null,\"max_runtime_seconds\":60,\"max_runs\":null,\"phases\":[]}}"
+fn task_trigger_extraction_text() -> &'static str {
+    "{\"is_task_trigger_request\":true,\"missing_fields\":[],\"clarification_question\":null,\"task_trigger\":{\"title\":\"Check build\",\"prompt\":\"Check the build status\",\"kind\":\"interval\",\"timezone\":\"UTC\",\"run_at\":null,\"interval_seconds\":3600,\"enabled\":false,\"cwd\":null,\"model\":null,\"effort\":null,\"summary\":null,\"output_schema\":null,\"max_runtime_seconds\":60,\"max_runs\":null,\"phases\":[]}}"
 }
 
-fn schedule_clarification_text() -> &'static str {
-    "{\"is_schedule_request\":true,\"missing_fields\":[\"interval_seconds\"],\"clarification_question\":\"你希望多久监控一次？\",\"schedule\":null}"
+fn task_trigger_clarification_text() -> &'static str {
+    "{\"is_task_trigger_request\":true,\"missing_fields\":[\"interval_seconds\"],\"clarification_question\":\"你希望多久监控一次？\",\"task_trigger\":null}"
 }
 
-fn news_feishu_schedule_extraction_text() -> &'static str {
-    "{\"is_schedule_request\":true,\"missing_fields\":[],\"clarification_question\":null,\"schedule\":{\"title\":\"每日 AI 新闻飞书发送\",\"prompt\":\"每天早上9点搜集一下 ai 相关的新闻，并且在飞书上给胡胖发消息，把新闻发给他。\",\"kind\":\"interval\",\"timezone\":\"Asia/Shanghai\",\"run_at\":\"2026-06-08T01:00:00Z\",\"interval_seconds\":86400,\"enabled\":true,\"cwd\":null,\"model\":null,\"effort\":null,\"summary\":null,\"output_schema\":null,\"max_runtime_seconds\":60,\"max_runs\":null,\"phases\":[]}}"
+fn news_feishu_task_trigger_extraction_text() -> &'static str {
+    "{\"is_task_trigger_request\":true,\"missing_fields\":[],\"clarification_question\":null,\"task_trigger\":{\"title\":\"每日 AI 新闻飞书发送\",\"prompt\":\"每天早上9点搜集一下 ai 相关的新闻，并且在飞书上给胡胖发消息，把新闻发给他。\",\"kind\":\"interval\",\"timezone\":\"Asia/Shanghai\",\"run_at\":\"2026-06-08T01:00:00Z\",\"interval_seconds\":86400,\"enabled\":true,\"cwd\":null,\"model\":null,\"effort\":null,\"summary\":null,\"output_schema\":null,\"max_runtime_seconds\":60,\"max_runs\":null,\"phases\":[]}}"
 }
 
-fn weekly_price_schedule_extraction_text() -> &'static str {
-    "{\"is_schedule_request\":true,\"missing_fields\":[],\"clarification_question\":null,\"schedule\":{\"title\":\"Monitor used MacBook Pro prices\",\"prompt\":\"监控二手 M4 Pro 和 M5 Pro MacBook Pro 的价格。\",\"kind\":\"interval\",\"timezone\":\"Asia/Shanghai\",\"run_at\":null,\"interval_seconds\":604800,\"enabled\":false,\"cwd\":null,\"model\":null,\"effort\":null,\"summary\":null,\"output_schema\":null,\"max_runtime_seconds\":60,\"max_runs\":null,\"phases\":[]}}"
+fn weekly_price_task_trigger_extraction_text() -> &'static str {
+    "{\"is_task_trigger_request\":true,\"missing_fields\":[],\"clarification_question\":null,\"task_trigger\":{\"title\":\"Monitor used MacBook Pro prices\",\"prompt\":\"监控二手 M4 Pro 和 M5 Pro MacBook Pro 的价格。\",\"kind\":\"interval\",\"timezone\":\"Asia/Shanghai\",\"run_at\":null,\"interval_seconds\":604800,\"enabled\":false,\"cwd\":null,\"model\":null,\"effort\":null,\"summary\":null,\"output_schema\":null,\"max_runtime_seconds\":60,\"max_runs\":null,\"phases\":[]}}"
 }
 
 fn title_generation_text() -> &'static str {
@@ -503,7 +503,7 @@ fn task_tool_wait_user_arguments() -> &'static str {
 }
 
 fn recurring_task_tool_complete_action_arguments() -> &'static str {
-    "{\"mode\":\"complete_action\",\"target\":\"task\",\"task_id\":\"task-recurring-session-output\",\"action_id\":\"act-recurring-session-output\",\"result_summary\":\"已完成本次定时任务。\"}"
+    "{\"mode\":\"complete_action\",\"target\":\"task\",\"task_id\":\"task-recurring-session-output\",\"action_id\":\"act-recurring-session-output\",\"result_summary\":\"已完成本次任务触发器。\"}"
 }
 
 fn series_task_tool_complete_action_arguments(action_id: &str) -> String {
@@ -660,13 +660,13 @@ fn main() {
                     title_generation_text().to_string()
                 } else if line.contains("\"outputSchema\"") {
                     if line.contains("[clarify-interval]") && !line.contains("一周一次") {
-                        schedule_clarification_text().to_string()
+                        task_trigger_clarification_text().to_string()
                     } else if line.contains("[news-feishu]") {
-                        news_feishu_schedule_extraction_text().to_string()
+                        news_feishu_task_trigger_extraction_text().to_string()
                     } else if line.contains("[clarify-interval]") && line.contains("一周一次") {
-                        weekly_price_schedule_extraction_text().to_string()
+                        weekly_price_task_trigger_extraction_text().to_string()
                     } else {
-                        schedule_extraction_text().to_string()
+                        task_trigger_extraction_text().to_string()
                     }
                 } else if line.contains("[model-auth-alpha]") {
                     "<ripple_connector_auth_request>{\"connector\":\"google_workspace\",\"force_reauth\":false,\"reason\":\"needs Gmail access\"}</ripple_connector_auth_request>".to_string()
@@ -4486,9 +4486,18 @@ async fn sessions_accept_update_and_clear_context_folder_path() {
         session.get("context_folder_path").and_then(Value::as_str),
         Some("/workspace/demo")
     );
-    assert!(session.get("project_id").is_some_and(Value::is_null));
-    assert!(session.get("project_name").is_some_and(Value::is_null));
-    assert!(session.get("project_root").is_some_and(Value::is_null));
+    assert!(
+        session.get("project_id").is_none(),
+        "session response should not expose legacy project_id: {session}"
+    );
+    assert!(
+        session.get("project_name").is_none(),
+        "session response should not expose legacy project_name: {session}"
+    );
+    assert!(
+        session.get("project_root").is_none(),
+        "session response should not expose legacy project_root: {session}"
+    );
     let session_id = session
         .get("session_id")
         .and_then(Value::as_str)
@@ -4546,7 +4555,10 @@ async fn sessions_accept_update_and_clear_context_folder_path() {
     assert!(detail
         .get("context_folder_path")
         .is_some_and(Value::is_null));
-    assert!(detail.get("project_root").is_some_and(Value::is_null));
+    assert!(
+        detail.get("project_root").is_none(),
+        "session detail should not expose legacy project_root: {detail}"
+    );
 
     let _ = std::fs::remove_dir_all(root);
 }
@@ -5707,7 +5719,6 @@ async fn compact_session_context_triggers_codex_thread_compaction() {
                 max_turns: None,
                 system_prompt: None,
                 context_folder_path: None,
-                project_id: None,
             },
         )
         .await
@@ -5765,7 +5776,6 @@ async fn session_codex_thread_route_reads_thread_metadata_without_turns() {
                 max_turns: None,
                 system_prompt: None,
                 context_folder_path: None,
-                project_id: None,
             },
         )
         .await
@@ -5808,7 +5818,6 @@ async fn stopping_stale_running_session_clears_running_status() {
                 max_turns: None,
                 system_prompt: None,
                 context_folder_path: None,
-                project_id: None,
             },
         )
         .await
@@ -6340,7 +6349,7 @@ async fn run_public_apis_hide_host_paths_from_metadata_output_and_events() {
 }
 
 #[tokio::test]
-async fn codex_disabled_rejects_runs_chat_and_schedule_extraction_before_starting_runtime() {
+async fn codex_disabled_rejects_runs_chat_and_task_trigger_extraction_before_starting_runtime() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let fake_codex = write_fake_codex_app_server(&root);
     let mut config = test_config_with_codex_executable(&root, fake_codex);
@@ -6381,7 +6390,7 @@ async fn codex_disabled_rejects_runs_chat_and_schedule_extraction_before_startin
         Some("codex_disabled")
     );
 
-    let (status, schedule_chat) = call(
+    let (status, task_trigger_chat) = call(
         app,
         Method::POST,
         "/v1/chat/completions",
@@ -6394,7 +6403,7 @@ async fn codex_disabled_rejects_runs_chat_and_schedule_extraction_before_startin
     .await;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
     assert_eq!(
-        schedule_chat
+        task_trigger_chat
             .pointer("/detail/code")
             .and_then(Value::as_str),
         Some("codex_disabled")
@@ -6890,7 +6899,7 @@ async fn task_linked_trigger_run_records_task_events_and_session_output() {
         }
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
-    assert!(completed, "manual linked schedule run should complete");
+    assert!(completed, "manual linked task trigger run should complete");
 
     let (status, triggers) = call(
         app.clone(),
@@ -7654,7 +7663,6 @@ async fn connector_auth_cancel_route_is_idempotent_and_clears_pending_sessions()
                 max_turns: None,
                 system_prompt: None,
                 context_folder_path: None,
-                project_id: None,
             },
         )
         .await
@@ -7744,7 +7752,6 @@ async fn connector_auth_route_clears_matching_pending_session_auth() {
                 max_turns: None,
                 system_prompt: None,
                 context_folder_path: None,
-                project_id: None,
             },
         )
         .await
@@ -7803,7 +7810,6 @@ async fn stop_session_clears_pending_connector_auth_without_running_job() {
                 max_turns: None,
                 system_prompt: None,
                 context_folder_path: None,
-                project_id: None,
             },
         )
         .await
@@ -7856,7 +7862,6 @@ async fn cancel_connector_auth_route_clears_only_target_session() {
                 max_turns: None,
                 system_prompt: None,
                 context_folder_path: None,
-                project_id: None,
             },
         )
         .await
@@ -7877,7 +7882,6 @@ async fn cancel_connector_auth_route_clears_only_target_session() {
                 max_turns: None,
                 system_prompt: None,
                 context_folder_path: None,
-                project_id: None,
             },
         )
         .await
@@ -7929,7 +7933,7 @@ async fn cancel_connector_auth_route_clears_only_target_session() {
 }
 
 #[tokio::test]
-async fn chat_route_confirms_pending_schedule_without_starting_codex() {
+async fn chat_route_confirms_pending_task_trigger_without_starting_codex() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let (state, app) = test_state_and_app(&root);
     let user_id = "smoke-user";
@@ -7942,13 +7946,12 @@ async fn chat_route_confirms_pending_schedule_without_starting_codex() {
                 max_turns: None,
                 system_prompt: None,
                 context_folder_path: None,
-                project_id: None,
             },
         )
         .await
         .unwrap();
     session.status = "awaiting_user_input".to_string();
-    session.pending_schedule_request = Some(json!({
+    session.pending_control_request = Some(json!({
         "title": "Check build",
         "prompt": "Check the build status",
         "kind": "interval",
@@ -7990,7 +7993,7 @@ async fn chat_route_confirms_pending_schedule_without_starting_codex() {
         .unwrap()
         .expect("session");
     assert_eq!(reloaded.status, "idle");
-    assert!(reloaded.pending_schedule_request.is_none());
+    assert!(reloaded.pending_control_request.is_none());
     assert_eq!(reloaded.message_count, 2);
 
     let (status, tasks) = call(app.clone(), Method::GET, "/v1/tasks", Value::Null).await;
@@ -8039,7 +8042,7 @@ async fn chat_route_confirms_pending_schedule_without_starting_codex() {
 }
 
 #[tokio::test]
-async fn chat_route_proposes_schedule_with_fake_codex_extraction() {
+async fn chat_route_proposes_task_trigger_with_fake_codex_extraction() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let fake_codex = write_fake_codex_app_server(&root);
     let (state, app) =
@@ -8060,20 +8063,20 @@ async fn chat_route_proposes_schedule_with_fake_codex_extraction() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
         chat.pointer("/event/type").and_then(Value::as_str),
-        Some("schedule_proposed")
+        Some("task_trigger_proposed")
     );
     assert_eq!(
-        chat.pointer("/event/schedule/title")
+        chat.pointer("/event/task_trigger/title")
             .and_then(Value::as_str),
         Some("Check build")
     );
     assert_eq!(
-        chat.pointer("/event/schedule/interval_seconds")
+        chat.pointer("/event/task_trigger/interval_seconds")
             .and_then(Value::as_u64),
         Some(3600)
     );
     assert_eq!(
-        chat.pointer("/event/schedule/enabled")
+        chat.pointer("/event/task_trigger/enabled")
             .and_then(Value::as_bool),
         Some(true)
     );
@@ -8097,7 +8100,7 @@ async fn chat_route_proposes_schedule_with_fake_codex_extraction() {
     assert_eq!(reloaded.message_count, 2);
     assert_eq!(
         reloaded
-            .pending_schedule_request
+            .pending_control_request
             .as_ref()
             .and_then(|value| value.get("title"))
             .and_then(Value::as_str),
@@ -8116,7 +8119,7 @@ async fn chat_route_proposes_schedule_with_fake_codex_extraction() {
 }
 
 #[tokio::test]
-async fn chat_route_asks_details_before_complex_external_schedule_proposal() {
+async fn chat_route_asks_details_before_complex_external_task_trigger_proposal() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let fake_codex = write_fake_codex_app_server(&root);
     let (state, app) =
@@ -8140,7 +8143,7 @@ async fn chat_route_asks_details_before_complex_external_schedule_proposal() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
         chat.pointer("/event/type").and_then(Value::as_str),
-        Some("schedule_clarification_required")
+        Some("task_trigger_clarification_required")
     );
     let message = chat
         .pointer("/event/message")
@@ -8162,12 +8165,12 @@ async fn chat_route_asks_details_before_complex_external_schedule_proposal() {
         .expect("session");
     assert_eq!(reloaded.status, "awaiting_user_input");
     let pending = reloaded
-        .pending_schedule_request
+        .pending_control_request
         .as_ref()
-        .expect("pending schedule draft");
+        .expect("pending control draft");
     assert_eq!(
         pending.get("type").and_then(Value::as_str),
-        Some("schedule_draft")
+        Some("task_trigger_draft")
     );
     assert_eq!(
         pending
@@ -8179,7 +8182,7 @@ async fn chat_route_asks_details_before_complex_external_schedule_proposal() {
     );
     assert_eq!(
         pending
-            .pointer("/partial_schedule/title")
+            .pointer("/partial_task_trigger/title")
             .and_then(Value::as_str),
         Some("每日 AI 新闻飞书发送")
     );
@@ -8188,7 +8191,7 @@ async fn chat_route_asks_details_before_complex_external_schedule_proposal() {
 }
 
 #[tokio::test]
-async fn chat_route_continues_schedule_clarification_with_user_followup() {
+async fn chat_route_continues_task_trigger_clarification_with_user_followup() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let fake_codex = write_fake_codex_app_server(&root);
     let (state, app) =
@@ -8203,19 +8206,18 @@ async fn chat_route_continues_schedule_clarification_with_user_followup() {
                 max_turns: None,
                 system_prompt: None,
                 context_folder_path: None,
-                project_id: None,
             },
         )
         .await
         .unwrap();
     session.status = "awaiting_user_input".to_string();
     session.pending_question = Some("你希望多久监控一次？".to_string());
-    session.pending_schedule_request = Some(json!({
-        "type": "schedule_draft",
+    session.pending_control_request = Some(json!({
+        "type": "task_trigger_draft",
         "original_user_input": "[clarify-interval] 做个定时任务监控二手 M4 Pro 和 M5 Pro MacBook Pro 的价格",
         "missing_fields": ["interval_seconds"],
         "clarification_question": "你希望多久监控一次？",
-        "partial_schedule": null
+        "partial_task_trigger": null
     }));
     state.sessions.save_record(session.clone()).await.unwrap();
 
@@ -8234,17 +8236,17 @@ async fn chat_route_continues_schedule_clarification_with_user_followup() {
     assert_eq!(status, StatusCode::OK, "{proposal}");
     assert_eq!(
         proposal.pointer("/event/type").and_then(Value::as_str),
-        Some("schedule_proposed")
+        Some("task_trigger_proposed")
     );
     assert_eq!(
         proposal
-            .pointer("/event/schedule/interval_seconds")
+            .pointer("/event/task_trigger/interval_seconds")
             .and_then(Value::as_u64),
         Some(604_800)
     );
     assert!(
         proposal
-            .pointer("/event/schedule/prompt")
+            .pointer("/event/task_trigger/prompt")
             .and_then(Value::as_str)
             .is_some_and(|prompt| prompt.contains("M4 Pro") && prompt.contains("M5 Pro")),
         "{proposal}"
@@ -8888,7 +8890,7 @@ async fn concurrent_chat_requests_for_same_session_start_single_run() {
     let proposed = [first_body.clone(), second_body.clone()]
         .into_iter()
         .filter(|body| {
-            body.pointer("/event/type").and_then(Value::as_str) == Some("schedule_proposed")
+            body.pointer("/event/type").and_then(Value::as_str) == Some("task_trigger_proposed")
         })
         .count();
     assert_eq!(proposed, 1, "only one request should start extraction");
@@ -8959,9 +8961,18 @@ async fn chat_session_bound_to_context_folder_runs_from_that_folder() {
         .and_then(Value::as_str)
         .expect("session id")
         .to_string();
-    assert!(session.get("project_id").is_some_and(Value::is_null));
-    assert!(session.get("project_name").is_some_and(Value::is_null));
-    assert!(session.get("project_root").is_some_and(Value::is_null));
+    assert!(
+        session.get("project_id").is_none(),
+        "session response should not expose legacy project_id: {session}"
+    );
+    assert!(
+        session.get("project_name").is_none(),
+        "session response should not expose legacy project_name: {session}"
+    );
+    assert!(
+        session.get("project_root").is_none(),
+        "session response should not expose legacy project_root: {session}"
+    );
     assert_eq!(
         session.get("context_folder_path").and_then(Value::as_str),
         Some("/workspace/demo")
@@ -9003,9 +9014,18 @@ async fn chat_session_bound_to_context_folder_runs_from_that_folder() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{detail}");
-    assert!(detail.get("project_id").is_some_and(Value::is_null));
-    assert!(detail.get("project_name").is_some_and(Value::is_null));
-    assert!(detail.get("project_root").is_some_and(Value::is_null));
+    assert!(
+        detail.get("project_id").is_none(),
+        "session detail should not expose legacy project_id: {detail}"
+    );
+    assert!(
+        detail.get("project_name").is_none(),
+        "session detail should not expose legacy project_name: {detail}"
+    );
+    assert!(
+        detail.get("project_root").is_none(),
+        "session detail should not expose legacy project_root: {detail}"
+    );
     assert_eq!(
         detail.get("context_folder_path").and_then(Value::as_str),
         Some("/workspace/demo")
@@ -9080,7 +9100,6 @@ async fn chat_recovers_restart_stale_running_job_before_starting_follow_up() {
                 max_turns: None,
                 system_prompt: None,
                 context_folder_path: None,
-                project_id: None,
             },
         )
         .await
@@ -9848,7 +9867,7 @@ async fn chat_stream_does_not_start_connector_auth_from_user_keywords_before_cod
 }
 
 #[tokio::test]
-async fn chat_stream_cancels_pending_schedule_without_codex() {
+async fn chat_stream_cancels_pending_task_trigger_without_codex() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let (state, app) = test_state_and_app(&root);
     let user_id = "smoke-user";
@@ -9861,13 +9880,12 @@ async fn chat_stream_cancels_pending_schedule_without_codex() {
                 max_turns: None,
                 system_prompt: None,
                 context_folder_path: None,
-                project_id: None,
             },
         )
         .await
         .unwrap();
     session.status = "awaiting_user_input".to_string();
-    session.pending_schedule_request = Some(json!({
+    session.pending_control_request = Some(json!({
         "title": "Check build",
         "prompt": "Check the build status",
         "kind": "interval",
@@ -9893,7 +9911,7 @@ async fn chat_stream_cancels_pending_schedule_without_codex() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     let body = response_text(response).await;
-    assert!(body.contains("\"type\":\"schedule_cancelled\""));
+    assert!(body.contains("\"type\":\"task_trigger_cancelled\""));
     assert!(body.contains("data: [DONE]"));
 
     let reloaded = state
@@ -9902,7 +9920,7 @@ async fn chat_stream_cancels_pending_schedule_without_codex() {
         .await
         .unwrap()
         .expect("session");
-    assert!(reloaded.pending_schedule_request.is_none());
+    assert!(reloaded.pending_control_request.is_none());
     assert_eq!(reloaded.status, "idle");
 
     let _ = std::fs::remove_dir_all(root);

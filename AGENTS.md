@@ -42,7 +42,7 @@
 - connector list/status/auth/disconnect/accounts。
 - Notion token、Google Workspace OAuth、Feishu/Lark auth、Bilibili QR auth。
 - Codex app-server JSON-RPC provider，按 `user_id + workspace_root + generation` 维护可信 worker pool；job 运行时借用 worker，完成后释放为 idle worker，chat 连续上下文依赖持久 Codex thread id。
-- `/v1/runs`、`/v1/responses`、legacy `/v1/chat/completions`、Codex approval bridge。
+- `/v1/runs`、`/v1/responses`、Codex approval bridge。
 - chat 侧 connector auth 拦截、轮询和授权后自动恢复。
 - schedule CRUD、run history、run-now、后台 due schedule trigger。
 - Tasks / TaskActions CRUD、session-linked tasks、task events/progress、run-now、due task action trigger，以及 chat 侧 `codex_app.task_update` 动态工具。
@@ -191,7 +191,7 @@ Codex 授权是服务端统一授权，不是 per-user Codex 授权：
 4. 构建 Codex-facing prompt，注入 Ripple/Codex 角色说明、session 历史、connector 状态、skill manifest。
 5. 借用或启动当前 pool 的 Codex app-server worker，并以当前 user workspace 为 cwd。
 6. Codex 通过 managed permissions profile 限制读写。
-7. Ripple 收集 Codex event/output，转换为 Responses-compatible response 或 SSE，并持久化 session。legacy `/v1/chat/completions` 仍保留兼容旧客户端。
+7. Ripple 收集 Codex event/output，转换为 Responses-compatible response 或 SSE，并持久化 session。`/v1/chat/completions` 不再注册。
 
 `/v1/runs` 是独立 Codex job API，适合外部调度器或前端长任务详情页。
 
@@ -301,7 +301,7 @@ Rust 后端：
 
 - `crates/ripple-server/src/main.rs`：Rust server entrypoint。
 - `crates/ripple-server/src/api/mod.rs`：route 注册。
-- `crates/ripple-server/src/api/chat.rs`：Responses-compatible chat façade、legacy chat bridge、chat-side connector auth；不承载模型厂商 API adapter。
+- `crates/ripple-server/src/api/chat.rs`：Responses-compatible chat façade、chat-side connector auth；不承载模型厂商 API adapter。
 - `crates/ripple-server/src/api/runs.rs`：Codex run API。
 - `crates/ripple-server/src/api/connectors.rs`：connector status/auth/disconnect/accounts。
 - `crates/ripple-server/src/codex/app_server.rs`：Codex app-server JSON-RPC provider。

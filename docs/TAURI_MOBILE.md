@@ -126,7 +126,7 @@ bun run tauri android build --apk --target aarch64 --split-per-abi
 - Settings 中服务级 API key、开发 user id、server URL 保存后重启仍可用。
 - 能拉取 models 和 sessions。
 - 能创建/切换 session。
-- `/v1/chat/completions` 流式输出正常。
+- `/v1/responses` 流式输出正常。
 - tool call、tool result、permission request、用户确认、stop generation 正常。
 - Files 可浏览、预览、上传、下载。
 - Connectors 状态、账号列表和授权入口可用。

@@ -3,8 +3,10 @@
 
 # Flow with Ripple
 
-> 每一次迭代的涟漪，都是向解的收敛。
-> Each ripple of iteration converges toward the solution.
+<p align="center">
+  <em>每一次迭代的涟漪，都是向解的收敛。</em><br />
+  <sub>Each ripple of iteration converges toward the solution.</sub>
+</p>
 
 **面向真实终端用户的多端 AI Agent 工作空间**
 
@@ -47,7 +49,7 @@
 *   **会话工作流**：用户可以创建、恢复和继续长期 Agent 会话，历史消息、生成过程和上下文在同一 workspace 中持续存在。
 *   **文件与产物**：内置 workspace 文件浏览、搜索、上传、预览和下载，支持查看 Agent 生成的文档、图片、PDF 与脚本产物。
 *   **能力与连接器**：将 Shared / Workspace Skills、自定义能力和 Google Workspace、飞书/Lark、Notion、Bilibili 等授权状态整合到统一的能力页。
-*   **任务与调度**：Tasks 管理长期目标、行动、提醒/触发器、运行历史和结果回写；独立 Schedule 仍作为兼容能力保留。
+*   **任务与触发器**：Tasks 管理长期目标、行动、Task Trigger 时间触发器、运行历史和结果回写；旧 Schedule 已移除，提醒/触发统一走 Task Trigger。
 *   **多端客户端**：同一套 Vite + React 客户端覆盖 Web、Tauri Desktop、iOS 和 Android；移动端保持底部 Tab、详情页返回和触控友好的工作流。
 
 ### 控制面职责
@@ -55,7 +57,7 @@
 *   **多用户工作区隔离**：基于 `user_id` 隔离长期 workspace、connector credential、runtime artifact 和控制面状态。
 *   **连接器凭证托管**：管理第三方账号 OAuth、token 保存、状态检查与运行时授权拦截。
 *   **Skill Manifest 注入**：解析 Shared / Workspace 级 Skill Manifest，通过控制面向 Codex-facing prompt 注入可用能力。
-*   **全生命周期状态**：管理 Session 会话记录、Run 异步任务、Task/Action、Schedule 触发器以及用户 Quota 额度。
+*   **全生命周期状态**：管理 Session 会话记录、Run 异步任务、Task/Action、Task Trigger 触发器以及用户 Quota 额度。
 *   **协同审批桥接**：在 Codex 任务执行与客户端之间架起 Approval Bridge，提供人机协同的安全性二次确认。
 
 ---
@@ -76,7 +78,7 @@ Ripple 采用 **控制面（Control Plane）与 执行面（Execution Plane）**
 ```bash
 cp config/settings.yaml.sample config/settings.yaml
 ```
-*根据需要编辑 `config/settings.yaml`，至少在 `server.api_keys` 中配置授权 Key。*
+*根据需要编辑 `config/settings.yaml`，本地开发通常至少在 `server.api_keys` 中配置授权 Key；如启用 `server.user_auth.enabled`，也可以走邀请码/账号密码登录。*
 
 ### 2. 登录 Codex 凭证（可选）
 若需要在真实的 Codex 环境下执行沙箱指令，请登录服务端的 Codex 服务：
@@ -94,9 +96,9 @@ cargo run -p ripple-server
 ```bash
 cd app
 bun install
-bun run dev
+VITE_RIPPLE_API_URL=http://127.0.0.1:8810/v1 bun run dev
 ```
-*前端开发服务器默认监听地址：`http://localhost:8820`*
+*前端开发服务器默认监听地址：`http://localhost:8820`。若不显式设置 `VITE_RIPPLE_API_URL`，当前开发模式会通过 Vite proxy 连接临时公网后端。*
 
 ---
 
@@ -122,7 +124,7 @@ bun run build
 
 ## 系统文档导航
 
-为了方便您快速了解系统细节，我们准备了完备的文档库：
+为了方便您快速了解系统细节，以下是核心文档入口：
 
 | 文档指南 | 职责描述 | 路径 |
 | :--- | :--- | :--- |

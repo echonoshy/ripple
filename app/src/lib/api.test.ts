@@ -37,6 +37,7 @@ import {
   sendChatMessage,
   sendSessionControlAction,
   stopSession,
+  updateTask,
   updateTaskTrigger,
   updateSession,
   updateTaskAction,
@@ -1237,6 +1238,7 @@ async function testTaskApisUseExpectedBackendShape() {
       },
       created_at: "2026-06-17T08:00:00.000Z",
       updated_at: "2026-06-17T09:00:00.000Z",
+      pinned: true,
     },
     actions: [
       {
@@ -1342,6 +1344,7 @@ async function testTaskApisUseExpectedBackendShape() {
     async () => {
       const tasks = await fetchTasks();
       assert.equal(tasks[0]?.taskId, "task/with space");
+      assert.equal(tasks[0]?.pinned, true);
       assert.equal(tasks[0]?.progress?.currentActionTitle, "生成报价");
       assert.equal((await fetchSessionTasks("srv-detail"))[0]?.sourceSessionId, "srv-detail");
       assert.equal(
@@ -1351,6 +1354,7 @@ async function testTaskApisUseExpectedBackendShape() {
       assert.equal((await confirmTask("task/with space")).task.status, "in_progress");
       assert.equal((await runTaskNow("task/with space")).job_id, "job-1");
       assert.equal((await cancelTask("task/with space")).task.taskId, "task/with space");
+      assert.equal((await updateTask("task/with space", { pinned: false })).task.pinned, true);
       assert.equal((await deleteTask("task/with space")).taskId, "task/with space");
       const taskEvents = await fetchTaskEvents("task/with space");
       assert.equal(taskEvents[0]?.eventType, "task_action_started");
@@ -1387,23 +1391,25 @@ async function testTaskApisUseExpectedBackendShape() {
       "POST /v1/tasks/task%2Fwith%20space/confirm",
       "POST /v1/tasks/task%2Fwith%20space/run-now",
       "DELETE /v1/tasks/task%2Fwith%20space",
+      "PATCH /v1/tasks/task%2Fwith%20space",
       "POST /v1/tasks/task%2Fwith%20space/delete",
       "GET /v1/tasks/task%2Fwith%20space/events",
       "POST /v1/tasks/task%2Fwith%20space/actions",
       "PATCH /v1/tasks/task%2Fwith%20space/actions/act%2F1",
     ]
   );
-  assert.equal((requests[8]?.body as Record<string, unknown>)?.title, "等用户确认");
-  assert.equal((requests[8]?.body as Record<string, unknown>)?.kind, "waiting_user");
+  assert.equal((requests[6]?.body as Record<string, unknown>)?.pinned, false);
+  assert.equal((requests[9]?.body as Record<string, unknown>)?.title, "等用户确认");
+  assert.equal((requests[9]?.body as Record<string, unknown>)?.kind, "waiting_user");
   assert.notEqual(
-    (requests[8]?.body as Record<string, unknown>)?.next_wakeup_at,
+    (requests[9]?.body as Record<string, unknown>)?.next_wakeup_at,
     "2026-06-18T09:00"
   );
   assert.match(
-    String((requests[8]?.body as Record<string, unknown>)?.next_wakeup_at),
+    String((requests[9]?.body as Record<string, unknown>)?.next_wakeup_at),
     /^2026-06-18T\d{2}:00:00\.000Z$/
   );
-  assert.deepEqual(requests[9]?.body, {
+  assert.deepEqual(requests[10]?.body, {
     status: "completed",
     result_summary: "已完成报价草案。",
     sequence_index: 2,

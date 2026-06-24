@@ -15,6 +15,7 @@ import {
   Loader2,
   Pause,
   Pencil,
+  Pin,
   Play,
   Plus,
   RefreshCw,
@@ -35,6 +36,7 @@ import {
   fetchTasks,
   runTaskNow,
   runTaskTriggerNow,
+  updateTask,
   updateTaskAction,
   updateTaskTrigger,
 } from "@/lib/api";
@@ -89,6 +91,7 @@ import {
   type MobileSwipeBackTouchGuardState,
 } from "./mobileSwipeBack";
 import MobilePageHeader from "./MobilePageHeader";
+import SwipeActionRow from "./SwipeActionRow";
 
 interface TasksPageProps {
   userId: string;
@@ -109,8 +112,6 @@ interface TasksPageProps {
   onDeleteTask?: (taskId: string) => void;
 }
 
-type TaskFilter = "all" | "open" | "waiting" | "blocked" | "done";
-
 interface TaskDetailBackSwipeIntentInput {
   startX?: number;
   deltaX: number;
@@ -129,7 +130,6 @@ interface TaskDetailBackSwipeReleaseResolution {
   commitDistance: number;
 }
 
-const taskFilters: TaskFilter[] = ["all", "open", "waiting", "blocked", "done"];
 const editableActionStatuses: TaskActionInfo["status"][] = [
   "confirmed",
   "in_progress",
@@ -216,21 +216,6 @@ function statusLabel(status: string, t: ReturnType<typeof useI18n>["t"]): string
   }
 }
 
-function filterLabel(filter: TaskFilter, t: ReturnType<typeof useI18n>["t"]): string {
-  switch (filter) {
-    case "all":
-      return t("tasks.all");
-    case "open":
-      return t("tasks.open");
-    case "waiting":
-      return t("tasks.waiting");
-    case "blocked":
-      return t("tasks.blocked");
-    case "done":
-      return t("tasks.done");
-  }
-}
-
 function statusClass(status: string): string {
   if (status === "completed") return WORKBENCH_STATUS_SUCCESS_CLASS;
   if (status === "blocked" || status === "cancelled") return WORKBENCH_STATUS_DANGER_CLASS;
@@ -238,19 +223,23 @@ function statusClass(status: string): string {
   return WORKBENCH_STATUS_NEUTRAL_CLASS;
 }
 
-function taskMatchesFilter(task: TaskInfo, filter: TaskFilter): boolean {
-  if (filter === "all") return true;
-  if (filter === "waiting") return task.status === "waiting_user" || task.status === "candidate";
-  if (filter === "blocked") return task.status === "blocked";
-  if (filter === "done") return task.status === "completed" || task.status === "archived";
-  return !["completed", "archived", "cancelled", "blocked", "waiting_user"].includes(task.status);
-}
-
 export function taskEmptyStateMessageKey(
   totalTaskCount: number,
   visibleTaskCount: number
-): "tasks.noTasks" | "tasks.noTasksForFilter" {
-  return totalTaskCount > 0 && visibleTaskCount === 0 ? "tasks.noTasksForFilter" : "tasks.noTasks";
+): "tasks.noTasks" {
+  void totalTaskCount;
+  void visibleTaskCount;
+  return "tasks.noTasks";
+}
+
+function orderTasksForDisplay(tasks: TaskInfo[]): TaskInfo[] {
+  return tasks
+    .map((task, index) => ({ task, index }))
+    .sort((left, right) => {
+      if (left.task.pinned !== right.task.pinned) return left.task.pinned ? -1 : 1;
+      return left.index - right.index;
+    })
+    .map((item) => item.task);
 }
 
 function formatDate(value: string | null | undefined, locale: string, fallback: string): string {
@@ -567,7 +556,6 @@ export default function TasksPage({
   const [detailLoading, setDetailLoading] = useState(false);
   const [internalError, setInternalError] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
-  const [activeFilter, setActiveFilter] = useState<TaskFilter>("all");
   const [isDesktopTaskLayout, setIsDesktopTaskLayout] = useState(isDesktopTaskViewport);
   const [isTaskDetailSwipeActive, setIsTaskDetailSwipeActive] = useState(false);
   const [confirmingTaskAction, setConfirmingTaskAction] = useState<string | null>(null);
@@ -703,14 +691,11 @@ export default function TasksPage({
     if (selectedTaskId) setSelectedId(selectedTaskId);
   }, [selectedTaskId]);
 
-  const filteredTasks = useMemo(
-    () => taskList.filter((task) => taskMatchesFilter(task, activeFilter)),
-    [activeFilter, taskList]
-  );
+  const orderedTasks = useMemo(() => orderTasksForDisplay(taskList), [taskList]);
 
   const selectedTask = useMemo(
-    () => filteredTasks.find((task) => task.taskId === selectedId) || filteredTasks[0] || null,
-    [filteredTasks, selectedId]
+    () => orderedTasks.find((task) => task.taskId === selectedId) || orderedTasks[0] || null,
+    [orderedTasks, selectedId]
   );
   const mobileDetailTask = useMemo(
     () =>
@@ -737,16 +722,16 @@ export default function TasksPage({
   }, [mobileDetailTask, selectedMobileTaskId]);
 
   useEffect(() => {
-    if (filteredTasks.length === 0) {
+    if (orderedTasks.length === 0) {
       if (selectedId !== null) setSelectedId(null);
       return;
     }
-    if (selectedId && filteredTasks.some((task) => task.taskId === selectedId)) return;
-    const nextSelectedId = filteredTasks[0].taskId;
+    if (selectedId && orderedTasks.some((task) => task.taskId === selectedId)) return;
+    const nextSelectedId = orderedTasks[0].taskId;
     setSelectedId(nextSelectedId);
     onSelectTask?.(nextSelectedId);
     void loadTaskDetail(nextSelectedId);
-  }, [filteredTasks, loadTaskDetail, onSelectTask, selectedId]);
+  }, [orderedTasks, loadTaskDetail, onSelectTask, selectedId]);
 
   const visibleActions = useMemo(() => {
     const actionsForTask = selectedTask
@@ -797,7 +782,7 @@ export default function TasksPage({
   );
   const loading = isLoading ?? internalLoading;
   const errorMessage = error ?? internalError;
-  const emptyTaskMessage = t(taskEmptyStateMessageKey(taskList.length, filteredTasks.length));
+  const emptyTaskMessage = t(taskEmptyStateMessageKey(taskList.length, orderedTasks.length));
 
   const selectTask = useCallback(
     (taskId: string) => {
@@ -1138,6 +1123,75 @@ export default function TasksPage({
     onRefresh?.();
     void loadTasks();
   }, [loadTasks, onRefresh]);
+
+  const toggleTaskPinned = useCallback(
+    async (task: TaskInfo) => {
+      const nextPinned = !task.pinned;
+      setPendingAction(`pin:${task.taskId}`);
+      setInternalError(null);
+      setTaskList((current) =>
+        current.map((item) =>
+          item.taskId === task.taskId ? { ...item, pinned: nextPinned } : item
+        )
+      );
+      try {
+        if (!isControlled) {
+          const detail = await updateTask(task.taskId, { pinned: nextPinned });
+          setTaskList((current) =>
+            current.map((item) => (item.taskId === detail.task.taskId ? detail.task : item))
+          );
+        }
+      } catch (caught) {
+        setTaskList((current) =>
+          current.map((item) =>
+            item.taskId === task.taskId ? { ...item, pinned: task.pinned } : item
+          )
+        );
+        handleError(caught, t("tasks.actionFailed"));
+      } finally {
+        setPendingAction(null);
+      }
+    },
+    [handleError, isControlled, t]
+  );
+
+  const quickDeleteTask = useCallback(
+    async (taskId: string) => {
+      setPendingAction(`delete:${taskId}`);
+      setInternalError(null);
+      const previousTasks = taskList;
+      const nextSelectedId =
+        selectedId === taskId
+          ? orderedTasks.find((task) => task.taskId !== taskId)?.taskId || null
+          : selectedId;
+      setTaskList((current) => current.filter((task) => task.taskId !== taskId));
+      if (selectedMobileTaskId === taskId) setSelectedMobileTaskId(null);
+      if (selectedId === taskId) setSelectedId(nextSelectedId);
+      try {
+        onDeleteTask?.(taskId);
+        if (!isControlled) {
+          await deleteTask(taskId);
+          await loadTasks(nextSelectedId);
+        }
+      } catch (caught) {
+        setTaskList(previousTasks);
+        handleError(caught, t("tasks.actionFailed"));
+      } finally {
+        setPendingAction(null);
+      }
+    },
+    [
+      handleError,
+      isControlled,
+      loadTasks,
+      onDeleteTask,
+      orderedTasks,
+      selectedId,
+      selectedMobileTaskId,
+      t,
+      taskList,
+    ]
+  );
 
   const runTaskOperation = useCallback(
     async (taskId: string, operation: "confirm" | "run" | "cancel" | "delete") => {
@@ -1599,13 +1653,6 @@ export default function TasksPage({
     [handleError, loadTasks, selectedId, selectedTask?.taskId, t]
   );
 
-  const filterButtonClass = (filter: TaskFilter) =>
-    `inline-flex h-8 shrink-0 items-center justify-center rounded-lg px-3 ${TYPOGRAPHY_META_MEDIUM_CLASS} transition-colors ${
-      activeFilter === filter
-        ? "bg-[#1456F0] text-white"
-        : "border border-[#DEE0E3] bg-white text-[#2B2F36] hover:bg-[#F8F9FA]"
-    }`;
-
   return (
     <div
       data-ripple-task-page="true"
@@ -1690,85 +1737,144 @@ export default function TasksPage({
                     {t("tasks.title")}
                   </h2>
                   <p className={`${TYPOGRAPHY_META_CLASS} mt-0.5 text-[#646A73]`}>
-                    {t("tasks.total", { count: filteredTasks.length })}
+                    {t("tasks.total", { count: orderedTasks.length })}
                   </p>
                 </div>
                 {loading ? (
                   <Loader2 size={15} className="shrink-0 animate-spin text-[#646A73]" />
                 ) : null}
               </div>
-              {isDesktopTaskLayout ? (
-                <div
-                  data-ripple-task-desktop-filter-row="true"
-                  className="hidden min-w-0 flex-wrap gap-1.5 border-b border-[#EFF0F1] px-2.5 py-2 lg:flex"
-                >
-                  {taskFilters.map((filter) => (
-                    <button
-                      key={filter}
-                      type="button"
-                      onClick={() => setActiveFilter(filter)}
-                      className={filterButtonClass(filter)}
-                    >
-                      {filterLabel(filter, t)}
-                    </button>
-                  ))}
-                </div>
-              ) : null}
               <div className="grid content-start gap-2 p-2.5">
-                {filteredTasks.length === 0 && !loading ? (
+                {orderedTasks.length === 0 && !loading ? (
                   <div
                     className={`rounded-lg border border-dashed border-[#D0D3D6] bg-[#F8F9FA] px-4 py-8 text-center ${TYPOGRAPHY_BODY_CLASS} text-[#646A73]`}
                   >
                     {emptyTaskMessage}
                   </div>
                 ) : null}
-                {filteredTasks.map((task) => {
+                {orderedTasks.map((task) => {
                   const selected = isDesktopTaskLayout && selectedTask?.taskId === task.taskId;
+                  const pinLabel = task.pinned ? t("tasks.unpin") : t("tasks.pin");
+                  const deletePending = pendingAction === `delete:${task.taskId}`;
+                  const pinPending = pendingAction === `pin:${task.taskId}`;
                   return (
-                    <button
+                    <SwipeActionRow
                       key={task.taskId}
-                      data-ripple-task-card="true"
-                      type="button"
-                      onClick={() => selectTaskFromList(task.taskId)}
-                      className={`group min-w-0 rounded-xl border px-3.5 py-3 text-left transition-colors active:bg-[#EFF0F1] ${
-                        selected
-                          ? "border-[#BACEFD] bg-[#F0F5FF] shadow-[inset_3px_0_0_#1456F0]"
-                          : "border-[#DEE0E3] bg-white shadow-[0_1px_2px_rgba(31,35,41,0.04)] hover:border-[#BACEFD] hover:bg-[#F8F9FA]"
-                      }`}
+                      data-ripple-mobile-task-swipe
+                      leadingActions={[
+                        {
+                          key: "pin",
+                          label: pinLabel,
+                          icon: <Pin size={14} />,
+                          tone: "accent",
+                          onClick: () => {
+                            void toggleTaskPinned(task);
+                          },
+                        },
+                      ]}
+                      trailingActions={[
+                        {
+                          key: "delete",
+                          label: t("tasks.delete"),
+                          icon: <Trash2 size={14} />,
+                          tone: "danger",
+                          onClick: () => {
+                            void quickDeleteTask(task.taskId);
+                          },
+                        },
+                      ]}
+                      disabled={isDesktopTaskLayout || Boolean(pendingAction)}
+                      className="rounded-xl"
                     >
-                      <div className="flex min-w-0 items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className={`truncate ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
-                            {task.title}
-                          </div>
-                          <div
-                            className={`mt-0.5 truncate ${TYPOGRAPHY_META_CLASS} text-[#646A73]`}
-                          >
-                            {task.progress?.currentActionTitle || task.objective || task.taskId}
-                          </div>
-                        </div>
-                        <span
-                          className={`${statusClass(task.status)} shrink-0 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}
+                      <div
+                        data-ripple-task-card="true"
+                        className={`group flex min-w-0 rounded-xl border text-left transition-colors active:bg-[#EFF0F1] ${
+                          selected
+                            ? "border-[#BACEFD] bg-[#F0F5FF] shadow-[inset_3px_0_0_#1456F0]"
+                            : "border-[#DEE0E3] bg-white shadow-[0_1px_2px_rgba(31,35,41,0.04)] hover:border-[#BACEFD] hover:bg-[#F8F9FA]"
+                        }`}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => selectTaskFromList(task.taskId)}
+                          className="min-w-0 flex-1 px-3.5 py-3 text-left"
                         >
-                          {statusLabel(task.status, t)}
-                        </span>
-                        <ChevronRight
-                          size={16}
-                          className="hidden shrink-0 text-[#8F959E] group-hover:text-[#646A73] sm:block lg:hidden"
-                        />
-                      </div>
-                      <div className="mt-2 flex items-center justify-between gap-2">
-                        <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-[#EFF0F1]">
-                          <div
-                            className="h-full rounded-full bg-[#1456F0]"
-                            style={{ width: `${task.progress?.percent ?? 0}%` }}
-                          />
+                          <div className="flex min-w-0 items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="flex min-w-0 items-center gap-1.5">
+                                <span className={`truncate ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
+                                  {task.title}
+                                </span>
+                                {task.pinned ? (
+                                  <Pin size={12} className="shrink-0 text-[#646A73]" />
+                                ) : null}
+                              </div>
+                              <div
+                                className={`mt-0.5 truncate ${TYPOGRAPHY_META_CLASS} text-[#646A73]`}
+                              >
+                                {task.progress?.currentActionTitle || task.objective || task.taskId}
+                              </div>
+                            </div>
+                            <span
+                              className={`${statusClass(task.status)} shrink-0 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}
+                            >
+                              {statusLabel(task.status, t)}
+                            </span>
+                            <ChevronRight
+                              size={16}
+                              className="hidden shrink-0 text-[#8F959E] group-hover:text-[#646A73] sm:block lg:hidden"
+                            />
+                          </div>
+                          <div className="mt-2 flex items-center justify-between gap-2">
+                            <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-[#EFF0F1]">
+                              <div
+                                className="h-full rounded-full bg-[#1456F0]"
+                                style={{ width: `${task.progress?.percent ?? 0}%` }}
+                              />
+                            </div>
+                            <span
+                              className={`${TYPOGRAPHY_META_MEDIUM_CLASS} shrink-0 text-[#646A73]`}
+                            >
+                              {progressText(task)}
+                            </span>
+                          </div>
+                        </button>
+                        <div className="hidden w-10 shrink-0 flex-col border-l border-[#EFF0F1] lg:flex">
+                          <button
+                            type="button"
+                            data-ripple-task-card-action="pin"
+                            aria-label={pinLabel}
+                            title={pinLabel}
+                            disabled={pinPending || deletePending}
+                            onClick={() => void toggleTaskPinned(task)}
+                            className="flex h-1/2 min-h-[38px] items-center justify-center text-[#646A73] transition-colors hover:bg-[#F0F5FF] hover:text-[#1456F0] disabled:opacity-50"
+                          >
+                            {pinPending ? (
+                              <Loader2 size={14} className="animate-spin" />
+                            ) : (
+                              <Pin size={14} />
+                            )}
+                            <span className="sr-only">{pinLabel}</span>
+                          </button>
+                          <button
+                            type="button"
+                            data-ripple-task-card-action="delete"
+                            aria-label={t("tasks.delete")}
+                            title={t("tasks.delete")}
+                            disabled={pinPending || deletePending}
+                            onClick={() => void quickDeleteTask(task.taskId)}
+                            className="flex h-1/2 min-h-[38px] items-center justify-center border-t border-[#EFF0F1] text-[#B42318] transition-colors hover:bg-[#FFF1F0] disabled:opacity-50"
+                          >
+                            {deletePending ? (
+                              <Loader2 size={14} className="animate-spin" />
+                            ) : (
+                              <Trash2 size={14} />
+                            )}
+                            <span className="sr-only">{t("tasks.delete")}</span>
+                          </button>
                         </div>
-                        <span className={`${TYPOGRAPHY_META_MEDIUM_CLASS} shrink-0 text-[#646A73]`}>
-                          {progressText(task)}
-                        </span>
                       </div>
-                    </button>
+                    </SwipeActionRow>
                   );
                 })}
               </div>

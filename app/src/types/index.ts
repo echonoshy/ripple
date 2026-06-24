@@ -456,6 +456,7 @@ export interface TaskInfo {
   objective?: string | null;
   status: TaskStatus;
   priority: string;
+  pinned: boolean;
   requiresConfirmation: boolean;
   sourceSessionId?: string | null;
   dueAt?: string | null;

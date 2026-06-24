@@ -623,6 +623,7 @@ interface RawTask {
   objective?: string | null;
   status?: string;
   priority?: string;
+  pinned?: boolean;
   requires_confirmation?: boolean;
   source_session_id?: string | null;
   due_at?: string | null;
@@ -687,6 +688,7 @@ function normalizeTask(raw: RawTask): TaskInfo {
     objective: raw.objective ?? null,
     status: raw.status || "active",
     priority: raw.priority || "normal",
+    pinned: raw.pinned === true,
     requiresConfirmation: raw.requires_confirmation === true,
     sourceSessionId: raw.source_session_id ?? null,
     dueAt: raw.due_at ?? null,
@@ -855,6 +857,42 @@ export async function fetchTask(taskId: string): Promise<TaskDetailResponse> {
   if (!res.ok) {
     const detail = await responseDetail(res);
     throw new Error(detail || `Failed to fetch task (${res.status})`);
+  }
+  return normalizeTaskDetailResponse(
+    (await res.json()) as { task?: RawTask; actions?: RawTaskAction[] }
+  );
+}
+
+export interface TaskUpdateInput {
+  title?: string;
+  objective?: string | null;
+  status?: string;
+  priority?: string;
+  pinned?: boolean;
+  dueAt?: string | null;
+}
+
+export async function updateTask(
+  taskId: string,
+  input: TaskUpdateInput
+): Promise<TaskDetailResponse> {
+  const body: Record<string, unknown> = {};
+  if ("title" in input) body.title = input.title;
+  if ("objective" in input) body.objective = input.objective;
+  if ("status" in input) body.status = input.status;
+  if ("priority" in input) body.priority = input.priority;
+  if ("pinned" in input) body.pinned = input.pinned;
+  if ("dueAt" in input) body.due_at = input.dueAt;
+
+  const res = await fetch(`${API_URL}/tasks/${encodeURIComponent(taskId)}`, {
+    method: "PATCH",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to update task (${res.status})`);
   }
   return normalizeTaskDetailResponse(
     (await res.json()) as { task?: RawTask; actions?: RawTaskAction[] }

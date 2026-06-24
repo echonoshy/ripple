@@ -16,6 +16,7 @@ const task: TaskInfo = {
   objective: "把会议纪要整理成可执行方案",
   status: "in_progress",
   priority: "normal",
+  pinned: false,
   requiresConfirmation: false,
   sourceSessionId: "srv-client",
   progress: {
@@ -401,16 +402,22 @@ function testTasksPageLoadingStateDoesNotClaimFailure() {
 
 function testTasksPageDistinguishesFilteredEmptyState() {
   assert.equal(taskEmptyStateMessageKey(0, 0), "tasks.noTasks");
-  assert.equal(taskEmptyStateMessageKey(1, 0), "tasks.noTasksForFilter");
+  assert.equal(taskEmptyStateMessageKey(1, 0), "tasks.noTasks");
 }
 
-function testTasksPageFilterRowDoesNotLookLikeRefreshProgress() {
+function testTasksPageDoesNotRenderStatusFilterTabs() {
   const source = readFileSync(new URL("./TasksPage.tsx", import.meta.url), "utf8");
-  const filterRowStart = source.indexOf("{taskFilters.map");
-  const filterRowSource = source.slice(Math.max(0, filterRowStart - 260), filterRowStart);
+  const html = renderTasksPage("en-US");
 
-  assert.match(filterRowSource, /flex-wrap/);
-  assert.doesNotMatch(filterRowSource, /overflow-x-auto/);
+  assert.doesNotMatch(source, /data-ripple-task-desktop-filter-row/);
+  assert.doesNotMatch(source, /type TaskFilter/);
+  assert.doesNotMatch(source, /taskFilters/);
+  assert.doesNotMatch(source, /activeFilter/);
+  assert.doesNotMatch(html, />All</);
+  assert.doesNotMatch(html, />Open</);
+  assert.doesNotMatch(html, />Waiting</);
+  assert.doesNotMatch(html, />Blocked</);
+  assert.doesNotMatch(html, />Done</);
 }
 
 function testTasksPageUsesMobileIndexAndDetailSubpages() {
@@ -426,22 +433,36 @@ function testTasksPageUsesMobileIndexAndDetailSubpages() {
   );
 }
 
-function testTasksPageHidesStatusFiltersOnMobile() {
+function testTasksPageExposesQuickPinAndDeleteActions() {
+  const source = readFileSync(new URL("./TasksPage.tsx", import.meta.url), "utf8");
+  const html = renderTasksPage("en-US", {
+    tasks: [{ ...task, pinned: true }],
+  });
+
+  assert.match(source, /updateTask/);
+  assert.match(source, /toggleTaskPinned/);
+  assert.match(source, /quickDeleteTask/);
+  assert.match(source, /orderedTasks/);
+  assert.match(html, /data-ripple-task-card-action="pin"/);
+  assert.match(html, /data-ripple-task-card-action="delete"/);
+  assert.match(html, /lucide-pin/);
+  assert.match(html, />Unpin</);
+}
+
+function testTasksPageUsesMobileSwipeActionsForTasks() {
   const source = readFileSync(new URL("./TasksPage.tsx", import.meta.url), "utf8");
   const html = renderTasksPage("en-US");
 
-  assert.match(source, /data-ripple-task-desktop-filter-row="true"/);
-  assert.match(source, /isDesktopTaskLayout \? \(/);
-  assert.match(
-    source,
-    /data-ripple-task-desktop-filter-row="true"[\s\S]*?className="[^"]*hidden[^"]*lg:flex/
-  );
-  assert.doesNotMatch(source, /data-ripple-task-mobile-filter-row/);
-  assert.doesNotMatch(html, />All</);
-  assert.doesNotMatch(html, />Open</);
-  assert.doesNotMatch(html, />Waiting</);
-  assert.doesNotMatch(html, />Blocked</);
-  assert.doesNotMatch(html, />Done</);
+  assert.match(source, /SwipeActionRow/);
+  assert.match(source, /data-ripple-mobile-task-swipe/);
+  assert.match(source, /leadingActions=\{\[/);
+  assert.match(source, /trailingActions=\{\[/);
+  assert.match(source, /key: "pin"/);
+  assert.match(source, /key: "delete"/);
+  assert.match(html, /data-ripple-swipe-row="true"/);
+  assert.match(html, /data-ripple-mobile-task-swipe/);
+  assert.match(html, /data-ripple-swipe-actions="leading"[^>]*opacity-0/);
+  assert.match(html, /data-ripple-swipe-actions="trailing"[^>]*opacity-0/);
 }
 
 function testTasksMobileCardsAreSeparatedWithoutActiveSelection() {
@@ -510,9 +531,10 @@ testTasksPageUsesDedicatedStepSortingMode();
 testTriggerFormDoesNotDuplicateStepContentFields();
 testTasksPageLoadingStateDoesNotClaimFailure();
 testTasksPageDistinguishesFilteredEmptyState();
-testTasksPageFilterRowDoesNotLookLikeRefreshProgress();
+testTasksPageDoesNotRenderStatusFilterTabs();
 testTasksPageUsesMobileIndexAndDetailSubpages();
-testTasksPageHidesStatusFiltersOnMobile();
+testTasksPageExposesQuickPinAndDeleteActions();
+testTasksPageUsesMobileSwipeActionsForTasks();
 testTasksMobileCardsAreSeparatedWithoutActiveSelection();
 testTasksMobileDetailSupportsSwipeBackGesture();
 testTasksPageReloadIsNotKeyedToSelectionChanges();

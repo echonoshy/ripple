@@ -70,6 +70,16 @@ function testViaimMeetingDemoCanBeEnabledFromStorage() {
   });
 }
 
+function testLocalhost8824EnablesViaimMeetingDemoByDefault() {
+  withBrowserWindow("http://localhost:8824/", () => {
+    const snapshot = getChatClientContextSnapshot();
+
+    assert.deepEqual(snapshot.requiredSkillIds, ["ripple:viaim-product-support"]);
+    assert.equal(snapshot.clientContext?.software?.host_app?.app_id, "viaim.meeting");
+    assert.equal(snapshot.clientContext?.devices?.[0]?.state?.left_battery_percent, 80);
+  });
+}
+
 function testViaimMeetingDemoCanBeEnabledFromUrl() {
   withBrowserWindow(
     `https://demo.example.com/?ripple_client_context_demo=${VIAIM_MEETING_DEMO_ID}`,
@@ -184,6 +194,7 @@ function testSavedDemoSettingsEnableChatSnapshot() {
 
 testSnapshotIsEmptyWithoutHostOrDemo();
 testViaimMeetingDemoCanBeEnabledFromStorage();
+testLocalhost8824EnablesViaimMeetingDemoByDefault();
 testViaimMeetingDemoCanBeEnabledFromUrl();
 testHostProviderSnapshotWinsAndDropsSecrets();
 testMergeRequiredSkillIdsKeepsManualSelectionFirst();

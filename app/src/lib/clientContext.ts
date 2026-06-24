@@ -187,15 +187,24 @@ function demoIdFromUrl(): string | null {
   }
 }
 
-function activeDemoId(): string | null {
-  const envDemoId =
-    typeof import.meta.env.VITE_RIPPLE_CLIENT_CONTEXT_DEMO === "string"
-      ? import.meta.env.VITE_RIPPLE_CLIENT_CONTEXT_DEMO.trim()
-      : "";
-  if (envDemoId) return envDemoId;
+function demoIdFromLocalDevServer(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const url = new URL(window.location.href);
+    const isLocalhost =
+      url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "[::1]";
+    return isLocalhost && url.port === "8824" ? VIAIM_MEETING_DEMO_ID : null;
+  } catch {
+    return null;
+  }
+}
 
+function activeDemoId(): string | null {
   const urlDemoId = demoIdFromUrl()?.trim();
   if (urlDemoId) return urlDemoId;
+
+  const localDevServerDemoId = demoIdFromLocalDevServer();
+  if (localDevServerDemoId) return localDevServerDemoId;
 
   return getClientStorageItem(CLIENT_CONTEXT_DEMO_STORAGE_KEY)?.trim() || null;
 }

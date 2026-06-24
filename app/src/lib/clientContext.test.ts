@@ -18,6 +18,7 @@ function withBrowserWindow(href: string, run: (values: Map<string, string>) => v
       location: Pick<Location, "href">;
       __RIPPLE_CLIENT_CONTEXT__?: unknown;
       __RIPPLE_CLIENT_CONTEXT_PROVIDER__?: () => unknown;
+      RippleAndroidGesture?: unknown;
     };
   };
   const previousWindow = globals.window;
@@ -72,6 +73,18 @@ function testViaimMeetingDemoCanBeEnabledFromStorage() {
 
 function testLocalhost8824EnablesViaimMeetingDemoByDefault() {
   withBrowserWindow("http://localhost:8824/", () => {
+    const snapshot = getChatClientContextSnapshot();
+
+    assert.deepEqual(snapshot.requiredSkillIds, ["ripple:viaim-product-support"]);
+    assert.equal(snapshot.clientContext?.software?.host_app?.app_id, "viaim.meeting");
+    assert.equal(snapshot.clientContext?.devices?.[0]?.state?.left_battery_percent, 80);
+  });
+}
+
+function testAndroidTauriShellEnablesViaimMeetingDemoByDefault() {
+  withBrowserWindow("tauri://localhost/", () => {
+    (window as Window & { RippleAndroidGesture?: unknown }).RippleAndroidGesture = {};
+
     const snapshot = getChatClientContextSnapshot();
 
     assert.deepEqual(snapshot.requiredSkillIds, ["ripple:viaim-product-support"]);
@@ -195,6 +208,7 @@ function testSavedDemoSettingsEnableChatSnapshot() {
 testSnapshotIsEmptyWithoutHostOrDemo();
 testViaimMeetingDemoCanBeEnabledFromStorage();
 testLocalhost8824EnablesViaimMeetingDemoByDefault();
+testAndroidTauriShellEnablesViaimMeetingDemoByDefault();
 testViaimMeetingDemoCanBeEnabledFromUrl();
 testHostProviderSnapshotWinsAndDropsSecrets();
 testMergeRequiredSkillIdsKeepsManualSelectionFirst();

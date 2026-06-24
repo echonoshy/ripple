@@ -15,6 +15,7 @@ const VIAIM_PRODUCT_SUPPORT_SKILL_ID = "ripple:viaim-product-support";
 interface ClientContextWindow extends Window {
   __RIPPLE_CLIENT_CONTEXT__?: unknown;
   __RIPPLE_CLIENT_CONTEXT_PROVIDER__?: () => unknown;
+  RippleAndroidGesture?: unknown;
 }
 
 export interface ChatClientContextSnapshot {
@@ -199,12 +200,21 @@ function demoIdFromLocalDevServer(): string | null {
   }
 }
 
+function demoIdFromAndroidTauriShell(): string | null {
+  if (typeof window === "undefined") return null;
+  const clientContextWindow = window as ClientContextWindow;
+  return clientContextWindow.RippleAndroidGesture ? VIAIM_MEETING_DEMO_ID : null;
+}
+
 function activeDemoId(): string | null {
   const urlDemoId = demoIdFromUrl()?.trim();
   if (urlDemoId) return urlDemoId;
 
   const localDevServerDemoId = demoIdFromLocalDevServer();
   if (localDevServerDemoId) return localDevServerDemoId;
+
+  const androidShellDemoId = demoIdFromAndroidTauriShell();
+  if (androidShellDemoId) return androidShellDemoId;
 
   return getClientStorageItem(CLIENT_CONTEXT_DEMO_STORAGE_KEY)?.trim() || null;
 }

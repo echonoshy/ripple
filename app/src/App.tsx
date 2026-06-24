@@ -305,6 +305,11 @@ export default function Home() {
     currentSessionRuntimeStatus,
     timelineEvents,
     feishuAuthWaiting,
+    availableSkills,
+    isLoadingSkills,
+    selectedRequiredSkillId,
+    clientContextFixtures,
+    selectedClientContextFixtureId,
     resetSessionView,
     abortRunAndResetSessionView,
     applySessionDetails,
@@ -318,6 +323,9 @@ export default function Home() {
     handleQuickReply,
     handlePermissionResolve,
     handleFeishuAuthOpen,
+    loadAvailableSkills,
+    setSelectedRequiredSkillId,
+    setSelectedClientContextFixtureId,
   } = useChatRun({
     selectedModel,
     onSelectedModelChange: handleSessionDetailModelChange,
@@ -1045,6 +1053,11 @@ export default function Home() {
       selectedModel={sessionPageSelectedModel}
       models={models}
       isModelDropdownOpen={openModelDropdown === "composer"}
+      availableSkills={availableSkills}
+      selectedRequiredSkillId={selectedRequiredSkillId}
+      isLoadingSkills={isLoadingSkills}
+      clientContextFixtures={clientContextFixtures}
+      selectedClientContextFixtureId={selectedClientContextFixtureId}
       sessionId={sessionPageSessionId}
       scrollToBottomRequest={sessionScrollToBottomRequest}
       contextFolderPath={sessionPageContextFolderPath}
@@ -1058,6 +1071,9 @@ export default function Home() {
       onToggleModelDropdown={handleToggleComposerModelDropdown}
       onCloseModelDropdown={handleCloseModelDropdown}
       onSelectModel={handleSelectModel}
+      onLoadSkills={loadAvailableSkills}
+      onSelectRequiredSkill={setSelectedRequiredSkillId}
+      onSelectClientContextFixture={setSelectedClientContextFixtureId}
       onSend={handleSendMessage}
       onStop={handleStop}
       onQuickReply={handleQuickReply}

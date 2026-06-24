@@ -1316,6 +1316,50 @@ interface ChatStreamOptions {
   connectionTimeoutMs?: number;
 }
 
+export interface ChatScreenContext {
+  app?: string;
+  screen_id?: string;
+  active_view?: string;
+  target?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+export interface ChatClientContext {
+  schema_version?: string;
+  captured_at?: string;
+  producer?: Record<string, unknown>;
+  software?: {
+    host_app?: Record<string, unknown>;
+    ai_surface?: Record<string, unknown>;
+    screen?: Record<string, unknown>;
+    selection?: Record<string, unknown>;
+    entities?: Array<Record<string, unknown>>;
+    available_actions?: Array<Record<string, unknown>>;
+    [key: string]: unknown;
+  };
+  devices?: Array<{
+    id?: string;
+    kind?: string;
+    source?: string;
+    identity?: Record<string, unknown>;
+    connection?: Record<string, unknown>;
+    state?: Record<string, unknown>;
+    capabilities?: string[];
+    [key: string]: unknown;
+  }>;
+  environment?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+interface SendChatMessageOptions {
+  signal?: AbortSignal;
+  files?: ChatFileRef[];
+  requiredSkillIds?: string[];
+  preferredSkillIds?: string[];
+  screenContext?: ChatScreenContext;
+  clientContext?: ChatClientContext | null;
+}
+
 function responseIdForSession(sessionId: string): string {
   return `resp_${sessionId}`;
 }
@@ -1625,8 +1669,21 @@ export async function sendChatMessage(
   content: string,
   model: string,
   callbacks: ChatStreamCallbacks,
-  options?: { signal?: AbortSignal; files?: ChatFileRef[] }
+  options?: SendChatMessageOptions
 ) {
+  const metadata: Record<string, unknown> = { ripple_session_id: sessionId };
+  if (options?.requiredSkillIds?.length) {
+    metadata.required_skill_ids = options.requiredSkillIds;
+  }
+  if (options?.preferredSkillIds?.length) {
+    metadata.preferred_skill_ids = options.preferredSkillIds;
+  }
+  if (options?.screenContext) {
+    metadata.screen_context = options.screenContext;
+  }
+  if (options?.clientContext) {
+    metadata.client_context = options.clientContext;
+  }
   return streamChatResponse(
     "/responses",
     {
@@ -1634,7 +1691,7 @@ export async function sendChatMessage(
       input: [{ role: "user", content: buildChatMessageContent(content, options?.files || []) }],
       stream: true,
       previous_response_id: responseIdForSession(sessionId),
-      metadata: { ripple_session_id: sessionId },
+      metadata,
     },
     callbacks,
     { signal: options?.signal }

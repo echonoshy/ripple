@@ -5,13 +5,24 @@ use serde_json::Value;
 use crate::skills::{render_skill_manifest_with_options, SkillManifestOptions};
 use crate::state::AppState;
 
+#[derive(Debug, Clone)]
+pub(crate) struct RequiredSkillContext {
+    pub id: String,
+    pub name: String,
+    pub path: String,
+    pub content_hash: String,
+    pub content: String,
+}
+
 pub(crate) fn build_codex_chat_base_instructions() -> String {
     "You are Codex, running as Ripple's trusted execution plane.\n\
 Ripple is the control plane: it owns user identity, sandbox isolation, connector state, permissions, and API/session lifecycle. Do the real work inside the current user's workspace.\n\n\
 ## Execution Environment Guardrails\n\
 - Do not implement model-provider, OpenAI-compatible, Responses API, or chat-completions adapters inside Ripple. Model-provider compatibility is owned by the Codex app-server configuration; Ripple only preserves its public /v1 client response shapes.\n\
 - Connector authorization, token capture, account disconnect, and QR login are Ripple control-plane flows. Do not invent ad-hoc auth tool calls.\n\
+- Required Skills are explicit client or user selections for the current turn. If present, treat their SKILL.md content as mandatory workflow instructions before considering Available Skills. If a required skill clearly does not match the user's request or provided screen context, say that instead of forcing an unsupported answer.\n\
 - Use Available Skills and Connector Status from the per-turn Ripple context to decide whether a skill or connector is needed. For product, company, support, or shared-knowledge questions, read the matching Available Skill before web_search. Only use web_search first when the user explicitly asks for online, latest, or official-current information, or when no relevant skill is listed. Do not infer connector use from keywords alone.\n\
+- Do not assume an uploaded screenshot is Ripple UI just because Ripple UI skills are available. Treat it as Ripple UI only when Screen Context says `app: ripple`, when the user explicitly selected a Ripple UI skill, or when the screenshot itself gives strong Ripple-specific evidence; otherwise state the uncertainty.\n\
 - Do not collect connector credentials inside Codex. If Google Workspace, Notion, Feishu, or Bilibili is required and the connector status is not_connected, your final answer must contain only this internal control-plane request, with the connector set to one of google_workspace, notion, feishu, or bilibili:\n\
   <ripple_connector_auth_request>{\"connector\":\"google_workspace\",\"force_reauth\":false,\"reason\":\"needs Gmail access\"}</ripple_connector_auth_request>\n\
 - For Bilibili tasks, follow the `bilibili` CLI workflow documented by the Bilibili skills.\n\
@@ -42,6 +53,8 @@ pub(crate) fn build_codex_chat_turn_context(
     recent_display_context: Option<&str>,
     recent_task_triggers_context: Option<&str>,
     skill_options: &SkillManifestOptions,
+    required_skills: &[RequiredSkillContext],
+    screen_context: Option<&Value>,
     attachment_items: &[Value],
     system_prompt: Option<&str>,
 ) -> String {
@@ -94,6 +107,8 @@ pub(crate) fn build_codex_chat_turn_context(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .unwrap_or("(none)");
+    let required_skill_section = render_required_skills(required_skills);
+    let screen_context_section = render_screen_context(screen_context);
     format!(
         "## Ripple Session\n\
 - user_id: {user_id}\n\
@@ -104,6 +119,10 @@ pub(crate) fn build_codex_chat_turn_context(
 ## Folder Context Evidence\n\
 {}\n\n\
 ## Connector Status\n\
+{}\n\n\
+## Required Skills\n\
+{}\n\n\
+## Screen Context\n\
 {}\n\n\
 ## Available Skills\n\
 {}\n\n\
@@ -121,11 +140,43 @@ pub(crate) fn build_codex_chat_turn_context(
         context_section,
         folder_context_evidence_section,
         connector_manifest(skill_options),
+        required_skill_section,
+        screen_context_section,
         render_skill_manifest_with_options(&state.config, Some(workspace_root), skill_options),
         system_prompt.unwrap_or("(none)"),
         recent_display_context_section,
         recent_task_triggers_context_section,
         attachment_section
+    )
+}
+
+fn render_required_skills(required_skills: &[RequiredSkillContext]) -> String {
+    if required_skills.is_empty() {
+        return "(none)".to_string();
+    }
+    let mut rendered = vec![
+        "The client explicitly selected these skills for this turn. Follow each SKILL.md before answering.".to_string(),
+    ];
+    for skill in required_skills {
+        rendered.push(format!(
+            "### {}\n- name: {}\n- path: {}\n- content_hash: {}\n\n~~~markdown\n{}\n~~~",
+            skill.id,
+            skill.name,
+            skill.path,
+            skill.content_hash,
+            skill.content.trim()
+        ));
+    }
+    rendered.join("\n\n")
+}
+
+fn render_screen_context(screen_context: Option<&Value>) -> String {
+    let Some(screen_context) = screen_context else {
+        return "(none)\n- Do not assume uploaded screenshots are Ripple UI without explicit user selection or strong visual evidence.".to_string();
+    };
+    let json = serde_json::to_string_pretty(screen_context).unwrap_or_else(|_| "{}".to_string());
+    format!(
+        "Client-provided UI grounding. Prefer this structured context over visual guessing.\n- Do not assume uploaded screenshots are Ripple UI unless this context identifies app: ripple or the user explicitly selected a Ripple UI skill.\n\n```json\n{json}\n```"
     )
 }
 

@@ -6,6 +6,7 @@ import type {
   SessionControlAction,
   SessionDetail,
   SessionAttention,
+  SkillInfo,
   PlanStep,
   PlanProgress,
   UsageInfo,
@@ -15,6 +16,7 @@ import {
   AuthError,
   cancelSessionConnectorAuth,
   type ChatStreamCallbacks,
+  fetchSkills,
   fetchSessionDetails,
   pollSessionConnectorAuth,
   resolveSessionPermissionRequest,
@@ -24,6 +26,10 @@ import {
 } from "@/lib/api";
 import { chatErrorContent } from "@/lib/chatErrors";
 import { describeChatFilesForDisplay, type ChatFileRef } from "@/lib/chatInput";
+import {
+  CLIENT_CONTEXT_FIXTURES,
+  getClientContextFixture,
+} from "@/lib/clientContextFixtures";
 import {
   applyPlanUpdate,
   applyPlanStepUpdate,
@@ -149,6 +155,10 @@ export function useChatRun({
   const [planSteps, setPlanSteps] = useState<PlanStep[]>([]);
   const [planProgress, setPlanProgress] = useState<PlanProgress | null>(null);
   const [feishuAuthWaiting, setFeishuAuthWaiting] = useState<FeishuAuthWaitingState | null>(null);
+  const [availableSkills, setAvailableSkills] = useState<SkillInfo[]>([]);
+  const [isLoadingSkills, setIsLoadingSkills] = useState(false);
+  const [selectedRequiredSkillId, setSelectedRequiredSkillId] = useState<string | null>(null);
+  const [selectedClientContextFixtureId, setSelectedClientContextFixtureId] = useState("none");
 
   const activeRequestIdsRef = useRef<Map<string, number>>(new Map());
   const abortControllersRef = useRef<Map<string, AbortController>>(new Map());
@@ -274,6 +284,29 @@ export function useChatRun({
     clearPendingLocalImages();
     onAuthExpired(t("auth.apiKeyExpired"));
   }, [clearConnectorAuthPoll, clearPendingLocalImages, onAuthExpired, t]);
+
+  const loadAvailableSkills = useCallback(async () => {
+    if (availableSkills.length > 0 || isLoadingSkills) return;
+    setIsLoadingSkills(true);
+    try {
+      const skills = await fetchSkills();
+      setAvailableSkills(
+        skills.filter(
+          (skill) =>
+            skill.enabled &&
+            (skill.user_status === "available" || skill.status === "available")
+        )
+      );
+    } catch (error) {
+      if (error instanceof AuthError) {
+        handleAuthExpired();
+        return;
+      }
+      console.error("Failed to load skills:", error);
+    } finally {
+      setIsLoadingSkills(false);
+    }
+  }, [availableSkills.length, handleAuthExpired, isLoadingSkills]);
 
   const resetSessionView = useCallback(() => {
     setMessages([]);
@@ -989,10 +1022,23 @@ export function useChatRun({
           { signal: abortController.signal }
         );
       } else {
+        const selectedClientContextFixture = getClientContextFixture(
+          selectedClientContextFixtureId
+        );
+        const fixtureRequiredSkillIds = selectedClientContextFixture.requiredSkillIds || [];
+        const manualRequiredSkillIds = selectedRequiredSkillId ? [selectedRequiredSkillId] : [];
+        const mergedRequiredSkillIds = Array.from(
+          new Set([...manualRequiredSkillIds, ...fixtureRequiredSkillIds])
+        );
+
         await sendChatMessage(activeSessionId, text, selectedModel, callbacks, {
           signal: abortController.signal,
           files: filesForSend,
+          requiredSkillIds:
+            mergedRequiredSkillIds.length > 0 ? mergedRequiredSkillIds : undefined,
+          clientContext: selectedClientContextFixture.clientContext,
         });
+        if (selectedRequiredSkillId) setSelectedRequiredSkillId(null);
       }
     },
     [
@@ -1008,6 +1054,8 @@ export function useChatRun({
       onWorkspaceRefresh,
       pendingFiles,
       pendingLocalImages,
+      selectedClientContextFixtureId,
+      selectedRequiredSkillId,
       runtimeTimelineEvents,
       selectedModel,
       refreshSessionDetails,
@@ -1616,6 +1664,11 @@ export function useChatRun({
     timelineEvents,
     changedFiles,
     feishuAuthWaiting,
+    availableSkills,
+    isLoadingSkills,
+    selectedRequiredSkillId,
+    clientContextFixtures: CLIENT_CONTEXT_FIXTURES,
+    selectedClientContextFixtureId,
     resetSessionView,
     resetCurrentContextView,
     abortRunAndResetSessionView,
@@ -1632,5 +1685,8 @@ export function useChatRun({
     handleQuickReply,
     handlePermissionResolve,
     handleFeishuAuthOpen,
+    loadAvailableSkills,
+    setSelectedRequiredSkillId,
+    setSelectedClientContextFixtureId,
   };
 }

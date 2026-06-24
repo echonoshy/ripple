@@ -1412,6 +1412,7 @@ metadata:
         for reference in [
             "references/navigation.md",
             "references/chat-session.md",
+            "references/context-mvp.md",
             "references/visual-recognition.md",
             "references/model-selection.md",
             "references/files.md",
@@ -1473,6 +1474,22 @@ metadata:
             assert!(
                 visual_recognition.contains(required),
                 "visual-recognition.md should mention {required}"
+            );
+        }
+
+        let context_mvp =
+            std::fs::read_to_string(skill_root.join("references/context-mvp.md")).unwrap();
+        for required in [
+            "ripple.client_context.v1",
+            "software.host_app.app_id",
+            "software.screen.screen_id",
+            "ai_headset",
+            "noise_control",
+            "Prefer structured context for app/page/device identity",
+        ] {
+            assert!(
+                context_mvp.contains(required),
+                "context-mvp.md should mention {required}"
             );
         }
 

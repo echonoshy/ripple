@@ -50,6 +50,7 @@ import {
   setApiKey,
   setUserSessionToken,
 } from "./api";
+import { getClientContextFixture } from "./clientContextFixtures";
 
 function response(status: number, detail: string): Response {
   return new Response(JSON.stringify({ detail }), {
@@ -1553,6 +1554,141 @@ async function testResponsesStreamDeltaFeedsChatCallbacks() {
   assert.deepEqual(deltas, ["hello", " world"]);
 }
 
+async function testSendChatMessagePassesRequiredSkillsAndScreenContext() {
+  const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
+  const globals = globalThis as unknown as {
+    document?: Pick<Document, "addEventListener" | "removeEventListener"> & { hidden: boolean };
+    window?: Pick<Window, "fetch" | "setTimeout" | "clearTimeout">;
+  };
+  const previousDocument = globals.document;
+  const previousWindow = globals.window;
+  globals.document = {
+    hidden: false,
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
+  };
+  globals.window = {
+    fetch: (...args) => globalThis.fetch(...args),
+    setTimeout: globalThis.setTimeout,
+    clearTimeout: globalThis.clearTimeout,
+  };
+
+  try {
+    await withFetch(
+      async (input, init) => {
+        requests.push({
+          url: String(input),
+          body: JSON.parse(String(init?.body || "{}")) as Record<string, unknown>,
+        });
+        return new Response("data: [DONE]\n\n", {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        });
+      },
+      async () => {
+        await sendChatMessage("session-1", "这个按钮有什么用？", "codex-test", {
+          onMessageDelta: () => undefined,
+          onToolCall: () => undefined,
+          onToolResult: () => undefined,
+          onUsage: () => undefined,
+          onComplete: () => undefined,
+          onError: () => undefined,
+        }, {
+          requiredSkillIds: ["ripple:ripple-ui-explainer"],
+          screenContext: {
+            app: "ripple",
+            screen_id: "session.chat",
+          },
+        });
+      }
+    );
+  } finally {
+    globals.document = previousDocument;
+    globals.window = previousWindow;
+  }
+
+  assert.equal(requests.length, 1);
+  assert.deepEqual(requests[0].body.metadata, {
+    ripple_session_id: "session-1",
+    required_skill_ids: ["ripple:ripple-ui-explainer"],
+    screen_context: {
+      app: "ripple",
+      screen_id: "session.chat",
+    },
+  });
+}
+
+async function testSendChatMessagePassesClientContextFixture() {
+  const requests: Array<{ body: Record<string, unknown> }> = [];
+  const globals = globalThis as unknown as {
+    document?: Pick<Document, "addEventListener" | "removeEventListener"> & { hidden: boolean };
+    window?: Pick<Window, "fetch" | "setTimeout" | "clearTimeout">;
+  };
+  const previousDocument = globals.document;
+  const previousWindow = globals.window;
+  globals.document = {
+    hidden: false,
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
+  };
+  globals.window = {
+    fetch: (...args) => globalThis.fetch(...args),
+    setTimeout: globalThis.setTimeout,
+    clearTimeout: globalThis.clearTimeout,
+  };
+  const fixture = getClientContextFixture("meeting-detail-with-headset");
+
+  try {
+    await withFetch(
+      async (_input, init) => {
+        requests.push({
+          body: JSON.parse(String(init?.body || "{}")) as Record<string, unknown>,
+        });
+        return new Response("data: [DONE]\n\n", {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        });
+      },
+      async () => {
+        await sendChatMessage(
+          "session-1",
+          "根据当前上下文解释一下",
+          "codex-test",
+          {
+            onMessageDelta: () => undefined,
+            onToolCall: () => undefined,
+            onToolResult: () => undefined,
+            onUsage: () => undefined,
+            onComplete: () => undefined,
+            onError: () => undefined,
+          },
+          {
+            requiredSkillIds: fixture?.requiredSkillIds,
+            clientContext: fixture?.clientContext,
+          }
+        );
+      }
+    );
+  } finally {
+    globals.document = previousDocument;
+    globals.window = previousWindow;
+  }
+
+  assert.equal(requests.length, 1);
+  assert.deepEqual((requests[0].body.metadata as Record<string, unknown>)?.required_skill_ids, [
+    "ripple:ripple-ui-explainer",
+  ]);
+  assert.equal(
+    (
+      (requests[0].body.metadata as Record<string, unknown>)?.client_context as Record<
+        string,
+        unknown
+      >
+    )?.schema_version,
+    "ripple.client_context.v1"
+  );
+}
+
 async function testSessionControlActionUsesStructuredResponsesInput() {
   const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
   const globals = globalThis as unknown as {
@@ -1705,5 +1841,7 @@ test("api client behavior", async () => {
   await testWorkspaceSearchDefaultsToNameScope();
   await testChatStreamUsesServerConflictDetail();
   await testResponsesStreamDeltaFeedsChatCallbacks();
+  await testSendChatMessagePassesRequiredSkillsAndScreenContext();
+  await testSendChatMessagePassesClientContextFixture();
   await testSessionControlActionUsesStructuredResponsesInput();
 });

@@ -1,17 +1,17 @@
 ---
 name: ripple-ui-explainer
-description: "Use when the user uploads, pastes, or references Ripple UI screenshots and asks what a page, button, status, panel, workflow, or visible feature means, what it is for, or what would happen if they clicked or used it."
+description: "Use when the user uploads, pastes, or references Ripple UI screenshots, host-app UI screenshots, or when the client provides structured software/device context, and asks what a page, button, status, panel, workflow, visible feature, or connected device state means."
 ---
 
 # Ripple UI Explainer
 
-Explain Ripple App screens from screenshots and the user's natural-language question. This skill is for in-app UI help: page meaning, button meaning, visible status, "what happens if I click this", and code-backed details when the user asks for them.
+Explain Ripple App screens from screenshots, client-provided software/device context, and the user's natural-language question. This skill is for in-app UI help: page meaning, button meaning, visible status, connected-device state, "what happens if I click this", and code-backed details when the user asks for them.
 
 Use this skill for questions like "What is this Task page?", "What does this blue button do?", "What happens if I click Run now?", "Why is this waiting?", or "Explain the right panel in this screenshot."
 
 ## Workflow
 
-1. Inspect the screenshot first. Identify the visible page, selected item, nearby labels, button text, status chips, disabled states, and the region the user likely means.
+1. Inspect structured Screen Context / Client Context first when it is provided. Use it to identify the host app, screen id, selected entity, AI surface, and connected device state. Then inspect any screenshot for visual details that the structured context does not include.
 2. Classify the control region before explaining behavior: top navigation tabs, page-level actions, composer toolbar, header/status badges, timeline item actions, inspector actions, or modal/sheet actions.
 3. If the user points vaguely, state the most likely target before explaining it. If two targets are plausible, give both candidates and ask the user to clarify.
 4. Explain in two layers:
@@ -35,6 +35,7 @@ Use uncertainty only for screenshot identification, not for known behavior. Exam
 Read only the relevant reference files:
 
 - `references/visual-recognition.md`: Use first when a screenshot has a red box/crop, an icon-only target, reused icons such as BrainCircuit, or ambiguous nearby controls.
+- `references/context-mvp.md`: Use first when Screen Context / Client Context includes `schema_version: ripple.client_context.v1`, `software`, `devices`, a host app, or AI headset fields.
 - `references/pages.md`: Use first for identifying top-level pages and deciding which detailed reference to load.
 - `references/navigation.md`: Use for desktop top tabs, mobile bottom tabs, Settings entry, page switching, and when the right inspector appears.
 - `references/chat-session.md`: Use for Sessions, composer, send/stop, screenshot/file attachments, folder scope, timeline, and current model badges.

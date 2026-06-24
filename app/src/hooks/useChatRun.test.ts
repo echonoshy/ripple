@@ -376,6 +376,26 @@ function testSessionControlActionsStartFreshSessions() {
   );
 }
 
+function testSendFlowIncludesSelectedRequiredSkill() {
+  const source = readFileSync(new URL("./useChatRun.ts", import.meta.url), "utf8");
+
+  assert.match(source, /selectedRequiredSkillId/);
+  assert.match(source, /manualRequiredSkillIds/);
+  assert.match(source, /mergedRequiredSkillIds/);
+  assert.match(source, /requiredSkillIds:\s*mergedRequiredSkillIds\.length > 0/);
+  assert.match(source, /setSelectedRequiredSkillId\(null\)/);
+}
+
+function testSendFlowIncludesSelectedClientContextFixture() {
+  const source = readFileSync(new URL("./useChatRun.ts", import.meta.url), "utf8");
+
+  assert.match(source, /selectedClientContextFixtureId/);
+  assert.match(source, /getClientContextFixture\(\s*selectedClientContextFixtureId\s*\)/);
+  assert.match(source, /clientContext:\s*selectedClientContextFixture\.clientContext/);
+  assert.match(source, /fixtureRequiredSkillIds/);
+  assert.match(source, /mergedRequiredSkillIds/);
+}
+
 function testSendErrorsReleaseSessionForRetry() {
   const source = readFileSync(new URL("./useChatRun.ts", import.meta.url), "utf8");
 
@@ -438,6 +458,8 @@ test("useChatRun behavior", async () => {
   testSessionFollowUpsAreRemovedFromChatRunState();
   testFollowUpPollingIsRemovedFromChatRun();
   testSessionControlActionsStartFreshSessions();
+  testSendFlowIncludesSelectedRequiredSkill();
+  testSendFlowIncludesSelectedClientContextFixture();
   testSendErrorsReleaseSessionForRetry();
   testAskUserMarksBackgroundSessionAsNewResult();
   testPermissionRequestKeepsApprovalAttention();

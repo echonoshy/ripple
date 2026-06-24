@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import { I18nProvider, type LocalePreference } from "@/i18n";
 import SessionComposer, { composerToolbarClassName, shouldExpandComposer } from "./SessionComposer";
+import { CLIENT_CONTEXT_FIXTURES } from "@/lib/clientContextFixtures";
 import type { PendingLocalImage } from "@/lib/pendingImages";
 
 function noop() {}
@@ -187,6 +188,7 @@ function testComposerUsesWorkbenchSurfaceScaleAndIndependentToolButtons() {
 
 function testComposerModelMenuUsesViewportPortal() {
   const source = readFileSync(new URL("./SessionComposer.tsx", import.meta.url), "utf8");
+  const modelMenuBlock = source.match(/const modelMenu = \([\s\S]*?const modelMenuPortal/)?.[0] || "";
 
   assert.match(source, /createPortal/);
   assert.match(source, /data-ripple-composer-model-menu/);
@@ -194,7 +196,7 @@ function testComposerModelMenuUsesViewportPortal() {
   assert.match(source, /position: "fixed"/);
   assert.match(source, /modelMenuRef/);
   assert.match(source, /modelButtonRef/);
-  assert.doesNotMatch(source, /absolute bottom-full left-0/);
+  assert.doesNotMatch(modelMenuBlock, /absolute bottom-full left-0/);
 }
 
 function testComposerModelButtonHasStableExplainerAnchor() {
@@ -203,6 +205,46 @@ function testComposerModelButtonHasStableExplainerAnchor() {
   assert.match(html, /data-ripple-composer-model-button/);
   assert.match(html, /aria-label="Select model"/);
   assert.match(html, /title="Model: Pro"/);
+}
+
+function testComposerShowsRequiredSkillPickerChip() {
+  const html = renderComposer({
+    availableSkills: [
+      {
+        id: "ripple:ripple-ui-explainer",
+        type: "skill",
+        name: "ripple-ui-explainer",
+        display_name: "Ripple UI Explainer",
+        description: "Explain Ripple UI screenshots.",
+        source: "ripple",
+        display_source: "system",
+        path: "skills/ripple-ui-explainer/SKILL.md",
+        user_status: "available",
+        enabled: true,
+        status: "available",
+      },
+    ],
+    selectedRequiredSkillId: "ripple:ripple-ui-explainer",
+    onSelectRequiredSkill: noop,
+  });
+
+  assert.match(html, /data-ripple-composer-skill-button/);
+  assert.match(html, /aria-label="Select skill"/);
+  assert.match(html, /Ripple UI Explainer/);
+  assert.match(html, /aria-label="Clear selected skill"/);
+}
+
+function testComposerShowsClientContextFixturePickerChip() {
+  const html = renderComposer({
+    clientContextFixtures: CLIENT_CONTEXT_FIXTURES,
+    selectedClientContextFixtureId: "meeting-detail-with-headset",
+    onSelectClientContextFixture: noop,
+  });
+
+  assert.match(html, /data-ripple-composer-context-button/);
+  assert.match(html, /aria-label="Select test context"/);
+  assert.match(html, /Meeting page \+ AI headset/);
+  assert.match(html, /aria-label="Clear test context"/);
 }
 
 function testComposerModelMenuSelectsOnTouchPointerDown() {
@@ -348,6 +390,8 @@ testComposerClearsIosHomeIndicatorAndUsesTouchSizedActions();
 testComposerUsesWorkbenchSurfaceScaleAndIndependentToolButtons();
 testComposerModelMenuUsesViewportPortal();
 testComposerModelButtonHasStableExplainerAnchor();
+testComposerShowsRequiredSkillPickerChip();
+testComposerShowsClientContextFixturePickerChip();
 testComposerModelMenuSelectsOnTouchPointerDown();
 testComposerModelMenuClosesWithExplicitCloseCallback();
 testHiddenComposerDoesNotCloseVisibleModelMenu();

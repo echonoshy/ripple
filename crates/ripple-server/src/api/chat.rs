@@ -30,6 +30,7 @@ use crate::sessions::{
     extract_title_from_messages, record_usage, validate_session_id, CreateSessionInput,
     SessionRecord, SessionStatus,
 };
+use crate::skills::{build_skill_manifest_with_options, public_skill_path, SkillManifestOptions};
 use crate::state::AppState;
 use crate::user::user_id_from_headers;
 
@@ -59,7 +60,9 @@ pub(crate) use media::{
 #[cfg(test)]
 use media::{decode_base64_image_payload, workspace_path_or_none};
 use project_context::collect_folder_context;
-pub(crate) use prompt::{build_codex_chat_base_instructions, build_codex_chat_turn_context};
+pub(crate) use prompt::{
+    build_codex_chat_base_instructions, build_codex_chat_turn_context, RequiredSkillContext,
+};
 #[cfg(test)]
 use recent_context::recent_task_triggers_context_from_records;
 use recent_context::{recent_display_context, recent_task_triggers_context};
@@ -80,6 +83,12 @@ pub struct InternalChatRequest {
     pub messages: Vec<Value>,
     pub stream: Option<bool>,
     pub session_id: Option<String>,
+    #[serde(default)]
+    pub required_skill_ids: Vec<String>,
+    #[serde(default)]
+    pub preferred_skill_ids: Vec<String>,
+    #[serde(default)]
+    pub screen_context: Option<Value>,
     #[serde(default)]
     pub temporary: bool,
     pub max_turns: Option<u32>,
@@ -106,6 +115,13 @@ impl ResponsesCreateRequest {
     fn into_chat_request(self) -> Result<InternalChatRequest, ApiError> {
         let session_id =
             responses_session_id(self.previous_response_id.as_deref(), self.metadata.as_ref())?;
+        let required_skill_ids = metadata_string_list(
+            self.metadata.as_ref(),
+            &["required_skill_ids", "selected_skill_ids"],
+        )?;
+        let preferred_skill_ids =
+            metadata_string_list(self.metadata.as_ref(), &["preferred_skill_ids"])?;
+        let screen_context = metadata_screen_context(self.metadata.as_ref())?;
         let effort = self
             .reasoning
             .as_ref()
@@ -124,6 +140,9 @@ impl ResponsesCreateRequest {
             messages: responses_input_to_messages(self.input, self.instructions)?,
             stream: self.stream,
             session_id,
+            required_skill_ids,
+            preferred_skill_ids,
+            screen_context,
             temporary: self.store == Some(false),
             max_turns: None,
             effort,
@@ -157,6 +176,91 @@ fn responses_session_id(
     };
     validate_session_id(session_id).map_err(ApiError::bad_request)?;
     Ok(Some(session_id.to_string()))
+}
+
+fn metadata_string_list(metadata: Option<&Value>, keys: &[&str]) -> Result<Vec<String>, ApiError> {
+    let Some(metadata) = metadata else {
+        return Ok(Vec::new());
+    };
+    let mut values = Vec::new();
+    for key in keys {
+        let Some(value) = metadata.get(*key) else {
+            continue;
+        };
+        let Some(items) = value.as_array() else {
+            return Err(ApiError::bad_request(format!(
+                "{key} must be an array of strings"
+            )));
+        };
+        for item in items {
+            let Some(text) = item.as_str() else {
+                return Err(ApiError::bad_request(format!(
+                    "{key} must be an array of strings"
+                )));
+            };
+            let trimmed = text.trim();
+            if !trimmed.is_empty() && !values.iter().any(|existing| existing == trimmed) {
+                values.push(trimmed.to_string());
+            }
+        }
+    }
+    Ok(values)
+}
+
+fn metadata_screen_context(metadata: Option<&Value>) -> Result<Option<Value>, ApiError> {
+    let Some(metadata) = metadata else {
+        return Ok(None);
+    };
+    for key in ["client_context", "screen_context"] {
+        let Some(value) = metadata.get(key) else {
+            continue;
+        };
+        if value.is_null() {
+            continue;
+        }
+        if !value.is_object() {
+            return Err(ApiError::bad_request(format!("{key} must be an object")));
+        }
+        return Ok(Some(value.clone()));
+    }
+    Ok(None)
+}
+
+fn context_requests_ui_explainer(screen_context: Option<&Value>) -> bool {
+    screen_context_app_is_ripple(screen_context) || client_context_uses_mvp_schema(screen_context)
+}
+
+fn client_context_uses_mvp_schema(screen_context: Option<&Value>) -> bool {
+    screen_context
+        .and_then(|value| value.get("schema_version"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .map(|value| value.eq_ignore_ascii_case("ripple.client_context.v1"))
+        .unwrap_or(false)
+}
+
+fn context_app_value(screen_context: Option<&Value>) -> Option<&str> {
+    let value = screen_context?;
+    value
+        .get("app")
+        .and_then(Value::as_str)
+        .or_else(|| {
+            value
+                .pointer("/software/screen/app")
+                .and_then(Value::as_str)
+        })
+        .or_else(|| {
+            value
+                .pointer("/software/host_app/app_id")
+                .and_then(Value::as_str)
+        })
+}
+
+fn is_ripple_app_value(value: &str) -> bool {
+    let value = value.trim();
+    value.eq_ignore_ascii_case("ripple")
+        || value.eq_ignore_ascii_case("ripple.app")
+        || value.eq_ignore_ascii_case("ripple.chat")
 }
 
 fn responses_input_to_messages(
@@ -269,6 +373,8 @@ struct CodexChatStart {
     folder_context_evidence: Option<String>,
     folder_context_event: Option<Value>,
     request_base_url: Option<String>,
+    skill_options: SkillManifestOptions,
+    required_skills: Vec<RequiredSkillContext>,
 }
 
 struct CodexChatStream {
@@ -289,6 +395,91 @@ struct CodexChatStream {
 struct ChatRunFinal {
     info: AgentRunInfo,
     usage: Value,
+}
+
+async fn prepare_chat_skill_context(
+    state: &AppState,
+    user_id: &str,
+    workspace_root: &FsPath,
+    request: &InternalChatRequest,
+) -> Result<(SkillManifestOptions, Vec<RequiredSkillContext>), ApiError> {
+    let skill_options = catalog_skill_manifest_options_for_user(state, user_id).await?;
+    let required_skill_ids = effective_required_skill_ids(request);
+    let required_skills = required_skill_contexts(
+        state,
+        Some(workspace_root),
+        &skill_options,
+        &required_skill_ids,
+    )?;
+    Ok((skill_options, required_skills))
+}
+
+fn effective_required_skill_ids(request: &InternalChatRequest) -> Vec<String> {
+    let mut ids = request.required_skill_ids.clone();
+    if context_requests_ui_explainer(request.screen_context.as_ref())
+        && !ids
+            .iter()
+            .any(|id| id == "ripple:ripple-ui-explainer" || id == "ripple-ui-explainer")
+    {
+        ids.push("ripple:ripple-ui-explainer".to_string());
+    }
+    ids
+}
+
+fn screen_context_app_is_ripple(screen_context: Option<&Value>) -> bool {
+    context_app_value(screen_context)
+        .map(is_ripple_app_value)
+        .unwrap_or(false)
+}
+
+fn required_skill_contexts(
+    state: &AppState,
+    workspace_root: Option<&FsPath>,
+    skill_options: &SkillManifestOptions,
+    required_skill_ids: &[String],
+) -> Result<Vec<RequiredSkillContext>, ApiError> {
+    let mut contexts = Vec::new();
+    for requested in required_skill_ids {
+        let requested = requested.trim();
+        if requested.is_empty() {
+            continue;
+        }
+        if contexts
+            .iter()
+            .any(|skill: &RequiredSkillContext| skill.id == requested || skill.name == requested)
+        {
+            continue;
+        }
+        let entries =
+            build_skill_manifest_with_options(&state.config, workspace_root, skill_options);
+        let matches = entries
+            .into_iter()
+            .filter(|entry| {
+                entry.enabled
+                    && entry.status == "available"
+                    && (entry.id == requested || entry.name == requested)
+            })
+            .collect::<Vec<_>>();
+        let Some(entry) = matches.first() else {
+            return Err(ApiError::bad_request(format!(
+                "Required skill '{requested}' is not available"
+            )));
+        };
+        let content = std::fs::read_to_string(&entry.path).map_err(|err| {
+            ApiError::bad_request(format!(
+                "Failed to read required skill '{}': {err}",
+                entry.id
+            ))
+        })?;
+        contexts.push(RequiredSkillContext {
+            id: entry.id.clone(),
+            name: entry.name.clone(),
+            path: public_skill_path(FsPath::new(&entry.path), workspace_root),
+            content_hash: entry.content_hash.clone(),
+            content,
+        });
+    }
+    Ok(contexts)
 }
 
 #[utoipa::path(
@@ -469,6 +660,8 @@ async fn handle_chat_request(
                 session.context_folder_path.as_deref(),
                 &resume_user_input,
             );
+            let (skill_options, required_skills) =
+                prepare_chat_skill_context(&state, &user_id, &workspace_root, &request).await?;
             let start = CodexChatStart {
                 state,
                 user_id,
@@ -488,6 +681,8 @@ async fn handle_chat_request(
                     .map(|context| context.prompt_section.clone()),
                 folder_context_event: folder_context.map(|context| context.runtime_event),
                 request_base_url: request_base_url.clone(),
+                skill_options,
+                required_skills,
             };
             let info = create_codex_chat_run_marking_start_failure(&start).await?;
             drop(session_run_guard);
@@ -518,6 +713,8 @@ async fn handle_chat_request(
         session.context_folder_path.as_deref(),
         &user_input,
     );
+    let (skill_options, required_skills) =
+        prepare_chat_skill_context(&state, &user_id, &workspace_root, &request).await?;
     let start = CodexChatStart {
         state,
         user_id,
@@ -537,6 +734,8 @@ async fn handle_chat_request(
             .map(|context| context.prompt_section.clone()),
         folder_context_event: folder_context.map(|context| context.runtime_event),
         request_base_url,
+        skill_options,
+        required_skills,
     };
     let info = create_codex_chat_run_marking_start_failure(&start).await?;
     drop(session_run_guard);
@@ -544,7 +743,6 @@ async fn handle_chat_request(
 }
 
 async fn create_codex_chat_run(args: &CodexChatStart) -> Result<AgentRunInfo, ApiError> {
-    let skill_options = catalog_skill_manifest_options_for_user(&args.state, &args.user_id).await?;
     let recent_display_context = recent_display_context(&args.session.messages);
     let recent_task_triggers_context =
         recent_task_triggers_context(&args.state, &args.user_id).await?;
@@ -558,7 +756,9 @@ async fn create_codex_chat_run(args: &CodexChatStart) -> Result<AgentRunInfo, Ap
         args.folder_context_evidence.as_deref(),
         recent_display_context.as_deref(),
         recent_task_triggers_context.as_deref(),
-        &skill_options,
+        &args.skill_options,
+        &args.required_skills,
+        args.request.screen_context.as_ref(),
         &args.attachment_items,
         args.caller_system_prompt.as_deref(),
     );
@@ -650,6 +850,8 @@ async fn finish_codex_chat_response(
         folder_context_evidence: _,
         folder_context_event,
         request_base_url,
+        skill_options: _,
+        required_skills: _,
     } = args;
 
     if request.stream.unwrap_or(false) {
@@ -863,6 +1065,9 @@ pub async fn poll_session_connector_auth(
             messages: vec![json!({"role": "user", "content": resume_user_input})],
             stream: request.stream,
             session_id: Some(session_id),
+            required_skill_ids: Vec::new(),
+            preferred_skill_ids: Vec::new(),
+            screen_context: None,
             temporary: false,
             max_turns: None,
             effort: request.effort,
@@ -882,6 +1087,8 @@ pub async fn poll_session_connector_auth(
             session.context_folder_path.as_deref(),
             &user_input,
         );
+        let (skill_options, required_skills) =
+            prepare_chat_skill_context(&state, &user_id, &workspace_root, &chat_request).await?;
         let start = CodexChatStart {
             state,
             user_id,
@@ -901,6 +1108,8 @@ pub async fn poll_session_connector_auth(
                 .map(|context| context.prompt_section.clone()),
             folder_context_event: folder_context.map(|context| context.runtime_event),
             request_base_url: None,
+            skill_options,
+            required_skills,
         };
         let info = create_codex_chat_run_marking_start_failure(&start).await?;
         drop(session_run_guard);
@@ -2033,6 +2242,8 @@ mod tests {
             &crate::skills::SkillManifestOptions::default(),
             &[],
             None,
+            &[],
+            None,
         );
         let prompt = format!("{base_instructions}\n{turn_context}");
 
@@ -2133,6 +2344,8 @@ mod tests {
             &crate::skills::SkillManifestOptions::default(),
             &[],
             None,
+            &[],
+            None,
         );
 
         assert!(prompt.contains("Context folder: /workspace/genius_club"));
@@ -2168,6 +2381,8 @@ mod tests {
             &crate::skills::SkillManifestOptions::default(),
             &[],
             None,
+            &[],
+            None,
         );
 
         assert!(!prompt.contains("## Shared Knowledge Evidence"));
@@ -2176,6 +2391,242 @@ mod tests {
         assert!(!prompt.contains("## Current User Request"));
 
         cleanup_test_root(&root).expect("cleanup test root");
+    }
+
+    #[tokio::test]
+    async fn codex_chat_context_includes_required_skill_and_screen_context() {
+        let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(std::path::Path::parent)
+            .unwrap()
+            .to_path_buf();
+        let root = std::env::temp_dir().join(format!("ripple-chat-test-{}", Uuid::new_v4()));
+        let mut config = test_config(&root);
+        config.repo_root = repo_root;
+        config.skills.shared_dirs = vec!["skills/*".to_string()];
+        let state = AppState::new(config);
+        let workspace_root = state
+            .sandboxes
+            .ensure_sandbox("alice")
+            .expect("create sandbox");
+        let skill_options = crate::skills::SkillManifestOptions::default();
+        let required_skills = required_skill_contexts(
+            &state,
+            Some(&workspace_root),
+            &skill_options,
+            &["ripple:ripple-ui-explainer".to_string()],
+        )
+        .expect("required skill context");
+        let screen_context = json!({
+            "app": "ripple",
+            "screen_id": "session.chat",
+            "active_view": "sessions",
+            "target": {
+                "data_ripple": "composer-model-button",
+                "aria_label": "选择模型"
+            }
+        });
+
+        let prompt = build_codex_chat_turn_context(
+            &state,
+            "alice",
+            "session-1",
+            &workspace_root,
+            None,
+            None,
+            None,
+            None,
+            &skill_options,
+            &required_skills,
+            Some(&screen_context),
+            &[],
+            None,
+        );
+
+        assert!(prompt.contains("## Required Skills"));
+        assert!(prompt.contains("ripple:ripple-ui-explainer"));
+        assert!(prompt.contains("Ripple UI Explainer"));
+        assert!(prompt.contains("SKILL.md"));
+        assert!(prompt.contains("## Screen Context"));
+        assert!(prompt.contains("\"app\": \"ripple\""));
+        assert!(prompt.contains("\"screen_id\": \"session.chat\""));
+        assert!(prompt.contains("Do not assume uploaded screenshots are Ripple UI"));
+
+        cleanup_test_root(&root).expect("cleanup test root");
+    }
+
+    #[test]
+    fn responses_metadata_extracts_required_skills_and_screen_context() {
+        let request = ResponsesCreateRequest {
+            model: Some("codex-test".to_string()),
+            input: json!([{"role": "user", "content": "这个按钮有什么用？"}]),
+            instructions: None,
+            stream: Some(false),
+            previous_response_id: None,
+            metadata: Some(json!({
+                "ripple_session_id": "session-skill",
+                "required_skill_ids": ["ripple:ripple-ui-explainer"],
+                "preferred_skill_ids": ["ripple:other"],
+                "screen_context": {
+                    "app": "ripple",
+                    "screen_id": "session.chat"
+                }
+            })),
+            store: None,
+            reasoning: None,
+            text: None,
+        };
+
+        let chat = request.into_chat_request().expect("chat request");
+
+        assert_eq!(chat.session_id.as_deref(), Some("session-skill"));
+        assert_eq!(
+            chat.required_skill_ids,
+            vec!["ripple:ripple-ui-explainer".to_string()]
+        );
+        assert_eq!(chat.preferred_skill_ids, vec!["ripple:other".to_string()]);
+        assert_eq!(
+            chat.screen_context
+                .as_ref()
+                .and_then(|value| value.pointer("/screen_id"))
+                .and_then(Value::as_str),
+            Some("session.chat")
+        );
+    }
+
+    #[test]
+    fn responses_metadata_prefers_client_context_over_screen_context() {
+        let request = ResponsesCreateRequest {
+            model: Some("codex-test".to_string()),
+            input: json!([{"role": "user", "content": "这个页面是什么？"}]),
+            instructions: None,
+            stream: Some(false),
+            previous_response_id: None,
+            metadata: Some(json!({
+                "ripple_session_id": "session-client-context",
+                "screen_context": {
+                    "app": "ripple",
+                    "screen_id": "legacy.screen"
+                },
+                "client_context": {
+                    "schema_version": "ripple.client_context.v1",
+                    "software": {
+                        "host_app": {
+                            "app_id": "viaim.meeting"
+                        },
+                        "screen": {
+                            "screen_id": "meeting.detail"
+                        }
+                    },
+                    "devices": [{
+                        "kind": "ai_headset",
+                        "state": {
+                            "noise_control": "anc"
+                        }
+                    }]
+                }
+            })),
+            store: None,
+            reasoning: None,
+            text: None,
+        };
+
+        let chat = request.into_chat_request().expect("chat request");
+
+        assert_eq!(chat.session_id.as_deref(), Some("session-client-context"));
+        assert_eq!(
+            chat.screen_context
+                .as_ref()
+                .and_then(|value| value.pointer("/schema_version"))
+                .and_then(Value::as_str),
+            Some("ripple.client_context.v1")
+        );
+        assert_eq!(
+            chat.screen_context
+                .as_ref()
+                .and_then(|value| value.pointer("/software/screen/screen_id"))
+                .and_then(Value::as_str),
+            Some("meeting.detail")
+        );
+        assert_eq!(
+            chat.screen_context
+                .as_ref()
+                .and_then(|value| value.pointer("/devices/0/kind"))
+                .and_then(Value::as_str),
+            Some("ai_headset")
+        );
+    }
+
+    #[test]
+    fn screen_context_only_autorequires_ripple_skill_for_ripple_app() {
+        let request = InternalChatRequest {
+            model: None,
+            messages: Vec::new(),
+            stream: None,
+            session_id: None,
+            required_skill_ids: Vec::new(),
+            preferred_skill_ids: Vec::new(),
+            screen_context: Some(json!({
+                "app": "ripple",
+                "screen_id": "session.chat"
+            })),
+            temporary: false,
+            max_turns: None,
+            effort: None,
+            summary: None,
+            output_schema: None,
+        };
+
+        assert_eq!(
+            effective_required_skill_ids(&request),
+            vec!["ripple:ripple-ui-explainer".to_string()]
+        );
+
+        let other_app_request = InternalChatRequest {
+            screen_context: Some(json!({
+                "app": "figma",
+                "screen_id": "canvas"
+            })),
+            ..request
+        };
+
+        assert!(effective_required_skill_ids(&other_app_request).is_empty());
+    }
+
+    #[test]
+    fn client_context_autorequires_ripple_skill_for_mvp_schema() {
+        let request = InternalChatRequest {
+            model: None,
+            messages: Vec::new(),
+            stream: None,
+            session_id: None,
+            required_skill_ids: Vec::new(),
+            preferred_skill_ids: Vec::new(),
+            screen_context: Some(json!({
+                "schema_version": "ripple.client_context.v1",
+                "software": {
+                    "host_app": {
+                        "app_id": "viaim.meeting"
+                    },
+                    "screen": {
+                        "screen_id": "meeting.detail"
+                    }
+                },
+                "devices": [{
+                    "kind": "ai_headset"
+                }]
+            })),
+            temporary: false,
+            max_turns: None,
+            effort: None,
+            summary: None,
+            output_schema: None,
+        };
+
+        assert_eq!(
+            effective_required_skill_ids(&request),
+            vec!["ripple:ripple-ui-explainer".to_string()]
+        );
     }
 
     #[tokio::test]
@@ -2197,6 +2648,8 @@ mod tests {
             Some("user: 创建一个定时任务\nassistant: 你希望多久执行一次？"),
             None,
             &crate::skills::SkillManifestOptions::default(),
+            &[],
+            None,
             &[],
             None,
         );
@@ -2278,6 +2731,8 @@ mod tests {
 ]"#,
             ),
             &crate::skills::SkillManifestOptions::default(),
+            &[],
+            None,
             &[],
             None,
         );

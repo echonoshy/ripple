@@ -1976,6 +1976,41 @@ mod tests {
         }
     }
 
+    fn cleanup_test_root(root: &FsPath) -> anyhow::Result<()> {
+        let temp_dir = std::env::temp_dir().canonicalize()?;
+        let canonical_root = if root.exists() {
+            root.canonicalize()?
+        } else {
+            root.to_path_buf()
+        };
+        let is_named_test_root = root
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.starts_with("ripple-chat-test-"));
+        if !canonical_root.starts_with(&temp_dir) || !is_named_test_root {
+            anyhow::bail!("refusing to remove non-temp test root {}", root.display());
+        }
+        if root.exists() {
+            std::fs::remove_dir_all(root)?;
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn cleanup_test_root_refuses_repo_runtime_dir() {
+        let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(std::path::Path::parent)
+            .unwrap()
+            .to_path_buf();
+
+        let error = cleanup_test_root(&repo_root.join(".ripple")).unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("refusing to remove non-temp test root"));
+    }
+
     #[tokio::test]
     async fn codex_chat_context_omits_local_proxy_helper() {
         let root = std::env::temp_dir().join(format!("ripple-chat-test-{}", Uuid::new_v4()));
@@ -2049,7 +2084,7 @@ mod tests {
             "Google Workspace, Notion, and Feishu authorization is handled by Ripple before the Codex turn starts"
         ));
 
-        let _ = std::fs::remove_dir_all(root);
+        cleanup_test_root(&root).expect("cleanup test root");
     }
 
     #[tokio::test]
@@ -2074,7 +2109,7 @@ mod tests {
         assert!(!message.contains(root.to_string_lossy().as_ref()));
         assert!(!message.contains(".ripple/sandboxes"));
 
-        let _ = std::fs::remove_dir_all(root);
+        cleanup_test_root(&root).expect("cleanup test root");
     }
 
     #[tokio::test]
@@ -2109,7 +2144,7 @@ mod tests {
         assert!(!prompt.contains("Ripple Project"));
         assert!(!prompt.contains("Project root"));
 
-        let _ = std::fs::remove_dir_all(root);
+        cleanup_test_root(&root).expect("cleanup test root");
     }
 
     #[tokio::test]
@@ -2140,7 +2175,7 @@ mod tests {
         assert!(!prompt.contains("viaim 公司推出的一款 Agent 工具"));
         assert!(!prompt.contains("## Current User Request"));
 
-        let _ = std::fs::remove_dir_all(root);
+        cleanup_test_root(&root).expect("cleanup test root");
     }
 
     #[tokio::test]
@@ -2172,7 +2207,7 @@ mod tests {
         assert!(!prompt.contains("## Current User Request"));
         assert!(!prompt.contains("一周一次"));
 
-        let _ = std::fs::remove_dir_all(root);
+        cleanup_test_root(&root).expect("cleanup test root");
     }
 
     #[test]
@@ -2252,7 +2287,7 @@ mod tests {
         assert!(prompt.contains("\"trigger_id\": \"sch-price\""));
         assert!(prompt.contains("监控二手 M4 Pro 和 M5 Pro MacBook Pro 的价格"));
 
-        let _ = std::fs::remove_dir_all(root);
+        cleanup_test_root(&root).expect("cleanup test root");
     }
 
     #[test]
@@ -2480,7 +2515,7 @@ mod tests {
             None
         );
 
-        let _ = std::fs::remove_dir_all(root);
+        cleanup_test_root(&root).expect("cleanup test root");
     }
 
     #[test]
@@ -2518,7 +2553,7 @@ mod tests {
             .iter()
             .any(|item| item.get("type").and_then(Value::as_str) == Some("attachment")));
 
-        let _ = std::fs::remove_dir_all(root);
+        cleanup_test_root(&root).expect("cleanup test root");
     }
 
     #[test]

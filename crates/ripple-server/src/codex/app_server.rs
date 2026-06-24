@@ -1,9 +1,11 @@
 use std::collections::{HashMap, HashSet};
+use std::future::Future;
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::Context;
 use serde_json::{json, Value};
@@ -45,6 +47,19 @@ pub use types::{AgentRunnerRequest, AgentRunnerResult, AgentRunnerStatus};
 const TAIL_CHARS: usize = 64_000;
 const CODEX_NATIVE_INPUT_TYPES: &[&str] = &["text", "image", "localImage"];
 const THREAD_NOTIFICATION_QUEUE: &str = "__thread__";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ServiceAuthFingerprint {
+    len: u64,
+    modified: Option<SystemTime>,
+    content_hash: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ServiceAuthRefreshOutcome {
+    Refreshed,
+    SkippedAlreadyUpdated,
+}
 
 #[derive(Clone)]
 struct ActiveTurn {
@@ -526,6 +541,7 @@ pub struct CodexAppServerProvider {
     pool_notify: Arc<Notify>,
     next_worker_id: Arc<AtomicU64>,
     reaper_started: Arc<AtomicBool>,
+    service_auth_refresh_lock: Arc<Mutex<()>>,
     active_turns: Arc<Mutex<HashMap<String, ActiveTurn>>>,
     pending_approvals: Arc<Mutex<HashMap<String, Value>>>,
     pending_user_inputs: Arc<Mutex<HashMap<String, Value>>>,
@@ -540,6 +556,7 @@ impl CodexAppServerProvider {
             pool_notify: Arc::new(Notify::new()),
             next_worker_id: Arc::new(AtomicU64::new(1)),
             reaper_started: Arc::new(AtomicBool::new(false)),
+            service_auth_refresh_lock: Arc::new(Mutex::new(())),
             active_turns: Arc::new(Mutex::new(HashMap::new())),
             pending_approvals: Arc::new(Mutex::new(HashMap::new())),
             pending_user_inputs: Arc::new(Mutex::new(HashMap::new())),
@@ -582,22 +599,92 @@ impl CodexAppServerProvider {
         )
         .await?;
 
-        let session = self.session_for_request(&request).await?;
-        let stderr_start = session.stderr_tail_len().await;
         let mut turn_rx = None;
-        let (status, error) = match self
-            .run_turn(&request, &job_id, &events_file, &mut sequence, &session)
-            .await
-        {
-            Ok((ids, rx, text, resumed)) => {
-                thread_id = Some(ids.0);
-                turn_id = Some(ids.1);
-                turn_rx = Some(rx);
-                output_text = text;
-                thread_resumed = resumed;
-                (AgentRunnerStatus::Completed, None)
+        let mut session = self.session_for_request(&request).await?;
+        let mut stderr_start = session.stderr_tail_len().await;
+        let mut service_auth_refresh_attempted = false;
+        let (status, mut error) = loop {
+            match self
+                .run_turn(&request, &job_id, &events_file, &mut sequence, &session)
+                .await
+            {
+                Ok((ids, rx, text, resumed)) => {
+                    thread_id = Some(ids.0);
+                    turn_id = Some(ids.1);
+                    turn_rx = Some(rx);
+                    output_text = text;
+                    thread_resumed = resumed;
+                    break (AgentRunnerStatus::Completed, None);
+                }
+                Err(err) => {
+                    let stderr_tail = session.stderr_tail_since(stderr_start).await;
+                    let combined_error = format!("{err}\n{stderr_tail}");
+                    if !service_auth_refresh_attempted
+                        && codex_error_needs_service_auth_refresh(&combined_error)
+                    {
+                        service_auth_refresh_attempted = true;
+                        let observed_auth = service_auth_fingerprint(&self.config).await;
+                        append_event(
+                            &events_file,
+                            &mut sequence,
+                            &job_id,
+                            &request.provider,
+                            "codex.service_auth_refresh.started",
+                            Some("Codex auth failed; refreshing service auth".to_string()),
+                            json!({}),
+                        )
+                        .await?;
+                        self.clear_job_transient_state(&job_id).await;
+                        self.discard_job_worker(&job_id).await;
+                        match self
+                            .refresh_service_codex_auth(&request, observed_auth)
+                            .await
+                        {
+                            Ok(outcome) => {
+                                let discarded_idle_workers =
+                                    self.discard_idle_workers_after_service_auth_refresh().await;
+                                append_event(
+                                    &events_file,
+                                    &mut sequence,
+                                    &job_id,
+                                    &request.provider,
+                                    "codex.service_auth_refresh.completed",
+                                    None,
+                                    json!({
+                                        "outcome": service_auth_refresh_outcome_name(outcome),
+                                        "discarded_idle_workers": discarded_idle_workers
+                                    }),
+                                )
+                                .await?;
+                                session = self.session_for_request(&request).await?;
+                                stderr_start = session.stderr_tail_len().await;
+                                continue;
+                            }
+                            Err(refresh_err) => {
+                                append_event(
+                                    &events_file,
+                                    &mut sequence,
+                                    &job_id,
+                                    &request.provider,
+                                    "codex.service_auth_refresh.failed",
+                                    Some("Codex service auth refresh failed".to_string()),
+                                    json!({
+                                        "error": refresh_err.to_string()
+                                    }),
+                                )
+                                .await?;
+                                break (
+                                    AgentRunnerStatus::Failed,
+                                    Some(format!(
+                                        "Codex service auth refresh failed; re-login the service CODEX_HOME: {refresh_err}"
+                                    )),
+                                );
+                            }
+                        }
+                    }
+                    break (AgentRunnerStatus::Failed, Some(err.to_string()));
+                }
             }
-            Err(err) => (AgentRunnerStatus::Failed, Some(err.to_string())),
         };
 
         if let (Some(thread_id), Some(turn_id)) = (thread_id.as_deref(), turn_id.as_deref()) {
@@ -607,6 +694,17 @@ impl CodexAppServerProvider {
         self.pending_approvals.lock().await.remove(&job_id);
         self.pending_user_inputs.lock().await.remove(&job_id);
         drop(turn_rx);
+
+        let stderr_tail = redact_text(&session.stderr_tail_since(stderr_start).await);
+        let service_auth_failed = matches!(status, AgentRunnerStatus::Failed)
+            && codex_error_needs_service_auth_refresh(&format!(
+                "{}\n{}",
+                error.as_deref().unwrap_or(""),
+                stderr_tail
+            ));
+        if service_auth_failed {
+            error = Some(service_codex_auth_relogin_message(&self.config));
+        }
 
         let final_type = match status {
             AgentRunnerStatus::Completed => "runner.completed",
@@ -633,8 +731,11 @@ impl CodexAppServerProvider {
                 metadata.insert("codex_thread_resumed".to_string(), json!(thread_resumed));
             }
         }
-        let stderr_tail = redact_text(&session.stderr_tail_since(stderr_start).await);
-        self.release_job_session(&job_id).await;
+        if service_auth_failed {
+            self.discard_job_worker(&job_id).await;
+        } else {
+            self.release_job_session(&job_id).await;
+        }
         Ok(AgentRunnerResult {
             job_id,
             provider: request.provider,
@@ -1122,6 +1223,87 @@ impl CodexAppServerProvider {
         }
     }
 
+    async fn clear_job_transient_state(&self, job_id: &str) {
+        self.active_turns.lock().await.remove(job_id);
+        self.pending_approvals.lock().await.remove(job_id);
+        self.pending_user_inputs.lock().await.remove(job_id);
+    }
+
+    async fn refresh_service_codex_auth(
+        &self,
+        request: &AgentRunnerRequest,
+        observed_auth: Option<ServiceAuthFingerprint>,
+    ) -> anyhow::Result<ServiceAuthRefreshOutcome> {
+        refresh_service_auth_if_still_current(
+            &self.config,
+            &self.service_auth_refresh_lock,
+            observed_auth,
+            || {
+                let config = self.config.clone();
+                let user_id = request
+                    .user_id
+                    .clone()
+                    .unwrap_or_else(|| "default".to_string());
+                let workspace_root = request
+                    .metadata
+                    .get("workspace_root")
+                    .and_then(Value::as_str)
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| request.cwd.clone());
+                async move {
+                    let session = CodexAppServerSession::new(user_id, config, workspace_root);
+                    let result = async {
+                        session.ensure_initialized().await?;
+                        session
+                            .request("account/read", json!({ "refreshToken": true }))
+                            .await?;
+                        Ok(())
+                    }
+                    .await;
+                    session.shutdown().await;
+                    result
+                }
+            },
+        )
+        .await
+    }
+
+    async fn discard_idle_workers_after_service_auth_refresh(&self) -> usize {
+        let sessions = {
+            let mut state = self.pools.lock().await;
+            let mut sessions = Vec::new();
+            let keys = state.pools.keys().cloned().collect::<Vec<_>>();
+            for key in keys {
+                if let Some(workers) = state.pools.get_mut(&key) {
+                    let mut index = 0;
+                    while index < workers.len() {
+                        if workers[index].active_job_id.is_none() {
+                            sessions.push(workers.remove(index).session);
+                        } else {
+                            index += 1;
+                        }
+                    }
+                }
+                if state
+                    .pools
+                    .get(&key)
+                    .is_some_and(|workers| workers.is_empty())
+                {
+                    state.pools.remove(&key);
+                }
+            }
+            sessions
+        };
+        let count = sessions.len();
+        for session in sessions {
+            session.shutdown().await;
+        }
+        if count > 0 {
+            self.pool_notify.notify_waiters();
+        }
+        count
+    }
+
     async fn discard_job_worker(&self, job_id: &str) -> bool {
         let session = {
             let mut state = self.pools.lock().await;
@@ -1499,6 +1681,69 @@ impl CodexAppServerProvider {
         };
         released
     }
+}
+
+async fn service_auth_fingerprint(config: &AppConfig) -> Option<ServiceAuthFingerprint> {
+    let auth_path = config.codex_home_path().join("auth.json");
+    let bytes = tokio::fs::read(&auth_path).await.ok()?;
+    let metadata = tokio::fs::metadata(&auth_path).await.ok();
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    bytes.hash(&mut hasher);
+    Some(ServiceAuthFingerprint {
+        len: bytes.len() as u64,
+        modified: metadata.and_then(|metadata| metadata.modified().ok()),
+        content_hash: hasher.finish(),
+    })
+}
+
+async fn refresh_service_auth_if_still_current<F, Fut>(
+    config: &AppConfig,
+    lock: &Mutex<()>,
+    observed_auth: Option<ServiceAuthFingerprint>,
+    refresh: F,
+) -> anyhow::Result<ServiceAuthRefreshOutcome>
+where
+    F: FnOnce() -> Fut,
+    Fut: Future<Output = anyhow::Result<()>>,
+{
+    let _guard = lock.lock().await;
+    if service_auth_fingerprint(config).await != observed_auth {
+        return Ok(ServiceAuthRefreshOutcome::SkippedAlreadyUpdated);
+    }
+    refresh().await?;
+    Ok(ServiceAuthRefreshOutcome::Refreshed)
+}
+
+fn service_auth_refresh_outcome_name(outcome: ServiceAuthRefreshOutcome) -> &'static str {
+    match outcome {
+        ServiceAuthRefreshOutcome::Refreshed => "refreshed",
+        ServiceAuthRefreshOutcome::SkippedAlreadyUpdated => "skipped_already_updated",
+    }
+}
+
+fn codex_error_needs_service_auth_refresh(text: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
+    [
+        "401 unauthorized",
+        "token_expired",
+        "provided authentication token is expired",
+        "failed to refresh token",
+        "access token could not be refreshed",
+        "refresh token was already used",
+        "refresh token was revoked",
+        "refresh_token_reused",
+        "refresh_token_invalidated",
+        "auth_recovery_phase=\"refresh_token\"",
+    ]
+    .iter()
+    .any(|marker| lower.contains(marker))
+}
+
+fn service_codex_auth_relogin_message(config: &AppConfig) -> String {
+    format!(
+        "Service Codex auth has expired or was reused. Re-login the service CODEX_HOME with: CODEX_HOME={} codex login --device-auth",
+        config.codex_home_path().display()
+    )
 }
 
 async fn collect_context_compaction(
@@ -1977,6 +2222,58 @@ mod tests {
         config.codex.app_server_args.clear();
 
         assert!(!requires_service_codex_auth(&config));
+    }
+
+    #[test]
+    fn codex_auth_failure_detection_matches_refresh_token_errors() {
+        assert!(codex_error_needs_service_auth_refresh(
+            r#"Turn error: Your access token could not be refreshed because your refresh token was already used. Please log out and sign in again."#
+        ));
+        assert!(codex_error_needs_service_auth_refresh(
+            r#"failed to connect to websocket: HTTP error: 401 Unauthorized"#
+        ));
+        assert!(codex_error_needs_service_auth_refresh(
+            r#"auth_recovery_phase="refresh_token" auth_recovery_outcome="recovery_failed_permanent""#
+        ));
+        assert!(!codex_error_needs_service_auth_refresh(
+            "codex turn failed because context compaction timed out"
+        ));
+    }
+
+    #[test]
+    fn service_codex_auth_relogin_message_names_service_home() {
+        let config = test_config();
+        let message = service_codex_auth_relogin_message(&config);
+
+        assert!(message.contains("Service Codex auth"));
+        assert!(message.contains("codex login --device-auth"));
+        assert!(message.contains(config.codex_home_path().to_string_lossy().as_ref()));
+    }
+
+    #[tokio::test]
+    async fn service_auth_refresh_guard_skips_when_auth_file_changed() {
+        let config = test_config();
+        let auth_path = config.codex_home_path().join("auth.json");
+        std::fs::create_dir_all(auth_path.parent().unwrap()).expect("create codex home");
+        std::fs::write(&auth_path, r#"{"tokens":{"access_token":"old"}}"#).expect("write old auth");
+        let observed = service_auth_fingerprint(&config).await;
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        std::fs::write(&auth_path, r#"{"tokens":{"access_token":"new"}}"#).expect("write new auth");
+        let refresh_count = Arc::new(AtomicU64::new(0));
+
+        let outcome =
+            refresh_service_auth_if_still_current(&config, &Mutex::new(()), observed, || {
+                let refresh_count = refresh_count.clone();
+                async move {
+                    refresh_count.fetch_add(1, Ordering::SeqCst);
+                    Ok(())
+                }
+            })
+            .await
+            .expect("refresh guard");
+
+        assert_eq!(outcome, ServiceAuthRefreshOutcome::SkippedAlreadyUpdated);
+        assert_eq!(refresh_count.load(Ordering::SeqCst), 0);
     }
 
     #[test]

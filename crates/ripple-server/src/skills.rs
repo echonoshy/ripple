@@ -1392,33 +1392,37 @@ metadata:
 
         assert!(!names.contains(&"frontend-design"));
         assert!(!names.contains(&"ripple-automations"));
-        assert!(names.contains(&"ripple-ui-explainer"));
+        assert!(!names.contains(&"ripple-ui-explainer"));
+        assert!(names.contains(&"viaim-product-support"));
 
         let rendered = render_skill_manifest(&config, None);
-        assert!(rendered.contains("ripple:ripple-ui-explainer"));
-        assert!(rendered.contains("Ripple UI screenshots"));
+        assert!(!rendered.contains("ripple:ripple-ui-explainer"));
+        assert!(rendered.contains("ripple:viaim-product-support"));
+        assert!(rendered.contains("software/device context"));
     }
 
     #[test]
-    fn ripple_ui_explainer_includes_code_backed_ui_references() {
+    fn viaim_product_support_includes_ripple_inside_ui_references() {
         let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .and_then(Path::parent)
             .unwrap()
             .to_path_buf();
-        let skill_root = repo_root.join("skills/ripple-ui-explainer");
+        let skill_root = repo_root.join("skills/viaim-product-support");
 
         let skill = std::fs::read_to_string(skill_root.join("SKILL.md")).unwrap();
         for reference in [
-            "references/navigation.md",
-            "references/chat-session.md",
-            "references/context-mvp.md",
-            "references/visual-recognition.md",
-            "references/model-selection.md",
-            "references/files.md",
-            "references/skills-connectors.md",
-            "references/settings.md",
-            "references/tasks.md",
+            "references/ripple-inside-navigation.md",
+            "references/ripple-inside-chat-session.md",
+            "references/client-context-protocol.md",
+            "references/ripple-inside-pages.md",
+            "references/ripple-inside-visual-recognition.md",
+            "references/ripple-inside-model-selection.md",
+            "references/ripple-inside-files.md",
+            "references/ripple-inside-skills-connectors.md",
+            "references/ripple-inside-settings.md",
+            "references/ripple-inside-tasks.md",
+            "references/ripple-inside-safety.md",
         ] {
             assert!(
                 skill.contains(reference),
@@ -1427,7 +1431,8 @@ metadata:
         }
 
         let model_selection =
-            std::fs::read_to_string(skill_root.join("references/model-selection.md")).unwrap();
+            std::fs::read_to_string(skill_root.join("references/ripple-inside-model-selection.md"))
+                .unwrap();
         for required in [
             "Lite",
             "Plus",
@@ -1439,12 +1444,13 @@ metadata:
         ] {
             assert!(
                 model_selection.contains(required),
-                "model-selection.md should mention {required}"
+                "ripple-inside-model-selection.md should mention {required}"
             );
         }
 
         let chat_session =
-            std::fs::read_to_string(skill_root.join("references/chat-session.md")).unwrap();
+            std::fs::read_to_string(skill_root.join("references/ripple-inside-chat-session.md"))
+                .unwrap();
         for required in [
             "Choose work folder",
             "data-ripple-composer-model-button",
@@ -1458,12 +1464,14 @@ metadata:
         ] {
             assert!(
                 chat_session.contains(required),
-                "chat-session.md should mention {required}"
+                "ripple-inside-chat-session.md should mention {required}"
             );
         }
 
-        let visual_recognition =
-            std::fs::read_to_string(skill_root.join("references/visual-recognition.md")).unwrap();
+        let visual_recognition = std::fs::read_to_string(
+            skill_root.join("references/ripple-inside-visual-recognition.md"),
+        )
+        .unwrap();
         for required in [
             "Do not identify a control by icon alone",
             "composer toolbar",
@@ -1473,12 +1481,13 @@ metadata:
         ] {
             assert!(
                 visual_recognition.contains(required),
-                "visual-recognition.md should mention {required}"
+                "ripple-inside-visual-recognition.md should mention {required}"
             );
         }
 
         let context_mvp =
-            std::fs::read_to_string(skill_root.join("references/context-mvp.md")).unwrap();
+            std::fs::read_to_string(skill_root.join("references/client-context-protocol.md"))
+                .unwrap();
         for required in [
             "ripple.client_context.v1",
             "software.host_app.app_id",
@@ -1489,7 +1498,7 @@ metadata:
         ] {
             assert!(
                 context_mvp.contains(required),
-                "context-mvp.md should mention {required}"
+                "client-context-protocol.md should mention {required}"
             );
         }
 
@@ -1505,15 +1514,17 @@ metadata:
         }
 
         let navigation =
-            std::fs::read_to_string(skill_root.join("references/navigation.md")).unwrap();
+            std::fs::read_to_string(skill_root.join("references/ripple-inside-navigation.md"))
+                .unwrap();
         for required in ["mainNavItems", "mobileNavItems", "shouldShowInspector"] {
             assert!(
                 navigation.contains(required),
-                "navigation.md should mention {required}"
+                "ripple-inside-navigation.md should mention {required}"
             );
         }
 
-        let tasks = std::fs::read_to_string(skill_root.join("references/tasks.md")).unwrap();
+        let tasks =
+            std::fs::read_to_string(skill_root.join("references/ripple-inside-tasks.md")).unwrap();
         for required in [
             "confirmTask",
             "runTaskNow",
@@ -1522,7 +1533,7 @@ metadata:
         ] {
             assert!(
                 tasks.contains(required),
-                "tasks.md should mention {required}"
+                "ripple-inside-tasks.md should mention {required}"
             );
         }
     }

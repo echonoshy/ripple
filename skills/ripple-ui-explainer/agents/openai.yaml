@@ -1,4 +1,0 @@
-interface:
-  display_name: "Ripple UI Explainer"
-  short_description: "Explain Ripple UI screenshots with code-backed behavior"
-  default_prompt: "Use $ripple-ui-explainer to explain this Ripple UI screenshot and the feature I am asking about."

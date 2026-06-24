@@ -381,7 +381,10 @@ function testSendFlowIncludesSelectedRequiredSkill() {
 
   assert.match(source, /selectedRequiredSkillId/);
   assert.match(source, /manualRequiredSkillIds/);
-  assert.match(source, /requiredSkillIds:\s*manualRequiredSkillIds\.length > 0/);
+  assert.match(source, /getChatClientContextSnapshot\(\)/);
+  assert.match(source, /mergeRequiredSkillIds\(\s*manualRequiredSkillIds/);
+  assert.match(source, /requiredSkillIds:\s*requiredSkillIds\.length > 0/);
+  assert.match(source, /clientContext:\s*contextSnapshot\.clientContext/);
   assert.match(source, /setSelectedRequiredSkillId\(null\)/);
 }
 

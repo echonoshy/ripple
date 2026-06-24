@@ -410,6 +410,28 @@ function testSettingsPageRendersChineseChrome() {
   assert.match(html, />退出登录</);
 }
 
+function testSettingsPageShowsClientContextControls() {
+  const html = renderSettingsPage();
+  const source = readFileSync(new URL("./SettingsPage.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /ClientContextSettingsPanel/);
+  assert.match(source, /readClientContextDemoSettings/);
+  assert.match(source, /saveClientContextDemoSettings/);
+  assert.match(html, /data-ripple-settings-section="client-context"/);
+  assert.match(html, /data-ripple-client-context-settings-panel="true"/);
+  assert.match(html, />Client context</);
+  assert.match(html, />Software state</);
+  assert.match(html, />Hardware state</);
+  assert.match(html, />Screen title</);
+  assert.match(html, /会议详情/);
+  assert.match(html, /产品周会/);
+  assert.match(html, /Left 80%/);
+  assert.match(html, /Right 78%/);
+  assert.match(html, /Case 55%/);
+  assert.match(html, />Noise control</);
+  assert.match(html, />Recording</);
+}
+
 testSettingsPageHasExpectedUserSections();
 testSettingsPageDoesNotExposeMemoryControlsOnMainline();
 testSettingsPageShowsDeveloperModeForServiceAccess();
@@ -430,5 +452,6 @@ testSettingsPageUsesCompactMobileDensity();
 testSettingsDiagnosticsExpansionScrollsAboveMobileTabBar();
 testSettingsPageUsesSolidWorkbenchSurfaces();
 testSettingsPageRendersChineseChrome();
+testSettingsPageShowsClientContextControls();
 
 console.log("settings page tests passed");

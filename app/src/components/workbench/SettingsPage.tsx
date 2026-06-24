@@ -3,6 +3,9 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
+  Battery,
+  BluetoothConnected,
+  BrainCircuit,
   Check,
   ChevronDown,
   Cpu,
@@ -14,9 +17,15 @@ import {
   LockKeyhole,
   Loader2,
   LogOut,
+  Mic,
+  MicOff,
+  Monitor,
+  Radio,
+  RotateCcw,
   Server,
   ShieldCheck,
   SlidersHorizontal,
+  Smartphone,
   Upload,
   UserRound,
   X,
@@ -46,6 +55,15 @@ import {
   getUserProfileAvatarUri,
   getUserProfileDisplayName,
 } from "@/lib/userAvatar";
+import {
+  readClientContextDemoSettings,
+  resetClientContextDemoSettings,
+  saveClientContextDemoSettings,
+  type ClientContextDemoConnectionState,
+  type ClientContextDemoLayout,
+  type ClientContextDemoNoiseControl,
+  type ClientContextDemoSettings,
+} from "@/lib/clientContext";
 import type { SandboxInfo, UserProfile } from "@/types";
 import { IconTile, type IconTileTone } from "@/components/icons/IconTile";
 import RippleIcon from "@/components/icons/RippleIcon";
@@ -280,6 +298,25 @@ export default function SettingsPage({
     { value: "zh-CN", label: t("settings.language.zhCN") },
     { value: "en-US", label: t("settings.language.enUS") },
   ];
+  const [clientContextSettings, setClientContextSettings] = useState(() =>
+    readClientContextDemoSettings()
+  );
+
+  const updateClientContextSetting = <K extends keyof ClientContextDemoSettings>(
+    key: K,
+    value: ClientContextDemoSettings[K]
+  ) => {
+    setClientContextSettings((current) =>
+      saveClientContextDemoSettings({
+        ...current,
+        [key]: value,
+      })
+    );
+  };
+
+  const resetClientContextSettings = () => {
+    setClientContextSettings(resetClientContextDemoSettings());
+  };
 
   useEffect(() => {
     if (isDisplayNameEditing) return;
@@ -1060,6 +1097,19 @@ export default function SettingsPage({
           </div>
         </SettingsSection>
 
+        <SettingsSection sectionKind="client-context">
+          <SectionHeader
+            icon={<BrainCircuit size={13} />}
+            title={t("settings.clientContext")}
+            tone="neutral"
+          />
+          <ClientContextSettingsPanel
+            settings={clientContextSettings}
+            onChange={updateClientContextSetting}
+            onReset={resetClientContextSettings}
+          />
+        </SettingsSection>
+
         <SettingsSection
           ref={diagnosticsSectionRef}
           sectionKind="diagnostics"
@@ -1121,7 +1171,7 @@ export default function SettingsPage({
   );
 }
 
-type SettingsSectionKind = "account" | "usage" | "defaults" | "diagnostics";
+type SettingsSectionKind = "account" | "usage" | "defaults" | "client-context" | "diagnostics";
 
 interface SettingsSectionProps extends React.HTMLAttributes<HTMLElement> {
   sectionKind: SettingsSectionKind;
@@ -1140,6 +1190,251 @@ const SettingsSection = React.forwardRef<HTMLElement, SettingsSectionProps>(
   )
 );
 SettingsSection.displayName = "SettingsSection";
+
+function ClientContextSettingsPanel({
+  settings,
+  onChange,
+  onReset,
+}: {
+  settings: ClientContextDemoSettings;
+  onChange: <K extends keyof ClientContextDemoSettings>(
+    key: K,
+    value: ClientContextDemoSettings[K]
+  ) => void;
+  onReset: () => void;
+}) {
+  const { t } = useI18n();
+
+  const setNumber = (
+    key: "leftBatteryPercent" | "rightBatteryPercent" | "caseBatteryPercent",
+    value: string
+  ) => {
+    const numericValue = Number(value);
+    onChange(key, Number.isFinite(numericValue) ? numericValue : 0);
+  };
+
+  return (
+    <div data-ripple-client-context-settings-panel="true" className="space-y-2 p-2.5">
+      <div className="grid gap-2 lg:grid-cols-2">
+        <div className="space-y-2 rounded-lg border border-[#EFF0F1] bg-[#F8F9FA] p-2">
+          <div
+            className={`flex items-center gap-1.5 text-[#2B2F36] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
+          >
+            <IconTile tone="neutral" size="xs">
+              <Monitor size={13} />
+            </IconTile>
+            {t("settings.clientContextSoftware")}
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <label className={settingsFieldLabelClass}>
+              {t("settings.clientContextHostApp")}
+              <input
+                value={settings.hostAppName}
+                onChange={(event) => onChange("hostAppName", event.target.value)}
+                className={settingsFieldInputClass}
+              />
+            </label>
+            <label className={settingsFieldLabelClass}>
+              {t("settings.clientContextScreenTitle")}
+              <input
+                value={settings.screenTitle}
+                onChange={(event) => onChange("screenTitle", event.target.value)}
+                className={settingsFieldInputClass}
+              />
+            </label>
+            <label className={settingsFieldLabelClass}>
+              {t("settings.clientContextSelection")}
+              <input
+                value={settings.selectionName}
+                onChange={(event) => onChange("selectionName", event.target.value)}
+                className={settingsFieldInputClass}
+              />
+            </label>
+            <ClientContextSegmentedControl<ClientContextDemoLayout>
+              label={t("settings.clientContextLayout")}
+              value={settings.screenLayout}
+              options={[
+                {
+                  value: "mobile",
+                  label: t("settings.clientContextLayoutMobile"),
+                  icon: <Smartphone size={13} />,
+                },
+                {
+                  value: "desktop",
+                  label: t("settings.clientContextLayoutDesktop"),
+                  icon: <Monitor size={13} />,
+                },
+              ]}
+              onChange={(value) => onChange("screenLayout", value)}
+            />
+          </div>
+        </div>
+
+        <div className="space-y-2 rounded-lg border border-[#EFF0F1] bg-[#F8F9FA] p-2">
+          <div
+            className={`flex items-center gap-1.5 text-[#2B2F36] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
+          >
+            <IconTile tone="neutral" size="xs">
+              <BluetoothConnected size={13} />
+            </IconTile>
+            {t("settings.clientContextHardware")}
+          </div>
+          <div className="grid gap-2">
+            <ClientContextSegmentedControl<ClientContextDemoConnectionState>
+              label={t("settings.clientContextConnection")}
+              value={settings.connectionState}
+              options={[
+                {
+                  value: "connected",
+                  label: t("settings.clientContextConnected"),
+                  icon: <BluetoothConnected size={13} />,
+                },
+                {
+                  value: "disconnected",
+                  label: t("settings.clientContextDisconnected"),
+                  icon: <X size={13} />,
+                },
+              ]}
+              onChange={(value) => onChange("connectionState", value)}
+            />
+            <ClientContextBatteryControl
+              label={t("settings.clientContextLeftBattery")}
+              value={settings.leftBatteryPercent}
+              onChange={(value) => setNumber("leftBatteryPercent", value)}
+            />
+            <ClientContextBatteryControl
+              label={t("settings.clientContextRightBattery")}
+              value={settings.rightBatteryPercent}
+              onChange={(value) => setNumber("rightBatteryPercent", value)}
+            />
+            <ClientContextBatteryControl
+              label={t("settings.clientContextCaseBattery")}
+              value={settings.caseBatteryPercent}
+              onChange={(value) => setNumber("caseBatteryPercent", value)}
+            />
+            <ClientContextSegmentedControl<ClientContextDemoNoiseControl>
+              label={t("settings.clientContextNoiseControl")}
+              value={settings.noiseControl}
+              options={[
+                {
+                  value: "anc",
+                  label: t("settings.clientContextNoiseAnc"),
+                  icon: <Radio size={13} />,
+                },
+                {
+                  value: "transparency",
+                  label: t("settings.clientContextNoiseTransparency"),
+                  icon: <Radio size={13} />,
+                },
+                { value: "off", label: t("settings.clientContextNoiseOff"), icon: <X size={13} /> },
+              ]}
+              onChange={(value) => onChange("noiseControl", value)}
+            />
+            <button
+              type="button"
+              aria-pressed={settings.recording}
+              onClick={() => onChange("recording", !settings.recording)}
+              className={`flex h-10 items-center justify-between rounded-lg border border-[#DEE0E3] bg-white px-2.5 text-[#2B2F36] transition-colors hover:bg-[#F8F9FA] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
+            >
+              <span className="flex items-center gap-1.5">
+                <IconTile tone="neutral" size="xs">
+                  {settings.recording ? <Mic size={13} /> : <MicOff size={13} />}
+                </IconTile>
+                {t("settings.clientContextRecording")}
+              </span>
+              <span className={TYPOGRAPHY_META_MEDIUM_CLASS}>
+                {settings.recording
+                  ? t("settings.clientContextRecordingOn")
+                  : t("settings.clientContextRecordingOff")}
+              </span>
+            </button>
+          </div>
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#EFF0F1] pt-2">
+        <div className={`text-[#646A73] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>
+          schema: ripple.client_context.v1
+        </div>
+        <button
+          type="button"
+          onClick={onReset}
+          className={`inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#DEE0E3] bg-white px-2.5 text-[#2B2F36] transition-colors hover:bg-[#F8F9FA] ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}
+        >
+          <RotateCcw size={13} />
+          {t("settings.clientContextReset")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ClientContextSegmentedControl<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: T;
+  options: Array<{ value: T; label: string; icon?: React.ReactNode }>;
+  onChange: (value: T) => void;
+}) {
+  return (
+    <div className="min-w-0">
+      <div className={`mb-1 text-[#646A73] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}>{label}</div>
+      <div className="grid min-h-10 grid-cols-2 gap-1 rounded-lg border border-[#DEE0E3] bg-white p-0.5">
+        {options.map((option) => {
+          const selected = option.value === value;
+          return (
+            <button
+              key={option.value}
+              type="button"
+              aria-pressed={selected}
+              onClick={() => onChange(option.value)}
+              className={`flex min-h-9 min-w-0 items-center justify-center gap-1.5 rounded-md px-1.5 text-center transition-colors ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} ${
+                selected ? "bg-[#F0F5FF] text-[#0F4BD8]" : "text-[#646A73] hover:bg-[#F8F9FA]"
+              }`}
+            >
+              {option.icon}
+              <span className="min-w-0 truncate">{option.label}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function ClientContextBatteryControl({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="block rounded-lg border border-[#EFF0F1] bg-white px-2.5 py-2">
+      <span
+        className={`mb-1 flex items-center justify-between gap-2 text-[#646A73] ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+      >
+        <span className="flex items-center gap-1.5">
+          <Battery size={13} />
+          {label} {value}%
+        </span>
+      </span>
+      <input
+        type="range"
+        min={0}
+        max={100}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-2 w-full accent-[#1456F0]"
+      />
+    </label>
+  );
+}
 
 function SectionHeader({
   icon,

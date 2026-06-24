@@ -32,6 +32,7 @@ import {
   clearPlanState,
   upsertPlanStep,
 } from "@/lib/chatState";
+import { getChatClientContextSnapshot, mergeRequiredSkillIds } from "@/lib/clientContext";
 import { bumpInputFocusToken } from "@/lib/inputFocus";
 import {
   createPendingLocalImages,
@@ -288,8 +289,7 @@ export function useChatRun({
       setAvailableSkills(
         skills.filter(
           (skill) =>
-            skill.enabled &&
-            (skill.user_status === "available" || skill.status === "available")
+            skill.enabled && (skill.user_status === "available" || skill.status === "available")
         )
       );
     } catch (error) {
@@ -1018,12 +1018,17 @@ export function useChatRun({
         );
       } else {
         const manualRequiredSkillIds = selectedRequiredSkillId ? [selectedRequiredSkillId] : [];
+        const contextSnapshot = getChatClientContextSnapshot();
+        const requiredSkillIds = mergeRequiredSkillIds(
+          manualRequiredSkillIds,
+          contextSnapshot.requiredSkillIds
+        );
 
         await sendChatMessage(activeSessionId, text, selectedModel, callbacks, {
           signal: abortController.signal,
           files: filesForSend,
-          requiredSkillIds:
-            manualRequiredSkillIds.length > 0 ? manualRequiredSkillIds : undefined,
+          requiredSkillIds: requiredSkillIds.length > 0 ? requiredSkillIds : undefined,
+          clientContext: contextSnapshot.clientContext,
         });
         if (selectedRequiredSkillId) setSelectedRequiredSkillId(null);
       }

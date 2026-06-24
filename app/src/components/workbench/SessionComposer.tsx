@@ -5,7 +5,6 @@ import { createPortal } from "react-dom";
 import {
   AlertTriangle,
   Blocks,
-  Braces,
   BrainCircuit,
   FileText,
   FolderGit2,
@@ -18,7 +17,6 @@ import {
 } from "lucide-react";
 import { useI18n } from "@/i18n";
 import type { ChatFileRef } from "@/lib/chatInput";
-import type { ClientContextFixture } from "@/lib/clientContextFixtures";
 import { shouldApplyInputFocus } from "@/lib/inputFocus";
 import { formatModelName } from "@/lib/models";
 import type { SkillInfo } from "@/types";
@@ -77,9 +75,6 @@ interface SessionComposerProps {
   isLoadingSkills?: boolean;
   onLoadSkills?: () => void | Promise<void>;
   onSelectRequiredSkill?: (skillId: string | null) => void;
-  clientContextFixtures?: ClientContextFixture[];
-  selectedClientContextFixtureId?: string;
-  onSelectClientContextFixture?: (fixtureId: string) => void;
 }
 
 export function shouldExpandComposer(value: string, isComposerFocused: boolean): boolean {
@@ -186,9 +181,6 @@ export default function SessionComposer({
   isLoadingSkills = false,
   onLoadSkills,
   onSelectRequiredSkill,
-  clientContextFixtures = [],
-  selectedClientContextFixtureId = "none",
-  onSelectClientContextFixture,
 }: SessionComposerProps) {
   const { t } = useI18n();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -199,14 +191,11 @@ export default function SessionComposer({
   const modelMenuRef = useRef<HTMLDivElement>(null);
   const skillDropdownRef = useRef<HTMLDivElement>(null);
   const skillMenuRef = useRef<HTMLDivElement>(null);
-  const contextDropdownRef = useRef<HTMLDivElement>(null);
-  const contextMenuRef = useRef<HTMLDivElement>(null);
   const folderPickerRef = useRef<HTMLDivElement>(null);
   const touchSelectedModelRef = useRef<string | null>(null);
   const [isComposerFocused, setIsComposerFocused] = useState(false);
   const [isFolderPickerOpen, setIsFolderPickerOpen] = useState(false);
   const [isSkillMenuOpen, setIsSkillMenuOpen] = useState(false);
-  const [isContextMenuOpen, setIsContextMenuOpen] = useState(false);
   const [modelMenuPosition, setModelMenuPosition] = useState<ModelMenuPosition | null>(null);
   const canSend = Boolean(value.trim() || pendingFiles.length > 0 || pendingLocalImages.length > 0);
   const inputDisabled = isGenerating;
@@ -225,9 +214,6 @@ export default function SessionComposer({
   const selectedRequiredSkill = availableSkills.find(
     (skill) => skill.id === selectedRequiredSkillId
   );
-  const selectedClientContextFixture =
-    clientContextFixtures.find((fixture) => fixture.id === selectedClientContextFixtureId) || null;
-  const hasSelectedClientContextFixture = Boolean(selectedClientContextFixture?.clientContext);
   const selectableSkills = availableSkills.filter(
     (skill) => skill.enabled && (skill.user_status === "available" || skill.status === "available")
   );
@@ -258,10 +244,6 @@ export default function SessionComposer({
 
   const closeSkillMenu = useCallback(() => {
     setIsSkillMenuOpen(false);
-  }, []);
-
-  const closeContextMenu = useCallback(() => {
-    setIsContextMenuOpen(false);
   }, []);
 
   const adjustHeight = useCallback(() => {
@@ -348,29 +330,6 @@ export default function SessionComposer({
     };
   }, [closeSkillMenu, isSkillMenuOpen]);
 
-  useEffect(() => {
-    if (!isContextMenuOpen) return;
-
-    const handlePointerDown = (event: PointerEvent) => {
-      const target = event.target;
-      if (!(target instanceof Node)) return;
-      if (contextDropdownRef.current?.contains(target)) return;
-      if (contextMenuRef.current?.contains(target)) return;
-      closeContextMenu();
-    };
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") closeContextMenu();
-    };
-
-    document.addEventListener("pointerdown", handlePointerDown, true);
-    window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown, true);
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [closeContextMenu, isContextMenuOpen]);
-
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key !== "Enter" || event.shiftKey) return;
     if (event.nativeEvent.isComposing || event.keyCode === 229) return;
@@ -414,7 +373,6 @@ export default function SessionComposer({
   const handleModelButtonClick = () => {
     setIsFolderPickerOpen(false);
     closeSkillMenu();
-    closeContextMenu();
     if (isModelDropdownOpen) {
       closeModelMenu();
       return;
@@ -426,18 +384,9 @@ export default function SessionComposer({
   const handleSkillButtonClick = () => {
     if (!onSelectRequiredSkill) return;
     setIsFolderPickerOpen(false);
-    closeContextMenu();
     if (isModelDropdownOpen) closeModelMenu();
     if (!isSkillMenuOpen) void onLoadSkills?.();
     setIsSkillMenuOpen((open) => !open);
-  };
-
-  const handleContextButtonClick = () => {
-    if (!onSelectClientContextFixture) return;
-    setIsFolderPickerOpen(false);
-    closeSkillMenu();
-    if (isModelDropdownOpen) closeModelMenu();
-    setIsContextMenuOpen((open) => !open);
   };
 
   const handleModelOptionPointerDown = useCallback(
@@ -523,7 +472,6 @@ export default function SessionComposer({
             onClick={() => {
               if (isModelDropdownOpen) closeModelMenu();
               closeSkillMenu();
-              closeContextMenu();
               setIsFolderPickerOpen((open) => !open);
             }}
             className={`${COMPOSER_ICON_BUTTON_CLASS} ${
@@ -541,58 +489,6 @@ export default function SessionComposer({
             />
           )}
           <span className="sr-only">{workspaceScopePath}</span>
-        </div>
-      )}
-      {onSelectClientContextFixture && clientContextFixtures.length > 0 && (
-        <div ref={contextDropdownRef} className="relative flex shrink-0 items-center">
-          <button
-            type="button"
-            data-ripple-composer-context-button
-            aria-label={t("composer.selectContext")}
-            aria-pressed={hasSelectedClientContextFixture}
-            title={
-              hasSelectedClientContextFixture && selectedClientContextFixture
-                ? t("composer.selectedContext", { name: selectedClientContextFixture.label })
-                : t("composer.selectContext")
-            }
-            onClick={handleContextButtonClick}
-            className={`${COMPOSER_ICON_BUTTON_CLASS} ${
-              hasSelectedClientContextFixture || isContextMenuOpen
-                ? COMPOSER_ICON_BUTTON_ACTIVE_CLASS
-                : ""
-            }`}
-          >
-            <Braces size={16} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
-          </button>
-          {isContextMenuOpen && (
-            <div
-              ref={contextMenuRef}
-              data-ripple-composer-context-menu
-              role="menu"
-              className={`absolute bottom-full left-0 z-40 mb-2 max-h-72 w-72 overflow-y-auto ${WORKBENCH_MENU_CLASS}`}
-            >
-              {clientContextFixtures.map((fixture) => {
-                const selected = fixture.id === selectedClientContextFixtureId;
-                return (
-                  <button
-                    key={fixture.id}
-                    type="button"
-                    role="menuitemradio"
-                    aria-checked={selected}
-                    onClick={() => {
-                      onSelectClientContextFixture(fixture.id);
-                      closeContextMenu();
-                    }}
-                    className={`${WORKBENCH_MENU_ITEM_CLASS} min-h-8 justify-between ${TYPOGRAPHY_META_CLASS} ${
-                      selected ? "bg-[#F0F5FF] text-[#1456F0]" : "text-[#1F2329]"
-                    }`}
-                  >
-                    <span className="min-w-0 truncate">{fixture.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
         </div>
       )}
       {onSelectRequiredSkill && (
@@ -771,28 +667,6 @@ export default function SessionComposer({
             </div>
           </div>
         )}
-        {hasSelectedClientContextFixture &&
-          selectedClientContextFixture &&
-          onSelectClientContextFixture && (
-            <div className="flex min-w-0 px-1 pt-0.5 pb-1">
-              <div
-                data-ripple-composer-context-chip
-                className={`inline-flex max-w-full items-center gap-1.5 rounded-lg border border-[#BACEFD] bg-[#F0F5FF] px-2 py-1 ${TYPOGRAPHY_MICRO_CLASS} text-[#1456F0]`}
-              >
-                <Braces size={13} className="shrink-0" strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
-                <span className="min-w-0 truncate">{selectedClientContextFixture.label}</span>
-                <button
-                  type="button"
-                  aria-label={t("composer.clearSelectedContext")}
-                  title={t("composer.clearSelectedContext")}
-                  onClick={() => onSelectClientContextFixture("none")}
-                  className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[#1456F0] hover:bg-[#DDE8FF]"
-                >
-                  <X size={11} />
-                </button>
-              </div>
-            </div>
-          )}
         <div
           data-composer-expanded={isExpandedComposer ? "true" : "false"}
           data-composer-layout={isExpandedComposer ? "stacked" : "inline"}

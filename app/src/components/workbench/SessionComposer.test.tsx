@@ -5,7 +5,6 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import { I18nProvider, type LocalePreference } from "@/i18n";
 import SessionComposer, { composerToolbarClassName, shouldExpandComposer } from "./SessionComposer";
-import { CLIENT_CONTEXT_FIXTURES } from "@/lib/clientContextFixtures";
 import type { PendingLocalImage } from "@/lib/pendingImages";
 
 function noop() {}
@@ -211,40 +210,38 @@ function testComposerShowsRequiredSkillPickerChip() {
   const html = renderComposer({
     availableSkills: [
       {
-        id: "ripple:ripple-ui-explainer",
+        id: "ripple:viaim-product-support",
         type: "skill",
-        name: "ripple-ui-explainer",
-        display_name: "Ripple UI Explainer",
-        description: "Explain Ripple UI screenshots.",
+        name: "viaim-product-support",
+        display_name: "viaim Product Support",
+        description: "Answer viaim product, hardware, software, and UI context questions.",
         source: "ripple",
         display_source: "system",
-        path: "skills/ripple-ui-explainer/SKILL.md",
+        path: "skills/viaim-product-support/SKILL.md",
         user_status: "available",
         enabled: true,
         status: "available",
       },
     ],
-    selectedRequiredSkillId: "ripple:ripple-ui-explainer",
+    selectedRequiredSkillId: "ripple:viaim-product-support",
     onSelectRequiredSkill: noop,
   });
 
   assert.match(html, /data-ripple-composer-skill-button/);
   assert.match(html, /aria-label="Select skill"/);
-  assert.match(html, /Ripple UI Explainer/);
+  assert.match(html, /viaim Product Support/);
   assert.match(html, /aria-label="Clear selected skill"/);
 }
 
-function testComposerShowsClientContextFixturePickerChip() {
-  const html = renderComposer({
-    clientContextFixtures: CLIENT_CONTEXT_FIXTURES,
-    selectedClientContextFixtureId: "meeting-detail-with-headset",
-    onSelectClientContextFixture: noop,
-  });
+function testComposerDoesNotExposeClientContextFixturePicker() {
+  const source = readFileSync(new URL("./SessionComposer.tsx", import.meta.url), "utf8");
 
-  assert.match(html, /data-ripple-composer-context-button/);
-  assert.match(html, /aria-label="Select test context"/);
-  assert.match(html, /Meeting page \+ AI headset/);
-  assert.match(html, /aria-label="Clear test context"/);
+  assert.doesNotMatch(source, /ClientContextFixture/);
+  assert.doesNotMatch(source, /clientContextFixtures/);
+  assert.doesNotMatch(source, /selectedClientContextFixtureId/);
+  assert.doesNotMatch(source, /onSelectClientContextFixture/);
+  assert.doesNotMatch(source, /data-ripple-composer-context-button/);
+  assert.doesNotMatch(source, /data-ripple-composer-context-chip/);
 }
 
 function testComposerModelMenuSelectsOnTouchPointerDown() {
@@ -391,7 +388,7 @@ testComposerUsesWorkbenchSurfaceScaleAndIndependentToolButtons();
 testComposerModelMenuUsesViewportPortal();
 testComposerModelButtonHasStableExplainerAnchor();
 testComposerShowsRequiredSkillPickerChip();
-testComposerShowsClientContextFixturePickerChip();
+testComposerDoesNotExposeClientContextFixturePicker();
 testComposerModelMenuSelectsOnTouchPointerDown();
 testComposerModelMenuClosesWithExplicitCloseCallback();
 testHiddenComposerDoesNotCloseVisibleModelMenu();

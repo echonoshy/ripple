@@ -27,10 +27,6 @@ import {
 import { chatErrorContent } from "@/lib/chatErrors";
 import { describeChatFilesForDisplay, type ChatFileRef } from "@/lib/chatInput";
 import {
-  CLIENT_CONTEXT_FIXTURES,
-  getClientContextFixture,
-} from "@/lib/clientContextFixtures";
-import {
   applyPlanUpdate,
   applyPlanStepUpdate,
   clearPlanState,
@@ -158,7 +154,6 @@ export function useChatRun({
   const [availableSkills, setAvailableSkills] = useState<SkillInfo[]>([]);
   const [isLoadingSkills, setIsLoadingSkills] = useState(false);
   const [selectedRequiredSkillId, setSelectedRequiredSkillId] = useState<string | null>(null);
-  const [selectedClientContextFixtureId, setSelectedClientContextFixtureId] = useState("none");
 
   const activeRequestIdsRef = useRef<Map<string, number>>(new Map());
   const abortControllersRef = useRef<Map<string, AbortController>>(new Map());
@@ -1022,21 +1017,13 @@ export function useChatRun({
           { signal: abortController.signal }
         );
       } else {
-        const selectedClientContextFixture = getClientContextFixture(
-          selectedClientContextFixtureId
-        );
-        const fixtureRequiredSkillIds = selectedClientContextFixture.requiredSkillIds || [];
         const manualRequiredSkillIds = selectedRequiredSkillId ? [selectedRequiredSkillId] : [];
-        const mergedRequiredSkillIds = Array.from(
-          new Set([...manualRequiredSkillIds, ...fixtureRequiredSkillIds])
-        );
 
         await sendChatMessage(activeSessionId, text, selectedModel, callbacks, {
           signal: abortController.signal,
           files: filesForSend,
           requiredSkillIds:
-            mergedRequiredSkillIds.length > 0 ? mergedRequiredSkillIds : undefined,
-          clientContext: selectedClientContextFixture.clientContext,
+            manualRequiredSkillIds.length > 0 ? manualRequiredSkillIds : undefined,
         });
         if (selectedRequiredSkillId) setSelectedRequiredSkillId(null);
       }
@@ -1054,7 +1041,6 @@ export function useChatRun({
       onWorkspaceRefresh,
       pendingFiles,
       pendingLocalImages,
-      selectedClientContextFixtureId,
       selectedRequiredSkillId,
       runtimeTimelineEvents,
       selectedModel,
@@ -1667,8 +1653,6 @@ export function useChatRun({
     availableSkills,
     isLoadingSkills,
     selectedRequiredSkillId,
-    clientContextFixtures: CLIENT_CONTEXT_FIXTURES,
-    selectedClientContextFixtureId,
     resetSessionView,
     resetCurrentContextView,
     abortRunAndResetSessionView,
@@ -1687,6 +1671,5 @@ export function useChatRun({
     handleFeishuAuthOpen,
     loadAvailableSkills,
     setSelectedRequiredSkillId,
-    setSelectedClientContextFixtureId,
   };
 }

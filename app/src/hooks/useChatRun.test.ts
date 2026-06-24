@@ -381,19 +381,18 @@ function testSendFlowIncludesSelectedRequiredSkill() {
 
   assert.match(source, /selectedRequiredSkillId/);
   assert.match(source, /manualRequiredSkillIds/);
-  assert.match(source, /mergedRequiredSkillIds/);
-  assert.match(source, /requiredSkillIds:\s*mergedRequiredSkillIds\.length > 0/);
+  assert.match(source, /requiredSkillIds:\s*manualRequiredSkillIds\.length > 0/);
   assert.match(source, /setSelectedRequiredSkillId\(null\)/);
 }
 
-function testSendFlowIncludesSelectedClientContextFixture() {
+function testSendFlowDoesNotIncludeClientContextFixtures() {
   const source = readFileSync(new URL("./useChatRun.ts", import.meta.url), "utf8");
 
-  assert.match(source, /selectedClientContextFixtureId/);
-  assert.match(source, /getClientContextFixture\(\s*selectedClientContextFixtureId\s*\)/);
-  assert.match(source, /clientContext:\s*selectedClientContextFixture\.clientContext/);
-  assert.match(source, /fixtureRequiredSkillIds/);
-  assert.match(source, /mergedRequiredSkillIds/);
+  assert.doesNotMatch(source, /CLIENT_CONTEXT_FIXTURES/);
+  assert.doesNotMatch(source, /getClientContextFixture/);
+  assert.doesNotMatch(source, /selectedClientContextFixtureId/);
+  assert.doesNotMatch(source, /clientContext:\s*selectedClientContextFixture\.clientContext/);
+  assert.doesNotMatch(source, /fixtureRequiredSkillIds/);
 }
 
 function testSendErrorsReleaseSessionForRetry() {
@@ -459,7 +458,7 @@ test("useChatRun behavior", async () => {
   testFollowUpPollingIsRemovedFromChatRun();
   testSessionControlActionsStartFreshSessions();
   testSendFlowIncludesSelectedRequiredSkill();
-  testSendFlowIncludesSelectedClientContextFixture();
+  testSendFlowDoesNotIncludeClientContextFixtures();
   testSendErrorsReleaseSessionForRetry();
   testAskUserMarksBackgroundSessionAsNewResult();
   testPermissionRequestKeepsApprovalAttention();

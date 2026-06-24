@@ -308,8 +308,6 @@ export default function Home() {
     availableSkills,
     isLoadingSkills,
     selectedRequiredSkillId,
-    clientContextFixtures,
-    selectedClientContextFixtureId,
     resetSessionView,
     abortRunAndResetSessionView,
     applySessionDetails,
@@ -325,7 +323,6 @@ export default function Home() {
     handleFeishuAuthOpen,
     loadAvailableSkills,
     setSelectedRequiredSkillId,
-    setSelectedClientContextFixtureId,
   } = useChatRun({
     selectedModel,
     onSelectedModelChange: handleSessionDetailModelChange,
@@ -1056,8 +1053,6 @@ export default function Home() {
       availableSkills={availableSkills}
       selectedRequiredSkillId={selectedRequiredSkillId}
       isLoadingSkills={isLoadingSkills}
-      clientContextFixtures={clientContextFixtures}
-      selectedClientContextFixtureId={selectedClientContextFixtureId}
       sessionId={sessionPageSessionId}
       scrollToBottomRequest={sessionScrollToBottomRequest}
       contextFolderPath={sessionPageContextFolderPath}
@@ -1073,7 +1068,6 @@ export default function Home() {
       onSelectModel={handleSelectModel}
       onLoadSkills={loadAvailableSkills}
       onSelectRequiredSkill={setSelectedRequiredSkillId}
-      onSelectClientContextFixture={setSelectedClientContextFixtureId}
       onSend={handleSendMessage}
       onStop={handleStop}
       onQuickReply={handleQuickReply}

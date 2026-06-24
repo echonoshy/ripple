@@ -51,7 +51,6 @@ import {
   setApiKey,
   setUserSessionToken,
 } from "./api";
-import { getClientContextFixture } from "./clientContextFixtures";
 
 function response(status: number, detail: string): Response {
   return new Response(JSON.stringify({ detail }), {
@@ -1600,7 +1599,7 @@ async function testSendChatMessagePassesRequiredSkillsAndScreenContext() {
           onComplete: () => undefined,
           onError: () => undefined,
         }, {
-          requiredSkillIds: ["ripple:ripple-ui-explainer"],
+          requiredSkillIds: ["ripple:viaim-product-support"],
           screenContext: {
             app: "ripple",
             screen_id: "session.chat",
@@ -1616,7 +1615,7 @@ async function testSendChatMessagePassesRequiredSkillsAndScreenContext() {
   assert.equal(requests.length, 1);
   assert.deepEqual(requests[0].body.metadata, {
     ripple_session_id: "session-1",
-    required_skill_ids: ["ripple:ripple-ui-explainer"],
+    required_skill_ids: ["ripple:viaim-product-support"],
     screen_context: {
       app: "ripple",
       screen_id: "session.chat",
@@ -1624,7 +1623,7 @@ async function testSendChatMessagePassesRequiredSkillsAndScreenContext() {
   });
 }
 
-async function testSendChatMessagePassesClientContextFixture() {
+async function testSendChatMessagePassesClientContextOption() {
   const requests: Array<{ body: Record<string, unknown> }> = [];
   const globals = globalThis as unknown as {
     document?: Pick<Document, "addEventListener" | "removeEventListener"> & { hidden: boolean };
@@ -1642,7 +1641,25 @@ async function testSendChatMessagePassesClientContextFixture() {
     setTimeout: globalThis.setTimeout,
     clearTimeout: globalThis.clearTimeout,
   };
-  const fixture = getClientContextFixture("meeting-detail-with-headset");
+  const clientContext = {
+    schema_version: "ripple.client_context.v1",
+    software: {
+      host_app: {
+        app_id: "viaim.meeting",
+      },
+      screen: {
+        screen_id: "meeting.detail",
+      },
+    },
+    devices: [
+      {
+        kind: "ai_headset",
+        state: {
+          noise_control: "anc",
+        },
+      },
+    ],
+  };
 
   try {
     await withFetch(
@@ -1669,8 +1686,8 @@ async function testSendChatMessagePassesClientContextFixture() {
             onError: () => undefined,
           },
           {
-            requiredSkillIds: fixture?.requiredSkillIds,
-            clientContext: fixture?.clientContext,
+            requiredSkillIds: ["ripple:viaim-product-support"],
+            clientContext,
           }
         );
       }
@@ -1682,7 +1699,7 @@ async function testSendChatMessagePassesClientContextFixture() {
 
   assert.equal(requests.length, 1);
   assert.deepEqual((requests[0].body.metadata as Record<string, unknown>)?.required_skill_ids, [
-    "ripple:ripple-ui-explainer",
+    "ripple:viaim-product-support",
   ]);
   assert.equal(
     (
@@ -1848,6 +1865,6 @@ test("api client behavior", async () => {
   await testChatStreamUsesServerConflictDetail();
   await testResponsesStreamDeltaFeedsChatCallbacks();
   await testSendChatMessagePassesRequiredSkillsAndScreenContext();
-  await testSendChatMessagePassesClientContextFixture();
+  await testSendChatMessagePassesClientContextOption();
   await testSessionControlActionUsesStructuredResponsesInput();
 });

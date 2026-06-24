@@ -31,7 +31,6 @@ import type {
 import type { FeishuAuthOpenPayload, FeishuAuthWaitingState } from "@/components/MarkdownRenderer";
 import { useI18n } from "@/i18n";
 import type { ChatFileRef } from "@/lib/chatInput";
-import type { ClientContextFixture } from "@/lib/clientContextFixtures";
 import { formatModelName } from "@/lib/models";
 import {
   filesFromDropData,
@@ -257,8 +256,6 @@ interface SessionPageProps {
   availableSkills?: SkillInfo[];
   selectedRequiredSkillId?: string | null;
   isLoadingSkills?: boolean;
-  clientContextFixtures?: ClientContextFixture[];
-  selectedClientContextFixtureId?: string;
   sessionId: string | null;
   scrollToBottomRequest?: number;
   restoreScrollTop?: number | null;
@@ -275,7 +272,6 @@ interface SessionPageProps {
   onSelectModel: (model: string) => void;
   onLoadSkills?: () => void | Promise<void>;
   onSelectRequiredSkill?: (skillId: string | null) => void;
-  onSelectClientContextFixture?: (fixtureId: string) => void;
   onSend: () => void;
   onStop: () => void;
   onQuickReply: (option: string) => void;
@@ -311,8 +307,6 @@ export default function SessionPage({
   availableSkills = [],
   selectedRequiredSkillId = null,
   isLoadingSkills = false,
-  clientContextFixtures = [],
-  selectedClientContextFixtureId = "none",
   sessionId,
   scrollToBottomRequest = 0,
   restoreScrollTop = null,
@@ -329,7 +323,6 @@ export default function SessionPage({
   onSelectModel,
   onLoadSkills,
   onSelectRequiredSkill,
-  onSelectClientContextFixture,
   onSend,
   onStop,
   onQuickReply,
@@ -967,9 +960,6 @@ export default function SessionPage({
           isLoadingSkills={isLoadingSkills}
           onLoadSkills={onLoadSkills}
           onSelectRequiredSkill={onSelectRequiredSkill}
-          clientContextFixtures={clientContextFixtures}
-          selectedClientContextFixtureId={selectedClientContextFixtureId}
-          onSelectClientContextFixture={onSelectClientContextFixture}
           contextFolderPath={effectiveContextFolderPath}
           workspaceScopeLabel={workspaceScopeLabel}
           workspaceScopePath={workspaceScopePath}

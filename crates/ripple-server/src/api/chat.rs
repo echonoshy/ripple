@@ -61,7 +61,8 @@ pub(crate) use media::{
 use media::{decode_base64_image_payload, workspace_path_or_none};
 use project_context::collect_folder_context;
 pub(crate) use prompt::{
-    build_codex_chat_base_instructions, build_codex_chat_turn_context, RequiredSkillContext,
+    build_codex_chat_base_instructions, build_codex_chat_turn_context, render_client_context,
+    RequiredSkillContext,
 };
 #[cfg(test)]
 use recent_context::recent_task_triggers_context_from_records;
@@ -89,6 +90,8 @@ pub struct InternalChatRequest {
     pub preferred_skill_ids: Vec<String>,
     #[serde(default)]
     pub screen_context: Option<Value>,
+    #[serde(default)]
+    pub client_context: Option<Value>,
     #[serde(default)]
     pub temporary: bool,
     pub max_turns: Option<u32>,
@@ -121,6 +124,7 @@ impl ResponsesCreateRequest {
         )?;
         let preferred_skill_ids =
             metadata_string_list(self.metadata.as_ref(), &["preferred_skill_ids"])?;
+        let client_context = metadata_client_context(self.metadata.as_ref())?;
         let screen_context = metadata_screen_context(self.metadata.as_ref())?;
         let effort = self
             .reasoning
@@ -143,6 +147,7 @@ impl ResponsesCreateRequest {
             required_skill_ids,
             preferred_skill_ids,
             screen_context,
+            client_context,
             temporary: self.store == Some(false),
             max_turns: None,
             effort,
@@ -207,27 +212,50 @@ fn metadata_string_list(metadata: Option<&Value>, keys: &[&str]) -> Result<Vec<S
     Ok(values)
 }
 
+fn metadata_client_context(metadata: Option<&Value>) -> Result<Option<Value>, ApiError> {
+    let Some(metadata) = metadata else {
+        return Ok(None);
+    };
+    let Some(value) = metadata.get("client_context") else {
+        return Ok(None);
+    };
+    if value.is_null() {
+        return Ok(None);
+    }
+    if !value.is_object() {
+        return Err(ApiError::bad_request("client_context must be an object"));
+    }
+    Ok(Some(value.clone()))
+}
+
 fn metadata_screen_context(metadata: Option<&Value>) -> Result<Option<Value>, ApiError> {
     let Some(metadata) = metadata else {
         return Ok(None);
     };
-    for key in ["client_context", "screen_context"] {
-        let Some(value) = metadata.get(key) else {
-            continue;
-        };
-        if value.is_null() {
-            continue;
-        }
-        if !value.is_object() {
-            return Err(ApiError::bad_request(format!("{key} must be an object")));
-        }
-        return Ok(Some(value.clone()));
+    let Some(value) = metadata.get("screen_context") else {
+        return Ok(None);
+    };
+    if value.is_null() {
+        return Ok(None);
     }
-    Ok(None)
+    if !value.is_object() {
+        return Err(ApiError::bad_request("screen_context must be an object"));
+    }
+    Ok(Some(value.clone()))
 }
 
-fn context_requests_ui_explainer(screen_context: Option<&Value>) -> bool {
-    screen_context_app_is_ripple(screen_context) || client_context_uses_mvp_schema(screen_context)
+const VIAIM_PRODUCT_SUPPORT_SKILL_ID: &str = "ripple:viaim-product-support";
+const VIAIM_PRODUCT_SUPPORT_SKILL_NAME: &str = "viaim-product-support";
+
+fn context_requests_viaim_product_support(
+    screen_context: Option<&Value>,
+    client_context: Option<&Value>,
+) -> bool {
+    screen_context_app_is_ripple(screen_context)
+        || context_app_value(client_context)
+            .map(is_viaim_app_value)
+            .unwrap_or(false)
+        || client_context_has_viaim_device(client_context)
 }
 
 fn client_context_uses_mvp_schema(screen_context: Option<&Value>) -> bool {
@@ -261,6 +289,29 @@ fn is_ripple_app_value(value: &str) -> bool {
     value.eq_ignore_ascii_case("ripple")
         || value.eq_ignore_ascii_case("ripple.app")
         || value.eq_ignore_ascii_case("ripple.chat")
+}
+
+fn is_viaim_app_value(value: &str) -> bool {
+    let value = value.trim();
+    value.eq_ignore_ascii_case("viaim")
+        || value.eq_ignore_ascii_case("viaim.app")
+        || value.to_ascii_lowercase().starts_with("viaim.")
+}
+
+fn client_context_has_viaim_device(client_context: Option<&Value>) -> bool {
+    let Some(devices) = client_context
+        .and_then(|value| value.get("devices"))
+        .and_then(Value::as_array)
+    else {
+        return false;
+    };
+    devices.iter().any(|device| {
+        device
+            .pointer("/identity/manufacturer")
+            .and_then(Value::as_str)
+            .map(|value| value.trim().eq_ignore_ascii_case("viaim"))
+            .unwrap_or(false)
+    })
 }
 
 fn responses_input_to_messages(
@@ -416,12 +467,14 @@ async fn prepare_chat_skill_context(
 
 fn effective_required_skill_ids(request: &InternalChatRequest) -> Vec<String> {
     let mut ids = request.required_skill_ids.clone();
-    if context_requests_ui_explainer(request.screen_context.as_ref())
-        && !ids
-            .iter()
-            .any(|id| id == "ripple:ripple-ui-explainer" || id == "ripple-ui-explainer")
+    if context_requests_viaim_product_support(
+        request.screen_context.as_ref(),
+        effective_client_context(request),
+    ) && !ids
+        .iter()
+        .any(|id| id == VIAIM_PRODUCT_SUPPORT_SKILL_ID || id == VIAIM_PRODUCT_SUPPORT_SKILL_NAME)
     {
-        ids.push("ripple:ripple-ui-explainer".to_string());
+        ids.push(VIAIM_PRODUCT_SUPPORT_SKILL_ID.to_string());
     }
     ids
 }
@@ -430,6 +483,13 @@ fn screen_context_app_is_ripple(screen_context: Option<&Value>) -> bool {
     context_app_value(screen_context)
         .map(is_ripple_app_value)
         .unwrap_or(false)
+}
+
+fn effective_client_context(request: &InternalChatRequest) -> Option<&Value> {
+    request.client_context.as_ref().or_else(|| {
+        let screen_context = request.screen_context.as_ref()?;
+        client_context_uses_mvp_schema(Some(screen_context)).then_some(screen_context)
+    })
 }
 
 fn required_skill_contexts(
@@ -765,6 +825,7 @@ async fn create_codex_chat_run(args: &CodexChatStart) -> Result<AgentRunInfo, Ap
     let prompt = chat_turn_prompt(&args.user_input);
     let mut native_items = args.input_items.clone();
     native_items.push(json!({"type": "text", "text": prompt}));
+    let client_context = render_client_context(effective_client_context(&args.request));
     let runtime_dir = args
         .state
         .sandboxes
@@ -774,6 +835,7 @@ async fn create_codex_chat_run(args: &CodexChatStart) -> Result<AgentRunInfo, Ap
         provider: "codex".to_string(),
         base_instructions: Some(base_instructions),
         turn_context: Some(turn_context),
+        client_context,
         cwd: Some(chat_cwd_for_session(&args.session)),
         input_items: native_items,
         model: Some(args.model.clone()),
@@ -1068,6 +1130,7 @@ pub async fn poll_session_connector_auth(
             required_skill_ids: Vec::new(),
             preferred_skill_ids: Vec::new(),
             screen_context: None,
+            client_context: None,
             temporary: false,
             max_turns: None,
             effort: request.effort,
@@ -2414,7 +2477,7 @@ mod tests {
             &state,
             Some(&workspace_root),
             &skill_options,
-            &["ripple:ripple-ui-explainer".to_string()],
+            &["ripple:viaim-product-support".to_string()],
         )
         .expect("required skill context");
         let screen_context = json!({
@@ -2444,9 +2507,13 @@ mod tests {
         );
 
         assert!(prompt.contains("## Required Skills"));
-        assert!(prompt.contains("ripple:ripple-ui-explainer"));
-        assert!(prompt.contains("Ripple UI Explainer"));
+        assert!(prompt.contains("ripple:viaim-product-support"));
+        assert!(prompt.contains("viaim 产品知识库"));
         assert!(prompt.contains("SKILL.md"));
+        assert!(prompt.contains(
+            "Resolve any relative resource paths against the directory containing that SKILL.md"
+        ));
+        assert!(!prompt.contains("400-110-9926"));
         assert!(prompt.contains("## Screen Context"));
         assert!(prompt.contains("\"app\": \"ripple\""));
         assert!(prompt.contains("\"screen_id\": \"session.chat\""));
@@ -2465,7 +2532,7 @@ mod tests {
             previous_response_id: None,
             metadata: Some(json!({
                 "ripple_session_id": "session-skill",
-                "required_skill_ids": ["ripple:ripple-ui-explainer"],
+                "required_skill_ids": ["ripple:viaim-product-support"],
                 "preferred_skill_ids": ["ripple:other"],
                 "screen_context": {
                     "app": "ripple",
@@ -2482,7 +2549,7 @@ mod tests {
         assert_eq!(chat.session_id.as_deref(), Some("session-skill"));
         assert_eq!(
             chat.required_skill_ids,
-            vec!["ripple:ripple-ui-explainer".to_string()]
+            vec!["ripple:viaim-product-support".to_string()]
         );
         assert_eq!(chat.preferred_skill_ids, vec!["ripple:other".to_string()]);
         assert_eq!(
@@ -2535,30 +2602,37 @@ mod tests {
 
         assert_eq!(chat.session_id.as_deref(), Some("session-client-context"));
         assert_eq!(
-            chat.screen_context
+            chat.client_context
                 .as_ref()
                 .and_then(|value| value.pointer("/schema_version"))
                 .and_then(Value::as_str),
             Some("ripple.client_context.v1")
         );
         assert_eq!(
-            chat.screen_context
+            chat.client_context
                 .as_ref()
                 .and_then(|value| value.pointer("/software/screen/screen_id"))
                 .and_then(Value::as_str),
             Some("meeting.detail")
         );
         assert_eq!(
-            chat.screen_context
+            chat.client_context
                 .as_ref()
                 .and_then(|value| value.pointer("/devices/0/kind"))
                 .and_then(Value::as_str),
             Some("ai_headset")
         );
+        assert_eq!(
+            chat.screen_context
+                .as_ref()
+                .and_then(|value| value.pointer("/screen_id"))
+                .and_then(Value::as_str),
+            Some("legacy.screen")
+        );
     }
 
     #[test]
-    fn screen_context_only_autorequires_ripple_skill_for_ripple_app() {
+    fn screen_context_autorequires_viaim_skill_for_ripple_mvp_app() {
         let request = InternalChatRequest {
             model: None,
             messages: Vec::new(),
@@ -2570,6 +2644,7 @@ mod tests {
                 "app": "ripple",
                 "screen_id": "session.chat"
             })),
+            client_context: None,
             temporary: false,
             max_turns: None,
             effort: None,
@@ -2579,7 +2654,7 @@ mod tests {
 
         assert_eq!(
             effective_required_skill_ids(&request),
-            vec!["ripple:ripple-ui-explainer".to_string()]
+            vec!["ripple:viaim-product-support".to_string()]
         );
 
         let other_app_request = InternalChatRequest {
@@ -2594,7 +2669,7 @@ mod tests {
     }
 
     #[test]
-    fn client_context_autorequires_ripple_skill_for_mvp_schema() {
+    fn client_context_autorequires_viaim_skill_for_viaim_context() {
         let request = InternalChatRequest {
             model: None,
             messages: Vec::new(),
@@ -2602,7 +2677,8 @@ mod tests {
             session_id: None,
             required_skill_ids: Vec::new(),
             preferred_skill_ids: Vec::new(),
-            screen_context: Some(json!({
+            screen_context: None,
+            client_context: Some(json!({
                 "schema_version": "ripple.client_context.v1",
                 "software": {
                     "host_app": {
@@ -2625,8 +2701,47 @@ mod tests {
 
         assert_eq!(
             effective_required_skill_ids(&request),
-            vec!["ripple:ripple-ui-explainer".to_string()]
+            vec!["ripple:viaim-product-support".to_string()]
         );
+    }
+
+    #[test]
+    fn render_client_context_includes_device_state_summary() {
+        let context = json!({
+            "schema_version": "ripple.client_context.v1",
+            "software": {
+                "host_app": {
+                    "app_id": "viaim.meeting",
+                    "name": "Viaim Meeting"
+                },
+                "screen": {
+                    "screen_id": "meeting.detail",
+                    "title": "会议详情"
+                }
+            },
+            "devices": [{
+                "id": "headset:primary",
+                "kind": "ai_headset",
+                "connection": {
+                    "state": "connected",
+                    "transport": "bluetooth"
+                },
+                "state": {
+                    "left_battery_percent": 80,
+                    "right_battery_percent": 78,
+                    "case_battery_percent": 55,
+                    "noise_control": "anc"
+                }
+            }]
+        });
+
+        let rendered = render_client_context(Some(&context)).expect("rendered context");
+
+        assert!(rendered.contains("software.host_app.app_id: viaim.meeting"));
+        assert!(rendered.contains("headset:primary.state.left_battery_percent: 80"));
+        assert!(rendered.contains("headset:primary.state.right_battery_percent: 78"));
+        assert!(rendered.contains("headset:primary.state.case_battery_percent: 55"));
+        assert!(rendered.contains("\"schema_version\":\"ripple.client_context.v1\""));
     }
 
     #[tokio::test]

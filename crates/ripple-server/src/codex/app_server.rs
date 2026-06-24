@@ -1792,20 +1792,39 @@ fn turn_start_params(
         "input".to_string(),
         Value::Array(codex_input_items(request)),
     );
+    let mut additional_context = serde_json::Map::new();
     if let Some(turn_context) = request
         .turn_context
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
+        additional_context.insert(
+            "ripple_turn_context".to_string(),
+            json!({
+                "value": turn_context,
+                "kind": "application"
+            }),
+        );
+    }
+    if let Some(client_context) = request
+        .client_context
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        additional_context.insert(
+            "ripple_client_context".to_string(),
+            json!({
+                "value": client_context,
+                "kind": "application"
+            }),
+        );
+    }
+    if !additional_context.is_empty() {
         params.insert(
             "additionalContext".to_string(),
-            json!({
-                "ripple_turn_context": {
-                    "value": turn_context,
-                    "kind": "application"
-                }
-            }),
+            Value::Object(additional_context),
         );
     }
     params.insert("cwd".to_string(), json!(request.cwd));
@@ -1995,6 +2014,7 @@ mod tests {
             prompt: "fallback prompt".to_string(),
             base_instructions: None,
             turn_context: None,
+            client_context: None,
             cwd: PathBuf::from("/tmp/ripple-test"),
             input_items: vec![
                 json!({"type": "skill", "name": "google_workspace"}),
@@ -2041,6 +2061,7 @@ mod tests {
 (none)"
                     .to_string(),
             ),
+            client_context: None,
             cwd: PathBuf::from("/tmp/ripple-test"),
             input_items: Vec::new(),
             model: None,
@@ -2084,6 +2105,45 @@ mod tests {
     }
 
     #[test]
+    fn turn_start_params_send_client_context_as_separate_additional_context() {
+        let request = AgentRunnerRequest {
+            provider: "codex".to_string(),
+            prompt: "现在耳机电量是多少？".to_string(),
+            base_instructions: None,
+            turn_context: Some("## Required Skills\nlong skill manifest".to_string()),
+            client_context: Some(
+                "Client-provided state:\n- left_battery_percent: 80\n- right_battery_percent: 78\n- case_battery_percent: 55"
+                    .to_string(),
+            ),
+            cwd: PathBuf::from("/tmp/ripple-test"),
+            input_items: Vec::new(),
+            model: None,
+            effort: None,
+            summary: None,
+            output_schema: None,
+            max_runtime_seconds: 60,
+            user_id: Some("alice".to_string()),
+            session_id: Some("session-1".to_string()),
+            metadata: json!({}),
+        };
+
+        let params = turn_start_params("thread-1", &request, "never");
+
+        assert_eq!(
+            params
+                .pointer("/additionalContext/ripple_turn_context/value")
+                .and_then(Value::as_str),
+            Some("## Required Skills\nlong skill manifest")
+        );
+        let client_context = params
+            .pointer("/additionalContext/ripple_client_context/value")
+            .and_then(Value::as_str)
+            .expect("client context additionalContext");
+        assert!(client_context.contains("left_battery_percent: 80"));
+        assert!(client_context.contains("case_battery_percent: 55"));
+    }
+
+    #[test]
     fn app_server_args_append_native_hardening_overrides() {
         let args = hardened_app_server_args(&[
             "app-server".to_string(),
@@ -2117,6 +2177,7 @@ mod tests {
             prompt: "fallback prompt".to_string(),
             base_instructions: None,
             turn_context: None,
+            client_context: None,
             cwd: PathBuf::from("/tmp/ripple-test"),
             input_items: Vec::new(),
             model: None,
@@ -2143,6 +2204,7 @@ mod tests {
             prompt: "5分钟后提醒我准备材料".to_string(),
             base_instructions: None,
             turn_context: None,
+            client_context: None,
             cwd: PathBuf::from("/tmp/ripple-test"),
             input_items: Vec::new(),
             model: None,
@@ -2285,6 +2347,7 @@ mod tests {
             prompt: "normal chat".to_string(),
             base_instructions: None,
             turn_context: None,
+            client_context: None,
             cwd: workspace.clone(),
             input_items: Vec::new(),
             model: None,
@@ -2317,6 +2380,7 @@ mod tests {
             prompt: "temporary chat".to_string(),
             base_instructions: None,
             turn_context: None,
+            client_context: None,
             cwd: workspace.clone(),
             input_items: Vec::new(),
             model: None,

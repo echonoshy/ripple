@@ -155,7 +155,7 @@ fn render_required_skills(required_skills: &[RequiredSkillContext]) -> String {
         return "(none)".to_string();
     }
     let mut rendered = vec![
-        "The client explicitly selected these skills for this turn. Follow each SKILL.md before answering.".to_string(),
+        "The client explicitly selected these skills for this turn. Follow each SKILL.md before answering. Resolve any relative resource paths against the directory containing that SKILL.md, then read only the directly relevant referenced files such as `references/*.md` before acting.".to_string(),
     ];
     for skill in required_skills {
         rendered.push(format!(
@@ -178,6 +178,156 @@ fn render_screen_context(screen_context: Option<&Value>) -> String {
     format!(
         "Client-provided UI grounding. Prefer this structured context over visual guessing.\n- Do not assume uploaded screenshots are Ripple UI unless this context identifies app: ripple or the user explicitly selected a Ripple UI skill.\n\n```json\n{json}\n```"
     )
+}
+
+pub(crate) fn render_client_context(client_context: Option<&Value>) -> Option<String> {
+    let client_context = client_context?;
+    let raw_json = serde_json::to_string(client_context).unwrap_or_else(|_| "{}".to_string());
+    let summary = summarize_client_context(client_context);
+    Some(format!(
+        "Client-provided software and device state. Treat these values as structured facts from the embedding host app; do not ask for a screenshot when the requested state is present here.\n\n## State Summary\n{}\n\n## Raw Client Context JSON\n```json\n{}\n```",
+        summary,
+        raw_json
+    ))
+}
+
+fn summarize_client_context(client_context: &Value) -> String {
+    let mut lines = Vec::new();
+    push_string_value(
+        &mut lines,
+        client_context,
+        "/schema_version",
+        "schema_version",
+    );
+    push_string_value(
+        &mut lines,
+        client_context,
+        "/software/host_app/app_id",
+        "software.host_app.app_id",
+    );
+    push_string_value(
+        &mut lines,
+        client_context,
+        "/software/host_app/name",
+        "software.host_app.name",
+    );
+    push_string_value(
+        &mut lines,
+        client_context,
+        "/software/screen/screen_id",
+        "software.screen.screen_id",
+    );
+    push_string_value(
+        &mut lines,
+        client_context,
+        "/software/screen/title",
+        "software.screen.title",
+    );
+    push_string_value(
+        &mut lines,
+        client_context,
+        "/software/selection/type",
+        "software.selection.type",
+    );
+    push_string_value(
+        &mut lines,
+        client_context,
+        "/software/selection/display_name",
+        "software.selection.display_name",
+    );
+
+    if let Some(devices) = client_context.get("devices").and_then(Value::as_array) {
+        for (index, device) in devices.iter().enumerate() {
+            let label = device
+                .get("id")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+                .unwrap_or_else(|| format!("device[{index}]"));
+            push_device_string(&mut lines, device, &label, "/kind", "kind");
+            push_device_string(
+                &mut lines,
+                device,
+                &label,
+                "/identity/manufacturer",
+                "identity.manufacturer",
+            );
+            push_device_string(
+                &mut lines,
+                device,
+                &label,
+                "/identity/model",
+                "identity.model",
+            );
+            push_device_string(
+                &mut lines,
+                device,
+                &label,
+                "/connection/state",
+                "connection.state",
+            );
+            push_device_string(
+                &mut lines,
+                device,
+                &label,
+                "/connection/transport",
+                "connection.transport",
+            );
+            if let Some(state) = device.get("state").and_then(Value::as_object) {
+                for (key, value) in state {
+                    lines.push(format!(
+                        "- {label}.state.{key}: {}",
+                        render_summary_value(value)
+                    ));
+                }
+            }
+        }
+    }
+
+    if lines.is_empty() {
+        "(no compact state fields detected; inspect the raw JSON below)".to_string()
+    } else {
+        lines.join("\n")
+    }
+}
+
+fn push_string_value(lines: &mut Vec<String>, root: &Value, pointer: &str, label: &str) {
+    if let Some(value) = root
+        .pointer(pointer)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        lines.push(format!("- {label}: {value}"));
+    }
+}
+
+fn push_device_string(
+    lines: &mut Vec<String>,
+    device: &Value,
+    label: &str,
+    pointer: &str,
+    key: &str,
+) {
+    if let Some(value) = device
+        .pointer(pointer)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        lines.push(format!("- {label}.{key}: {value}"));
+    }
+}
+
+fn render_summary_value(value: &Value) -> String {
+    match value {
+        Value::String(text) => text.clone(),
+        Value::Number(number) => number.to_string(),
+        Value::Bool(value) => value.to_string(),
+        Value::Null => "null".to_string(),
+        _ => serde_json::to_string(value).unwrap_or_else(|_| "null".to_string()),
+    }
 }
 
 fn connector_manifest(skill_options: &SkillManifestOptions) -> String {

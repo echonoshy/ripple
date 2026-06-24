@@ -2720,6 +2720,7 @@ async fn execute_task_action_inner(
         provider: "codex".to_string(),
         base_instructions: None,
         turn_context: None,
+        client_context: None,
         cwd: Some(cwd),
         input_items: vec![json!({"type": "text", "text": prompt.clone()})],
         model: Some(model),

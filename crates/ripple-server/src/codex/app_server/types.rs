@@ -9,6 +9,7 @@ pub struct AgentRunnerRequest {
     pub prompt: String,
     pub base_instructions: Option<String>,
     pub turn_context: Option<String>,
+    pub client_context: Option<String>,
     pub cwd: PathBuf,
     pub input_items: Vec<Value>,
     pub model: Option<String>,

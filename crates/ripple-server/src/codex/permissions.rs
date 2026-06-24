@@ -1,9 +1,9 @@
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
 
-use crate::config::AppConfig;
+use crate::config::{resolve_path, AppConfig};
 
 pub const RIPPLE_CODEX_PERMISSION_PROFILE: &str = "ripple_workspace";
 
@@ -44,6 +44,15 @@ fn thread_permission_config_with_user(
         workspace.to_string_lossy().to_string(),
         Value::Object(workspace_rules),
     );
+    for shared_skill_dir in shared_skill_permission_dirs(config) {
+        if path_is_covered_by_parent(&shared_skill_dir, &config.sandbox.sandboxes_root) {
+            continue;
+        }
+        filesystem.insert(
+            shared_skill_dir.to_string_lossy().to_string(),
+            json!("read"),
+        );
+    }
     for path in [
         config.sandbox.uv_bin_dir.as_deref(),
         config.sandbox.node_dir.as_deref(),
@@ -197,6 +206,39 @@ fn path_is_covered_by_parent(path: &Path, parent: &Path) -> bool {
         || std::fs::canonicalize(parent)
             .map(|canonical_parent| path.starts_with(canonical_parent))
             .unwrap_or(false)
+}
+
+fn shared_skill_permission_dirs(config: &AppConfig) -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    for pattern in &config.skills.shared_dirs {
+        if pattern.contains('*') {
+            let Some((prefix, suffix)) = pattern.split_once('*') else {
+                continue;
+            };
+            let base = resolve_path(&config.repo_root, prefix.trim_end_matches('/'));
+            let suffix = suffix.trim_start_matches('/');
+            if let Ok(read_dir) = std::fs::read_dir(base) {
+                for entry in read_dir.flatten() {
+                    let path = if suffix.is_empty() {
+                        entry.path()
+                    } else {
+                        entry.path().join(suffix)
+                    };
+                    if path.is_dir() {
+                        dirs.push(path);
+                    }
+                }
+            }
+        } else {
+            let path = resolve_path(&config.repo_root, pattern);
+            if path.is_dir() {
+                dirs.push(path);
+            }
+        }
+    }
+    dirs.sort();
+    dirs.dedup();
+    dirs
 }
 
 fn current_user_bilibili_credential_file(
@@ -410,6 +452,35 @@ mod tests {
                 path.display()
             );
         }
+
+        let _ = std::fs::remove_dir_all(&config.repo_root);
+    }
+
+    #[test]
+    fn profile_allows_reading_configured_shared_skill_roots() {
+        let mut config = test_config();
+        let workspace = config.sandbox.sandboxes_root.join("alice/workspace");
+        let viaim_skill_root = config.repo_root.join("skills/viaim-product-support");
+        std::fs::create_dir_all(&workspace).expect("create workspace");
+        std::fs::create_dir_all(viaim_skill_root.join("references")).expect("create shared skill");
+        std::fs::write(viaim_skill_root.join("SKILL.md"), "# viaim\n").expect("write skill");
+        std::fs::write(
+            viaim_skill_root.join("references/viaim-about.md"),
+            "客服电话：400-110-9926\n",
+        )
+        .expect("write reference");
+        config.skills.shared_dirs = vec!["skills/*".to_string()];
+
+        let permissions = thread_permission_config(&workspace, &config);
+        let filesystem = permissions
+            .pointer("/permissions/ripple_workspace/filesystem")
+            .and_then(|filesystem| filesystem.as_object())
+            .expect("filesystem rules");
+
+        assert_eq!(
+            filesystem.get(viaim_skill_root.to_string_lossy().as_ref()),
+            Some(&json!("read"))
+        );
 
         let _ = std::fs::remove_dir_all(&config.repo_root);
     }

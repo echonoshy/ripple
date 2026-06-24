@@ -1712,6 +1712,70 @@ async function testSendChatMessagePassesClientContextOption() {
   );
 }
 
+async function testSendChatMessageDoesNotSendPreferredSkillIds() {
+  const requests: Array<{ body: Record<string, unknown> }> = [];
+  const globals = globalThis as unknown as {
+    document?: Pick<Document, "addEventListener" | "removeEventListener"> & { hidden: boolean };
+    window?: Pick<Window, "fetch" | "setTimeout" | "clearTimeout">;
+  };
+  const previousDocument = globals.document;
+  const previousWindow = globals.window;
+  globals.document = {
+    hidden: false,
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
+  };
+  globals.window = {
+    fetch: (...args) => globalThis.fetch(...args),
+    setTimeout: globalThis.setTimeout,
+    clearTimeout: globalThis.clearTimeout,
+  };
+
+  try {
+    await withFetch(
+      async (_input, init) => {
+        requests.push({
+          body: JSON.parse(String(init?.body || "{}")) as Record<string, unknown>,
+        });
+        return new Response("data: [DONE]\n\n", {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        });
+      },
+      async () => {
+        await sendChatMessage(
+          "session-1",
+          "hello",
+          "codex-test",
+          {
+            onMessageDelta: () => undefined,
+            onToolCall: () => undefined,
+            onToolResult: () => undefined,
+            onUsage: () => undefined,
+            onComplete: () => undefined,
+            onError: () => undefined,
+          },
+          {
+            preferredSkillIds: ["ripple:unused"],
+          } as unknown as Parameters<typeof sendChatMessage>[4]
+        );
+      }
+    );
+  } finally {
+    globals.document = previousDocument;
+    globals.window = previousWindow;
+  }
+
+  assert.equal(requests.length, 1);
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(
+      requests[0].body.metadata as Record<string, unknown>,
+      "preferred_skill_ids"
+    ),
+    false
+  );
+}
+
 async function testSessionControlActionUsesStructuredResponsesInput() {
   const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
   const globals = globalThis as unknown as {
@@ -1866,5 +1930,6 @@ test("api client behavior", async () => {
   await testResponsesStreamDeltaFeedsChatCallbacks();
   await testSendChatMessagePassesRequiredSkillsAndScreenContext();
   await testSendChatMessagePassesClientContextOption();
+  await testSendChatMessageDoesNotSendPreferredSkillIds();
   await testSessionControlActionUsesStructuredResponsesInput();
 });

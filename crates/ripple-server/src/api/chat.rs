@@ -87,8 +87,6 @@ pub struct InternalChatRequest {
     #[serde(default)]
     pub required_skill_ids: Vec<String>,
     #[serde(default)]
-    pub preferred_skill_ids: Vec<String>,
-    #[serde(default)]
     pub screen_context: Option<Value>,
     #[serde(default)]
     pub client_context: Option<Value>,
@@ -122,8 +120,6 @@ impl ResponsesCreateRequest {
             self.metadata.as_ref(),
             &["required_skill_ids", "selected_skill_ids"],
         )?;
-        let preferred_skill_ids =
-            metadata_string_list(self.metadata.as_ref(), &["preferred_skill_ids"])?;
         let client_context = metadata_client_context(self.metadata.as_ref())?;
         let screen_context = metadata_screen_context(self.metadata.as_ref())?;
         let effort = self
@@ -145,7 +141,6 @@ impl ResponsesCreateRequest {
             stream: self.stream,
             session_id,
             required_skill_ids,
-            preferred_skill_ids,
             screen_context,
             client_context,
             temporary: self.store == Some(false),
@@ -1128,7 +1123,6 @@ pub async fn poll_session_connector_auth(
             stream: request.stream,
             session_id: Some(session_id),
             required_skill_ids: Vec::new(),
-            preferred_skill_ids: Vec::new(),
             screen_context: None,
             client_context: None,
             temporary: false,
@@ -2533,7 +2527,6 @@ mod tests {
             metadata: Some(json!({
                 "ripple_session_id": "session-skill",
                 "required_skill_ids": ["ripple:viaim-product-support"],
-                "preferred_skill_ids": ["ripple:other"],
                 "screen_context": {
                     "app": "ripple",
                     "screen_id": "session.chat"
@@ -2551,7 +2544,6 @@ mod tests {
             chat.required_skill_ids,
             vec!["ripple:viaim-product-support".to_string()]
         );
-        assert_eq!(chat.preferred_skill_ids, vec!["ripple:other".to_string()]);
         assert_eq!(
             chat.screen_context
                 .as_ref()
@@ -2639,7 +2631,6 @@ mod tests {
             stream: None,
             session_id: None,
             required_skill_ids: Vec::new(),
-            preferred_skill_ids: Vec::new(),
             screen_context: Some(json!({
                 "app": "ripple",
                 "screen_id": "session.chat"
@@ -2676,7 +2667,6 @@ mod tests {
             stream: None,
             session_id: None,
             required_skill_ids: Vec::new(),
-            preferred_skill_ids: Vec::new(),
             screen_context: None,
             client_context: Some(json!({
                 "schema_version": "ripple.client_context.v1",

@@ -1393,7 +1393,6 @@ interface SendChatMessageOptions {
   signal?: AbortSignal;
   files?: ChatFileRef[];
   requiredSkillIds?: string[];
-  preferredSkillIds?: string[];
   screenContext?: ChatScreenContext;
   clientContext?: ChatClientContext | null;
 }
@@ -1712,9 +1711,6 @@ export async function sendChatMessage(
   const metadata: Record<string, unknown> = { ripple_session_id: sessionId };
   if (options?.requiredSkillIds?.length) {
     metadata.required_skill_ids = options.requiredSkillIds;
-  }
-  if (options?.preferredSkillIds?.length) {
-    metadata.preferred_skill_ids = options.preferredSkillIds;
   }
   if (options?.screenContext) {
     metadata.screen_context = options.screenContext;

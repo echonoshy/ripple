@@ -233,6 +233,42 @@ sudo dnf install -y libreoffice libreoffice-writer libreoffice-calc libreoffice-
 
 Codex auth 建议恢复后重新登录服务端专用 `CODEX_HOME`，不要把 auth 文件放入 user workspace。
 
+### Simple Daily NAS Mirror
+
+如果可以接受非事务级一致性，可以用仓库内的简单定时任务把 `.ripple/` 每天同步到 NAS：
+
+```bash
+sudo cp ops/systemd/ripple-runtime-backup.service /etc/systemd/system/
+sudo cp ops/systemd/ripple-runtime-backup.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now ripple-runtime-backup.timer
+```
+
+默认配置：
+
+- 源目录：`/home/lake/workspace/ripple/.ripple/`
+- NAS 目标：`/nas/ripple-backups/ripple-runtime/current/`
+- 触发时间：每天 `04:00`
+- 同步方式：`rsync --checksum --delete`，按内容校验，源文件变更后替换 NAS 镜像文件。
+- 排除目录：`.ripple/sandboxes-cache/`
+- 日志目录：`/nas/ripple-backups/ripple-runtime/logs/`
+- 成功标记：`/nas/ripple-backups/ripple-runtime/last-success.txt`
+
+手动执行一次：
+
+```bash
+bash scripts/backup-ripple-runtime-to-nas.sh
+```
+
+检查定时器：
+
+```bash
+systemctl list-timers ripple-runtime-backup.timer
+systemctl status ripple-runtime-backup.timer
+```
+
+这个方案不会暂停 `ripple-server`，也不会对 SQLite 做在线一致性快照；如果备份时 `.sqlite` / `.sqlite-wal` 正在写入，某一次镜像可能不是完全一致的时间点状态。它适合作为低复杂度、每天一次的运行态镜像。需要更强恢复保证时，改用停服务备份或 SQLite online backup。
+
 ## Upgrade And Restart
 
 - SQLite schema 通过 `schema_migrations` 记录版本。

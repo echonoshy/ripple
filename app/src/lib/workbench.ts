@@ -62,6 +62,7 @@ export function mapSessionSummariesToWorkbenchSessions(
       title: session.title?.trim() || "New Session",
       pinned: session.pinned,
       contextFolderPath: session.contextFolderPath ?? null,
+      forkedFromSessionId: session.forkedFromSessionId ?? null,
       status,
       attention: sessionAttentionFromStatus(status, session.pendingApprovalCount) || undefined,
       model: session.model,

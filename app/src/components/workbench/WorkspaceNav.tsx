@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   ChevronLeft,
   Edit3,
+  GitFork,
   Loader2,
   MoreHorizontal,
   Pin,
@@ -34,6 +35,7 @@ interface WorkspaceNavProps {
   onNewSession: () => void;
   onSelectSession: (sessionId: string) => void;
   onDeleteSession: (sessionId: string, event: React.MouseEvent) => void;
+  onForkSession?: (sessionId: string) => void;
   onUpdateSession: (
     sessionId: string,
     updates: { title?: string; pinned?: boolean }
@@ -49,6 +51,7 @@ export default function WorkspaceNav({
   onNewSession,
   onSelectSession,
   onDeleteSession,
+  onForkSession,
   onUpdateSession,
   onCollapse,
 }: WorkspaceNavProps) {
@@ -268,6 +271,20 @@ export default function WorkspaceNav({
                         <Edit3 size={13} className="shrink-0 text-[#646A73]" />
                         {t("sessions.rename")}
                       </button>
+                      {onForkSession && (
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onForkSession(session.sessionId);
+                            setActiveMenuSessionId(null);
+                          }}
+                          className={`${WORKBENCH_MENU_ITEM_CLASS} ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                        >
+                          <GitFork size={13} className="shrink-0 text-[#646A73]" />
+                          {t("sessions.fork")}
+                        </button>
+                      )}
                       <div className="my-1 border-t border-[#EFF0F1]" />
                       <button
                         type="button"

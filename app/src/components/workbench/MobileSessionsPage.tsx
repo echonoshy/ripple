@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useReducedMotion } from "framer-motion";
 import {
   AlertTriangle,
+  GitFork,
   Loader2,
   MessageCircle,
   MessageCircleMore,
@@ -50,6 +51,7 @@ interface MobileSessionsPageProps {
   onNewSession: () => void;
   onSelectSession: (sessionId: string) => void;
   onDeleteSession: (sessionId: string, event: React.MouseEvent) => void;
+  onForkSession?: (sessionId: string) => void;
   onUpdateSession: (
     sessionId: string,
     updates: { title?: string; pinned?: boolean }
@@ -106,6 +108,7 @@ export default function MobileSessionsPage({
   onNewSession,
   onSelectSession,
   onDeleteSession,
+  onForkSession,
   onUpdateSession,
 }: MobileSessionsPageProps) {
   const { locale, t } = useI18n();
@@ -221,6 +224,19 @@ export default function MobileSessionsPage({
                     closeSessionOptions();
                   },
                 },
+                ...(onForkSession
+                  ? [
+                      {
+                        key: "fork",
+                        label: t("sessions.fork"),
+                        icon: <GitFork size={16} />,
+                        onClick: () => {
+                          onForkSession(activeMenuSession.sessionId);
+                          closeSessionOptions();
+                        },
+                      },
+                    ]
+                  : []),
                 {
                   key: "delete",
                   label: t("sessions.delete"),
@@ -453,6 +469,19 @@ export default function MobileSessionsPage({
                             setEditingTitle(session.title);
                           },
                         },
+                        ...(onForkSession
+                          ? [
+                              {
+                                key: "fork",
+                                label: t("sessions.fork"),
+                                icon: <GitFork size={14} />,
+                                tone: "neutral" as const,
+                                onClick: () => {
+                                  onForkSession(session.sessionId);
+                                },
+                              },
+                            ]
+                          : []),
                         {
                           key: "delete",
                           label: t("sessions.delete"),

@@ -56,6 +56,10 @@ pub struct SessionRecord {
     pub pending_control_request: Option<Value>,
     pub codex_thread_id: Option<String>,
     #[serde(default)]
+    pub forked_from_session_id: Option<String>,
+    #[serde(default)]
+    pub forked_from_codex_thread_id: Option<String>,
+    #[serde(default)]
     pub memory_disabled: bool,
     pub plan_steps: Vec<Value>,
     pub plan_progress: Option<Value>,
@@ -153,6 +157,7 @@ pub struct SessionInfo {
     pub changed_file_count: u32,
     pub pending_approval_count: u32,
     pub workspace_size_bytes: Option<u64>,
+    pub forked_from_session_id: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -278,6 +283,8 @@ impl SessionManager {
             pending_connector_auth: None,
             pending_control_request: None,
             codex_thread_id: None,
+            forked_from_session_id: None,
+            forked_from_codex_thread_id: None,
             memory_disabled: false,
             plan_steps: Vec::new(),
             plan_progress: None,
@@ -288,6 +295,62 @@ impl SessionManager {
             .await
             .insert((user_id.to_string(), session_id), session.clone());
         Ok(session)
+    }
+
+    pub async fn fork_session_from_record(
+        &self,
+        user_id: &str,
+        source_session_id: &str,
+        forked_codex_thread_id: String,
+    ) -> anyhow::Result<Option<SessionRecord>> {
+        self.sandboxes.ensure_sandbox(user_id)?;
+        let Some(source) = self.load(user_id, source_session_id).await? else {
+            return Ok(None);
+        };
+        let source_codex_thread_id = source
+            .codex_thread_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| anyhow::anyhow!("Source session has no Codex thread"))?
+            .to_string();
+        let forked_codex_thread_id = forked_codex_thread_id.trim();
+        if forked_codex_thread_id.is_empty() {
+            anyhow::bail!("Forked Codex thread id cannot be empty");
+        }
+        let session_id = self.next_generated_session_id(user_id).await?;
+        self.deleted
+            .write()
+            .await
+            .remove(&(user_id.to_string(), session_id.clone()));
+        let now = now_iso();
+        let mut forked = source.clone();
+        forked.session_id = session_id.clone();
+        forked.user_id = user_id.to_string();
+        forked.pinned = false;
+        forked.created_at = now.clone();
+        forked.last_active = now;
+        forked.set_status(SessionStatus::Idle);
+        forked.message_count = forked.messages.len();
+        forked.pending_question = None;
+        forked.pending_options = None;
+        forked.pending_permission_request = None;
+        forked.pending_connector_auth = None;
+        forked.pending_control_request = None;
+        forked.codex_thread_id = Some(forked_codex_thread_id.to_string());
+        forked.forked_from_session_id = Some(source.session_id.clone());
+        forked.forked_from_codex_thread_id = Some(source_codex_thread_id);
+        forked.total_input_tokens = 0;
+        forked.total_output_tokens = 0;
+        forked.last_input_tokens = 0;
+        forked.plan_steps.clear();
+        forked.plan_progress = None;
+        self.persist(&forked).await?;
+        self.active
+            .write()
+            .await
+            .insert((user_id.to_string(), session_id), forked.clone());
+        Ok(Some(forked))
     }
 
     async fn next_generated_session_id(&self, user_id: &str) -> anyhow::Result<String> {
@@ -855,6 +918,7 @@ impl SessionManager {
             changed_file_count: 0,
             pending_approval_count: u32::from(record.pending_permission_request.is_some()),
             workspace_size_bytes: None,
+            forked_from_session_id: record.forked_from_session_id.clone(),
         })
     }
 
@@ -1458,6 +1522,97 @@ mod tests {
         assert!(cleared.codex_thread_id.is_none());
         assert!(cleared.plan_steps.is_empty());
         assert!(cleared.plan_progress.is_none());
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn fork_session_copies_messages_and_resets_runtime_state() -> anyhow::Result<()> {
+        let root = std::env::temp_dir().join(format!("ripple-session-test-{}", Uuid::new_v4()));
+        let config = test_config(&root);
+        let manager = SessionManager::new(config.clone(), SandboxManager::new(config));
+        let user_id = "alice";
+
+        let mut source = manager
+            .create_session(
+                user_id,
+                CreateSessionInput {
+                    model: Some("gpt-5".to_string()),
+                    max_turns: Some(99),
+                    system_prompt: Some("caller prompt".to_string()),
+                    context_folder_path: None,
+                },
+            )
+            .await?;
+        source.title = "Investigate fork".to_string();
+        source.status = "waiting_for_approval".to_string();
+        source.messages = vec![
+            serde_json::json!({"role": "user", "content": "start"}),
+            serde_json::json!({"role": "assistant", "content": "done"}),
+        ];
+        source.message_count = source.messages.len();
+        source.total_input_tokens = 123;
+        source.total_output_tokens = 456;
+        source.last_input_tokens = 78;
+        source.pending_question = Some("continue?".to_string());
+        source.pending_options = Some(vec!["yes".to_string()]);
+        source.pending_permission_request = Some(serde_json::json!({"id": "approval"}));
+        source.pending_connector_auth = Some(serde_json::json!({"connector": "notion"}));
+        source.pending_control_request = Some(serde_json::json!({"title": "schedule"}));
+        source.codex_thread_id = Some("thr_parent".to_string());
+        source.memory_disabled = true;
+        source.plan_steps = vec![serde_json::json!({"step": "old"})];
+        source.plan_progress = Some(serde_json::json!({"total": 1}));
+        manager.save_record(source.clone()).await?;
+
+        let forked = manager
+            .fork_session_from_record(user_id, &source.session_id, "thr_child".to_string())
+            .await?
+            .expect("source session should fork");
+
+        assert_ne!(forked.session_id, source.session_id);
+        assert_eq!(forked.user_id, user_id);
+        assert_eq!(forked.title, source.title);
+        assert_eq!(forked.model, "gpt-5");
+        assert_eq!(forked.max_turns, 99);
+        assert_eq!(
+            forked.caller_system_prompt.as_deref(),
+            Some("caller prompt")
+        );
+        assert_eq!(forked.messages, source.messages);
+        assert_eq!(forked.message_count, source.messages.len());
+        assert_eq!(forked.status, "idle");
+        assert_eq!(forked.codex_thread_id.as_deref(), Some("thr_child"));
+        assert_eq!(
+            forked.forked_from_session_id.as_deref(),
+            Some(source.session_id.as_str())
+        );
+        assert_eq!(
+            forked.forked_from_codex_thread_id.as_deref(),
+            Some("thr_parent")
+        );
+        assert_eq!(forked.total_input_tokens, 0);
+        assert_eq!(forked.total_output_tokens, 0);
+        assert_eq!(forked.last_input_tokens, 0);
+        assert!(forked.pending_question.is_none());
+        assert!(forked.pending_options.is_none());
+        assert!(forked.pending_permission_request.is_none());
+        assert!(forked.pending_connector_auth.is_none());
+        assert!(forked.pending_control_request.is_none());
+        assert!(forked.plan_steps.is_empty());
+        assert!(forked.plan_progress.is_none());
+        assert!(forked.memory_disabled);
+
+        let reloaded = manager
+            .load(user_id, &forked.session_id)
+            .await?
+            .expect("forked session should persist");
+        assert_eq!(reloaded.codex_thread_id.as_deref(), Some("thr_child"));
+        assert_eq!(
+            reloaded.forked_from_session_id.as_deref(),
+            Some(source.session_id.as_str())
+        );
 
         let _ = std::fs::remove_dir_all(root);
         Ok(())

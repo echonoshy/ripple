@@ -423,6 +423,113 @@ pub async fn create_session(
 }
 
 #[utoipa::path(
+    post,
+    path = "/sessions/{session_id}/fork",
+    tag = "sessions",
+    params(("session_id" = String, Path, description = "Source session id")),
+    responses(
+        (status = 200, description = "Forked session", body = serde_json::Value),
+        (status = 400, description = "Invalid fork request", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Source session not found", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 409, description = "Session cannot be forked right now", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
+pub async fn fork_session(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(session_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
+    let session_run_lock = state.sessions.session_lock(&user_id, &session_id);
+    let _session_run_guard = session_run_lock.lock_owned().await;
+    let _ = state
+        .sessions
+        .recover_context_compaction_after_lock(&user_id, &session_id)
+        .await?;
+    let Some(session) = state.sessions.load(&user_id, &session_id).await? else {
+        return Err(ApiError::not_found("Session not found"));
+    };
+    if session.status_kind().is_busy()
+        || state
+            .jobs
+            .has_active_session_run(&user_id, &session_id)
+            .await
+    {
+        return Err(ApiError::conflict("Session is currently running"));
+    }
+    let Some(codex_thread_id) = trimmed_codex_thread_id(session.codex_thread_id.as_deref()) else {
+        return Err(ApiError::conflict("Session has no Codex thread to fork"));
+    };
+    assert_can_create_session(&state, &user_id).await?;
+
+    let workspace_root = state.sandboxes.ensure_sandbox(&user_id)?;
+    let cwd = session_cwd_for_context_folder(&workspace_root, &session);
+    let forked_thread = state
+        .jobs
+        .fork_codex_thread(
+            user_id.clone(),
+            workspace_root.clone(),
+            cwd,
+            codex_thread_id.clone(),
+            session.model.clone(),
+            session.memory_disabled,
+        )
+        .await
+        .map_err(|err| ApiError::bad_request(err.to_string()))?;
+    let forked_codex_thread_id = forked_thread
+        .pointer("/thread/id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| ApiError::bad_request("Codex app-server did not return a forked thread id"))?
+        .to_string();
+
+    let forked_session = match state
+        .sessions
+        .fork_session_from_record(&user_id, &session_id, forked_codex_thread_id.clone())
+        .await
+    {
+        Ok(Some(record)) => record,
+        Ok(None) => {
+            let _ = archive_session_codex_thread(
+                &state,
+                &user_id,
+                Some(forked_codex_thread_id.clone()),
+            )
+            .await;
+            return Err(ApiError::not_found("Session not found"));
+        }
+        Err(err) => {
+            let _ = archive_session_codex_thread(
+                &state,
+                &user_id,
+                Some(forked_codex_thread_id.clone()),
+            )
+            .await;
+            return Err(ApiError::bad_request(err.to_string()));
+        }
+    };
+    let detail = state
+        .sessions
+        .get_session(&user_id, &forked_session.session_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("Forked session not found"))?;
+
+    Ok(Json(json!({
+        "ok": true,
+        "source_session_id": session_id,
+        "source_codex_thread_id": codex_thread_id,
+        "codex_thread_id": forked_codex_thread_id,
+        "session": detail.info
+    })))
+}
+
+#[utoipa::path(
     get,
     path = "/sessions/{session_id}",
     tag = "sessions",

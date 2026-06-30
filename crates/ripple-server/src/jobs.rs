@@ -382,6 +382,27 @@ impl JobManager {
             .await
     }
 
+    pub async fn fork_codex_thread(
+        &self,
+        user_id: String,
+        workspace_root: PathBuf,
+        cwd: PathBuf,
+        thread_id: String,
+        model: String,
+        memory_disabled: bool,
+    ) -> anyhow::Result<Value> {
+        self.provider
+            .fork_thread(
+                user_id,
+                workspace_root,
+                cwd,
+                thread_id,
+                model,
+                memory_disabled,
+            )
+            .await
+    }
+
     pub async fn list_user(&self, user_id: &str) -> anyhow::Result<Vec<AgentRunInfo>> {
         let mut merged = HashMap::<String, AgentRunInfo>::new();
         for record in self.storage.list_jobs_for_user(user_id).await? {

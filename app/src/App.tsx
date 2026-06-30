@@ -356,6 +356,7 @@ export default function Home() {
     createNewSession,
     switchSession,
     deleteSessionById,
+    forkSessionById,
     stopCurrentSession,
     stopSessionById,
     updateSessionById,
@@ -715,6 +716,16 @@ export default function Home() {
         return next;
       });
     }
+  };
+
+  const handleForkSession = async (targetSessionId: string) => {
+    const forked = await forkSessionById(targetSessionId);
+    if (!forked) return;
+    setSelectedModel(forked.model || defaultModel);
+    setActiveContextFolderPath(forked.contextFolderPath ?? null);
+    setActiveView("sessions");
+    setMobileMotionDirection(1);
+    setMobileSessionMode("chat");
   };
 
   const handleSelectView = useCallback(
@@ -1089,6 +1100,7 @@ export default function Home() {
       onNewSession={handleNewSession}
       onSelectSession={(selectedSessionId) => void handleSelectMobileSession(selectedSessionId)}
       onDeleteSession={handleDeleteSession}
+      onForkSession={(targetSessionId) => void handleForkSession(targetSessionId)}
       onUpdateSession={updateSessionById}
     />
   );
@@ -1163,6 +1175,7 @@ export default function Home() {
                   setMobileSessionMode("chat");
                 }}
                 onDeleteSession={handleDeleteSession}
+                onForkSession={(targetSessionId) => void handleForkSession(targetSessionId)}
                 onUpdateSession={updateSessionById}
                 onCollapse={() => setIsSessionRailCollapsed(true)}
               />

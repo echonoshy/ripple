@@ -587,6 +587,7 @@ interface RawSessionSummary {
   title: string;
   pinned?: boolean;
   context_folder_path?: string | null;
+  forked_from_session_id?: string | null;
   model: string;
   created_at: string;
   last_active: string;
@@ -759,6 +760,9 @@ function normalizeSessionSummary(raw: RawSessionSummary): SessionSummary {
     title: raw.title,
     pinned: raw.pinned === true,
     contextFolderPath: raw.context_folder_path ?? null,
+    ...(raw.forked_from_session_id !== undefined
+      ? { forkedFromSessionId: raw.forked_from_session_id }
+      : {}),
     model: raw.model,
     createdAt: raw.created_at,
     lastActiveAt: raw.last_active,
@@ -1272,6 +1276,21 @@ export async function compactSessionContext(sessionId: string): Promise<boolean>
     if (error instanceof AuthError) throw error;
     return false;
   }
+}
+
+export async function forkSession(sessionId: string): Promise<SessionSummary> {
+  const res = await fetch(`${API_URL}/sessions/${encodeURIComponent(sessionId)}/fork`, {
+    method: "POST",
+    headers: { ...authHeaders() },
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to fork session (${res.status})`);
+  }
+  const data = (await res.json()) as unknown;
+  const rawSession = isRecord(data) && isRecord(data.session) ? data.session : data;
+  return normalizeSessionSummary(rawSession as RawSessionSummary);
 }
 
 export async function stopSession(sessionId: string): Promise<boolean> {

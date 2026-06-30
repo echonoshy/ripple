@@ -8,6 +8,7 @@ import {
   deleteSession,
   fetchSessionDetails,
   fetchSessions,
+  forkSession,
   stopSession,
   updateSession,
   type SessionUpdateInput,
@@ -228,6 +229,31 @@ export function useSessionLifecycle({
     [isGenerating, onDeleteCurrentSession, sessionId]
   );
 
+  const forkSessionById = useCallback(
+    async (targetSessionId: string): Promise<SessionSummary | null> => {
+      try {
+        const forkedSession = await forkSession(targetSessionId);
+        setSessionSummaries((prev) => mergeCreatedSessionSummary(prev, forkedSession));
+        const details = await fetchSessionDetails(forkedSession.sessionId);
+        if (details) {
+          applySessionDetails(details);
+        } else {
+          setSessionId(forkedSession.sessionId);
+          setStoredCurrentSessionId(undefined, forkedSession.sessionId);
+        }
+        onSessionActivated();
+        void loadSessions({ showLoading: false });
+        return forkedSession;
+      } catch (err) {
+        if (err instanceof AuthError) {
+          handleAuthExpired();
+        }
+        return null;
+      }
+    },
+    [applySessionDetails, handleAuthExpired, loadSessions, onSessionActivated]
+  );
+
   const stopCurrentSession = useCallback(async (): Promise<boolean> => {
     if (!sessionId) return false;
     return stopSession(sessionId);
@@ -296,6 +322,7 @@ export function useSessionLifecycle({
     createNewSession,
     switchSession,
     deleteSessionById,
+    forkSessionById,
     stopCurrentSession,
     stopSessionById,
     updateSessionById,

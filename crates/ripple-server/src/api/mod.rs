@@ -220,6 +220,7 @@ pub fn router(state: AppState) -> Router {
             sessions::update_session,
             sessions::delete_session
         ))
+        .routes(utoipa_axum::routes!(sessions::fork_session))
         .routes(utoipa_axum::routes!(tasks::list_session_tasks))
         .routes(utoipa_axum::routes!(sessions::stop_session))
         .routes(utoipa_axum::routes!(sessions::clear_session_context))

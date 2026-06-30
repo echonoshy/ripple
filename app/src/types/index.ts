@@ -502,6 +502,7 @@ export interface SessionSummary {
   title: string;
   pinned: boolean;
   contextFolderPath?: string | null;
+  forkedFromSessionId?: string | null;
   model: string;
   createdAt: string;
   lastActiveAt: string;
@@ -605,6 +606,7 @@ export interface WorkbenchSessionSummary {
   title: string;
   pinned: boolean;
   contextFolderPath?: string | null;
+  forkedFromSessionId?: string | null;
   status: WorkbenchSessionStatus;
   attention?: SessionAttention;
   model: string;

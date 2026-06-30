@@ -22,6 +22,7 @@ import {
   fetchSessionTasks,
   fetchSessions,
   fetchSessionDetails,
+  forkSession,
   fetchUserAvatarImage,
   fetchModels,
   fetchWorkspaceDocumentPreview,
@@ -154,6 +155,7 @@ async function testSessionIdIsEncodedInPath() {
       await cancelSessionConnectorAuth(sessionId);
       await compactSessionContext(sessionId);
       await resolveSessionPermissionRequest(sessionId, "allow");
+      await forkSession(sessionId);
     }
   );
 
@@ -165,6 +167,7 @@ async function testSessionIdIsEncodedInPath() {
     "http://140.143.229.103:8810/v1/sessions/session%2Fwith%20space/connector-auth/cancel",
     "http://140.143.229.103:8810/v1/sessions/session%2Fwith%20space/context/compact",
     "http://140.143.229.103:8810/v1/sessions/session%2Fwith%20space/permissions/resolve",
+    "http://140.143.229.103:8810/v1/sessions/session%2Fwith%20space/fork",
   ]);
 }
 
@@ -912,6 +915,56 @@ async function testFetchSessionsNormalizesBackendShape() {
       ]);
     }
   );
+}
+
+async function testForkSessionPostsToForkEndpointAndNormalizesSession() {
+  const requests: Array<{ method: string; path: string }> = [];
+
+  await withFetch(
+    async (input, init) => {
+      const url = new URL(String(input));
+      requests.push({ method: init?.method || "GET", path: url.pathname });
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          source_session_id: "srv-parent",
+          codex_thread_id: "thr-child",
+          session: {
+            session_id: "srv-child",
+            title: "Forked session",
+            pinned: false,
+            forked_from_session_id: "srv-parent",
+            model: "gpt-5",
+            created_at: "2026-06-30T00:00:00Z",
+            last_active: "2026-06-30T00:01:00Z",
+            message_count: 2,
+            status: "idle",
+            changed_file_count: 0,
+            pending_approval_count: 0,
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    },
+    async () => {
+      assert.deepEqual(await forkSession("srv-parent"), {
+        sessionId: "srv-child",
+        title: "Forked session",
+        pinned: false,
+        contextFolderPath: null,
+        forkedFromSessionId: "srv-parent",
+        model: "gpt-5",
+        createdAt: "2026-06-30T00:00:00Z",
+        lastActiveAt: "2026-06-30T00:01:00Z",
+        messageCount: 2,
+        status: "idle",
+        changedFileCount: 0,
+        pendingApprovalCount: 0,
+      });
+    }
+  );
+
+  assert.deepEqual(requests, [{ method: "POST", path: "/v1/sessions/srv-parent/fork" }]);
 }
 
 async function testListApisFollowBackendPaginationCursors() {
@@ -1915,6 +1968,7 @@ test("api client behavior", async () => {
   await testWorkspaceDownloadDecodesUtf8ContentDispositionFilename();
   await testCreateTaskTriggerAddsOffsetForNonUtcRunAt();
   await testFetchSessionsNormalizesBackendShape();
+  await testForkSessionPostsToForkEndpointAndNormalizesSession();
   await testCreateSessionNormalizesBackendShape();
   await testCreateSessionPostsSelectedModel();
   await testUpdateSessionPatchesSelectedModel();

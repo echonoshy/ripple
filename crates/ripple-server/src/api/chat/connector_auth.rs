@@ -1239,6 +1239,8 @@ mod tests {
             pending_connector_auth: None,
             pending_control_request: None,
             codex_thread_id: None,
+            forked_from_session_id: None,
+            forked_from_codex_thread_id: None,
             memory_disabled: false,
             plan_steps: Vec::<Value>::new(),
             plan_progress: None,

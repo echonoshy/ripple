@@ -1068,6 +1068,61 @@ impl CodexAppServerProvider {
         result
     }
 
+    pub async fn fork_thread(
+        &self,
+        user_id: String,
+        workspace_root: PathBuf,
+        cwd: PathBuf,
+        thread_id: String,
+        model: String,
+        memory_disabled: bool,
+    ) -> anyhow::Result<Value> {
+        let request_user_id = user_id.clone();
+        let session =
+            CodexAppServerSession::new(user_id, self.config.clone(), workspace_root.clone());
+        let result = async {
+            session.ensure_started().await?;
+            session.ensure_initialized().await?;
+            let request = AgentRunnerRequest {
+                provider: "codex".to_string(),
+                prompt: "fork session".to_string(),
+                base_instructions: None,
+                turn_context: None,
+                client_context: None,
+                cwd,
+                input_items: Vec::new(),
+                model: Some(model.clone()),
+                effort: None,
+                summary: None,
+                output_schema: None,
+                max_runtime_seconds: self.config.codex.max_runtime_seconds,
+                user_id: Some(request_user_id),
+                session_id: None,
+                metadata: json!({
+                    "codex_persistent_thread": true,
+                    "memory_disabled": memory_disabled
+                }),
+            };
+            let permission_config =
+                thread_config_for_request(&workspace_root, &self.config, &request);
+            session
+                .request(
+                    "thread/fork",
+                    thread_fork_params(
+                        &thread_id,
+                        &request,
+                        &self.config.codex.approval_policy,
+                        &permission_config,
+                        &model,
+                    ),
+                )
+                .await
+        }
+        .await;
+        session.shutdown().await;
+        result
+    }
+
     async fn ensure_thread(
         &self,
         request: &AgentRunnerRequest,
@@ -1844,6 +1899,30 @@ fn turn_start_params(
     Value::Object(params)
 }
 
+fn thread_fork_params(
+    thread_id: &str,
+    request: &AgentRunnerRequest,
+    approval_policy: &str,
+    permission_config: &Value,
+    model: &str,
+) -> Value {
+    let mut params = json!({
+        "threadId": thread_id,
+        "cwd": request.cwd,
+        "approvalPolicy": approval_policy,
+        "config": permission_config,
+        "permissions": RIPPLE_CODEX_PERMISSION_PROFILE,
+        "excludeTurns": true,
+        "ephemeral": false
+    });
+    if !model.trim().is_empty() {
+        params["model"] = json!(model.trim());
+    }
+    add_base_instructions(&mut params, request);
+    add_task_dynamic_tools(&mut params, request);
+    params
+}
+
 fn persistent_thread(request: &AgentRunnerRequest) -> bool {
     request
         .metadata
@@ -2242,6 +2321,62 @@ mod tests {
             .is_some());
         assert!(tool.get("tools").is_none());
         assert!(tool.get("type").is_none());
+    }
+
+    #[test]
+    fn thread_fork_params_use_ripple_permissions_and_exclude_turns() {
+        let request = AgentRunnerRequest {
+            provider: "codex".to_string(),
+            prompt: "fork".to_string(),
+            base_instructions: Some("base".to_string()),
+            turn_context: None,
+            client_context: None,
+            cwd: PathBuf::from("/tmp/ripple-test/folder"),
+            input_items: Vec::new(),
+            model: Some("gpt-5".to_string()),
+            effort: None,
+            summary: None,
+            output_schema: None,
+            max_runtime_seconds: 60,
+            user_id: Some("alice".to_string()),
+            session_id: Some("session-1".to_string()),
+            metadata: json!({}),
+        };
+        let permission_config = json!({"sandbox": {"permissions": "managed"}});
+
+        let params =
+            thread_fork_params("thr_parent", &request, "never", &permission_config, "gpt-5");
+
+        assert_eq!(
+            params.get("threadId").and_then(Value::as_str),
+            Some("thr_parent")
+        );
+        assert_eq!(
+            params.get("cwd").and_then(Value::as_str),
+            Some("/tmp/ripple-test/folder")
+        );
+        assert_eq!(
+            params.get("permissions").and_then(Value::as_str),
+            Some(RIPPLE_CODEX_PERMISSION_PROFILE)
+        );
+        assert_eq!(
+            params.get("approvalPolicy").and_then(Value::as_str),
+            Some("never")
+        );
+        assert_eq!(
+            params.get("excludeTurns").and_then(Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            params.get("ephemeral").and_then(Value::as_bool),
+            Some(false)
+        );
+        assert_eq!(params.get("config"), Some(&permission_config));
+        assert_eq!(params.get("model").and_then(Value::as_str), Some("gpt-5"));
+        assert_eq!(
+            params.get("baseInstructions").and_then(Value::as_str),
+            Some("base")
+        );
     }
 
     #[test]

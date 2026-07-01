@@ -236,6 +236,78 @@ function testToolEventsDoNotExposeCopyAction() {
   assert.equal((html.match(/aria-label="Copy Command output content"/g) || []).length, 0);
 }
 
+function testChangedFilesCardCollapsesAndCanExpandDiffDetails() {
+  const html = renderToStaticMarkup(
+    <I18nProvider initialPreference="zh-CN">
+      <SessionTimeline
+        messages={[]}
+        events={[
+          {
+            id: "changes-1",
+            type: "assistant_message",
+            title: "Update",
+            body: "我已经处理好了。",
+            status: "completed",
+            changedFiles: [
+              {
+                path: "app/src/hooks/useChatRun.ts",
+                status: "modified",
+                additions: 11,
+                deletions: 0,
+                patch:
+                  "diff --git a/app/src/hooks/useChatRun.ts b/app/src/hooks/useChatRun.ts\n+changed",
+              },
+              {
+                path: "app/src/lib/api.test.ts",
+                status: "modified",
+                additions: 57,
+                deletions: 2,
+                patch: "diff --git a/app/src/lib/api.test.ts b/app/src/lib/api.test.ts\n-old\n+new",
+              },
+              {
+                path: "app/src/lib/api.ts",
+                status: "modified",
+                additions: 30,
+                deletions: 0,
+                patch: "diff --git a/app/src/lib/api.ts b/app/src/lib/api.ts\n+new",
+              },
+              {
+                path: "docs/notes.md",
+                status: "added",
+                additions: 1,
+                deletions: 0,
+                patch: "diff --git a/docs/notes.md b/docs/notes.md\n+note",
+              },
+            ],
+          },
+        ]}
+        isGenerating={false}
+        onQuickReply={noop}
+        onPermissionResolve={noop}
+      />
+    </I18nProvider>
+  );
+  const source = readFileSync(new URL("./SessionTimeline.tsx", import.meta.url), "utf8");
+
+  assert.match(html, /我已经处理好了。/);
+  assert.match(html, />回复</);
+  assert.doesNotMatch(html, />工作区变更</);
+  assert.match(html, /已编辑 4 个文件/);
+  assert.match(html, /\+99/);
+  assert.match(html, /-2/);
+  assert.match(html, /app\/src\/hooks\/useChatRun\.ts/);
+  assert.match(html, /app\/src\/lib\/api\.test\.ts/);
+  assert.match(html, /app\/src\/lib\/api\.ts/);
+  assert.doesNotMatch(html, /docs\/notes\.md/);
+  assert.match(html, /再显示 1 个文件/);
+  assert.doesNotMatch(html, /撤销/);
+  assert.doesNotMatch(html, /审核/);
+  assert.match(source, /showAllChangedFiles/);
+  assert.match(source, /openChangedFilePath/);
+  assert.match(source, /setOpenChangedFilePath/);
+  assert.match(source, /file\.patch/);
+}
+
 function testGeneratingPlaceholderUsesRandomWaitingCopy() {
   const originalRandom = Math.random;
   Math.random = () => 0;
@@ -329,6 +401,7 @@ testTimelineEventHeadersAlignIconAndTextRows();
 testCopyActionIsHiddenUntilMessageInteraction();
 testCopyActionCanBeRevealedOnMobileWithoutStayingVisible();
 testToolEventsDoNotExposeCopyAction();
+testChangedFilesCardCollapsesAndCanExpandDiffDetails();
 testGeneratingPlaceholderUsesRandomWaitingCopy();
 testChineseGeneratingPlaceholderUsesRandomWaitingCopy();
 testConnectorAuthTimelineWaitingCopyDoesNotTickSeconds();

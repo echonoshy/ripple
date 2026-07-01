@@ -1,4 +1,4 @@
-import type { Message, MessageArtifact, SessionDetail } from "@/types";
+import type { ChangedFile, Message, MessageArtifact, SessionDetail } from "@/types";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -89,6 +89,45 @@ function extractSessionMessageArtifacts(content: unknown): MessageArtifact[] {
   });
 }
 
+function changedFileFromBlockFile(file: unknown): ChangedFile | null {
+  if (!isRecord(file) || typeof file.path !== "string" || !file.path.trim()) return null;
+  const changedFile: ChangedFile = { path: file.path.trim() };
+  if (typeof file.status === "string" && file.status.trim()) {
+    changedFile.status = file.status.trim();
+  }
+  if (typeof file.additions === "number" && Number.isFinite(file.additions) && file.additions >= 0) {
+    changedFile.additions = Math.trunc(file.additions);
+  }
+  if (typeof file.deletions === "number" && Number.isFinite(file.deletions) && file.deletions >= 0) {
+    changedFile.deletions = Math.trunc(file.deletions);
+  }
+  if (typeof file.previous_path === "string" && file.previous_path.trim()) {
+    changedFile.previousPath = file.previous_path.trim();
+  } else if (typeof file.previousPath === "string" && file.previousPath.trim()) {
+    changedFile.previousPath = file.previousPath.trim();
+  }
+  if (typeof file.patch === "string" && file.patch.trim()) {
+    changedFile.patch = file.patch;
+  }
+  return changedFile;
+}
+
+function extractSessionMessageChangedFiles(content: unknown): ChangedFile[] {
+  if (!Array.isArray(content)) return [];
+  const changedFiles: ChangedFile[] = [];
+  const seen = new Set<string>();
+  for (const block of content.filter(isRecord)) {
+    if (block.type !== "changed_files" || !Array.isArray(block.files)) continue;
+    for (const item of block.files) {
+      const file = changedFileFromBlockFile(item);
+      if (!file || seen.has(file.path)) continue;
+      seen.add(file.path);
+      changedFiles.push(file);
+    }
+  }
+  return changedFiles;
+}
+
 export function mapSessionMessages(
   details: SessionDetail | { messages: Record<string, unknown>[] }
 ): Message[] {
@@ -154,6 +193,8 @@ export function mapSessionMessages(
       };
       const artifacts = extractSessionMessageArtifacts(content);
       if (artifacts.length > 0) assistantMessage.artifacts = artifacts;
+      const changedFiles = extractSessionMessageChangedFiles(content);
+      if (changedFiles.length > 0) assistantMessage.changedFiles = changedFiles;
 
       const askUserTool = content.find(
         (block) => isRecord(block) && block.type === "tool_use" && block.name === "AskUser"
@@ -211,6 +252,8 @@ export function mapSessionMessages(
       };
       const artifacts = extractSessionMessageArtifacts(msg.content);
       if (artifacts.length > 0) assistantMessage.artifacts = artifacts;
+      const changedFiles = extractSessionMessageChangedFiles(msg.content);
+      if (changedFiles.length > 0) assistantMessage.changedFiles = changedFiles;
       result.push(assistantMessage);
     } else if (role === "tool") {
       for (let i = result.length - 1; i >= 0; i--) {

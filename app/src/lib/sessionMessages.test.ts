@@ -129,8 +129,51 @@ function testMapsGeneratedImageBlocksToArtifacts() {
   ]);
 }
 
+function testMapsChangedFileBlocksToMessages() {
+  const messages = mapSessionMessages(
+    makeSessionDetail({
+      messages: [
+        {
+          role: "assistant",
+          created_at: "2026-05-19T00:00:02.000Z",
+          content: [
+            { type: "text", text: "I updated the files." },
+            {
+              type: "changed_files",
+              files: [
+                {
+                  path: "app/src/App.tsx",
+                  status: "modified",
+                  additions: 3,
+                  deletions: 1,
+                  patch: "diff --git a/app/src/App.tsx b/app/src/App.tsx\n+new",
+                },
+                { path: "docs/new.md", status: "added", additions: 2, patch: "+hello" },
+              ],
+            },
+          ],
+        },
+      ],
+    })
+  );
+
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].content, "I updated the files.");
+  assert.deepEqual(messages[0].changedFiles, [
+    {
+      path: "app/src/App.tsx",
+      status: "modified",
+      additions: 3,
+      deletions: 1,
+      patch: "diff --git a/app/src/App.tsx b/app/src/App.tsx\n+new",
+    },
+    { path: "docs/new.md", status: "added", additions: 2, patch: "+hello" },
+  ]);
+}
+
 testExtractsTextAndAttachedFiles();
 testMapsInternalMessagesAndPendingInteractions();
 testMapsGeneratedImageBlocksToArtifacts();
+testMapsChangedFileBlocksToMessages();
 
 console.log("session messages tests passed");

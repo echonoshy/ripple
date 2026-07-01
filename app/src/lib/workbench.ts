@@ -331,47 +331,15 @@ function stringifyRuntimeBody(value: unknown): string {
   return JSON.stringify(value, null, 2);
 }
 
-function normalizeDiffPath(path: string): string {
-  return path
-    .trim()
-    .replace(/^"|"$/g, "")
-    .replace(/^[ab]\//, "")
-    .trim();
-}
-
 function diffText(value: unknown): string {
   if (typeof value === "string") return value;
   if (value === undefined || value === null) return "";
   return stringifyRuntimeBody(value);
 }
 
-function changedPathsFromDiff(diff: unknown): string[] {
-  const paths = new Set<string>();
-  const text = diffText(diff);
-  for (const line of text.split("\n")) {
-    if (line.startsWith("diff --git ")) {
-      const parts = line.trim().split(/\s+/);
-      const path = normalizeDiffPath(parts[3] || parts[2] || "");
-      if (path && path !== "/dev/null") paths.add(path);
-      continue;
-    }
-
-    if (line.startsWith("+++ ")) {
-      const path = normalizeDiffPath(line.slice(4));
-      if (path && path !== "/dev/null") paths.add(path);
-    }
-  }
-  return [...paths];
-}
-
 function runtimeDiffSummary(event: CodexRuntimeEvent): string {
-  const paths = changedPathsFromDiff(event.diff);
-  if (paths.length === 0) return "Workspace changes updated.";
-
-  const visible = paths.slice(0, 4);
-  const more = paths.length > visible.length ? `, +${paths.length - visible.length} more` : "";
-  const noun = paths.length === 1 ? "file" : "files";
-  return `${paths.length} ${noun} changed: ${visible.join(", ")}${more}`;
+  const text = diffText(event.diff);
+  return text ? `\`\`\`diff\n${text}\n\`\`\`` : "Workspace changes updated.";
 }
 
 function folderContextSearchBody(event: CodexRuntimeEvent): string {
@@ -543,17 +511,29 @@ function imageTimelineWorkspacePath(event: WorkbenchTimelineEvent): string | nul
   return event.workspacePath || null;
 }
 
+function isWorkspaceDiffTimelineEvent(event: WorkbenchTimelineEvent): boolean {
+  return event.type === "file_change" && event.title === "Workspace diff";
+}
+
 export function mergeTimelineEvents(
   messageEvents: WorkbenchTimelineEvent[],
   runtimeEvents: WorkbenchTimelineEvent[]
 ): WorkbenchTimelineEvent[] {
-  const merged = [...messageEvents];
+  const hasRuntimeWorkspaceDiff = runtimeEvents.some(isWorkspaceDiffTimelineEvent);
+  const hasMessageChangedFiles = messageEvents.some((event) => event.changedFiles?.length);
+  const merged = hasRuntimeWorkspaceDiff
+    ? messageEvents.filter((event) => !isWorkspaceDiffTimelineEvent(event))
+    : [...messageEvents];
   const seenImagePaths = new Set(
     messageEvents
       .map(imageTimelineWorkspacePath)
       .filter((path): path is string => typeof path === "string" && path.length > 0)
   );
   const orderedRuntime = runtimeEvents
+    .filter(
+      (event) =>
+        !(hasMessageChangedFiles && isWorkspaceDiffTimelineEvent(event))
+    )
     .map((event, index) => ({ event, index, time: eventTime(event.createdAt) }))
     .sort((a, b) => {
       if (a.time !== null && b.time !== null && a.time !== b.time) return a.time - b.time;
@@ -563,6 +543,27 @@ export function mergeTimelineEvents(
   for (const { event, time } of orderedRuntime) {
     const imagePath = imageTimelineWorkspacePath(event);
     if (imagePath && seenImagePaths.has(imagePath)) {
+      continue;
+    }
+
+    if (isWorkspaceDiffTimelineEvent(event)) {
+      const assistantIndex = trailingAssistantIndex(merged);
+      if (assistantIndex >= 0) {
+        merged.splice(assistantIndex + 1, 0, event);
+      } else if (time === null) {
+        merged.push(event);
+      } else {
+        const insertAt = merged.findIndex((candidate) => {
+          const candidateTime = eventTime(candidate.createdAt);
+          return candidateTime !== null && candidateTime > time;
+        });
+        if (insertAt < 0) {
+          merged.push(event);
+        } else {
+          merged.splice(insertAt, 0, event);
+        }
+      }
+      if (imagePath) seenImagePaths.add(imagePath);
       continue;
     }
 
@@ -799,7 +800,7 @@ export function messagesToTimelineEvents(
       events.push(imageArtifactToTimelineEvent(id, artifact, index, message.created_at));
     }
 
-    if (message.role === "assistant" && message.content) {
+    if (message.role === "assistant" && (message.content || message.changedFiles?.length)) {
       const hasTools = toolCalls.length > 0;
       events.push({
         id,
@@ -807,6 +808,7 @@ export function messagesToTimelineEvents(
         title: hasTools ? "Response" : "Update",
         body: message.content,
         createdAt: message.created_at,
+        changedFiles: message.changedFiles,
       });
     }
   }
@@ -817,6 +819,9 @@ export function messagesToTimelineEvents(
 export function extractChangedFilePaths(messages: Message[]): string[] {
   const paths = new Set<string>();
   for (const message of messages) {
+    for (const file of message.changedFiles || []) {
+      if (file.path) paths.add(file.path);
+    }
     for (const tool of message.toolCalls || []) {
       for (const path of changedPathsFromTool(tool)) {
         paths.add(path);

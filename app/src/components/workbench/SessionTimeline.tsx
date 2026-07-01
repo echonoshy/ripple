@@ -5,6 +5,8 @@ import {
   AlertTriangle,
   Bot,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   Copy,
   FileCode2,
   ImageIcon,
@@ -22,7 +24,7 @@ import { useI18n, type MessageKey } from "@/i18n";
 import { downloadWorkspaceFile } from "@/lib/api";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { getWorkspaceImagePreviewUrl } from "@/lib/workspaceImageCache";
-import type { Message, WorkbenchTimelineEvent } from "@/types";
+import type { ChangedFile, Message, WorkbenchTimelineEvent } from "@/types";
 import {
   TYPOGRAPHY_BODY_CLASS,
   TYPOGRAPHY_BODY_MEDIUM_CLASS,
@@ -138,6 +140,7 @@ const TIMELINE_ICON_ROW_CLASS = "grid min-h-6 grid-cols-[24px_minmax(0,1fr)] ite
 const TIMELINE_CONTENT_INDENT_CLASS = "ml-8";
 const TIMELINE_EVENT_DIVIDER_CLASS =
   "after:absolute after:right-0 after:bottom-0 after:left-8 after:h-px after:bg-[#e9eef7]/80 last:after:hidden";
+const COLLAPSED_CHANGED_FILES_LIMIT = 3;
 
 const EVENT_TITLE_KEYS_BY_TITLE = {
   "User request": "timeline.eventTitles.userRequest",
@@ -273,6 +276,149 @@ function formatBytes(value: number | undefined): string {
   if (value < 1024) return `${value} B`;
   if (value < 1024 * 1024) return `${Math.round(value / 1024)} KB`;
   return `${(value / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function changedFileStat(value: number | undefined): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return 0;
+  return Math.trunc(value);
+}
+
+function splitChangedFilePath(path: string): { directory: string; filename: string } {
+  const trimmed = path.trim();
+  const slashIndex = trimmed.lastIndexOf("/");
+  if (slashIndex < 0) return { directory: "", filename: trimmed };
+  return {
+    directory: trimmed.slice(0, slashIndex + 1),
+    filename: trimmed.slice(slashIndex + 1),
+  };
+}
+
+function diffLineClassName(line: string): string {
+  if (line.startsWith("+") && !line.startsWith("+++")) return "text-[#0F9D58]";
+  if (line.startsWith("-") && !line.startsWith("---")) return "text-[#D83931]";
+  if (line.startsWith("@@")) return "text-[#1D5FD0]";
+  if (line.startsWith("diff --git")) return "text-[#1F2329]";
+  return "text-[#596579]";
+}
+
+function ChangedFilePathLabel({ file }: { file: ChangedFile }) {
+  const { directory, filename } = splitChangedFilePath(file.path);
+  return (
+    <span className="min-w-0 truncate font-[family-name:var(--font-mono)] text-[13px] leading-5">
+      {directory && <span className="text-[#646A73]">{directory}</span>}
+      <span className="font-medium text-[#1F2329]">{filename || file.path}</span>
+    </span>
+  );
+}
+
+function ChangedFilesSummary({ event }: { event: WorkbenchTimelineEvent }) {
+  const { t } = useI18n();
+  const files = event.changedFiles || [];
+  const [showAllChangedFiles, setShowAllChangedFiles] = React.useState(false);
+  const [openChangedFilePath, setOpenChangedFilePath] = React.useState<string | null>(null);
+
+  if (files.length === 0) return null;
+
+  const totalAdditions = files.reduce((total, file) => total + changedFileStat(file.additions), 0);
+  const totalDeletions = files.reduce((total, file) => total + changedFileStat(file.deletions), 0);
+  const visibleFiles = showAllChangedFiles
+    ? files
+    : files.slice(0, COLLAPSED_CHANGED_FILES_LIMIT);
+  const hiddenFileCount = Math.max(files.length - COLLAPSED_CHANGED_FILES_LIMIT, 0);
+
+  return (
+    <div
+      className={`${TIMELINE_CONTENT_INDENT_CLASS} mt-2 max-w-4xl overflow-hidden rounded-xl border border-[#DEE0E3] bg-white shadow-[0_1px_2px_rgba(31,35,41,0.04)]`}
+    >
+      <div className="flex items-start gap-3 border-b border-[#EFF0F1] px-3 py-3 sm:px-4">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#F5F6F7] text-[#646A73]">
+          <FileCode2 size={20} />
+        </span>
+        <div className="min-w-0">
+          <div className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#1F2329]`}>
+            {t("timeline.changedFilesEdited", { count: files.length })}
+          </div>
+          <div className="mt-0.5 flex items-center gap-1.5 font-[family-name:var(--font-mono)] text-[13px] leading-5">
+            <span className="text-[#0F9D58]">+{totalAdditions}</span>
+            <span className="text-[#D83931]">-{totalDeletions}</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="divide-y divide-[#EFF0F1]">
+        {visibleFiles.map((file, index) => {
+          const rowKey = `${file.path}-${index}`;
+          const isOpen = openChangedFilePath === rowKey;
+          const additions = changedFileStat(file.additions);
+          const deletions = changedFileStat(file.deletions);
+
+          return (
+            <div key={rowKey}>
+              <button
+                type="button"
+                title={file.path}
+                onClick={() => setOpenChangedFilePath(isOpen ? null : rowKey)}
+                className="grid min-h-11 w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-[#F8F9FA] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3370FF]/30 sm:px-4"
+              >
+                <span className="flex min-w-0 items-center gap-2">
+                  <ChevronRight
+                    size={14}
+                    className={`shrink-0 text-[#8F959E] transition-transform ${
+                      isOpen ? "rotate-90" : ""
+                    }`}
+                  />
+                  <ChangedFilePathLabel file={file} />
+                </span>
+                <span className="flex shrink-0 items-center gap-1.5 font-[family-name:var(--font-mono)] text-[13px] leading-5">
+                  <span className="text-[#0F9D58]">+{additions}</span>
+                  <span className="text-[#D83931]">-{deletions}</span>
+                </span>
+              </button>
+
+              {isOpen && (
+                <div className="border-t border-[#EFF0F1] bg-[#F8F9FA] px-3 py-2.5 sm:px-4">
+                  {file.patch ? (
+                    <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded-lg bg-white px-3 py-2 font-[family-name:var(--font-mono)] text-[12px] leading-5">
+                      {file.patch.split("\n").map((line, lineIndex) => (
+                        <span
+                          key={`${rowKey}-line-${lineIndex}`}
+                          className={`block ${diffLineClassName(line)}`}
+                        >
+                          {line || " "}
+                        </span>
+                      ))}
+                    </pre>
+                  ) : (
+                    <div className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
+                      {t("timeline.changedFilesNoDiff")}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {hiddenFileCount > 0 && (
+        <button
+          type="button"
+          onClick={() => setShowAllChangedFiles((current) => !current)}
+          className={`flex w-full items-center gap-1.5 px-3 py-2.5 text-left ${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#1F2329] transition-colors hover:bg-[#F8F9FA] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3370FF]/30 sm:px-4`}
+        >
+          {showAllChangedFiles
+            ? t("timeline.changedFilesShowFewer")
+            : t("timeline.changedFilesShowMore", { count: hiddenFileCount })}
+          <ChevronDown
+            size={16}
+            className={`text-[#646A73] transition-transform ${
+              showAllChangedFiles ? "rotate-180" : ""
+            }`}
+          />
+        </button>
+      )}
+    </div>
+  );
 }
 
 function TimelineImagePreview({
@@ -538,7 +684,9 @@ export default function SessionTimeline({
                 </div>
               </div>
             </div>
-            {isToolEvent ? (
+            {event.type === "file_change" && event.changedFiles?.length ? (
+              <ChangedFilesSummary event={event} />
+            ) : isToolEvent ? (
               <div
                 className={`${TIMELINE_CONTENT_INDENT_CLASS} mt-2 px-3 py-2.5 font-[family-name:var(--font-mono)] ${TYPOGRAPHY_META_CLASS} text-[#334155] ${WORKBENCH_SECTION_CLASS}`}
               >
@@ -553,15 +701,20 @@ export default function SessionTimeline({
                 <TimelineImagePreview event={event} userId={userId} />
               </div>
             ) : (
-              <div
-                className={`${TIMELINE_CONTENT_INDENT_CLASS} markdown-body workbench-markdown max-w-4xl ${TYPOGRAPHY_BODY_CLASS} text-[#2B2F36]`}
-              >
-                <MarkdownRenderer
-                  content={event.body}
-                  onFeishuAuthOpen={onFeishuAuthOpen}
-                  feishuAuthWaiting={feishuAuthWaiting}
-                />
-              </div>
+              <>
+                {event.body.trim() && (
+                  <div
+                    className={`${TIMELINE_CONTENT_INDENT_CLASS} markdown-body workbench-markdown max-w-4xl ${TYPOGRAPHY_BODY_CLASS} text-[#2B2F36]`}
+                  >
+                    <MarkdownRenderer
+                      content={event.body}
+                      onFeishuAuthOpen={onFeishuAuthOpen}
+                      feishuAuthWaiting={feishuAuthWaiting}
+                    />
+                  </div>
+                )}
+                {event.changedFiles?.length ? <ChangedFilesSummary event={event} /> : null}
+              </>
             )}
           </article>
         );

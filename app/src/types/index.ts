@@ -25,6 +25,15 @@ export interface MessageArtifact {
   revisedPrompt?: string;
 }
 
+export interface ChangedFile {
+  path: string;
+  status?: string;
+  additions?: number;
+  deletions?: number;
+  previousPath?: string;
+  patch?: string;
+}
+
 export interface Message {
   id: string | number;
   role: "user" | "assistant";
@@ -32,6 +41,7 @@ export interface Message {
   created_at?: string;
   toolCalls?: ToolCall[];
   artifacts?: MessageArtifact[];
+  changedFiles?: ChangedFile[];
   askUser?: AskUserData;
   permissionRequest?: PermissionRequestData;
 }
@@ -644,4 +654,5 @@ export interface WorkbenchTimelineEvent {
   mimeType?: string;
   size?: number;
   revisedPrompt?: string;
+  changedFiles?: ChangedFile[];
 }

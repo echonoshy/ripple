@@ -859,6 +859,17 @@ export function useChatRun({
             })
           );
         },
+        onChangedFiles: (files) => {
+          if (isStaleRequest()) return;
+          updateRunningMessages((prev) => {
+            const msgs = [...prev];
+            const last = msgs[msgs.length - 1];
+            if (last?.role === "assistant") {
+              msgs[msgs.length - 1] = { ...last, changedFiles: files };
+            }
+            return msgs;
+          });
+        },
         onAgentStop: (data) => {
           if (isStaleRequest()) return;
           updateRunningMessages((prev) => {

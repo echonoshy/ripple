@@ -410,3 +410,23 @@ fn now_epoch_seconds() -> u64 {
         .map(|duration| duration.as_secs())
         .unwrap_or(0)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn response_completed_sse_does_not_include_codex_turn_diff_payload() {
+        let bytes = assistant_done_sse(
+            "codex-test",
+            "resp_session-1",
+            "session-1",
+            "done".to_string(),
+            json!({"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}),
+        );
+        let text = std::str::from_utf8(bytes.as_ref()).expect("valid SSE utf8");
+
+        assert!(text.contains("event: response.completed"));
+        assert!(!text.contains("ripple_codex_turn_diff"));
+    }
+}

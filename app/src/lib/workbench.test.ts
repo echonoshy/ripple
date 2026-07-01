@@ -749,6 +749,60 @@ function testExtractsChangedFilesFromToolCalls() {
   assert.deepEqual(extractChangedFilePaths(messages), ["/workspace/a.ts", "/workspace/b.ts"]);
 }
 
+function testExtractsChangedFilesFromMessageChangedFiles() {
+  const messages: Message[] = [
+    {
+      id: "assistant-1",
+      role: "assistant",
+      content: "Done.",
+      changedFiles: [
+        { path: "app/src/App.tsx", status: "modified" },
+        { path: "docs/new.md", status: "added" },
+        { path: "app/src/App.tsx", status: "modified" },
+      ],
+    },
+  ];
+
+  assert.deepEqual(extractChangedFilePaths(messages), ["app/src/App.tsx", "docs/new.md"]);
+}
+
+function testMapsMessageChangedFilesIntoTimelineEvents() {
+  const events = messagesToTimelineEvents([
+    {
+      id: "assistant-1",
+      role: "assistant",
+      content: "Done.",
+      created_at: "2026-05-19T00:00:00.000Z",
+      changedFiles: [
+        {
+          path: "app/src/App.tsx",
+          status: "modified",
+          additions: 3,
+          deletions: 1,
+          patch: "diff --git a/app/src/App.tsx b/app/src/App.tsx\n+new",
+        },
+        { path: "docs/new.md", status: "added", additions: 2, patch: "+hello" },
+      ],
+    },
+  ]);
+
+  assert.equal(events.length, 1);
+  assert.equal(events[0].id, "assistant-1");
+  assert.equal(events[0].type, "assistant_message");
+  assert.equal(events[0].title, "Update");
+  assert.equal(events[0].body, "Done.");
+  assert.deepEqual(events[0].changedFiles, [
+    {
+      path: "app/src/App.tsx",
+      status: "modified",
+      additions: 3,
+      deletions: 1,
+      patch: "diff --git a/app/src/App.tsx b/app/src/App.tsx\n+new",
+    },
+    { path: "docs/new.md", status: "added", additions: 2, patch: "+hello" },
+  ]);
+}
+
 function testMapsCodexRuntimeEventsIntoTimelineEvents() {
   const command: CodexRuntimeEvent = {
     type: "tool_output_delta",
@@ -872,7 +926,7 @@ function testMapsMessageImageArtifactsIntoTimelineEvents() {
   assert.equal(events[0].createdAt, "2026-05-19T00:00:02.000Z");
 }
 
-function testSummarizesCodexRuntimeDiffInsteadOfShowingFullPatch() {
+function testShowsCodexRuntimeDiffAsRawPatch() {
   const event = codexRuntimeEventToTimelineEvent(
     {
       type: "codex_turn_diff_updated",
@@ -888,9 +942,11 @@ function testSummarizesCodexRuntimeDiffInsteadOfShowingFullPatch() {
   assert.equal(event.type, "file_change");
   assert.equal(event.title, "Workspace diff");
   assert.equal(event.status, "running");
-  assert.match(event.body, /1 file/);
+  assert.match(event.body, /diff --git a\/src\/App\.tsx b\/src\/App\.tsx/);
   assert.match(event.body, /src\/App\.tsx/);
-  assert.doesNotMatch(event.body, /@@ -1/);
+  assert.match(event.body, /@@ -1/);
+  assert.match(event.body, /-old/);
+  assert.match(event.body, /\+new/);
 }
 
 function testUpsertsCodexRuntimeDiffEvents() {
@@ -981,6 +1037,39 @@ function testMergesRuntimeEventsByTimestamp() {
   assert.deepEqual(
     merged.map((event) => event.id),
     ["old-user", "old-assistant", "runtime-diff", "new-user"]
+  );
+}
+
+function testPlacesWorkspaceDiffAfterAssistantResponse() {
+  const messageEvents = messagesToTimelineEvents([
+    {
+      id: "user-1",
+      role: "user",
+      content: "update the file",
+      created_at: "2026-05-19T00:00:01.000Z",
+    },
+    {
+      id: "assistant-1",
+      role: "assistant",
+      content: "Updated it.",
+      created_at: "2026-05-19T00:00:03.000Z",
+    },
+  ]);
+  const runtimeEvents = [
+    codexRuntimeEventToTimelineEvent(
+      {
+        type: "codex_turn_diff_updated",
+        diff: "diff --git a/src/App.tsx b/src/App.tsx\n+new",
+      },
+      { id: "runtime-diff", createdAt: "2026-05-19T00:00:02.000Z" }
+    ),
+  ];
+
+  const merged = mergeTimelineEvents(messageEvents, runtimeEvents);
+
+  assert.deepEqual(
+    merged.map((event) => event.id),
+    ["user-1", "assistant-1", "runtime-diff"]
   );
 }
 
@@ -1082,12 +1171,15 @@ testHidesGenericWebSearchSummaries();
 testSummarizesOtherToolsWithoutWrapperMetadata();
 testPlacesAssistantContentAfterItsToolCalls();
 testExtractsChangedFilesFromToolCalls();
+testExtractsChangedFilesFromMessageChangedFiles();
+testMapsMessageChangedFilesIntoTimelineEvents();
 testMapsCodexRuntimeEventsIntoTimelineEvents();
 testMapsMessageImageArtifactsIntoTimelineEvents();
-testSummarizesCodexRuntimeDiffInsteadOfShowingFullPatch();
+testShowsCodexRuntimeDiffAsRawPatch();
 testUpsertsCodexRuntimeDiffEvents();
 testUpsertsContextCompactionLifecycleEvents();
 testMergesRuntimeEventsByTimestamp();
+testPlacesWorkspaceDiffAfterAssistantResponse();
 testMergeSkipsRuntimeImageAlreadyRepresentedByMessageArtifact();
 testRuntimeEventsStayBeforeOptimisticAssistantResponse();
 

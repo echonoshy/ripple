@@ -1,6 +1,7 @@
 import { fetchEventSource } from "@microsoft/fetch-event-source";
 import {
   CodexRuntimeEvent,
+  ChangedFile,
   CapabilityInfo,
   ConnectorAuthChatEvent,
   ToolCall,
@@ -1356,6 +1357,7 @@ export interface ChatStreamCallbacks {
   onPlanProgress?: (progress: PlanProgress) => void;
   onPlanUpdated?: (update: PlanUpdate) => void;
   onRuntimeEvent?: (event: CodexRuntimeEvent) => void;
+  onChangedFiles?: (files: ChangedFile[]) => void;
   onConnectorAuth?: (event: ConnectorAuthChatEvent) => void;
   onAgentStop?: (data: AgentStopData) => void;
   onPermissionRequest?: (request: {
@@ -1462,6 +1464,41 @@ function usageFromResponsesUsage(value: unknown): UsageInfo | null {
   };
 }
 
+function changedFilesFromResponsesPayload(value: unknown): ChangedFile[] {
+  if (!isRecord(value) || !isRecord(value.ripple_changed_files)) return [];
+  const files = Array.isArray(value.ripple_changed_files.files)
+    ? value.ripple_changed_files.files
+    : [];
+  const changedFiles: ChangedFile[] = [];
+  const seen = new Set<string>();
+  for (const item of files) {
+    if (!isRecord(item) || typeof item.path !== "string" || !item.path.trim()) continue;
+    const path = item.path.trim();
+    if (seen.has(path)) continue;
+    seen.add(path);
+    const file: ChangedFile = { path };
+    if (typeof item.status === "string" && item.status.trim()) {
+      file.status = item.status.trim();
+    }
+    if (typeof item.additions === "number" && Number.isFinite(item.additions) && item.additions >= 0) {
+      file.additions = Math.trunc(item.additions);
+    }
+    if (typeof item.deletions === "number" && Number.isFinite(item.deletions) && item.deletions >= 0) {
+      file.deletions = Math.trunc(item.deletions);
+    }
+    if (typeof item.previous_path === "string" && item.previous_path.trim()) {
+      file.previousPath = item.previous_path.trim();
+    } else if (typeof item.previousPath === "string" && item.previousPath.trim()) {
+      file.previousPath = item.previousPath.trim();
+    }
+    if (typeof item.patch === "string" && item.patch.trim()) {
+      file.patch = item.patch;
+    }
+    changedFiles.push(file);
+  }
+  return changedFiles;
+}
+
 async function streamChatResponse(
   endpointPath: string,
   body: Record<string, unknown>,
@@ -1549,6 +1586,8 @@ async function streamChatResponse(
             const response = isRecord(data.response) ? data.response : {};
             const usage = usageFromResponsesUsage(response.usage);
             if (usage) callbacks.onUsage(usage);
+            const changedFiles = changedFilesFromResponsesPayload(response);
+            if (changedFiles.length > 0) callbacks.onChangedFiles?.(changedFiles);
             return;
           }
 

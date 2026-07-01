@@ -1612,6 +1612,62 @@ async function testResponsesStreamDeltaFeedsChatCallbacks() {
   assert.deepEqual(deltas, ["hello", " world"]);
 }
 
+async function testResponsesStreamCompletedDoesNotReportCodexTurnDiff() {
+  const runtimeEvents: unknown[] = [];
+  const changedFiles: unknown[] = [];
+  const globals = globalThis as unknown as {
+    document?: Pick<Document, "addEventListener" | "removeEventListener"> & { hidden: boolean };
+    window?: Pick<Window, "fetch" | "setTimeout" | "clearTimeout">;
+  };
+  const previousDocument = globals.document;
+  const previousWindow = globals.window;
+  globals.document = {
+    hidden: false,
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
+  };
+  globals.window = {
+    fetch: (...args) => globalThis.fetch(...args),
+    setTimeout: globalThis.setTimeout,
+    clearTimeout: globalThis.clearTimeout,
+  };
+
+  try {
+    await withFetch(
+      async () =>
+        new Response(
+          [
+            'event: response.created\ndata: {"type":"response.created","response":{"id":"resp_session-1"}}\n\n',
+            'event: response.completed\ndata: {"type":"response.completed","response":{"status":"completed","ripple_codex_turn_diff":{"type":"codex_turn_diff_updated","codex_method":"turn/diff/updated","turn_id":"turn-1","diff":"diff --git a/app/src/App.tsx b/app/src/App.tsx\\n+new"}}}\n\n',
+            "data: [DONE]\n\n",
+          ].join(""),
+          {
+            status: 200,
+            headers: { "Content-Type": "text/event-stream" },
+          }
+        ),
+      async () => {
+        await sendChatMessage("session-1", "hi", "codex-test", {
+          onMessageDelta: () => undefined,
+          onToolCall: () => undefined,
+          onToolResult: () => undefined,
+          onUsage: () => undefined,
+          onRuntimeEvent: (event) => runtimeEvents.push(event),
+          onChangedFiles: (files) => changedFiles.push(...files),
+          onComplete: () => undefined,
+          onError: () => undefined,
+        });
+      }
+    );
+  } finally {
+    globals.document = previousDocument;
+    globals.window = previousWindow;
+  }
+
+  assert.deepEqual(runtimeEvents, []);
+  assert.deepEqual(changedFiles, []);
+}
+
 async function testSendChatMessagePassesRequiredSkillsAndScreenContext() {
   const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
   const globals = globalThis as unknown as {
@@ -1982,6 +2038,7 @@ test("api client behavior", async () => {
   await testWorkspaceSearchDefaultsToNameScope();
   await testChatStreamUsesServerConflictDetail();
   await testResponsesStreamDeltaFeedsChatCallbacks();
+  await testResponsesStreamCompletedDoesNotReportCodexTurnDiff();
   await testSendChatMessagePassesRequiredSkillsAndScreenContext();
   await testSendChatMessagePassesClientContextOption();
   await testSendChatMessageDoesNotSendPreferredSkillIds();

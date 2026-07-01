@@ -3,10 +3,12 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
+  Brain,
   Check,
   ChevronDown,
   Cpu,
   Edit3,
+  FileText,
   HardDrive,
   KeyRound,
   Layers,
@@ -17,6 +19,7 @@ import {
   Server,
   ShieldCheck,
   SlidersHorizontal,
+  Trash2,
   Upload,
   UserRound,
   X,
@@ -26,10 +29,15 @@ import {
   AuthError,
   changePassword,
   deleteUserAvatar,
+  fetchMemoryStatus,
+  fetchMemorySummary,
   fetchCurrentSandbox,
   fetchUserAvatarImage,
   fetchUserProfile,
   getConfiguredApiUrl,
+  resetMemory,
+  type MemoryStatusResponse,
+  type MemorySummaryResponse,
   updateUserProfile,
   uploadUserAvatar,
 } from "@/lib/api";
@@ -93,6 +101,13 @@ function formatTokens(num: number): string {
 function percent(value: number, max: number): number {
   if (max <= 0) return 0;
   return Math.min(100, Math.max(0, (value / max) * 100));
+}
+
+function formatMemoryTimestamp(value: string | null | undefined, fallback: string): string {
+  if (!value) return fallback;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString();
 }
 
 const SETTINGS_MODEL_MENU_WIDTH = 176;
@@ -191,6 +206,12 @@ export default function SettingsPage({
   const { preference: localePreference, setPreference: setLocalePreference, t } = useI18n();
   const [sandbox, setSandbox] = useState<SandboxInfo | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [memoryStatus, setMemoryStatus] = useState<MemoryStatusResponse | null>(null);
+  const [memorySummary, setMemorySummary] = useState<MemorySummaryResponse | null>(null);
+  const [memoryError, setMemoryError] = useState<string | null>(null);
+  const [memoryMessage, setMemoryMessage] = useState<string | null>(null);
+  const [memorySummaryOpen, setMemorySummaryOpen] = useState(false);
+  const [isResettingMemory, setIsResettingMemory] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [avatarImageUrl, setAvatarImageUrl] = useState<string | null>(null);
@@ -227,8 +248,28 @@ export default function SettingsPage({
     [onAuthExpired, t]
   );
 
+  const loadMemoryData = useCallback(async () => {
+    try {
+      const [statusData, summaryData] = await Promise.all([
+        fetchMemoryStatus(),
+        fetchMemorySummary(),
+      ]);
+      setMemoryStatus(statusData);
+      setMemorySummary(summaryData);
+      setMemoryError(null);
+    } catch (caught) {
+      if (handleSettingsAuthError(caught)) return;
+      setMemoryStatus(null);
+      setMemorySummary(null);
+      setMemoryError(
+        caught instanceof Error ? caught.message : t("settings.memory.loadFailed")
+      );
+    }
+  }, [handleSettingsAuthError, t]);
+
   const loadSettingsData = useCallback(async () => {
     setIsLoading(true);
+    let shouldLoadMemory = true;
     try {
       const [sandboxData, profileData] = await Promise.all([
         fetchCurrentSandbox(),
@@ -237,13 +278,17 @@ export default function SettingsPage({
       setSandbox(sandboxData);
       setProfile(profileData);
     } catch (caught) {
-      if (handleSettingsAuthError(caught)) return;
+      if (handleSettingsAuthError(caught)) {
+        shouldLoadMemory = false;
+        return;
+      }
       setSandbox(null);
       setProfile(null);
     } finally {
+      if (shouldLoadMemory) await loadMemoryData();
       setIsLoading(false);
     }
-  }, [handleSettingsAuthError]);
+  }, [handleSettingsAuthError, loadMemoryData]);
 
   useEffect(() => {
     queueMicrotask(() => {
@@ -275,6 +320,35 @@ export default function SettingsPage({
     { label: t("settings.weeklyOutput"), value: formatTokens(usage?.weekly_output_tokens ?? 0) },
     { label: t("settings.totalOutput"), value: formatTokens(usage?.total_output_tokens ?? 0) },
   ];
+  const memoryMetricItems = [
+    {
+      label: t("settings.memory.status"),
+      value: memoryStatus
+        ? memoryStatus.memory.enabled
+          ? t("settings.memory.on")
+          : t("settings.memory.off")
+        : t("settings.memory.unknown"),
+    },
+    {
+      label: t("settings.memory.summary"),
+      value: memoryStatus?.summary.available
+        ? t("settings.memory.available")
+        : t("settings.memory.notAvailable"),
+    },
+    {
+      label: t("settings.memory.stageOutputs"),
+      value:
+        memoryStatus?.runtime.stage1_output_count == null
+          ? t("settings.memory.notAvailable")
+          : String(memoryStatus.runtime.stage1_output_count),
+    },
+  ];
+  const memorySummaryText = memorySummary?.summary?.text.trim() || "";
+  const memorySummaryTruncated = memorySummary?.summary?.truncated ?? false;
+  const memoryLastUpdated = formatMemoryTimestamp(
+    memoryStatus?.summary.last_updated_at,
+    t("settings.memory.notAvailable")
+  );
   const languageOptions: Array<{ value: LocalePreference; label: string }> = [
     { value: "system", label: t("settings.language.system") },
     { value: "zh-CN", label: t("settings.language.zhCN") },
@@ -411,6 +485,27 @@ export default function SettingsPage({
       setIsAvatarUploading(false);
     }
   };
+
+  const handleResetMemory = useCallback(async () => {
+    if (isResettingMemory) return;
+    const confirmed =
+      typeof window !== "undefined" && window.confirm(t("settings.memory.clearConfirm"));
+    if (!confirmed) return;
+
+    try {
+      setIsResettingMemory(true);
+      setMemoryError(null);
+      setMemoryMessage(null);
+      await resetMemory();
+      setMemoryMessage(t("settings.memory.clearDone"));
+      await loadMemoryData();
+    } catch (error) {
+      if (handleSettingsAuthError(error)) return;
+      setMemoryError(error instanceof Error ? error.message : t("settings.memory.clearFailed"));
+    } finally {
+      setIsResettingMemory(false);
+    }
+  }, [handleSettingsAuthError, isResettingMemory, loadMemoryData, t]);
 
   const closeAvatarMenu = useCallback(() => {
     setIsAvatarMenuOpen(false);
@@ -989,6 +1084,100 @@ export default function SettingsPage({
           </div>
         </SettingsSection>
 
+        <SettingsSection sectionKind="memory">
+          <SectionHeader
+            icon={<Brain size={13} />}
+            title={t("settings.memory.title")}
+            tone="neutral"
+          />
+          <div data-ripple-settings-memory-section className="space-y-2 p-2.5">
+            <div className="grid grid-cols-3 overflow-hidden rounded-lg border border-[#EFF0F1] bg-[#F8F9FA] text-center">
+              {memoryMetricItems.map((metric, index) => (
+                <Metric
+                  key={metric.label}
+                  label={metric.label}
+                  value={metric.value}
+                  compact
+                  className={index === 0 ? "" : "border-l border-[#EFF0F1]"}
+                />
+              ))}
+            </div>
+
+            <div className="overflow-hidden rounded-lg border border-[#EFF0F1] bg-[#F8F9FA]">
+              <button
+                type="button"
+                data-ripple-settings-memory-summary
+                onClick={() => setMemorySummaryOpen((open) => !open)}
+                aria-expanded={memorySummaryOpen}
+                className="flex min-h-10 w-full items-center justify-between gap-2 px-2.5 py-1.5 text-left"
+              >
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <IconTile tone="neutral" size="xs">
+                    <FileText size={13} />
+                  </IconTile>
+                  <span className={`truncate text-[#1F2329] ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
+                    {t("settings.memory.memorySummary")}
+                  </span>
+                </span>
+                <ChevronDown
+                  size={14}
+                  className={`shrink-0 text-[#646A73] transition-transform ${
+                    memorySummaryOpen ? "rotate-180" : ""
+                  }`}
+                />
+              </button>
+              {memorySummaryOpen ? (
+                <div className="space-y-1.5 border-t border-[#EFF0F1] px-2.5 py-2">
+                  <div className={`text-[#646A73] ${TYPOGRAPHY_META_CLASS}`}>
+                    {t("settings.memory.lastUpdated")}: {memoryLastUpdated}
+                    {memorySummaryTruncated ? ` · ${t("settings.memory.truncated")}` : ""}
+                  </div>
+                  <div
+                    className={`max-h-52 overflow-y-auto whitespace-pre-wrap rounded-md border border-[#EFF0F1] bg-white px-2 py-1.5 text-[#2B2F36] ${TYPOGRAPHY_META_CLASS}`}
+                  >
+                    {memorySummaryText || t("settings.memory.noSummary")}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
+            {memoryError ? (
+              <div
+                className={`rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-red-700 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+              >
+                {memoryError}
+              </div>
+            ) : null}
+            {memoryMessage ? (
+              <div
+                className={`rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-emerald-700 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+              >
+                {memoryMessage}
+              </div>
+            ) : null}
+
+            <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
+              <div className={`text-[#8F959E] ${TYPOGRAPHY_META_CLASS}`}>
+                {t("settings.memory.lastUpdated")}: {memoryLastUpdated}
+              </div>
+              <button
+                type="button"
+                data-ripple-settings-memory-reset
+                onClick={handleResetMemory}
+                disabled={isResettingMemory}
+                className={`${settingsAccountActionButtonClass} border-red-200 text-[#B42318] hover:bg-[#FFF1F0] disabled:cursor-not-allowed disabled:text-[#8F959E] sm:w-auto`}
+              >
+                {isResettingMemory ? (
+                  <Loader2 size={13} className="animate-spin" />
+                ) : (
+                  <Trash2 size={13} />
+                )}
+                <span>{t("settings.memory.clearMemory")}</span>
+              </button>
+            </div>
+          </div>
+        </SettingsSection>
+
         <SettingsSection sectionKind="defaults">
           <SectionHeader
             icon={<SlidersHorizontal size={13} />}
@@ -1121,7 +1310,7 @@ export default function SettingsPage({
   );
 }
 
-type SettingsSectionKind = "account" | "usage" | "defaults" | "diagnostics";
+type SettingsSectionKind = "account" | "usage" | "memory" | "defaults" | "diagnostics";
 
 interface SettingsSectionProps extends React.HTMLAttributes<HTMLElement> {
   sectionKind: SettingsSectionKind;

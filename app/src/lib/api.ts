@@ -1294,6 +1294,100 @@ export async function forkSession(sessionId: string): Promise<SessionSummary> {
   return normalizeSessionSummary(rawSession as RawSessionSummary);
 }
 
+export interface MemoryFeatureStatus {
+  enabled: boolean;
+  use_memories: boolean;
+  generate_memories: boolean;
+  dedicated_tools: boolean;
+  disable_on_external_context: boolean;
+}
+
+export interface MemorySummaryStatus {
+  available: boolean;
+  registry_available: boolean;
+  raw_available: boolean;
+  last_updated_at: string | null;
+}
+
+export interface MemoryRuntimeStatus {
+  memories_db_available: boolean;
+  stage1_output_count: number | null;
+}
+
+export interface MemoryStatusResponse {
+  ok: boolean;
+  memory: MemoryFeatureStatus;
+  summary: MemorySummaryStatus;
+  runtime: MemoryRuntimeStatus;
+}
+
+export interface MemoryFileContent {
+  text: string;
+  truncated: boolean;
+}
+
+export interface MemorySummaryResponse {
+  ok: boolean;
+  summary: MemoryFileContent | null;
+  registry: MemoryFileContent | null;
+  raw: MemoryFileContent | null;
+}
+
+export async function fetchMemoryStatus(): Promise<MemoryStatusResponse> {
+  const res = await fetch(`${API_URL}/memory/status`, {
+    headers: { ...authHeaders() },
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to fetch memory status (${res.status})`);
+  }
+  return (await res.json()) as MemoryStatusResponse;
+}
+
+export async function fetchMemorySummary(): Promise<MemorySummaryResponse> {
+  const res = await fetch(`${API_URL}/memory/summary`, {
+    headers: { ...authHeaders() },
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to fetch memory summary (${res.status})`);
+  }
+  return (await res.json()) as MemorySummaryResponse;
+}
+
+export async function resetMemory(): Promise<boolean> {
+  const res = await fetch(`${API_URL}/memory/reset`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ confirm: true }),
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to reset memory (${res.status})`);
+  }
+  return true;
+}
+
+export async function disableSessionMemory(sessionId: string): Promise<boolean> {
+  try {
+    const res = await fetch(
+      `${API_URL}/sessions/${encodeURIComponent(sessionId)}/memory/disable`,
+      {
+        method: "POST",
+        headers: { ...authHeaders() },
+      }
+    );
+    if (res.status === 401) throw new AuthError();
+    return res.ok;
+  } catch (error) {
+    if (error instanceof AuthError) throw error;
+    return false;
+  }
+}
+
 export async function stopSession(sessionId: string): Promise<boolean> {
   try {
     const res = await fetch(`${API_URL}/sessions/${encodeURIComponent(sessionId)}/stop`, {

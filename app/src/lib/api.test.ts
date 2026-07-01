@@ -22,6 +22,8 @@ import {
   fetchSessionTasks,
   fetchSessions,
   fetchSessionDetails,
+  fetchMemoryStatus,
+  fetchMemorySummary,
   forkSession,
   fetchUserAvatarImage,
   fetchModels,
@@ -32,6 +34,7 @@ import {
   renameWorkspaceEntry,
   resolveSessionPermissionRequest,
   resolveApiUrl,
+  resetMemory,
   runTaskTriggerNow,
   runTaskNow,
   searchWorkspaceFiles,
@@ -44,6 +47,7 @@ import {
   updateTaskAction,
   createTaskActionTrigger,
   deleteTaskTrigger,
+  disableSessionMemory,
   updateUserProfile,
   uploadUserAvatar,
   disconnectConnector,
@@ -354,14 +358,90 @@ async function testTaskTriggerApisUseTaskScopedRoutes() {
   });
 }
 
-function testApiClientDoesNotExposeMemoryEndpointsOnMainline() {
+function testApiClientExposesMemoryEndpoints() {
   const source = readFileSync(new URL("./api.ts", import.meta.url), "utf8");
 
-  assert.doesNotMatch(source, /fetchMemoryStatus/);
-  assert.doesNotMatch(source, /fetchMemorySummary/);
+  assert.match(source, /fetchMemoryStatus/);
+  assert.match(source, /fetchMemorySummary/);
   assert.doesNotMatch(source, /updateMemorySettings/);
-  assert.doesNotMatch(source, /resetMemory/);
-  assert.doesNotMatch(source, /\/memory\//);
+  assert.match(source, /resetMemory/);
+  assert.match(source, /disableSessionMemory/);
+  assert.match(source, /\/memory\/status/);
+  assert.match(source, /\/memory\/summary/);
+  assert.match(source, /\/memory\/reset/);
+  assert.match(source, /\/memory\/disable/);
+}
+
+async function testMemoryApisUseExpectedRoutesAndPayloads() {
+  const requests: Array<{ method: string; path: string; body: unknown }> = [];
+
+  await withFetch(
+    async (input, init) => {
+      const url = new URL(String(input));
+      requests.push({
+        method: init?.method || "GET",
+        path: url.pathname,
+        body: init?.body ? JSON.parse(String(init.body)) : null,
+      });
+      if (url.pathname.endsWith("/memory/status")) {
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            memory: {
+              enabled: true,
+              use_memories: true,
+              generate_memories: true,
+              dedicated_tools: false,
+              disable_on_external_context: false,
+            },
+            summary: {
+              available: true,
+              registry_available: true,
+              raw_available: false,
+              last_updated_at: "2026-06-30T00:00:00Z",
+            },
+            runtime: {
+              memories_db_available: true,
+              stage1_output_count: 3,
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      if (url.pathname.endsWith("/memory/summary")) {
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            summary: { text: "remembered preference", truncated: false },
+            registry: null,
+            raw: null,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    },
+    async () => {
+      const status = await fetchMemoryStatus();
+      const summary = await fetchMemorySummary();
+      await resetMemory();
+      await disableSessionMemory("session/with space");
+
+      assert.equal(status.memory.enabled, true);
+      assert.equal(status.runtime.stage1_output_count, 3);
+      assert.equal(summary.summary?.text, "remembered preference");
+    }
+  );
+
+  assert.deepEqual(requests, [
+    { method: "GET", path: "/v1/memory/status", body: null },
+    { method: "GET", path: "/v1/memory/summary", body: null },
+    { method: "POST", path: "/v1/memory/reset", body: { confirm: true } },
+    { method: "POST", path: "/v1/sessions/session%2Fwith%20space/memory/disable", body: null },
+  ]);
 }
 
 async function testConnectorManagementApisEncodeNamesAndPayloads() {
@@ -2008,7 +2088,8 @@ test("api client behavior", async () => {
   await testRenameConflictUsesFriendlyMessage();
   await testSessionIdIsEncodedInPath();
   await testTaskTriggerApisUseTaskScopedRoutes();
-  testApiClientDoesNotExposeMemoryEndpointsOnMainline();
+  testApiClientExposesMemoryEndpoints();
+  await testMemoryApisUseExpectedRoutesAndPayloads();
   await testConnectorManagementApisEncodeNamesAndPayloads();
   await testCapabilityApisUseUnifiedCatalogAndSkillPatch();
   await testSkillApisUseUserFacingSkillEndpoints();

@@ -76,7 +76,7 @@ function testSettingsPageHasExpectedUserSections() {
   assert.match(html, />Account/);
   assert.doesNotMatch(html, />Connected Accounts/);
   assert.match(html, />Usage &amp; Limits/);
-  assert.doesNotMatch(html, />Memory/);
+  assert.match(html, />Memory/);
   assert.match(html, />Defaults/);
   assert.match(html, />Language/);
   assert.match(html, />Choose the App interface language\./);
@@ -98,29 +98,27 @@ function testSettingsPageHasExpectedUserSections() {
   assert.doesNotMatch(html, /Switch workspace/);
 }
 
-function testSettingsPageDoesNotExposeMemoryControlsOnMainline() {
+function testSettingsPageExposesReadOnlyMemoryPanel() {
   const source = readFileSync(new URL("./SettingsPage.tsx", import.meta.url), "utf8");
   const html = renderSettingsPage();
 
-  assert.doesNotMatch(source, /fetchMemoryStatus/);
-  assert.doesNotMatch(source, /fetchMemorySummary/);
+  assert.match(source, /fetchMemoryStatus/);
+  assert.match(source, /fetchMemorySummary/);
   assert.doesNotMatch(source, /updateMemorySettings/);
-  assert.doesNotMatch(source, /resetMemory/);
-  assert.doesNotMatch(source, /sectionKind="memory"/);
+  assert.match(source, /resetMemory/);
+  assert.match(source, /sectionKind="memory"/);
+  assert.match(source, /data-ripple-settings-memory-section/);
+  assert.match(source, /data-ripple-settings-memory-summary/);
+  assert.match(source, /data-ripple-settings-memory-reset/);
   assert.doesNotMatch(source, /function MemorySwitch/);
   assert.doesNotMatch(source, /role="switch"/);
   assert.doesNotMatch(source, /type="checkbox"/);
-  assert.doesNotMatch(html, />Use memories</);
-  assert.doesNotMatch(html, />Allow future chats to use organized long-term memory\.</);
-  assert.doesNotMatch(html, />Update memories automatically</);
-  assert.doesNotMatch(html, />Automatically organize durable context from normal chats\.</);
-  assert.doesNotMatch(html, />Memory summary</);
-  assert.doesNotMatch(html, />Memories are organized automatically\. This page is read-only\.</);
-  assert.doesNotMatch(html, />Clear memory</);
-  assert.doesNotMatch(
-    html,
-    />Clear this user&#x27;s memory\. Sessions and workspace files stay intact\./
-  );
+  assert.match(html, />Memory/);
+  assert.match(html, />Status/);
+  assert.match(html, />Summary/);
+  assert.match(html, />Stage outputs/);
+  assert.match(html, />Memory summary/);
+  assert.match(html, />Clear memory/);
   assert.doesNotMatch(html, /Codex/);
   assert.doesNotMatch(source, /readOnly[\s\S]{0,160}settings\.memory/);
   assert.doesNotMatch(source, /manualMemory/);
@@ -308,6 +306,7 @@ function testSettingsPageUsesAppStoreGroupedHierarchy() {
   assert.match(source, /const settingsGroupedRowClass =/);
   assert.match(html, /data-ripple-settings-section="account"/);
   assert.match(html, /data-ripple-settings-section="usage"/);
+  assert.match(html, /data-ripple-settings-section="memory"/);
   assert.match(html, /data-ripple-settings-section="defaults"/);
   assert.match(html, /data-ripple-settings-section="diagnostics"/);
 }
@@ -405,13 +404,14 @@ function testSettingsPageRendersChineseChrome() {
   assert.match(html, />设置</);
   assert.match(html, />账号</);
   assert.match(html, />用量与限制</);
+  assert.match(html, />记忆</);
   assert.match(html, />默认设置</);
   assert.match(html, />语言</);
   assert.match(html, />退出登录</);
 }
 
 testSettingsPageHasExpectedUserSections();
-testSettingsPageDoesNotExposeMemoryControlsOnMainline();
+testSettingsPageExposesReadOnlyMemoryPanel();
 testSettingsPageShowsDeveloperModeForServiceAccess();
 testSettingsPageCanEditDisplayName();
 testSettingsPageSupportsLocalAvatarUpload();

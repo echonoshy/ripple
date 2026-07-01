@@ -1585,9 +1585,6 @@ function changedFilesFromResponsesPayload(value: unknown): ChangedFile[] {
     } else if (typeof item.previousPath === "string" && item.previousPath.trim()) {
       file.previousPath = item.previousPath.trim();
     }
-    if (typeof item.patch === "string" && item.patch.trim()) {
-      file.patch = item.patch;
-    }
     changedFiles.push(file);
   }
   return changedFiles;

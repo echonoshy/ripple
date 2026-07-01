@@ -31,7 +31,6 @@ export interface ChangedFile {
   additions?: number;
   deletions?: number;
   previousPath?: string;
-  patch?: string;
 }
 
 export interface Message {

@@ -236,7 +236,7 @@ function testToolEventsDoNotExposeCopyAction() {
   assert.equal((html.match(/aria-label="Copy Command output content"/g) || []).length, 0);
 }
 
-function testChangedFilesCardCollapsesAndCanExpandDiffDetails() {
+function testChangedFilesCardCollapsesWithoutDiffDetails() {
   const html = renderToStaticMarkup(
     <I18nProvider initialPreference="zh-CN">
       <SessionTimeline
@@ -254,29 +254,24 @@ function testChangedFilesCardCollapsesAndCanExpandDiffDetails() {
                 status: "modified",
                 additions: 11,
                 deletions: 0,
-                patch:
-                  "diff --git a/app/src/hooks/useChatRun.ts b/app/src/hooks/useChatRun.ts\n+changed",
               },
               {
                 path: "app/src/lib/api.test.ts",
                 status: "modified",
                 additions: 57,
                 deletions: 2,
-                patch: "diff --git a/app/src/lib/api.test.ts b/app/src/lib/api.test.ts\n-old\n+new",
               },
               {
                 path: "app/src/lib/api.ts",
                 status: "modified",
                 additions: 30,
                 deletions: 0,
-                patch: "diff --git a/app/src/lib/api.ts b/app/src/lib/api.ts\n+new",
               },
               {
                 path: "docs/notes.md",
                 status: "added",
                 additions: 1,
                 deletions: 0,
-                patch: "diff --git a/docs/notes.md b/docs/notes.md\n+note",
               },
             ],
           },
@@ -303,9 +298,10 @@ function testChangedFilesCardCollapsesAndCanExpandDiffDetails() {
   assert.doesNotMatch(html, /撤销/);
   assert.doesNotMatch(html, /审核/);
   assert.match(source, /showAllChangedFiles/);
-  assert.match(source, /openChangedFilePath/);
-  assert.match(source, /setOpenChangedFilePath/);
-  assert.match(source, /file\.patch/);
+  assert.doesNotMatch(source, /openChangedFilePath/);
+  assert.doesNotMatch(source, /setOpenChangedFilePath/);
+  assert.doesNotMatch(source, /file\.patch/);
+  assert.doesNotMatch(source, /diffLineClassName/);
 }
 
 function testGeneratingPlaceholderUsesRandomWaitingCopy() {
@@ -401,7 +397,7 @@ testTimelineEventHeadersAlignIconAndTextRows();
 testCopyActionIsHiddenUntilMessageInteraction();
 testCopyActionCanBeRevealedOnMobileWithoutStayingVisible();
 testToolEventsDoNotExposeCopyAction();
-testChangedFilesCardCollapsesAndCanExpandDiffDetails();
+testChangedFilesCardCollapsesWithoutDiffDetails();
 testGeneratingPlaceholderUsesRandomWaitingCopy();
 testChineseGeneratingPlaceholderUsesRandomWaitingCopy();
 testConnectorAuthTimelineWaitingCopyDoesNotTickSeconds();

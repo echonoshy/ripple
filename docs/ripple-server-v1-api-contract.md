@@ -64,7 +64,8 @@
 - 请求支持 `input`、`instructions`、`stream`、`previous_response_id`、`metadata.ripple_session_id`、`store`、`reasoning.effort`、`reasoning.summary` 和 `text.format.json_schema` 等当前 chat 链路需要的字段；其它 Responses 字段可能被忽略，调用方不要依赖完整 OpenAI Responses 字段透传。
 - `input` 可为字符串、单个 message object 或 message object 数组。聊天执行以最后一个 user message 作为本轮用户输入；`instructions` 会作为 caller system prompt 注入。
 - 可用 `previous_response_id=resp_<session_id>` 或 `metadata.ripple_session_id` 续接已有 Ripple session；未传 session id 时由 Ripple 自动生成。
-- `/v1/responses` 返回 `object=response`、`output`、`output_text` 和 `metadata.ripple_session_id`；流式响应使用 `response.created`、`response.output_text.delta`、`response.completed`，Ripple 控制面事件以 `ripple.*` 扩展事件发送。需要 approval 或用户输入等等待态时，也会先发送对应 `ripple.*` 事件，再发送 terminal `response.completed` 和 `[DONE]`。
+- `/v1/responses` 返回 `object=response`、`output`、`output_text` 和 `metadata.ripple_session_id`；如果本轮修改了 workspace 文件，最终 response 会额外带 `ripple_changed_files.files` 结构化列表。流式响应使用 `response.created`、`response.output_text.delta`、`response.completed`，Ripple 控制面事件以 `ripple.*` 扩展事件发送。需要 approval 或用户输入等等待态时，也会先发送对应 `ripple.*` 事件，再发送 terminal `response.completed` 和 `[DONE]`。
+- `ripple_changed_files.files[]` 只返回文件级摘要：`path`、`status`、`additions`、`deletions`、可选 `previous_path`。它不返回 `patch`，也不把 `diff --git` 作为最终报文字段；Codex 运行时的 raw diff 仍可能作为 `ripple.codex_turn_diff_updated` 过程事件出现。
 - 响应继续返回 `x-ripple-session-id` header，调用方可用它确认最终使用的内部 session。
 - 调用方通过 `metadata.ripple_session_id` 或 `previous_response_id=resp_<session_id>` 传入的 session id 必须匹配 `[a-zA-Z0-9_-]{1,64}`。这是为了保证 session runtime 目录和 SQLite 主键都安全可控。
 - `/v1/chat/completions` 不再注册；客户端和外部调用方必须使用 `/v1/responses`。

@@ -165,9 +165,8 @@ function testMapsChangedFileBlocksToMessages() {
       status: "modified",
       additions: 3,
       deletions: 1,
-      patch: "diff --git a/app/src/App.tsx b/app/src/App.tsx\n+new",
     },
-    { path: "docs/new.md", status: "added", additions: 2, patch: "+hello" },
+    { path: "docs/new.md", status: "added", additions: 2 },
   ]);
 }
 

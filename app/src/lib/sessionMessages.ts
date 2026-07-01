@@ -106,9 +106,6 @@ function changedFileFromBlockFile(file: unknown): ChangedFile | null {
   } else if (typeof file.previousPath === "string" && file.previousPath.trim()) {
     changedFile.previousPath = file.previousPath.trim();
   }
-  if (typeof file.patch === "string" && file.patch.trim()) {
-    changedFile.patch = file.patch;
-  }
   return changedFile;
 }
 

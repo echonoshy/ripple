@@ -28,6 +28,20 @@ pub(crate) fn responses_payload(
     )
 }
 
+pub(crate) fn responses_payload_with_changed_files(
+    model: &str,
+    session_id: &str,
+    output_text: String,
+    usage: Value,
+    changed_files: Option<Value>,
+) -> Value {
+    let mut payload = responses_payload(model, session_id, output_text, usage);
+    if let Some(changed_files) = changed_files.and_then(sanitize_changed_files_payload) {
+        payload["ripple_changed_files"] = changed_files;
+    }
+    payload
+}
+
 pub(crate) fn responses_payload_with_id(
     response_id: &str,
     model: &str,
@@ -221,7 +235,32 @@ pub(crate) fn assistant_done_sse(
     output_text: String,
     usage: Value,
 ) -> Bytes {
-    response_completed_sse(response_id, model, session_id, output_text, usage)
+    response_completed_sse_with_changed_files(
+        response_id,
+        model,
+        session_id,
+        output_text,
+        usage,
+        None,
+    )
+}
+
+pub(crate) fn assistant_done_sse_with_changed_files_payload(
+    model: &str,
+    response_id: &str,
+    session_id: &str,
+    output_text: String,
+    usage: Value,
+    changed_files: Option<Value>,
+) -> Bytes {
+    response_completed_sse_with_changed_files(
+        response_id,
+        model,
+        session_id,
+        output_text,
+        usage,
+        changed_files,
+    )
 }
 
 pub(crate) fn response_created_sse(response_id: &str, model: &str, session_id: &str) -> Bytes {
@@ -268,7 +307,29 @@ pub(crate) fn response_completed_sse(
     output_text: String,
     usage: Value,
 ) -> Bytes {
+    response_completed_sse_with_changed_files(
+        response_id,
+        model,
+        session_id,
+        output_text,
+        usage,
+        None,
+    )
+}
+
+fn response_completed_sse_with_changed_files(
+    response_id: &str,
+    model: &str,
+    session_id: &str,
+    output_text: String,
+    usage: Value,
+    changed_files: Option<Value>,
+) -> Bytes {
     let response = responses_payload_with_id(response_id, model, session_id, output_text, usage);
+    let mut response = response;
+    if let Some(changed_files) = changed_files.and_then(sanitize_changed_files_payload) {
+        response["ripple_changed_files"] = changed_files;
+    }
     sse_named_json(
         "response.completed",
         &json!({
@@ -358,6 +419,47 @@ fn responses_usage(usage: Value) -> Value {
     })
 }
 
+fn sanitize_changed_files_payload(value: Value) -> Option<Value> {
+    let files = value.get("files")?.as_array()?;
+    let files = files
+        .iter()
+        .filter_map(sanitize_changed_file)
+        .collect::<Vec<_>>();
+    (!files.is_empty()).then_some(json!({ "files": files }))
+}
+
+fn sanitize_changed_file(value: &Value) -> Option<Value> {
+    let path = value.get("path")?.as_str()?.trim();
+    if path.is_empty() {
+        return None;
+    }
+    let mut file = json!({ "path": path });
+    if let Some(status) = value
+        .get("status")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|status| !status.is_empty())
+    {
+        file["status"] = json!(status);
+    }
+    if let Some(additions) = value.get("additions").and_then(Value::as_u64) {
+        file["additions"] = json!(additions);
+    }
+    if let Some(deletions) = value.get("deletions").and_then(Value::as_u64) {
+        file["deletions"] = json!(deletions);
+    }
+    if let Some(previous_path) = value
+        .get("previous_path")
+        .or_else(|| value.get("previousPath"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|previous_path| !previous_path.is_empty())
+    {
+        file["previous_path"] = json!(previous_path);
+    }
+    Some(file)
+}
+
 fn public_connector_auth_event(event: &Value) -> Value {
     let Some(object) = event.as_object() else {
         return event.clone();
@@ -412,8 +514,58 @@ fn now_epoch_seconds() -> u64 {
 }
 
 #[cfg(test)]
+fn assistant_done_sse_with_changed_files(
+    model: &str,
+    response_id: &str,
+    session_id: &str,
+    output_text: String,
+    usage: Value,
+    changed_files: &[Value],
+) -> Bytes {
+    assistant_done_sse_with_changed_files_payload(
+        model,
+        response_id,
+        session_id,
+        output_text,
+        usage,
+        Some(json!({ "files": changed_files })),
+    )
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn response_completed_sse_can_include_changed_files_without_patch() {
+        let bytes = assistant_done_sse_with_changed_files(
+            "codex-test",
+            "resp_session-1",
+            "session-1",
+            "done".to_string(),
+            json!({"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}),
+            &[json!({
+                "path": "app/src/App.tsx",
+                "status": "modified",
+                "additions": 3,
+                "deletions": 1,
+                "patch": "diff --git a/app/src/App.tsx b/app/src/App.tsx\n+new"
+            })],
+        );
+        let text = std::str::from_utf8(bytes.as_ref()).expect("valid SSE utf8");
+        let payload = text
+            .strip_prefix("event: response.completed\ndata: ")
+            .and_then(|value| value.strip_suffix("\n\n"))
+            .expect("sse payload");
+        let value: Value = serde_json::from_str(payload).expect("json payload");
+
+        let file = &value["response"]["ripple_changed_files"]["files"][0];
+        assert_eq!(file["path"], "app/src/App.tsx");
+        assert_eq!(file["status"], "modified");
+        assert_eq!(file["additions"], 3);
+        assert_eq!(file["deletions"], 1);
+        assert!(file.get("patch").is_none());
+    }
 
     #[test]
     fn response_completed_sse_does_not_include_codex_turn_diff_payload() {

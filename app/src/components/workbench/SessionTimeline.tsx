@@ -6,7 +6,6 @@ import {
   Bot,
   CheckCircle2,
   ChevronDown,
-  ChevronRight,
   Copy,
   FileCode2,
   ImageIcon,
@@ -293,14 +292,6 @@ function splitChangedFilePath(path: string): { directory: string; filename: stri
   };
 }
 
-function diffLineClassName(line: string): string {
-  if (line.startsWith("+") && !line.startsWith("+++")) return "text-[#0F9D58]";
-  if (line.startsWith("-") && !line.startsWith("---")) return "text-[#D83931]";
-  if (line.startsWith("@@")) return "text-[#1D5FD0]";
-  if (line.startsWith("diff --git")) return "text-[#1F2329]";
-  return "text-[#596579]";
-}
-
 function ChangedFilePathLabel({ file }: { file: ChangedFile }) {
   const { directory, filename } = splitChangedFilePath(file.path);
   return (
@@ -315,7 +306,6 @@ function ChangedFilesSummary({ event }: { event: WorkbenchTimelineEvent }) {
   const { t } = useI18n();
   const files = event.changedFiles || [];
   const [showAllChangedFiles, setShowAllChangedFiles] = React.useState(false);
-  const [openChangedFilePath, setOpenChangedFilePath] = React.useState<string | null>(null);
 
   if (files.length === 0) return null;
 
@@ -348,53 +338,20 @@ function ChangedFilesSummary({ event }: { event: WorkbenchTimelineEvent }) {
       <div className="divide-y divide-[#EFF0F1]">
         {visibleFiles.map((file, index) => {
           const rowKey = `${file.path}-${index}`;
-          const isOpen = openChangedFilePath === rowKey;
           const additions = changedFileStat(file.additions);
           const deletions = changedFileStat(file.deletions);
 
           return (
-            <div key={rowKey}>
-              <button
-                type="button"
-                title={file.path}
-                onClick={() => setOpenChangedFilePath(isOpen ? null : rowKey)}
-                className="grid min-h-11 w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-[#F8F9FA] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3370FF]/30 sm:px-4"
-              >
-                <span className="flex min-w-0 items-center gap-2">
-                  <ChevronRight
-                    size={14}
-                    className={`shrink-0 text-[#8F959E] transition-transform ${
-                      isOpen ? "rotate-90" : ""
-                    }`}
-                  />
-                  <ChangedFilePathLabel file={file} />
-                </span>
-                <span className="flex shrink-0 items-center gap-1.5 font-[family-name:var(--font-mono)] text-[13px] leading-5">
-                  <span className="text-[#0F9D58]">+{additions}</span>
-                  <span className="text-[#D83931]">-{deletions}</span>
-                </span>
-              </button>
-
-              {isOpen && (
-                <div className="border-t border-[#EFF0F1] bg-[#F8F9FA] px-3 py-2.5 sm:px-4">
-                  {file.patch ? (
-                    <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded-lg bg-white px-3 py-2 font-[family-name:var(--font-mono)] text-[12px] leading-5">
-                      {file.patch.split("\n").map((line, lineIndex) => (
-                        <span
-                          key={`${rowKey}-line-${lineIndex}`}
-                          className={`block ${diffLineClassName(line)}`}
-                        >
-                          {line || " "}
-                        </span>
-                      ))}
-                    </pre>
-                  ) : (
-                    <div className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
-                      {t("timeline.changedFilesNoDiff")}
-                    </div>
-                  )}
-                </div>
-              )}
+            <div
+              key={rowKey}
+              title={file.path}
+              className="grid min-h-11 w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-3 py-2 text-left sm:px-4"
+            >
+              <ChangedFilePathLabel file={file} />
+              <span className="flex shrink-0 items-center gap-1.5 font-[family-name:var(--font-mono)] text-[13px] leading-5">
+                <span className="text-[#0F9D58]">+{additions}</span>
+                <span className="text-[#D83931]">-{deletions}</span>
+              </span>
             </div>
           );
         })}

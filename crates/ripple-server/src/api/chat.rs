@@ -34,6 +34,7 @@ use crate::skills::{build_skill_manifest_with_options, public_skill_path, SkillM
 use crate::state::AppState;
 use crate::user::user_id_from_headers;
 
+mod changed_files;
 pub(crate) mod connector_auth;
 mod input;
 mod media;
@@ -70,10 +71,11 @@ use recent_context::{recent_display_context, recent_task_triggers_context};
 use session_actions::handle_session_control_action;
 use title::spawn_session_title_generation;
 use wire::{
-    assistant_delta_sse, assistant_done_sse, connector_auth_event_response,
-    connector_auth_event_response_with_message, control_plane_event_response, event_message,
-    event_options, public_control_plane_event, response_created_sse, response_id_for_session,
-    responses_payload, sse_for_event, sse_json, stream_error,
+    assistant_delta_sse, assistant_done_sse, assistant_done_sse_with_changed_files_payload,
+    connector_auth_event_response, connector_auth_event_response_with_message,
+    control_plane_event_response, event_message, event_options, public_control_plane_event,
+    response_created_sse, response_id_for_session, responses_payload_with_changed_files,
+    sse_for_event, sse_json, stream_error,
 };
 
 const TERMINAL_STATUSES: &[&str] = &["completed", "failed", "cancelled"];
@@ -407,6 +409,7 @@ struct CodexChatStart {
     user_id: String,
     session: SessionRecord,
     workspace_root: PathBuf,
+    workspace_snapshot_before: changed_files::WorkspaceSnapshot,
     request: InternalChatRequest,
     model: String,
     effort: Option<String>,
@@ -428,6 +431,7 @@ struct CodexChatStream {
     user_id: String,
     session: SessionRecord,
     workspace_root: PathBuf,
+    workspace_snapshot_before: changed_files::WorkspaceSnapshot,
     info: AgentRunInfo,
     model: String,
     effort: Option<String>,
@@ -441,6 +445,7 @@ struct CodexChatStream {
 struct ChatRunFinal {
     info: AgentRunInfo,
     usage: Value,
+    changed_files: Vec<changed_files::ChangedFile>,
 }
 
 async fn prepare_chat_skill_context(
@@ -717,11 +722,14 @@ async fn handle_chat_request(
             );
             let (skill_options, required_skills) =
                 prepare_chat_skill_context(&state, &user_id, &workspace_root, &request).await?;
+            let workspace_snapshot_before =
+                changed_files::snapshot_workspace(&workspace_root).unwrap_or_default();
             let start = CodexChatStart {
                 state,
                 user_id,
                 session,
                 workspace_root,
+                workspace_snapshot_before,
                 request,
                 model,
                 effort,
@@ -770,11 +778,14 @@ async fn handle_chat_request(
     );
     let (skill_options, required_skills) =
         prepare_chat_skill_context(&state, &user_id, &workspace_root, &request).await?;
+    let workspace_snapshot_before =
+        changed_files::snapshot_workspace(&workspace_root).unwrap_or_default();
     let start = CodexChatStart {
         state,
         user_id,
         session,
         workspace_root,
+        workspace_snapshot_before,
         request,
         model,
         effort,
@@ -896,6 +907,7 @@ async fn finish_codex_chat_response(
         user_id,
         mut session,
         workspace_root,
+        workspace_snapshot_before,
         request,
         model,
         effort,
@@ -918,6 +930,7 @@ async fn finish_codex_chat_response(
             user_id,
             session,
             workspace_root,
+            workspace_snapshot_before,
             info,
             model,
             effort,
@@ -932,7 +945,16 @@ async fn finish_codex_chat_response(
     let ChatRunFinal {
         info: final_info,
         usage,
-    } = wait_for_chat_run(&state, &user_id, &mut session, &info.job_id).await?;
+        changed_files,
+    } = wait_for_chat_run(
+        &state,
+        &user_id,
+        &mut session,
+        &info.job_id,
+        &workspace_root,
+        &workspace_snapshot_before,
+    )
+    .await?;
     if final_info.status != "completed" {
         session.status = if final_info.status == "cancelled" {
             SessionStatus::Cancelled.as_str().to_string()
@@ -981,6 +1003,7 @@ async fn finish_codex_chat_response(
         &user_input,
         &output_text,
         &image_events,
+        &changed_files,
     );
     session.set_status(SessionStatus::Idle);
     session.pending_permission_request = None;
@@ -1004,7 +1027,14 @@ async fn finish_codex_chat_response(
         );
     }
 
-    let mut payload = responses_payload(&model, &session.session_id, output_text, usage);
+    let changed_files_payload = changed_files_payload_for_response(&changed_files);
+    let mut payload = responses_payload_with_changed_files(
+        &model,
+        &session.session_id,
+        output_text,
+        usage,
+        changed_files_payload,
+    );
     if let Some(event) = prefix_event {
         payload["ripple_event"] = event;
     }
@@ -1017,6 +1047,31 @@ async fn finish_codex_chat_response(
         HeaderValue::from_str(&session.session_id).unwrap_or_else(|_| HeaderValue::from_static("")),
     );
     Ok(response)
+}
+
+fn changed_files_for_completed_run(
+    workspace_root: &FsPath,
+    workspace_snapshot_before: &changed_files::WorkspaceSnapshot,
+    runtime_events: &[Value],
+) -> Vec<changed_files::ChangedFile> {
+    let runtime_changed_files = changed_files::changed_files_from_runtime_events(runtime_events);
+    let snapshot_changed_files = changed_files::snapshot_workspace(workspace_root)
+        .ok()
+        .map(|after| {
+            changed_files::changed_files_from_workspace_snapshots(workspace_snapshot_before, &after)
+        })
+        .unwrap_or_default();
+    changed_files::merge_changed_files(snapshot_changed_files, runtime_changed_files)
+}
+
+fn changed_files_payload_for_response(
+    changed_files: &[changed_files::ChangedFile],
+) -> Option<Value> {
+    if changed_files.is_empty() {
+        None
+    } else {
+        Some(changed_files::changed_files_payload(changed_files))
+    }
 }
 
 async fn maybe_persist_model_connector_auth_request(
@@ -1147,11 +1202,14 @@ pub async fn poll_session_connector_auth(
         );
         let (skill_options, required_skills) =
             prepare_chat_skill_context(&state, &user_id, &workspace_root, &chat_request).await?;
+        let workspace_snapshot_before =
+            changed_files::snapshot_workspace(&workspace_root).unwrap_or_default();
         let start = CodexChatStart {
             state,
             user_id,
             session,
             workspace_root,
+            workspace_snapshot_before,
             request: chat_request,
             model,
             effort,
@@ -1233,11 +1291,14 @@ async fn wait_for_chat_run(
     user_id: &str,
     session: &mut SessionRecord,
     job_id: &str,
+    workspace_root: &FsPath,
+    workspace_snapshot_before: &changed_files::WorkspaceSnapshot,
 ) -> Result<ChatRunFinal, ApiError> {
     let deadline =
         Instant::now() + Duration::from_secs(state.config.codex.max_runtime_seconds.max(1));
     let mut latest_usage = empty_usage();
     let mut offset = 0_usize;
+    let mut runtime_events = Vec::<Value>::new();
     loop {
         let Some(info) = state.jobs.info_for_user(job_id, user_id).await? else {
             return Err(ApiError::not_found("Agent run not found"));
@@ -1258,6 +1319,7 @@ async fn wait_for_chat_run(
                 if let Some(runtime_event) = extract_codex_runtime_event(&event) {
                     let public_runtime_event =
                         sanitize_user_visible_value(state, user_id, &runtime_event);
+                    runtime_events.push(public_runtime_event.clone());
                     if record_session_runtime_event(session, &public_runtime_event) {
                         let _ = state
                             .sessions
@@ -1292,9 +1354,15 @@ async fn wait_for_chat_run(
             })));
         }
         if TERMINAL_STATUSES.contains(&info.status.as_str()) {
+            let changed_files = changed_files_for_completed_run(
+                workspace_root,
+                workspace_snapshot_before,
+                &runtime_events,
+            );
             return Ok(ChatRunFinal {
                 info,
                 usage: latest_usage,
+                changed_files,
             });
         }
         if Instant::now() >= deadline {
@@ -1402,6 +1470,7 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
         user_id,
         mut session,
         workspace_root,
+        workspace_snapshot_before,
         info,
         model,
         effort,
@@ -1434,6 +1503,7 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
         let mut emitted = String::new();
         let mut image_events = Vec::<Value>::new();
         let mut latest_usage = empty_usage();
+        let mut runtime_events = Vec::<Value>::new();
         let mut agent_messages = AgentMessageTracker::default();
         let mut model_connector_auth_buffer: Option<String> = None;
         let mut last_emit = now_epoch_seconds();
@@ -1463,6 +1533,7 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
                     }
                     if let Some(runtime_event) = extract_codex_runtime_event(&event) {
                         let public_runtime_event = sanitize_user_visible_value(&state, &user_id, &runtime_event);
+                        runtime_events.push(public_runtime_event.clone());
                         if record_session_runtime_event(&mut session, &public_runtime_event) {
                             let _ = state.sessions.save_record_if_exists(session.clone()).await;
                         }
@@ -1573,12 +1644,18 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
                         emitted = output_text.clone();
                         yield Ok::<Bytes, Infallible>(assistant_delta_sse(&response_id, &response_item_id, &output_text));
                     }
+                    let changed_files = changed_files_for_completed_run(
+                        &workspace_root,
+                        &workspace_snapshot_before,
+                        &runtime_events,
+                    );
                     let title_fallback = append_chat_messages_with_images(
                         &mut session,
                         user_content.clone(),
                         &user_input,
                         &emitted,
                         &image_events,
+                        &changed_files,
                     );
                     session.set_status(SessionStatus::Idle);
                     session.pending_permission_request = None;
@@ -1601,12 +1678,13 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
                     if usage_total_tokens(&latest_usage) > 0 {
                         yield Ok::<Bytes, Infallible>(sse_for_event(&json!({"type": "usage", "usage": latest_usage})));
                     }
-                    yield Ok::<Bytes, Infallible>(assistant_done_sse(
+                    yield Ok::<Bytes, Infallible>(assistant_done_sse_with_changed_files_payload(
                         &model,
                         &response_id,
                         &session_id,
                         emitted.clone(),
                         latest_usage.clone(),
+                        changed_files_payload_for_response(&changed_files),
                     ));
                 } else {
                     session.status = if info.status == "cancelled" {
@@ -1803,6 +1881,7 @@ async fn finalize_stale_completed_chat_run(
         }
         Err(_) => Vec::new(),
     };
+    let changed_files = runtime_changed_files_for_run(info).await;
     record_codex_thread(session, info);
     let _ = append_chat_messages_with_images(
         session,
@@ -1810,6 +1889,7 @@ async fn finalize_stale_completed_chat_run(
         &user_input,
         &output_text,
         &image_events,
+        &changed_files,
     );
     record_usage(session, &usage);
     session.set_status(SessionStatus::Idle);
@@ -1899,7 +1979,7 @@ fn append_chat_messages(
     user_input: &str,
     assistant_text: &str,
 ) -> Option<String> {
-    append_chat_messages_with_images(session, user_content, user_input, assistant_text, &[])
+    append_chat_messages_with_images(session, user_content, user_input, assistant_text, &[], &[])
 }
 
 fn append_chat_messages_with_images(
@@ -1908,6 +1988,7 @@ fn append_chat_messages_with_images(
     user_input: &str,
     assistant_text: &str,
     image_events: &[Value],
+    changed_files: &[changed_files::ChangedFile],
 ) -> Option<String> {
     let should_generate_title = session.messages.is_empty() && session.title.trim().is_empty();
     let mut assistant_content = vec![json!({"type": "text", "text": assistant_text})];
@@ -1922,6 +2003,9 @@ fn append_chat_messages_with_images(
         if seen_image_paths.insert(workspace_path.to_string()) {
             assistant_content.push(block);
         }
+    }
+    if let Some(block) = changed_files::changed_files_message_block(changed_files) {
+        assistant_content.push(block);
     }
     session.messages.push(json!({
         "role": "user",
@@ -2020,6 +2104,19 @@ async fn read_run_usage(info: &AgentRunInfo) -> Value {
         }
     }
     usage
+}
+
+async fn runtime_changed_files_for_run(info: &AgentRunInfo) -> Vec<changed_files::ChangedFile> {
+    let mut runtime_events = Vec::<Value>::new();
+    let mut offset = 0_usize;
+    if let Some(events_file) = info.events_file.as_deref() {
+        for event in read_events_from_offset(FsPath::new(events_file), &mut offset).await {
+            if let Some(runtime_event) = extract_codex_runtime_event(&event) {
+                runtime_events.push(runtime_event);
+            }
+        }
+    }
+    changed_files::changed_files_from_runtime_events(&runtime_events)
 }
 
 async fn read_events_from_offset(events_file: &FsPath, offset: &mut usize) -> Vec<Value> {
@@ -2521,6 +2618,78 @@ mod tests {
         assert!(prompt.contains("Do not assume uploaded screenshots are Ripple UI"));
 
         cleanup_test_root(&root).expect("cleanup test root");
+    }
+
+    #[test]
+    fn append_chat_messages_persists_changed_files_without_patch() {
+        let mut session = test_session_record("alice", "session-1");
+        let changed_files = vec![changed_files::ChangedFile {
+            path: "app/src/App.tsx".to_string(),
+            status: "modified".to_string(),
+            additions: 3,
+            deletions: 1,
+            previous_path: None,
+        }];
+
+        let _ = append_chat_messages_with_images(
+            &mut session,
+            json!("please update app"),
+            "please update app",
+            "done",
+            &[],
+            &changed_files,
+        );
+
+        let assistant_content = session.messages[1]
+            .get("content")
+            .and_then(Value::as_array)
+            .expect("assistant content blocks");
+        let block = assistant_content
+            .iter()
+            .find(|block| block.get("type").and_then(Value::as_str) == Some("changed_files"))
+            .expect("changed files block");
+
+        assert_eq!(
+            block.pointer("/files/0/path").and_then(Value::as_str),
+            Some("app/src/App.tsx")
+        );
+        assert_eq!(
+            block.pointer("/files/0/additions").and_then(Value::as_u64),
+            Some(3)
+        );
+        assert!(block.pointer("/files/0/patch").is_none());
+    }
+
+    fn test_session_record(user_id: &str, session_id: &str) -> SessionRecord {
+        SessionRecord {
+            session_id: session_id.to_string(),
+            user_id: user_id.to_string(),
+            title: String::new(),
+            pinned: false,
+            context_folder_path: None,
+            model: "codex-test".to_string(),
+            max_turns: 200,
+            caller_system_prompt: None,
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+            last_input_tokens: 0,
+            created_at: now_iso(),
+            last_active: now_iso(),
+            status: "idle".to_string(),
+            message_count: 0,
+            messages: Vec::new(),
+            pending_question: None,
+            pending_options: None,
+            pending_permission_request: None,
+            pending_connector_auth: None,
+            pending_control_request: None,
+            codex_thread_id: None,
+            forked_from_session_id: None,
+            forked_from_codex_thread_id: None,
+            memory_disabled: false,
+            plan_steps: Vec::new(),
+            plan_progress: None,
+        }
     }
 
     #[test]

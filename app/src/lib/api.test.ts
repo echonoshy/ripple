@@ -1748,6 +1748,62 @@ async function testResponsesStreamCompletedDoesNotReportCodexTurnDiff() {
   assert.deepEqual(changedFiles, []);
 }
 
+async function testResponsesStreamCompletedReportsChangedFilesWithoutPatch() {
+  const changedFiles: unknown[] = [];
+  const globals = globalThis as unknown as {
+    document?: Pick<Document, "addEventListener" | "removeEventListener"> & { hidden: boolean };
+    window?: Pick<Window, "fetch" | "setTimeout" | "clearTimeout">;
+  };
+  const previousDocument = globals.document;
+  const previousWindow = globals.window;
+  globals.document = {
+    hidden: false,
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
+  };
+  globals.window = {
+    fetch: (...args) => globalThis.fetch(...args),
+    setTimeout: globalThis.setTimeout,
+    clearTimeout: globalThis.clearTimeout,
+  };
+
+  try {
+    await withFetch(
+      async () =>
+        new Response(
+          [
+            'event: response.created\ndata: {"type":"response.created","response":{"id":"resp_session-1"}}\n\n',
+            'event: response.completed\ndata: {"type":"response.completed","response":{"status":"completed","ripple_changed_files":{"files":[{"path":"app/src/App.tsx","status":"modified","additions":3,"deletions":1,"patch":"diff --git a/app/src/App.tsx b/app/src/App.tsx\\n+new"},{"path":"docs/new.md","status":"added","additions":2}]}}}\n\n',
+            "data: [DONE]\n\n",
+          ].join(""),
+          {
+            status: 200,
+            headers: { "Content-Type": "text/event-stream" },
+          }
+        ),
+      async () => {
+        await sendChatMessage("session-1", "hi", "codex-test", {
+          onMessageDelta: () => undefined,
+          onToolCall: () => undefined,
+          onToolResult: () => undefined,
+          onUsage: () => undefined,
+          onChangedFiles: (files) => changedFiles.push(...files),
+          onComplete: () => undefined,
+          onError: () => undefined,
+        });
+      }
+    );
+  } finally {
+    globals.document = previousDocument;
+    globals.window = previousWindow;
+  }
+
+  assert.deepEqual(changedFiles, [
+    { path: "app/src/App.tsx", status: "modified", additions: 3, deletions: 1 },
+    { path: "docs/new.md", status: "added", additions: 2 },
+  ]);
+}
+
 async function testSendChatMessagePassesRequiredSkillsAndScreenContext() {
   const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
   const globals = globalThis as unknown as {
@@ -2120,6 +2176,7 @@ test("api client behavior", async () => {
   await testChatStreamUsesServerConflictDetail();
   await testResponsesStreamDeltaFeedsChatCallbacks();
   await testResponsesStreamCompletedDoesNotReportCodexTurnDiff();
+  await testResponsesStreamCompletedReportsChangedFilesWithoutPatch();
   await testSendChatMessagePassesRequiredSkillsAndScreenContext();
   await testSendChatMessagePassesClientContextOption();
   await testSendChatMessageDoesNotSendPreferredSkillIds();

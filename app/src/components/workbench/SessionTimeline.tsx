@@ -292,6 +292,14 @@ function splitChangedFilePath(path: string): { directory: string; filename: stri
   };
 }
 
+function normalizeChangedFileWorkspacePath(path: string): string {
+  const trimmed = path.trim();
+  if (!trimmed) return "/workspace";
+  return trimmed.startsWith("/workspace/") || trimmed === "/workspace"
+    ? trimmed
+    : `/workspace/${trimmed.replace(/^\/+/, "")}`;
+}
+
 function ChangedFilePathLabel({ file }: { file: ChangedFile }) {
   const { directory, filename } = splitChangedFilePath(file.path);
   return (
@@ -302,7 +310,13 @@ function ChangedFilePathLabel({ file }: { file: ChangedFile }) {
   );
 }
 
-function ChangedFilesSummary({ event }: { event: WorkbenchTimelineEvent }) {
+function ChangedFilesSummary({
+  event,
+  userId,
+}: {
+  event: WorkbenchTimelineEvent;
+  userId?: string;
+}) {
   const { t } = useI18n();
   const files = event.changedFiles || [];
   const [showAllChangedFiles, setShowAllChangedFiles] = React.useState(false);
@@ -315,6 +329,16 @@ function ChangedFilesSummary({ event }: { event: WorkbenchTimelineEvent }) {
     ? files
     : files.slice(0, COLLAPSED_CHANGED_FILES_LIMIT);
   const hiddenFileCount = Math.max(files.length - COLLAPSED_CHANGED_FILES_LIMIT, 0);
+  const openChangedFile = (file: ChangedFile) => {
+    window.dispatchEvent(
+      new CustomEvent("open-workspace-file", {
+        detail: {
+          path: normalizeChangedFileWorkspacePath(file.path),
+          userId,
+        },
+      })
+    );
+  };
 
   return (
     <div
@@ -342,17 +366,21 @@ function ChangedFilesSummary({ event }: { event: WorkbenchTimelineEvent }) {
           const deletions = changedFileStat(file.deletions);
 
           return (
-            <div
+            <button
+              type="button"
               key={rowKey}
               title={file.path}
-              className="grid min-h-11 w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-3 py-2 text-left sm:px-4"
+              aria-label={t("timeline.openChangedFile", { path: file.path })}
+              data-ripple-changed-file-path={file.path}
+              onClick={() => openChangedFile(file)}
+              className="grid min-h-11 w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-[#F8F9FA] focus-visible:bg-[#F0F5FF] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#3370FF]/30 focus-visible:outline-none sm:px-4"
             >
               <ChangedFilePathLabel file={file} />
               <span className="flex shrink-0 items-center gap-1.5 font-[family-name:var(--font-mono)] text-[13px] leading-5">
                 <span className="text-[#0F9D58]">+{additions}</span>
                 <span className="text-[#D83931]">-{deletions}</span>
               </span>
-            </div>
+            </button>
           );
         })}
       </div>
@@ -642,7 +670,7 @@ export default function SessionTimeline({
               </div>
             </div>
             {event.type === "file_change" && event.changedFiles?.length ? (
-              <ChangedFilesSummary event={event} />
+              <ChangedFilesSummary event={event} userId={userId} />
             ) : isToolEvent ? (
               <div
                 className={`${TIMELINE_CONTENT_INDENT_CLASS} mt-2 px-3 py-2.5 font-[family-name:var(--font-mono)] ${TYPOGRAPHY_META_CLASS} text-[#334155] ${WORKBENCH_SECTION_CLASS}`}
@@ -670,7 +698,9 @@ export default function SessionTimeline({
                     />
                   </div>
                 )}
-                {event.changedFiles?.length ? <ChangedFilesSummary event={event} /> : null}
+                {event.changedFiles?.length ? (
+                  <ChangedFilesSummary event={event} userId={userId} />
+                ) : null}
               </>
             )}
           </article>

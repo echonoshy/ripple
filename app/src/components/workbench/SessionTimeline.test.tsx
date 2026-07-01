@@ -304,6 +304,42 @@ function testChangedFilesCardCollapsesWithoutDiffDetails() {
   assert.doesNotMatch(source, /diffLineClassName/);
 }
 
+function testChangedFilesRowsOpenWorkspaceFiles() {
+  const html = renderToStaticMarkup(
+    <I18nProvider initialPreference="en-US">
+      <SessionTimeline
+        messages={[]}
+        events={[
+          {
+            id: "changes-1",
+            type: "assistant_message",
+            title: "Update",
+            body: "Done.",
+            status: "completed",
+            changedFiles: [
+              {
+                path: "app/src/App.tsx",
+                status: "modified",
+                additions: 2,
+                deletions: 1,
+              },
+            ],
+          },
+        ]}
+        isGenerating={false}
+        onQuickReply={noop}
+        onPermissionResolve={noop}
+      />
+    </I18nProvider>
+  );
+  const source = readFileSync(new URL("./SessionTimeline.tsx", import.meta.url), "utf8");
+
+  assert.match(html, /<button[^>]+data-ripple-changed-file-path="app\/src\/App\.tsx"/);
+  assert.match(html, /aria-label="Open app\/src\/App\.tsx"/);
+  assert.match(source, /new CustomEvent\("open-workspace-file"/);
+  assert.match(source, /normalizeChangedFileWorkspacePath/);
+}
+
 function testGeneratingPlaceholderUsesRandomWaitingCopy() {
   const originalRandom = Math.random;
   Math.random = () => 0;
@@ -398,6 +434,7 @@ testCopyActionIsHiddenUntilMessageInteraction();
 testCopyActionCanBeRevealedOnMobileWithoutStayingVisible();
 testToolEventsDoNotExposeCopyAction();
 testChangedFilesCardCollapsesWithoutDiffDetails();
+testChangedFilesRowsOpenWorkspaceFiles();
 testGeneratingPlaceholderUsesRandomWaitingCopy();
 testChineseGeneratingPlaceholderUsesRandomWaitingCopy();
 testConnectorAuthTimelineWaitingCopyDoesNotTickSeconds();

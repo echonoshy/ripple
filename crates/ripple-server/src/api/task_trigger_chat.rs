@@ -523,6 +523,7 @@ async fn extract_task_trigger_with_codex(
         task_trigger_reason: None,
         codex_thread_id: None,
         codex_persistent_thread: false,
+        memory_disabled: true,
         chat_user_input: None,
         chat_user_content: None,
     };

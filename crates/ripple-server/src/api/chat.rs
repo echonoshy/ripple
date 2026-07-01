@@ -843,6 +843,7 @@ async fn create_codex_chat_run(args: &CodexChatStart) -> Result<AgentRunInfo, Ap
         task_trigger_reason: None,
         codex_thread_id: args.session.codex_thread_id.clone(),
         codex_persistent_thread: !args.request.temporary,
+        memory_disabled: args.session.memory_disabled || args.request.temporary,
         chat_user_input: Some(args.user_input.clone()),
         chat_user_content: Some(args.user_content.clone()),
     };
@@ -1600,7 +1601,13 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
                     if usage_total_tokens(&latest_usage) > 0 {
                         yield Ok::<Bytes, Infallible>(sse_for_event(&json!({"type": "usage", "usage": latest_usage})));
                     }
-                    yield Ok::<Bytes, Infallible>(assistant_done_sse(&model, &response_id, &session_id, emitted.clone(), latest_usage.clone()));
+                    yield Ok::<Bytes, Infallible>(assistant_done_sse(
+                        &model,
+                        &response_id,
+                        &session_id,
+                        emitted.clone(),
+                        latest_usage.clone(),
+                    ));
                 } else {
                     session.status = if info.status == "cancelled" {
                         SessionStatus::Cancelled.as_str().to_string()
@@ -1916,7 +1923,6 @@ fn append_chat_messages_with_images(
             assistant_content.push(block);
         }
     }
-
     session.messages.push(json!({
         "role": "user",
         "content": if user_content.is_null() { json!(user_input) } else { user_content },
@@ -2214,6 +2220,7 @@ mod tests {
                 idle_timeout_seconds: 1800,
                 max_workers_per_pool: 8,
                 max_total_pool_workers: 256,
+                memory: crate::config::CodexMemoryConfig::default(),
                 max_runtime_seconds: 3600,
                 runtime_log_retention_seconds: 86_400,
                 runtime_log_max_mb: 64,

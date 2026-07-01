@@ -2733,6 +2733,7 @@ async fn execute_task_action_inner(
         task_trigger_reason: trigger.map(|trigger| trigger.task_trigger_reason.clone()),
         codex_thread_id: session.codex_thread_id.clone(),
         codex_persistent_thread: true,
+        memory_disabled: session.memory_disabled,
         chat_user_input: Some(prompt.clone()),
         chat_user_content: None,
     };

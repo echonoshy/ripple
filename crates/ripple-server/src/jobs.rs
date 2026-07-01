@@ -60,6 +60,8 @@ pub struct AgentRunCreateRequest {
     pub codex_thread_id: Option<String>,
     #[serde(default)]
     pub codex_persistent_thread: bool,
+    #[serde(default)]
+    pub memory_disabled: bool,
     #[serde(default, skip_deserializing)]
     pub chat_user_input: Option<String>,
     #[serde(default, skip_deserializing)]
@@ -160,7 +162,8 @@ impl JobManager {
             "signals": [],
             "sandbox_cwd": sandbox_cwd_for_host_path(&cwd, &workspace_root),
             "workspace_root": workspace_root,
-            "image_generation_enabled": image_generation_enabled
+            "image_generation_enabled": image_generation_enabled,
+            "memory_disabled": create.memory_disabled
         });
         if let Some(object) = metadata.as_object_mut() {
             if let Some(session_id) = &session_id {
@@ -319,7 +322,8 @@ impl JobManager {
             "signals": [],
             "sandbox_cwd": sandbox_cwd_for_host_path(&cwd, &workspace_root),
             "workspace_root": workspace_root,
-            "image_generation_enabled": image_generation_enabled
+            "image_generation_enabled": image_generation_enabled,
+            "memory_disabled": create.memory_disabled
         });
         if let Some(object) = metadata.as_object_mut() {
             if let Some(session_id) = &session_id {
@@ -382,6 +386,18 @@ impl JobManager {
             .await
     }
 
+    pub async fn set_codex_thread_memory_mode(
+        &self,
+        user_id: String,
+        workspace_root: PathBuf,
+        thread_id: String,
+        mode: &str,
+    ) -> anyhow::Result<Value> {
+        self.provider
+            .set_thread_memory_mode(user_id, workspace_root, thread_id, mode)
+            .await
+    }
+
     pub async fn fork_codex_thread(
         &self,
         user_id: String,
@@ -401,6 +417,14 @@ impl JobManager {
                 memory_disabled,
             )
             .await
+    }
+
+    pub async fn reset_codex_memory(
+        &self,
+        user_id: String,
+        workspace_root: PathBuf,
+    ) -> anyhow::Result<Value> {
+        self.provider.reset_memory(user_id, workspace_root).await
     }
 
     pub async fn list_user(&self, user_id: &str) -> anyhow::Result<Vec<AgentRunInfo>> {

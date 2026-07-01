@@ -5,6 +5,7 @@ pub mod chat;
 pub mod connectors;
 pub mod documents;
 pub mod health;
+pub mod memory;
 pub mod models;
 pub mod openapi;
 pub(crate) mod run_public;
@@ -194,6 +195,9 @@ pub fn router(state: AppState) -> Router {
         .routes(utoipa_axum::routes!(task_triggers::run_task_trigger_now))
         .routes(utoipa_axum::routes!(tasks::list_task_events))
         .routes(utoipa_axum::routes!(chat::create_response))
+        .routes(utoipa_axum::routes!(memory::memory_status))
+        .routes(utoipa_axum::routes!(memory::memory_summary))
+        .routes(utoipa_axum::routes!(memory::reset_memory))
         .routes(utoipa_axum::routes!(health::ready))
         .routes(utoipa_axum::routes!(health::doctor))
         .routes(utoipa_axum::routes!(users::current_user_profile))
@@ -225,6 +229,7 @@ pub fn router(state: AppState) -> Router {
         .routes(utoipa_axum::routes!(sessions::stop_session))
         .routes(utoipa_axum::routes!(sessions::clear_session_context))
         .routes(utoipa_axum::routes!(sessions::compact_session_context))
+        .routes(utoipa_axum::routes!(sessions::disable_session_memory))
         .routes(utoipa_axum::routes!(sessions::get_session_codex_thread))
         .routes(utoipa_axum::routes!(sessions::suspend_session))
         .routes(utoipa_axum::routes!(sessions::resume_session))
@@ -609,6 +614,7 @@ mod tests {
                 idle_timeout_seconds: 1800,
                 max_workers_per_pool: 8,
                 max_total_pool_workers: 256,
+                memory: crate::config::CodexMemoryConfig::default(),
                 max_runtime_seconds: 3600,
                 runtime_log_retention_seconds: 86_400,
                 runtime_log_max_mb: 64,

@@ -40,6 +40,31 @@ pub(super) fn pool_generation(config: &AppConfig) -> String {
         } else {
             "no-network"
         },
+        if config.codex.memory.enabled {
+            "memory-enabled"
+        } else {
+            "memory-disabled"
+        },
+        if config.codex.memory.use_memories {
+            "memory-use"
+        } else {
+            "memory-no-use"
+        },
+        if config.codex.memory.generate_memories {
+            "memory-generate"
+        } else {
+            "memory-no-generate"
+        },
+        if config.codex.memory.dedicated_tools {
+            "memory-tools"
+        } else {
+            "memory-no-tools"
+        },
+        if config.codex.memory.disable_on_external_context {
+            "memory-disable-on-external"
+        } else {
+            "memory-allow-external"
+        },
     ]
     .join("\u{1e}")
 }

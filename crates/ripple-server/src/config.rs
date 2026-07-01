@@ -148,10 +148,32 @@ pub struct CodexConfig {
     pub idle_timeout_seconds: u64,
     pub max_workers_per_pool: usize,
     pub max_total_pool_workers: usize,
+    pub memory: CodexMemoryConfig,
     pub max_runtime_seconds: u64,
     pub runtime_log_retention_seconds: u64,
     pub runtime_log_max_mb: u64,
     pub runtime_log_cleanup_interval_seconds: u64,
+}
+
+#[derive(Clone, Debug)]
+pub struct CodexMemoryConfig {
+    pub enabled: bool,
+    pub use_memories: bool,
+    pub generate_memories: bool,
+    pub dedicated_tools: bool,
+    pub disable_on_external_context: bool,
+}
+
+impl Default for CodexMemoryConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            use_memories: true,
+            generate_memories: true,
+            dedicated_tools: false,
+            disable_on_external_context: false,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -327,9 +349,19 @@ struct RawCodex {
     idle_timeout_seconds: Option<u64>,
     max_workers_per_pool: Option<usize>,
     max_total_pool_workers: Option<usize>,
+    memory: Option<RawCodexMemory>,
     runtime_log_retention_seconds: Option<u64>,
     runtime_log_max_mb: Option<u64>,
     runtime_log_cleanup_interval_seconds: Option<u64>,
+}
+
+#[derive(Debug, Default, Deserialize, Clone)]
+struct RawCodexMemory {
+    enabled: Option<bool>,
+    use_memories: Option<bool>,
+    generate_memories: Option<bool>,
+    dedicated_tools: Option<bool>,
+    disable_on_external_context: Option<bool>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -409,6 +441,7 @@ impl AppConfig {
             .unwrap_or_default()
             .codex
             .unwrap_or_default();
+        let codex_memory_raw = codex_raw.memory.clone().unwrap_or_default();
         let codex_chat = server.codex_chat.unwrap_or_default();
         let task_trigger_extraction = server.task_trigger_extraction.unwrap_or_default();
         let task_triggers = server.task_triggers.unwrap_or_default();
@@ -556,6 +589,15 @@ impl AppConfig {
                     .max_total_pool_workers
                     .unwrap_or(DEFAULT_CODEX_MAX_TOTAL_POOL_WORKERS)
                     .max(1),
+                memory: CodexMemoryConfig {
+                    enabled: codex_memory_raw.enabled.unwrap_or(true),
+                    use_memories: codex_memory_raw.use_memories.unwrap_or(true),
+                    generate_memories: codex_memory_raw.generate_memories.unwrap_or(true),
+                    dedicated_tools: codex_memory_raw.dedicated_tools.unwrap_or(false),
+                    disable_on_external_context: codex_memory_raw
+                        .disable_on_external_context
+                        .unwrap_or(false),
+                },
                 max_runtime_seconds: codex_chat.max_runtime_seconds.unwrap_or(3600),
                 runtime_log_retention_seconds: codex_raw
                     .runtime_log_retention_seconds
@@ -1019,6 +1061,52 @@ external_agents:
             config.codex.codex_home,
             Some(config.repo_root.join(".ripple/codex-service-home"))
         );
+    }
+
+    #[test]
+    fn codex_memory_defaults_on_and_can_be_configured() {
+        let defaults = with_temp_config(
+            "codex-memory-defaults",
+            r#"
+server:
+  api_keys: ["test-key"]
+external_agents:
+  codex:
+    enabled: true
+"#,
+            AppConfig::load,
+        )
+        .expect("load default memory config");
+
+        assert!(defaults.codex.memory.enabled);
+        assert!(defaults.codex.memory.use_memories);
+        assert!(defaults.codex.memory.generate_memories);
+        assert!(!defaults.codex.memory.dedicated_tools);
+        assert!(!defaults.codex.memory.disable_on_external_context);
+
+        let configured = with_temp_config(
+            "codex-memory-configured",
+            r#"
+server:
+  api_keys: ["test-key"]
+external_agents:
+  codex:
+    memory:
+      enabled: false
+      use_memories: false
+      generate_memories: true
+      dedicated_tools: true
+      disable_on_external_context: true
+"#,
+            AppConfig::load,
+        )
+        .expect("load configured memory config");
+
+        assert!(!configured.codex.memory.enabled);
+        assert!(!configured.codex.memory.use_memories);
+        assert!(configured.codex.memory.generate_memories);
+        assert!(configured.codex.memory.dedicated_tools);
+        assert!(configured.codex.memory.disable_on_external_context);
     }
 
     #[test]

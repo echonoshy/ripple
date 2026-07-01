@@ -882,6 +882,73 @@ async fn archive_session_codex_thread(
 
 #[utoipa::path(
     post,
+    path = "/sessions/{session_id}/memory/disable",
+    tag = "sessions",
+    params(("session_id" = String, Path, description = "Session id")),
+    responses(
+        (status = 200, description = "Disabled Codex memory for this session", body = serde_json::Value),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Session not found", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 409, description = "Session is currently running", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 502, description = "Codex app-server update failed", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
+pub async fn disable_session_memory(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(session_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
+    let Some(mut session) = state.sessions.load(&user_id, &session_id).await? else {
+        return Err(ApiError::not_found("Session not found"));
+    };
+    if session.status_kind().is_busy() {
+        return Err(ApiError::conflict("Session is currently running"));
+    }
+
+    let was_disabled = session.memory_disabled;
+    let codex_thread_id = trimmed_codex_thread_id(session.codex_thread_id.as_deref());
+    let codex_result = if let Some(thread_id) = codex_thread_id.clone() {
+        let workspace_root = state.sandboxes.ensure_sandbox(&user_id)?;
+        let result = state
+            .jobs
+            .set_codex_thread_memory_mode(
+                user_id.clone(),
+                workspace_root,
+                thread_id.clone(),
+                "disabled",
+            )
+            .await
+            .map_err(|err| ApiError::new(axum::http::StatusCode::BAD_GATEWAY, err.to_string()))?;
+        json!({
+            "status": "disabled",
+            "codex_thread_id": thread_id,
+            "result": result
+        })
+    } else {
+        json!({
+            "status": "skipped_no_thread"
+        })
+    };
+
+    session.memory_disabled = true;
+    state.sessions.save_record(session).await?;
+
+    Ok(Json(json!({
+        "ok": true,
+        "session_id": session_id,
+        "memory_disabled": true,
+        "was_disabled": was_disabled,
+        "codex_thread_memory": codex_result
+    })))
+}
+
+#[utoipa::path(
+    post,
     path = "/sessions/{session_id}/context/compact",
     tag = "sessions",
     params(("session_id" = String, Path, description = "Session id")),

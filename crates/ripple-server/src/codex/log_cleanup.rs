@@ -503,6 +503,7 @@ INSERT INTO logs (
                 idle_timeout_seconds: 1800,
                 max_workers_per_pool: 8,
                 max_total_pool_workers: 256,
+                memory: crate::config::CodexMemoryConfig::default(),
                 max_runtime_seconds: 3600,
                 runtime_log_retention_seconds: 86_400,
                 runtime_log_max_mb: 64,

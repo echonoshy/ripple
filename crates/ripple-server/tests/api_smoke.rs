@@ -73,6 +73,7 @@ fn test_config(root: &Path) -> AppConfig {
             idle_timeout_seconds: 1800,
             max_workers_per_pool: 8,
             max_total_pool_workers: 256,
+            memory: ripple_server::config::CodexMemoryConfig::default(),
             max_runtime_seconds: 3600,
             runtime_log_retention_seconds: 86_400,
             runtime_log_max_mb: 64,
@@ -1357,6 +1358,76 @@ async fn router_serves_core_control_plane_routes() {
         .await
         .unwrap();
     assert_eq!(tasks.status(), StatusCode::OK);
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn memory_routes_report_status_and_guard_reset() {
+    let root = std::env::temp_dir().join(format!("ripple-memory-smoke-{}", Uuid::new_v4()));
+    let (state, app) = test_state_and_app(&root);
+
+    let (status, body) = call(app.clone(), Method::GET, "/v1/memory/status", Value::Null).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        body.pointer("/memory/enabled").and_then(Value::as_bool),
+        Some(true)
+    );
+    assert_eq!(
+        body.pointer("/summary/available").and_then(Value::as_bool),
+        Some(false)
+    );
+    assert_eq!(
+        body.pointer("/runtime/memories_db_available")
+            .and_then(Value::as_bool),
+        Some(false)
+    );
+
+    let (status, body) = call(app.clone(), Method::GET, "/v1/memory/summary", Value::Null).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.get("summary").is_some_and(Value::is_null));
+    assert!(body.get("registry").is_some_and(Value::is_null));
+
+    let (status, body) = call(app.clone(), Method::POST, "/v1/memory/reset", Value::Null).await;
+    assert_eq!(status, StatusCode::PRECONDITION_REQUIRED);
+    assert_eq!(
+        body.pointer("/detail/code").and_then(Value::as_str),
+        Some("confirmation_required")
+    );
+
+    let (status, session) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/sessions",
+        json!({"model": "codex-test"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let session_id = session
+        .get("session_id")
+        .and_then(Value::as_str)
+        .expect("session id");
+    let (status, disabled) = call(
+        app.clone(),
+        Method::POST,
+        &format!("/v1/sessions/{session_id}/memory/disable"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        disabled
+            .pointer("/codex_thread_memory/status")
+            .and_then(Value::as_str),
+        Some("skipped_no_thread")
+    );
+    let stored = state
+        .sessions
+        .load("smoke-user", session_id)
+        .await
+        .unwrap()
+        .expect("stored session");
+    assert!(stored.memory_disabled);
 
     let _ = std::fs::remove_dir_all(root);
 }
@@ -4788,6 +4859,7 @@ async fn session_overview_groups_sessions_and_enriches_linked_runs() {
                 task_trigger_reason: None,
                 codex_thread_id: None,
                 codex_persistent_thread: false,
+                memory_disabled: false,
                 chat_user_input: None,
                 chat_user_content: None,
             },
@@ -4819,6 +4891,7 @@ async fn session_overview_groups_sessions_and_enriches_linked_runs() {
                 task_trigger_reason: None,
                 codex_thread_id: None,
                 codex_persistent_thread: false,
+                memory_disabled: false,
                 chat_user_input: None,
                 chat_user_content: None,
             },
@@ -6359,7 +6432,7 @@ async fn wait_for_get_json(
     mut matches: impl FnMut(&Value) -> bool,
 ) -> Value {
     let mut latest = Value::Null;
-    for _ in 0..80 {
+    for _ in 0..160 {
         let (status, body) = call(app.clone(), Method::GET, uri, Value::Null).await;
         assert_eq!(status, StatusCode::OK, "{body}");
         if matches(&body) {

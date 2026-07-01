@@ -54,6 +54,14 @@ external_agents:
     network_access: true
     max_workers_per_pool: 50
     max_total_pool_workers: 256
+    # Codex 原生 memory。Ripple 只负责打开/关闭和暴露状态，实际提取、合并、
+    # 注入由 Codex app-server 在每个 user 的 codex-home/runtime DB 下完成。
+    memory:
+      enabled: true
+      use_memories: true
+      generate_memories: true
+      dedicated_tools: false
+      disable_on_external_context: false
     # 空闲 worker 超过该时间后由 idle reaper 关闭。
     idle_timeout_seconds: 1800
     # Codex runtime trace 日志不参与对话恢复；生产环境默认只短期保留，避免

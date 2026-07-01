@@ -521,6 +521,7 @@ fn task_tool_reminder_arguments() -> &'static str {
 fn main() {
     let stdin = io::stdin();
     let mut thread_counter = 0_u64;
+    let mut fork_counter = 0_u64;
     let mut turn_counter = 0_u64;
     let mut thread_has_task_tool: HashMap<String, bool> = HashMap::new();
     let mut pending_approvals: HashMap<String, (String, String, String, String)> = HashMap::new();
@@ -609,6 +610,18 @@ fn main() {
                     "{{\"id\":{},\"result\":{{\"thread\":{{\"id\":{}}}}}}}",
                     id.raw_json(),
                     json_string(&response_thread_id)
+                ));
+            }
+            (Some(id), Some("thread/fork")) => {
+                fork_counter += 1;
+                let source_thread_id = extract_string_field(&line, "threadId")
+                    .unwrap_or_else(|| "thread-source".to_string());
+                let thread_id = format!("thread-fork-{fork_counter}");
+                send(format!(
+                    "{{\"id\":{},\"result\":{{\"thread\":{{\"id\":{},\"forkedFromId\":{}}}}}}}",
+                    id.raw_json(),
+                    json_string(&thread_id),
+                    json_string(&source_thread_id)
                 ));
             }
             (Some(id), Some("thread/read")) => {
@@ -6030,6 +6043,112 @@ async fn session_codex_thread_route_reads_thread_metadata_without_turns() {
         Some("notLoaded")
     );
     assert!(thread.pointer("/thread/turns").is_none());
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn fork_session_route_creates_new_session_with_forked_codex_thread() {
+    let root = std::env::temp_dir().join(format!("ripple-api-session-fork-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let config = test_config_with_codex_executable(&root, fake_codex);
+    let (state, app) = test_state_and_app_with_config(config);
+    let user_id = "smoke-user";
+    let mut source = state
+        .sessions
+        .create_session(
+            user_id,
+            CreateSessionInput {
+                model: Some("codex-test".to_string()),
+                max_turns: None,
+                system_prompt: None,
+                context_folder_path: None,
+            },
+        )
+        .await
+        .unwrap();
+    source.title = "Fork me".to_string();
+    source.messages = vec![
+        json!({"role": "user", "content": "source question"}),
+        json!({"role": "assistant", "content": "source answer"}),
+    ];
+    source.message_count = source.messages.len();
+    source.codex_thread_id = Some("thread-parent".to_string());
+    source.total_input_tokens = 42;
+    source.total_output_tokens = 7;
+    state.sessions.save_record(source.clone()).await.unwrap();
+
+    let (status, forked) = call(
+        app,
+        Method::POST,
+        &format!("/v1/sessions/{}/fork", source.session_id),
+        Value::Null,
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK, "{forked}");
+    assert_eq!(
+        forked.get("source_session_id").and_then(Value::as_str),
+        Some(source.session_id.as_str())
+    );
+    assert_eq!(
+        forked.get("source_codex_thread_id").and_then(Value::as_str),
+        Some("thread-parent")
+    );
+    assert_eq!(
+        forked.get("codex_thread_id").and_then(Value::as_str),
+        Some("thread-fork-1")
+    );
+
+    let forked_session = forked.get("session").expect("forked session");
+    let forked_session_id = forked_session
+        .get("session_id")
+        .and_then(Value::as_str)
+        .expect("forked session id");
+    assert_ne!(forked_session_id, source.session_id);
+    assert_eq!(
+        forked_session
+            .get("forked_from_session_id")
+            .and_then(Value::as_str),
+        Some(source.session_id.as_str())
+    );
+    assert_eq!(
+        forked_session.get("message_count").and_then(Value::as_u64),
+        Some(2)
+    );
+    assert_eq!(
+        forked_session.get("status").and_then(Value::as_str),
+        Some("idle")
+    );
+
+    let reloaded_source = state
+        .sessions
+        .load(user_id, &source.session_id)
+        .await
+        .unwrap()
+        .expect("source session should remain");
+    assert_eq!(
+        reloaded_source.codex_thread_id.as_deref(),
+        Some("thread-parent")
+    );
+
+    let reloaded_fork = state
+        .sessions
+        .load(user_id, forked_session_id)
+        .await
+        .unwrap()
+        .expect("forked session should persist");
+    assert_eq!(reloaded_fork.messages, source.messages);
+    assert_eq!(
+        reloaded_fork.codex_thread_id.as_deref(),
+        Some("thread-fork-1")
+    );
+    assert_eq!(
+        reloaded_fork.forked_from_codex_thread_id.as_deref(),
+        Some("thread-parent")
+    );
+    assert_eq!(reloaded_fork.total_input_tokens, 0);
+    assert_eq!(reloaded_fork.total_output_tokens, 0);
 
     let _ = std::fs::remove_dir_all(root);
 }

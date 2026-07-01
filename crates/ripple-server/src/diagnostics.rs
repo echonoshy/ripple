@@ -717,6 +717,10 @@ mod tests {
             .is_some_and(|methods| methods
                 .iter()
                 .any(|method| method == "account/workspaceMessages/read")));
+        assert!(codex_runtime
+            .pointer("/details/app_server_protocol/methods")
+            .and_then(Value::as_array)
+            .is_some_and(|methods| methods.iter().any(|method| method == "thread/fork")));
 
         let _ = std::fs::remove_dir_all(root);
     }

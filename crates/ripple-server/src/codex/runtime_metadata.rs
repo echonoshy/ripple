@@ -7,6 +7,7 @@ pub const CODEX_APP_SERVER_PROTOCOL_METHODS: &[&str] = &[
     "initialize",
     "thread/start",
     "thread/resume",
+    "thread/fork",
     "turn/start",
     "turn/steer",
     "turn/interrupt",

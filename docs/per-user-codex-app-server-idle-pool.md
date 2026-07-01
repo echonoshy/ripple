@@ -2,7 +2,7 @@
 
 本文记录 `ripple-server` 当前 Codex app-server worker pool 形态。旧的“每个 job 启动一个 app-server，job 完成后立即关闭”模型已经被 idle worker pool 取代。
 
-> 说明：`master` 主线不启用或暴露 Codex 原生 memory。Codex 自提取记忆相关实现保留在实验分支 `experiment/codex-native-memory`。
+> 说明：`master` 主线默认启用 Codex 原生 memory。Ripple 只注入 Codex thread config，并提供薄状态/重置 API；实际提取、合并和读路径注入由 Codex app-server 完成。
 
 ## Boundary
 
@@ -70,6 +70,12 @@ external_agents:
     idle_timeout_seconds: 1800
     max_workers_per_pool: 50
     max_total_pool_workers: 256
+    memory:
+      enabled: true
+      use_memories: true
+      generate_memories: true
+      dedicated_tools: false
+      disable_on_external_context: false
 ```
 
 默认值在代码中是：
@@ -77,6 +83,11 @@ external_agents:
 - `idle_timeout_seconds`: `1800`
 - `max_workers_per_pool`: `8`
 - `max_total_pool_workers`: `256`
+- `memory.enabled`: `true`
+- `memory.use_memories`: `true`
+- `memory.generate_memories`: `true`
+- `memory.dedicated_tools`: `false`
+- `memory.disable_on_external_context`: `false`
 
 生产环境可以按机器容量调大 `max_workers_per_pool`，但仍建议保留全局上限，避免单机进程数失控。
 
@@ -89,7 +100,23 @@ external_agents:
 
 ## Memory Behavior
 
-`master` 主线不向 Codex thread config 注入 `features.memories` 或 `memories.*` 设置，不提供 `/v1/memory/*` API，也不在设置页展示 memory 控制。memory 相关实验继续在 `experiment/codex-native-memory` 分支推进。
+Ripple 会在 Codex `thread/start` / `thread/resume` config 中注入：
+
+- `features.memories`
+- `memories.use_memories`
+- `memories.generate_memories`
+- `memories.dedicated_tools`
+- `memories.disable_on_external_context`
+
+默认对用户 chat/session 开启 read/write。内部标题生成、task trigger extraction 和标记为 temporary 的 chat turn 会显式禁用 memory，避免后台工具轮污染用户记忆。
+
+后端提供三个用户级 memory API：
+
+- `GET /v1/memory/status`
+- `GET /v1/memory/summary`
+- `POST /v1/memory/reset`
+
+还提供 `POST /v1/sessions/{session_id}/memory/disable`，用于把某个 session 及其 Codex thread 置为 memory disabled。若该 session 已有 Codex thread，Ripple 先调用 Codex app-server 的 `thread/memoryMode/set` 成功后，再持久化本地 `memory_disabled`。
 
 ## Observability
 

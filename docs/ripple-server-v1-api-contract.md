@@ -69,6 +69,440 @@
 - 调用方通过 `metadata.ripple_session_id` 或 `previous_response_id=resp_<session_id>` 传入的 session id 必须匹配 `[a-zA-Z0-9_-]{1,64}`。这是为了保证 session runtime 目录和 SQLite 主键都安全可控。
 - `/v1/chat/completions` 不再注册；客户端和外部调用方必须使用 `/v1/responses`。
 
+### External Chat Caller Contract
+
+外部业务系统可以按下面的最小协议接入 chat。
+
+公共 header：
+
+```http
+Authorization: Bearer <RIPPLE_SERVER_API_KEY>
+X-Ripple-User-Id: <user_id>
+Content-Type: application/json
+```
+
+如果使用 `server.user_auth.enabled` 登录态 token，后端会以 token 绑定的 user 为准，忽略客户端伪造的 `X-Ripple-User-Id`。
+
+#### 1. Session 是否必须创建
+
+不必须。调用方可以直接请求 `/v1/responses`。
+
+未传 session id 时，Ripple 会自动创建 session。调用方应从 response body 的 `metadata.ripple_session_id` 或 response header `x-ripple-session-id` 读取最终 session id，后续用它续聊。
+
+也可以不提前调用 `POST /v1/sessions`，直接在 `/v1/responses` 中传一个自定义 session id。如果该 session 不存在，Ripple 会自动用这个 id 创建；如果已存在，则续接该 session。
+
+```json
+{
+  "model": "codex-high",
+  "stream": true,
+  "input": "你好，帮我分析 /workspace/docs。",
+  "metadata": {
+    "ripple_session_id": "my_session_001"
+  }
+}
+```
+
+下一轮继续传同一个 session：
+
+```json
+{
+  "model": "codex-high",
+  "stream": true,
+  "previous_response_id": "resp_my_session_001",
+  "input": "继续刚才的分析，列出风险点。",
+  "metadata": {
+    "ripple_session_id": "my_session_001"
+  }
+}
+```
+
+推荐同时传 `previous_response_id=resp_<session_id>` 和 `metadata.ripple_session_id`。仅传 `previous_response_id` 也可以解析出 session id，但显式 metadata 更清晰。
+
+#### 2. 什么时候需要先创建 Session
+
+如果调用方要在执行前设置 session 级属性，例如选定默认模型、`context_folder_path`、`system_prompt` 或 `max_turns`，应先调用 `POST /v1/sessions`。
+
+```json
+{
+  "model": "codex-high",
+  "context_folder_path": "/workspace/docs",
+  "max_turns": 200,
+  "system_prompt": "你是一个严谨的文档分析助手。"
+}
+```
+
+返回中的 `session_id` 用于后续 `/v1/responses`：
+
+```json
+{
+  "session_id": "srv_abc123",
+  "context_folder_path": "/workspace/docs",
+  "model": "codex-high",
+  "status": "idle"
+}
+```
+
+已有 session 可通过 `PATCH /v1/sessions/{session_id}` 更新模型或 focus 目录：
+
+```json
+{
+  "model": "codex-medium",
+  "context_folder_path": "/workspace/reports"
+}
+```
+
+清空 focus 目录：
+
+```json
+{
+  "context_folder_path": null
+}
+```
+
+#### 3. `context_folder_path`
+
+`context_folder_path` 是 session 级字段，只在 `POST /v1/sessions` 或 `PATCH /v1/sessions/{session_id}` 中传，不是 `/v1/responses.metadata` 字段。
+
+当前只支持一个目录，不支持 list：
+
+```json
+{
+  "context_folder_path": "/workspace/docs"
+}
+```
+
+不支持：
+
+```json
+{
+  "context_folder_path": [
+    "/workspace/docs",
+    "/workspace/reports"
+  ]
+}
+```
+
+后端会校验该路径必须是当前 user workspace 下已存在的目录。设置后，后续同一 session 的 chat 会自动把它作为默认 reading/search scope，并把 Codex run 的 cwd 设置为该目录。传 `/workspace` 等价于清空 focus，表示全 workspace。
+
+多个目录的当前写法：选一个主目录作为 `context_folder_path`，其它目录放入用户文本或 `metadata.client_context`。
+
+```json
+{
+  "model": "codex-high",
+  "stream": true,
+  "previous_response_id": "resp_srv_abc123",
+  "input": "请以 /workspace/docs 为主，同时参考 /workspace/reports 和 /workspace/data。",
+  "metadata": {
+    "ripple_session_id": "srv_abc123",
+    "client_context": {
+      "software": {
+        "selection": {
+          "focus_folder_path": "/workspace/docs",
+          "additional_folder_paths": [
+            "/workspace/reports",
+            "/workspace/data"
+          ]
+        }
+      }
+    }
+  }
+}
+```
+
+#### 4. 完整 Chat 请求示例
+
+```json
+{
+  "model": "codex-high",
+  "stream": true,
+  "previous_response_id": "resp_srv_abc123",
+  "instructions": "本轮回答要先说明读取了哪些文件，再给结论。",
+  "input": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "请分析 /workspace/docs 和 /workspace/reports 两个目录，并重点参考下面这个文件。"
+        },
+        {
+          "type": "file",
+          "file": {
+            "path": "/workspace/docs/key_report.pdf",
+            "name": "key_report.pdf",
+            "mime_type": "application/pdf"
+          }
+        }
+      ]
+    }
+  ],
+  "store": true,
+  "reasoning": {
+    "effort": "medium",
+    "summary": "auto"
+  },
+  "metadata": {
+    "ripple_session_id": "srv_abc123",
+    "required_skill_ids": [],
+    "screen_context": {
+      "app": "ripple",
+      "screen_id": "session.chat",
+      "active_view": "chat"
+    },
+    "client_context": {
+      "schema_version": "ripple.client_context.v1",
+      "software": {
+        "selection": {
+          "focus_folder_path": "/workspace/docs",
+          "additional_folder_paths": [
+            "/workspace/reports",
+            "/workspace/data"
+          ],
+          "file_paths": [
+            "/workspace/docs/key_report.pdf"
+          ]
+        }
+      }
+    }
+  }
+}
+```
+
+文件必须先进入当前 user 的 Ripple workspace，再通过 `/workspace/...` 虚拟路径传给 chat。文件 block 格式：
+
+```json
+{
+  "type": "file",
+  "file": {
+    "path": "/workspace/docs/a.md",
+    "name": "a.md",
+    "mime_type": "text/markdown"
+  }
+}
+```
+
+目录没有单独的 `type: "folder"` block；目录路径应写入用户文本，或作为辅助信息放进 `metadata.client_context`。
+
+#### 5. 输出位置
+
+非流式请求读取 `output_text`：
+
+```json
+{
+  "id": "resp_srv_abc123",
+  "object": "response",
+  "status": "completed",
+  "model": "codex-high",
+  "output_text": "完整回答",
+  "metadata": {
+    "ripple_session_id": "srv_abc123"
+  }
+}
+```
+
+流式请求使用 SSE。客户端应拼接所有 `response.output_text.delta.delta`，并用 `response.completed.response.output_text` 校验最终完整文本。
+
+开始事件：
+
+```json
+{
+  "type": "response.created",
+  "response": {
+    "id": "resp_srv_abc123",
+    "status": "in_progress",
+    "model": "codex-high",
+    "metadata": {
+      "ripple_session_id": "srv_abc123"
+    }
+  }
+}
+```
+
+增量文本：
+
+```json
+{
+  "type": "response.output_text.delta",
+  "response_id": "resp_srv_abc123",
+  "delta": "这里是一段输出"
+}
+```
+
+完成事件：
+
+```json
+{
+  "type": "response.completed",
+  "response": {
+    "id": "resp_srv_abc123",
+    "status": "completed",
+    "output_text": "完整回答",
+    "metadata": {
+      "ripple_session_id": "srv_abc123"
+    }
+  }
+}
+```
+
+SSE 最后发送：
+
+```text
+[DONE]
+```
+
+#### 6. ask_user / user input
+
+当前有两类用户补充输入。
+
+控制面 `ask_user` 会通过 SSE 发送 `agent_stop`：
+
+```json
+{
+  "type": "agent_stop",
+  "stop_reason": "ask_user",
+  "metadata": {
+    "message": "需要你确认范围。",
+    "question": "要分析哪个目录？",
+    "options": [
+      "/workspace/docs",
+      "/workspace/reports"
+    ]
+  }
+}
+```
+
+这种情况下一轮继续调用 `/v1/responses`，带同一个 session id：
+
+```json
+{
+  "model": "codex-high",
+  "stream": true,
+  "previous_response_id": "resp_srv_abc123",
+  "input": "选择 /workspace/docs",
+  "metadata": {
+    "ripple_session_id": "srv_abc123"
+  }
+}
+```
+
+Codex 原生 `requestUserInput` 等待态会通过 SSE 发送 `user_input_required`：
+
+```json
+{
+  "type": "user_input_required",
+  "user_input": {
+    "request_id": "req_123",
+    "questions": [
+      {
+        "id": "target_folder",
+        "question": "要分析哪个文件夹？"
+      }
+    ]
+  }
+}
+```
+
+这种情况调用 `POST /v1/sessions/{session_id}/user-input/resolve`。
+
+简单写法：
+
+```json
+{
+  "answer": "/workspace/docs"
+}
+```
+
+结构化写法：
+
+```json
+{
+  "request_id": "req_123",
+  "answers": {
+    "target_folder": {
+      "answers": [
+        "/workspace/docs"
+      ]
+    }
+  }
+}
+```
+
+#### 7. ask_permission / approval
+
+需要审批时，SSE 会发送 `approval_required`：
+
+```json
+{
+  "type": "approval_required",
+  "approval": {
+    "job_id": "job_123",
+    "request_id": "req_456",
+    "tool": "shell_command",
+    "params": {
+      "cmd": "python analyze.py"
+    }
+  }
+}
+```
+
+调用 `POST /v1/sessions/{session_id}/permissions/resolve` 继续或拒绝。
+
+同意：
+
+```json
+{
+  "action": "allow"
+}
+```
+
+永远同意同类请求：
+
+```json
+{
+  "action": "always"
+}
+```
+
+拒绝：
+
+```json
+{
+  "action": "deny"
+}
+```
+
+也可以显式带 `job_id` 和 `request_id`：
+
+```json
+{
+  "action": "allow",
+  "job_id": "job_123",
+  "request_id": "req_456"
+}
+```
+
+resolve 接口返回 `{ ok, session_id, job_id, action }`，不是新的 SSE 流。后端会继续原 job；调用方可随后刷新 `GET /v1/sessions/{session_id}` 获取最终状态和消息。
+
+#### 8. 查询 Session
+
+`GET /v1/sessions/{session_id}` 返回 session 状态、历史消息、等待态信息和 plan/task progress。调用方可用它恢复页面状态。
+
+```json
+{
+  "session_id": "srv_abc123",
+  "status": "waiting_for_user",
+  "context_folder_path": "/workspace/docs",
+  "model": "codex-high",
+  "messages": [],
+  "pending_question": "要分析哪个文件夹？",
+  "pending_options": [
+    "/workspace/docs",
+    "/workspace/reports"
+  ],
+  "pending_permission_request": null
+}
+```
+
 ## Runs
 
 - `GET /v1/runs/:job_id/events` 返回 SSE，每个 JSON event 带 `event_version: 1`。

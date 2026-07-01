@@ -915,7 +915,7 @@ impl SessionManager {
             last_active: record.last_active.clone(),
             message_count: record.message_count,
             status: public_status(record),
-            changed_file_count: 0,
+            changed_file_count: changed_file_count_from_messages(&record.messages),
             pending_approval_count: u32::from(record.pending_permission_request.is_some()),
             workspace_size_bytes: None,
             forked_from_session_id: record.forked_from_session_id.clone(),
@@ -1020,6 +1020,39 @@ pub fn extract_title_from_messages(messages: &[Value]) -> String {
         }
     }
     String::new()
+}
+
+fn changed_file_count_from_messages(messages: &[Value]) -> u32 {
+    let mut paths = HashSet::<String>::new();
+    for message in messages {
+        collect_changed_file_paths(message.get("content"), &mut paths);
+        collect_changed_file_paths(message.pointer("/message/content"), &mut paths);
+    }
+    paths.len().try_into().unwrap_or(u32::MAX)
+}
+
+fn collect_changed_file_paths(content: Option<&Value>, paths: &mut HashSet<String>) {
+    let Some(blocks) = content.and_then(Value::as_array) else {
+        return;
+    };
+    for block in blocks {
+        if block.get("type").and_then(Value::as_str) != Some("changed_files") {
+            continue;
+        }
+        let Some(files) = block.get("files").and_then(Value::as_array) else {
+            continue;
+        };
+        for file in files {
+            if let Some(path) = file
+                .get("path")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|path| !path.is_empty())
+            {
+                paths.insert(path.to_string());
+            }
+        }
+    }
 }
 
 fn usage_u64(value: &Value, key: &str) -> u64 {
@@ -1616,6 +1649,40 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(root);
         Ok(())
+    }
+
+    #[test]
+    fn changed_file_count_counts_unique_message_blocks() {
+        let messages = vec![
+            serde_json::json!({
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "changed_files",
+                        "files": [
+                            {"path": "app/src/App.tsx", "status": "modified"},
+                            {"path": "docs/new.md", "status": "added"},
+                            {"path": "app/src/App.tsx", "status": "modified"}
+                        ]
+                    }
+                ]
+            }),
+            serde_json::json!({
+                "type": "assistant",
+                "message": {
+                    "content": [
+                        {
+                            "type": "changed_files",
+                            "files": [
+                                {"path": "crates/ripple-server/src/api/chat.rs", "status": "modified"}
+                            ]
+                        }
+                    ]
+                }
+            }),
+        ];
+
+        assert_eq!(changed_file_count_from_messages(&messages), 3);
     }
 
     #[tokio::test]

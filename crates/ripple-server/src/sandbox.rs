@@ -83,7 +83,14 @@ impl SandboxManager {
     }
 
     pub fn codex_home_dir(&self, user_id: &str) -> anyhow::Result<PathBuf> {
-        Ok(self.sandbox_dir(user_id)?.join("codex-home"))
+        validate_user_id(user_id).map_err(anyhow::Error::msg)?;
+        let service_codex_home = self.config.codex_home_path();
+        let runtime_root = service_codex_home
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| service_codex_home.clone())
+            .join("codex-runtime");
+        Ok(runtime_root.join("users").join(user_id).join("codex-home"))
     }
 
     pub fn service_codex_auth_file(&self) -> PathBuf {
@@ -868,8 +875,12 @@ mod tests {
         let workspace = manager.workspace_dir("alice").unwrap();
         let codex_home = manager.codex_home_dir("alice").unwrap();
 
-        assert_eq!(codex_home, root.join("sandboxes/alice/codex-home"));
+        assert_eq!(
+            codex_home,
+            root.join(".ripple/codex-runtime/users/alice/codex-home")
+        );
         assert!(!codex_home.starts_with(&workspace));
+        assert!(!codex_home.starts_with(manager.sandbox_dir("alice").unwrap()));
 
         let _ = std::fs::remove_dir_all(root);
     }

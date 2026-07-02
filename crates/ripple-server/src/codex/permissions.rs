@@ -100,16 +100,31 @@ fn thread_permission_config_with_user(
             );
         }
     }
-    if let Some(user_codex_home) = current_user_codex_home(user_id, workspace, config) {
-        if !path_is_covered_by_parent(&user_codex_home, &config.sandbox.sandboxes_root) {
-            filesystem.insert(user_codex_home.to_string_lossy().to_string(), json!("none"));
-        }
-    }
     if let Some(user_runtime_home) = current_user_codex_runtime_home(user_id, workspace, config) {
         filesystem.insert(
             user_runtime_home.to_string_lossy().to_string(),
             json!("write"),
         );
+    }
+    if let Some(user_codex_home) = current_user_codex_home(user_id, workspace, config) {
+        filesystem.insert(user_codex_home.to_string_lossy().to_string(), json!("read"));
+        let user_auth_file = user_codex_home.join("auth.json");
+        match std::fs::symlink_metadata(&user_auth_file) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                if let Ok(resolved_user_auth_file) = std::fs::canonicalize(&user_auth_file) {
+                    if !path_is_covered_by_parent(&resolved_user_auth_file, &service_codex_home) {
+                        filesystem.insert(
+                            resolved_user_auth_file.to_string_lossy().to_string(),
+                            json!("none"),
+                        );
+                    }
+                }
+            }
+            Ok(_) => {
+                filesystem.insert(user_auth_file.to_string_lossy().to_string(), json!("none"));
+            }
+            Err(_) => {}
+        }
     }
     if let Some(bilibili_credential) =
         current_user_bilibili_credential_file(user_id, workspace, config)
@@ -146,7 +161,7 @@ fn current_user_codex_home(
     workspace: &Path,
     config: &AppConfig,
 ) -> Option<std::path::PathBuf> {
-    Some(current_user_sandbox_dir(user_id, workspace, config)?.join("codex-home"))
+    Some(current_user_codex_runtime_home(user_id, workspace, config)?.join("codex-home"))
 }
 
 fn current_user_codex_runtime_home(
@@ -360,16 +375,21 @@ mod tests {
     }
 
     #[test]
-    fn profile_omits_user_codex_home_child_when_sandboxes_root_is_denied() {
+    fn profile_allows_user_codex_home_but_denies_auth_link() {
         let mut config = test_config();
         config.codex.codex_home = Some(config.repo_root.join(".ripple/codex-service-home"));
         let workspace = config.sandbox.sandboxes_root.join("alice/workspace");
-        let user_codex_home = config.sandbox.sandboxes_root.join("alice/codex-home");
+        let user_codex_home = config
+            .repo_root
+            .join(".ripple/codex-runtime/users/alice/codex-home");
+        let user_auth = user_codex_home.join("auth.json");
         let service_auth = config.codex_home_path().join("auth.json");
         std::fs::create_dir_all(&workspace).expect("create workspace");
         std::fs::create_dir_all(service_auth.parent().unwrap()).expect("create service codex home");
         std::fs::write(&service_auth, r#"{"OPENAI_API_KEY":"test"}"#).expect("write service auth");
         std::fs::create_dir_all(&user_codex_home).expect("create user codex home");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&service_auth, &user_auth).expect("link user auth");
 
         let permissions = thread_permission_config(&workspace, &config);
         let filesystem = permissions
@@ -377,9 +397,13 @@ mod tests {
             .and_then(|filesystem| filesystem.as_object())
             .expect("filesystem rules");
 
+        assert_eq!(
+            filesystem.get(user_codex_home.to_string_lossy().as_ref()),
+            Some(&json!("read"))
+        );
         assert!(
-            !filesystem.contains_key(user_codex_home.to_string_lossy().as_ref()),
-            "user Codex home child should be covered by the denied sandboxes root"
+            !filesystem.contains_key(user_auth.to_string_lossy().as_ref()),
+            "user auth symlink path should not be denied directly because bwrap cannot enforce deny-read across writable symlinks"
         );
         assert_eq!(
             filesystem.get(config.codex_home_path().to_string_lossy().as_ref()),

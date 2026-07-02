@@ -83,6 +83,7 @@ pub async fn create_run(
     let workspace_root = state.sandboxes.ensure_sandbox(&user_id)?;
     let runtime_dir = state.sandboxes.sandbox_dir(&user_id)?.join("agent-runs");
     let input = resolve_turn_config(&state, input);
+    ensure_workspace_change_baseline(&state, &user_id, &workspace_root).await;
     assert_can_create_run(&state, &user_id, input.max_runtime_seconds).await?;
     let info = state
         .jobs
@@ -189,6 +190,15 @@ pub async fn run_events(
                 .ok()
                 .flatten()
                 .unwrap_or_else(|| "completed".to_string());
+            if TERMINAL_STATUSES.contains(&status.as_str()) {
+                if let Ok(workspace_root) = event_state.sandboxes.workspace_dir(&stream_user_id) {
+                    if let Some(workspace_changes_event) =
+                        workspace_files_changed_event(&event_state, &stream_user_id, &workspace_root).await
+                    {
+                        yield Ok::<Bytes, Infallible>(sse_json(&workspace_changes_event));
+                    }
+                }
+            }
             if !follow || TERMINAL_STATUSES.contains(&status.as_str()) {
                 yield Ok::<Bytes, Infallible>(Bytes::from_static(b"data: [DONE]\n\n"));
                 break;
@@ -380,6 +390,46 @@ async fn info_for_user(
     job_id: &str,
 ) -> Result<Option<AgentRunInfo>, ApiError> {
     Ok(state.jobs.info_for_user(job_id, user_id).await?)
+}
+
+async fn ensure_workspace_change_baseline(
+    state: &AppState,
+    user_id: &str,
+    workspace_root: &FsPath,
+) {
+    if let Err(err) = state
+        .workspace_changes
+        .ensure_baseline(user_id, workspace_root)
+        .await
+    {
+        tracing::warn!(
+            user_id,
+            error = %err,
+            "failed to seed workspace change baseline"
+        );
+    }
+}
+
+async fn workspace_files_changed_event(
+    state: &AppState,
+    user_id: &str,
+    workspace_root: &FsPath,
+) -> Option<Value> {
+    match state
+        .workspace_changes
+        .scan_event(user_id, workspace_root)
+        .await
+    {
+        Ok(event) => event,
+        Err(err) => {
+            tracing::warn!(
+                user_id,
+                error = %err,
+                "failed to scan workspace changes"
+            );
+            None
+        }
+    }
 }
 
 async fn initial_offset(events_file: &FsPath, from_start: bool) -> usize {

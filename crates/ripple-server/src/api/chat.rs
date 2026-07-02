@@ -70,10 +70,11 @@ use recent_context::{recent_display_context, recent_task_triggers_context};
 use session_actions::handle_session_control_action;
 use title::spawn_session_title_generation;
 use wire::{
-    assistant_delta_sse, assistant_done_sse, connector_auth_event_response,
-    connector_auth_event_response_with_message, control_plane_event_response, event_message,
-    event_options, public_control_plane_event, response_created_sse, response_id_for_session,
-    responses_payload, sse_for_event, sse_json, stream_error,
+    assistant_delta_sse, assistant_done_sse, assistant_done_sse_with_changed_files,
+    connector_auth_event_response, connector_auth_event_response_with_message,
+    control_plane_event_response, event_message, event_options, public_control_plane_event,
+    response_created_sse, response_id_for_session, responses_payload_with_changed_files,
+    sse_for_event, sse_json, stream_error,
 };
 
 const TERMINAL_STATUSES: &[&str] = &["completed", "failed", "cancelled"];
@@ -846,6 +847,7 @@ async fn create_codex_chat_run(args: &CodexChatStart) -> Result<AgentRunInfo, Ap
         chat_user_input: Some(args.user_input.clone()),
         chat_user_content: Some(args.user_content.clone()),
     };
+    ensure_workspace_change_baseline(&args.state, &args.user_id, &args.workspace_root).await;
     args.state
         .jobs
         .start(
@@ -865,6 +867,46 @@ fn chat_turn_prompt(user_input: &str) -> String {
         "(The user provided image input without additional text.)".to_string()
     } else {
         trimmed.to_string()
+    }
+}
+
+async fn ensure_workspace_change_baseline(
+    state: &AppState,
+    user_id: &str,
+    workspace_root: &FsPath,
+) {
+    if let Err(err) = state
+        .workspace_changes
+        .ensure_baseline(user_id, workspace_root)
+        .await
+    {
+        tracing::warn!(
+            user_id,
+            error = %err,
+            "failed to seed workspace change baseline"
+        );
+    }
+}
+
+async fn ripple_changed_files(
+    state: &AppState,
+    user_id: &str,
+    workspace_root: &FsPath,
+) -> Option<Value> {
+    match state
+        .workspace_changes
+        .scan_changed_files(user_id, workspace_root)
+        .await
+    {
+        Ok(changed_files) => changed_files,
+        Err(err) => {
+            tracing::warn!(
+                user_id,
+                error = %err,
+                "failed to scan workspace changes"
+            );
+            None
+        }
     }
 }
 
@@ -1003,7 +1045,14 @@ async fn finish_codex_chat_response(
         );
     }
 
-    let mut payload = responses_payload(&model, &session.session_id, output_text, usage);
+    let changed_files = ripple_changed_files(&state, &user_id, &workspace_root).await;
+    let mut payload = responses_payload_with_changed_files(
+        &model,
+        &session.session_id,
+        output_text,
+        usage,
+        changed_files,
+    );
     if let Some(event) = prefix_event {
         payload["ripple_event"] = event;
     }
@@ -1597,10 +1646,11 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
                             effort.clone(),
                         );
                     }
+                    let changed_files = ripple_changed_files(&state, &user_id, &workspace_root).await;
                     if usage_total_tokens(&latest_usage) > 0 {
                         yield Ok::<Bytes, Infallible>(sse_for_event(&json!({"type": "usage", "usage": latest_usage})));
                     }
-                    yield Ok::<Bytes, Infallible>(assistant_done_sse(&model, &response_id, &session_id, emitted.clone(), latest_usage.clone()));
+                    yield Ok::<Bytes, Infallible>(assistant_done_sse_with_changed_files(&model, &response_id, &session_id, emitted.clone(), latest_usage.clone(), changed_files));
                 } else {
                     session.status = if info.status == "cancelled" {
                         SessionStatus::Cancelled.as_str().to_string()
@@ -2322,6 +2372,8 @@ mod tests {
         assert!(prompt.contains(
             "Do not write derived inspection files into /workspace root unless the user explicitly asks for those files as deliverables"
         ));
+        assert!(prompt.contains("Do not use absolute `/workspace/...` paths in shell commands"));
+        assert!(prompt.contains("translate it to a path relative to the current shell cwd"));
         assert!(!prompt.contains("write it under /workspace/outputs"));
         assert!(prompt.contains("- codex_image_generation: disabled_by_default"));
         assert!(prompt.contains("Do not generate images unless the current user explicitly asks"));

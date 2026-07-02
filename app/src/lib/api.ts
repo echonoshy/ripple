@@ -433,6 +433,7 @@ function taskActionInputForRequest(
 
 const CODEX_RUNTIME_EVENT_TYPES = new Set<CodexRuntimeEvent["type"]>([
   "codex_turn_diff_updated",
+  "workspace_files_changed",
   "tool_output_delta",
   "file_change_patch_updated",
   "folder_context_search",
@@ -1443,6 +1444,18 @@ function usageFromResponsesUsage(value: unknown): UsageInfo | null {
   };
 }
 
+function runtimeEventFromChangedFiles(value: unknown): CodexRuntimeEvent | null {
+  if (!isRecord(value)) return null;
+  const files = Array.isArray(value.files) ? value.files : [];
+  if (files.length === 0) return null;
+  return {
+    type: "workspace_files_changed",
+    changes: files,
+    change_count: typeof value.change_count === "number" ? value.change_count : files.length,
+    truncated: value.truncated === true,
+  };
+}
+
 async function streamChatResponse(
   endpointPath: string,
   body: Record<string, unknown>,
@@ -1528,6 +1541,8 @@ async function streamChatResponse(
 
           if (data.type === "response.completed") {
             const response = isRecord(data.response) ? data.response : {};
+            const changedFilesEvent = runtimeEventFromChangedFiles(response.ripple_changed_files);
+            if (changedFilesEvent) callbacks.onRuntimeEvent?.(changedFilesEvent);
             const usage = usageFromResponsesUsage(response.usage);
             if (usage) callbacks.onUsage(usage);
             return;

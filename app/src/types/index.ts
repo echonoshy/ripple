@@ -544,6 +544,7 @@ export interface PlanUpdate {
 
 export type CodexRuntimeEventType =
   | "codex_turn_diff_updated"
+  | "workspace_files_changed"
   | "tool_output_delta"
   | "file_change_patch_updated"
   | "folder_context_search"
@@ -566,6 +567,7 @@ export interface CodexRuntimeEvent {
   diff?: unknown;
   patch?: unknown;
   changes?: unknown;
+  change_count?: number;
   status?: string;
   context_folder_path?: string;
   query?: string;
@@ -642,4 +644,5 @@ export interface WorkbenchTimelineEvent {
   mimeType?: string;
   size?: number;
   revisedPrompt?: string;
+  changedPaths?: string[];
 }

@@ -7,6 +7,7 @@ use crate::jobs::JobManager;
 use crate::sandbox::SandboxManager;
 use crate::sessions::SessionManager;
 use crate::storage::Storage;
+use crate::workspace_changes::WorkspaceChangeTracker;
 use tokio::sync::Mutex;
 
 #[derive(Clone)]
@@ -17,6 +18,7 @@ pub struct AppState {
     pub jobs: JobManager,
     pub storage: Storage,
     pub connector_runtime: ConnectorRuntime,
+    pub workspace_changes: WorkspaceChangeTracker,
     workspace_write_locks: Arc<std::sync::Mutex<HashMap<String, Arc<Mutex<()>>>>>,
 }
 
@@ -36,6 +38,7 @@ impl AppState {
             jobs,
             storage,
             connector_runtime,
+            workspace_changes: WorkspaceChangeTracker::default(),
             workspace_write_locks: Arc::new(std::sync::Mutex::new(HashMap::new())),
         }
     }

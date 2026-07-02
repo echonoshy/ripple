@@ -1627,7 +1627,10 @@ export function useChatRun({
       ),
     [messages, runtimeTimelineEvents]
   );
-  const changedFiles = useMemo(() => extractChangedFilePaths(messages), [messages]);
+  const changedFiles = useMemo(
+    () => extractChangedFilePaths(messages, runtimeTimelineEvents),
+    [messages, runtimeTimelineEvents]
+  );
 
   return {
     input,

@@ -19,12 +19,23 @@ pub(crate) fn responses_payload(
     output_text: String,
     usage: Value,
 ) -> Value {
+    responses_payload_with_changed_files(model, session_id, output_text, usage, None)
+}
+
+pub(crate) fn responses_payload_with_changed_files(
+    model: &str,
+    session_id: &str,
+    output_text: String,
+    usage: Value,
+    changed_files: Option<Value>,
+) -> Value {
     responses_payload_with_id(
         &response_id_for_session(session_id),
         model,
         session_id,
         output_text,
         usage,
+        changed_files,
     )
 }
 
@@ -34,8 +45,9 @@ pub(crate) fn responses_payload_with_id(
     session_id: &str,
     output_text: String,
     usage: Value,
+    changed_files: Option<Value>,
 ) -> Value {
-    json!({
+    let mut payload = json!({
         "id": response_id,
         "object": "response",
         "created_at": now_epoch_seconds(),
@@ -57,7 +69,9 @@ pub(crate) fn responses_payload_with_id(
         "metadata": {
             "ripple_session_id": session_id
         }
-    })
+    });
+    payload["ripple_changed_files"] = changed_files.unwrap_or(Value::Null);
+    payload
 }
 
 pub(crate) fn connector_auth_event_response(
@@ -133,7 +147,7 @@ fn responses_control_event_response(
             if !assistant_text.is_empty() {
                 yield Ok::<Bytes, Infallible>(response_output_text_delta_sse(&response_id, &item_id, &assistant_text));
             }
-            yield Ok::<Bytes, Infallible>(response_completed_sse(&response_id, &model_id, &stream_session_id, assistant_text, empty_usage()));
+            yield Ok::<Bytes, Infallible>(response_completed_sse(&response_id, &model_id, &stream_session_id, assistant_text, empty_usage(), None));
             yield Ok::<Bytes, Infallible>(Bytes::from_static(b"data: [DONE]\n\n"));
         };
         let mut response = Response::new(Body::from_stream(stream));
@@ -221,7 +235,25 @@ pub(crate) fn assistant_done_sse(
     output_text: String,
     usage: Value,
 ) -> Bytes {
-    response_completed_sse(response_id, model, session_id, output_text, usage)
+    response_completed_sse(response_id, model, session_id, output_text, usage, None)
+}
+
+pub(crate) fn assistant_done_sse_with_changed_files(
+    model: &str,
+    response_id: &str,
+    session_id: &str,
+    output_text: String,
+    usage: Value,
+    changed_files: Option<Value>,
+) -> Bytes {
+    response_completed_sse(
+        response_id,
+        model,
+        session_id,
+        output_text,
+        usage,
+        changed_files,
+    )
 }
 
 pub(crate) fn response_created_sse(response_id: &str, model: &str, session_id: &str) -> Bytes {
@@ -267,8 +299,16 @@ pub(crate) fn response_completed_sse(
     session_id: &str,
     output_text: String,
     usage: Value,
+    changed_files: Option<Value>,
 ) -> Bytes {
-    let response = responses_payload_with_id(response_id, model, session_id, output_text, usage);
+    let response = responses_payload_with_id(
+        response_id,
+        model,
+        session_id,
+        output_text,
+        usage,
+        changed_files,
+    );
     sse_named_json(
         "response.completed",
         &json!({
@@ -409,4 +449,83 @@ fn now_epoch_seconds() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_secs())
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn changed_files_payload() -> Value {
+        json!({
+            "files": [{
+                "path": "app/src/App.tsx",
+                "status": "modified",
+                "additions": Value::Null,
+                "deletions": Value::Null,
+                "previous_path": Value::Null
+            }],
+            "change_count": 1,
+            "truncated": false,
+            "source": "workspace_snapshot"
+        })
+    }
+
+    #[test]
+    fn responses_payload_includes_changed_files_when_provided() {
+        let payload = responses_payload_with_changed_files(
+            "codex-high",
+            "session-1",
+            "done".to_string(),
+            empty_usage(),
+            Some(changed_files_payload()),
+        );
+
+        assert_eq!(
+            payload["ripple_changed_files"]["files"][0]["path"],
+            "app/src/App.tsx"
+        );
+        assert_eq!(
+            payload["ripple_changed_files"]["files"][0]["additions"],
+            Value::Null
+        );
+        assert_eq!(payload["ripple_changed_files"]["change_count"], 1);
+    }
+
+    #[test]
+    fn responses_payload_sets_null_changed_files_when_missing() {
+        let payload =
+            responses_payload("codex-high", "session-1", "done".to_string(), empty_usage());
+
+        assert_eq!(payload["ripple_changed_files"], Value::Null);
+    }
+
+    #[test]
+    fn response_completed_sse_wraps_changed_files_inside_response() {
+        let bytes = assistant_done_sse_with_changed_files(
+            "codex-high",
+            "resp_session_1",
+            "session-1",
+            "done".to_string(),
+            empty_usage(),
+            Some(changed_files_payload()),
+        );
+        let text = std::str::from_utf8(bytes.as_ref()).expect("valid sse");
+        assert!(text.starts_with("event: response.completed\n"));
+        let data_line = text
+            .lines()
+            .find(|line| line.starts_with("data: "))
+            .expect("data line");
+        let value: Value =
+            serde_json::from_str(data_line.trim_start_matches("data: ")).expect("json data");
+
+        assert_eq!(value["type"], "response.completed");
+        assert_eq!(
+            value["response"]["ripple_changed_files"]["files"][0]["path"],
+            "app/src/App.tsx"
+        );
+        assert_eq!(
+            value["response"]["ripple_changed_files"]["files"][0]["previous_path"],
+            Value::Null
+        );
+    }
 }

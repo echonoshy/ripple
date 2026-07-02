@@ -39,12 +39,7 @@ pub(super) struct NodeRuntimePaths {
 }
 
 pub(super) fn codex_home_for_user(config: &AppConfig, user_id: &str) -> anyhow::Result<PathBuf> {
-    validate_user_id(user_id).map_err(anyhow::Error::msg)?;
-    Ok(config
-        .sandbox
-        .sandboxes_root
-        .join(user_id)
-        .join("codex-home"))
+    Ok(codex_runtime_home_for_user(config, user_id)?.join("codex-home"))
 }
 
 pub(super) fn codex_runtime_home_for_user(

@@ -749,6 +749,28 @@ function testExtractsChangedFilesFromToolCalls() {
   assert.deepEqual(extractChangedFilePaths(messages), ["/workspace/a.ts", "/workspace/b.ts"]);
 }
 
+function testExtractsChangedFilesFromRuntimeEvents() {
+  const messages: Message[] = [];
+  const runtimeEvents = [
+    codexRuntimeEventToTimelineEvent(
+      {
+        type: "workspace_files_changed",
+        change_count: 2,
+        changes: [
+          { path: "report.md", status: "added" },
+          { path: "src/app.ts", status: "modified" },
+        ],
+      },
+      { id: "runtime-workspace-files", createdAt: "2026-05-19T00:00:03.000Z" }
+    ),
+  ];
+
+  assert.deepEqual(extractChangedFilePaths(messages, runtimeEvents), [
+    "report.md",
+    "src/app.ts",
+  ]);
+}
+
 function testMapsCodexRuntimeEventsIntoTimelineEvents() {
   const command: CodexRuntimeEvent = {
     type: "tool_output_delta",
@@ -891,6 +913,30 @@ function testSummarizesCodexRuntimeDiffInsteadOfShowingFullPatch() {
   assert.match(event.body, /1 file/);
   assert.match(event.body, /src\/App\.tsx/);
   assert.doesNotMatch(event.body, /@@ -1/);
+}
+
+function testSummarizesWorkspaceFilesChangedEvent() {
+  const event = codexRuntimeEventToTimelineEvent(
+    {
+      type: "workspace_files_changed",
+      change_count: 3,
+      changes: [
+        { path: "a.md", status: "added" },
+        { path: "b.ts", status: "modified" },
+        { path: "c.txt", status: "deleted" },
+      ],
+    },
+    { id: "runtime-files", createdAt: "2026-05-19T00:00:03.000Z" }
+  );
+
+  assert.equal(event.id, "runtime-files");
+  assert.equal(event.type, "file_change");
+  assert.equal(event.title, "Workspace files changed");
+  assert.match(event.body, /3 workspace files changed/);
+  assert.match(event.body, /1 added/);
+  assert.match(event.body, /1 modified/);
+  assert.match(event.body, /1 deleted/);
+  assert.deepEqual(event.changedPaths, ["a.md", "b.ts", "c.txt"]);
 }
 
 function testUpsertsCodexRuntimeDiffEvents() {
@@ -1082,9 +1128,11 @@ testHidesGenericWebSearchSummaries();
 testSummarizesOtherToolsWithoutWrapperMetadata();
 testPlacesAssistantContentAfterItsToolCalls();
 testExtractsChangedFilesFromToolCalls();
+testExtractsChangedFilesFromRuntimeEvents();
 testMapsCodexRuntimeEventsIntoTimelineEvents();
 testMapsMessageImageArtifactsIntoTimelineEvents();
 testSummarizesCodexRuntimeDiffInsteadOfShowingFullPatch();
+testSummarizesWorkspaceFilesChangedEvent();
 testUpsertsCodexRuntimeDiffEvents();
 testUpsertsContextCompactionLifecycleEvents();
 testMergesRuntimeEventsByTimestamp();

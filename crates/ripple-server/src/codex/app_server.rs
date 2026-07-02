@@ -2245,16 +2245,21 @@ mod tests {
     }
 
     #[test]
-    fn codex_home_for_user_uses_user_sandbox() {
+    fn codex_home_for_user_uses_service_runtime_root() {
         let config = test_config();
 
         let codex_home = codex_home_for_user(&config, "alice").expect("codex home");
 
         assert_eq!(
             codex_home,
-            config.sandbox.sandboxes_root.join("alice/codex-home")
+            config
+                .codex_home_path()
+                .parent()
+                .unwrap()
+                .join("codex-runtime/users/alice/codex-home")
         );
         assert_ne!(codex_home, config.codex_home_path());
+        assert!(!codex_home.starts_with(&config.sandbox.sandboxes_root));
     }
 
     #[test]

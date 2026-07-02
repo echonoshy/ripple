@@ -373,6 +373,37 @@ function runtimeDiffSummary(event: CodexRuntimeEvent): string {
   return `${paths.length} ${noun} changed: ${visible.join(", ")}${more}`;
 }
 
+function workspaceChangeStatusCounts(changes: unknown): Record<string, number> {
+  if (!Array.isArray(changes)) return {};
+  const counts: Record<string, number> = {};
+  for (const change of changes) {
+    if (!isRecord(change) || typeof change.status !== "string") continue;
+    counts[change.status] = (counts[change.status] || 0) + 1;
+  }
+  return counts;
+}
+
+function workspaceFilesChangedSummary(event: CodexRuntimeEvent): string {
+  const paths = changedPathsFromValue(event.changes);
+  const count = event.change_count ?? paths.length;
+  if (count === 0) return "Workspace files unchanged.";
+
+  const counts = workspaceChangeStatusCounts(event.changes);
+  const statusParts = [
+    counts.added ? `${counts.added} added` : "",
+    counts.modified ? `${counts.modified} modified` : "",
+    counts.deleted ? `${counts.deleted} deleted` : "",
+  ].filter(Boolean);
+  const statusText = statusParts.length > 0 ? ` (${statusParts.join(", ")})` : "";
+  const visible = paths.slice(0, 4);
+  const more = count > visible.length ? `, +${count - visible.length} more` : "";
+  const noun = count === 1 ? "file" : "files";
+  const pathText = visible.length > 0 ? `: ${visible.join(", ")}${more}` : "";
+  return `${count} workspace ${noun} changed${statusText}${pathText}${
+    event.truncated ? " (truncated)" : ""
+  }`;
+}
+
 function folderContextSearchBody(event: CodexRuntimeEvent): string {
   const matchCount = event.match_count ?? event.matches?.length ?? 0;
   const scannedFiles = event.scanned_files ?? 0;
@@ -414,6 +445,9 @@ function runtimeBody(event: CodexRuntimeEvent): string {
   if (event.type === "codex_turn_diff_updated") {
     return runtimeDiffSummary(event);
   }
+  if (event.type === "workspace_files_changed") {
+    return workspaceFilesChangedSummary(event);
+  }
   if (event.type === "image_generation" || event.type === "image_view") {
     return imageEventBody(event.revised_prompt, event.workspace_path);
   }
@@ -442,6 +476,7 @@ function runtimeTitle(event: CodexRuntimeEvent): string {
   if (event.type === "codex_error") return "System error";
   if (event.type === "context_compaction") return "Context compacted";
   if (event.type === "codex_turn_diff_updated") return "Workspace diff";
+  if (event.type === "workspace_files_changed") return "Workspace files changed";
   if (event.type === "image_generation") return "Generated image";
   if (event.type === "image_view") return "Image";
   return "Runtime update";
@@ -452,7 +487,11 @@ function runtimeTimelineType(event: CodexRuntimeEvent): WorkbenchTimelineEvent["
     return event.kind === "file_change" ? "file_change" : "command";
   }
   if (event.type === "folder_context_search") return "tool_call";
-  if (event.type === "file_change_patch_updated" || event.type === "codex_turn_diff_updated") {
+  if (
+    event.type === "file_change_patch_updated" ||
+    event.type === "codex_turn_diff_updated" ||
+    event.type === "workspace_files_changed"
+  ) {
     return "file_change";
   }
   if (event.type === "codex_warning") return "warning";
@@ -460,6 +499,12 @@ function runtimeTimelineType(event: CodexRuntimeEvent): WorkbenchTimelineEvent["
   if (event.type === "context_compaction") return "context_compaction";
   if (event.type === "image_generation" || event.type === "image_view") return event.type;
   return "runtime_update";
+}
+
+function runtimeChangedPaths(event: CodexRuntimeEvent): string[] {
+  if (event.type === "codex_turn_diff_updated") return changedPathsFromDiff(event.diff);
+  if (event.type === "workspace_files_changed") return changedPathsFromValue(event.changes);
+  return [];
 }
 
 export function codexRuntimeEventToTimelineEvent(
@@ -486,6 +531,7 @@ export function codexRuntimeEventToTimelineEvent(
     mimeType: event.mime_type,
     size: event.size,
     revisedPrompt: event.revised_prompt,
+    changedPaths: runtimeChangedPaths(event),
   };
 }
 
@@ -813,13 +859,21 @@ export function messagesToTimelineEvents(
   return events;
 }
 
-export function extractChangedFilePaths(messages: Message[]): string[] {
+export function extractChangedFilePaths(
+  messages: Message[],
+  runtimeEvents: WorkbenchTimelineEvent[] = []
+): string[] {
   const paths = new Set<string>();
   for (const message of messages) {
     for (const tool of message.toolCalls || []) {
       for (const path of changedPathsFromTool(tool)) {
         paths.add(path);
       }
+    }
+  }
+  for (const event of runtimeEvents) {
+    for (const path of event.changedPaths || []) {
+      paths.add(path);
     }
   }
   return [...paths];

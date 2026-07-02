@@ -19,6 +19,7 @@ pub mod state;
 pub mod storage;
 pub mod user;
 pub mod workspace;
+pub mod workspace_changes;
 
 use std::net::SocketAddr;
 

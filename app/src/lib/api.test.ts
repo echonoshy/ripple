@@ -2,12 +2,15 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import {
+  acceptAgentDelegation,
+  answerAgentDelegation,
   cancelConnectorAuth,
   cancelTask,
   cancelSessionConnectorAuth,
   changePassword,
   compactSessionContext,
   confirmTask,
+  createAgentDelegation,
   createSession,
   createTaskAction,
   deleteTask,
@@ -22,6 +25,7 @@ import {
   fetchSessionTasks,
   fetchSessions,
   fetchSessionDetails,
+  fetchAgentDelegations,
   fetchMemoryStatus,
   fetchMemorySummary,
   forkSession,
@@ -35,6 +39,7 @@ import {
   resolveSessionPermissionRequest,
   resolveApiUrl,
   resetMemory,
+  rejectAgentDelegation,
   runTaskTriggerNow,
   runTaskNow,
   searchWorkspaceFiles,
@@ -1308,6 +1313,13 @@ async function testFetchSessionDetailsNormalizesBackendShape() {
           messages: [],
           pending_question: "Continue?",
           pending_options: ["Yes", "No"],
+          pending_control_request: {
+            type: "agent_delegation_clarification",
+            delegation_id: "dlg-1",
+            target_user_id: "bob",
+            question: "Which branch should I inspect?",
+            reason: "The task did not name a branch.",
+          },
           pending_permission_request: { tool: "exec", params: {}, riskLevel: "medium" },
           plan_steps: [{ id: "step-1", subject: "Inspect", status: "completed" }],
           plan_progress: { completed: 1, total: 1 },
@@ -1330,12 +1342,101 @@ async function testFetchSessionDetailsNormalizesBackendShape() {
         messages: [],
         pendingQuestion: "Continue?",
         pendingOptions: ["Yes", "No"],
+        pendingControlRequest: {
+          type: "agent_delegation_clarification",
+          delegation_id: "dlg-1",
+          target_user_id: "bob",
+          question: "Which branch should I inspect?",
+          reason: "The task did not name a branch.",
+        },
         pendingPermissionRequest: { tool: "exec", params: {}, riskLevel: "medium" },
         planSteps: [{ id: "step-1", subject: "Inspect", status: "completed" }],
         planProgress: { completed: 1, total: 1 },
       });
     }
   );
+}
+
+async function testAgentDelegationApisUseExpectedRoutesAndPayloads() {
+  const requests: Array<{ method: string; path: string; body: unknown }> = [];
+  const rawDelegation = {
+    delegation_id: "dlg-1",
+    requester_user_id: "alice",
+    requester_session_id: "sess-a",
+    target_user_id: "bob",
+    target_session_id: "sess-b",
+    target_job_id: "job-b",
+    status: "awaiting_requester_info",
+    task_title: "Check release",
+    task_prompt: "Review the release notes.",
+    created_at: "2026-07-04T01:00:00Z",
+    updated_at: "2026-07-04T01:01:00Z",
+    accepted_at: "2026-07-04T01:02:00Z",
+    completed_at: null,
+    pending_clarification: { question: "Need version?" },
+    last_answer_event: null,
+    reason: null,
+    error: null,
+  };
+
+  await withFetch(
+    async (input, init) => {
+      const url = new URL(String(input));
+      requests.push({
+        method: init?.method || "GET",
+        path: `${url.pathname}${url.search}`,
+        body: init?.body ? JSON.parse(String(init.body)) : null,
+      });
+      return new Response(
+        JSON.stringify(
+          url.pathname === "/v1/agent-delegations" && !init?.method
+            ? { delegations: [rawDelegation], count: 1 }
+            : rawDelegation
+        ),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    },
+    async () => {
+      const listed = await fetchAgentDelegations("received");
+      assert.equal(listed[0]?.delegationId, "dlg-1");
+      assert.equal(listed[0]?.pendingClarification?.question, "Need version?");
+
+      await createAgentDelegation({
+        targetUserId: "bob",
+        sourceSessionId: "sess/a",
+        taskTitle: "Check release",
+        taskPrompt: "Review the release notes.",
+      });
+      await acceptAgentDelegation("dlg/1");
+      await rejectAgentDelegation("dlg/1", "Not available");
+      await answerAgentDelegation("dlg/1", "Use v1.2.3.");
+    }
+  );
+
+  assert.deepEqual(requests, [
+    { method: "GET", path: "/v1/agent-delegations?role=received", body: null },
+    {
+      method: "POST",
+      path: "/v1/agent-delegations",
+      body: {
+        target_user_id: "bob",
+        source_session_id: "sess/a",
+        task_title: "Check release",
+        task_prompt: "Review the release notes.",
+      },
+    },
+    { method: "POST", path: "/v1/agent-delegations/dlg%2F1/accept", body: {} },
+    {
+      method: "POST",
+      path: "/v1/agent-delegations/dlg%2F1/reject",
+      body: { reason: "Not available" },
+    },
+    {
+      method: "POST",
+      path: "/v1/agent-delegations/dlg%2F1/answer",
+      body: { answer: "Use v1.2.3." },
+    },
+  ]);
 }
 
 function testSessionFollowUpClientApisAreRemoved() {
@@ -1836,20 +1937,26 @@ async function testSendChatMessagePassesRequiredSkillsAndScreenContext() {
         });
       },
       async () => {
-        await sendChatMessage("session-1", "这个按钮有什么用？", "codex-test", {
-          onMessageDelta: () => undefined,
-          onToolCall: () => undefined,
-          onToolResult: () => undefined,
-          onUsage: () => undefined,
-          onComplete: () => undefined,
-          onError: () => undefined,
-        }, {
-          requiredSkillIds: ["ripple:viaim-product-support"],
-          screenContext: {
-            app: "ripple",
-            screen_id: "session.chat",
+        await sendChatMessage(
+          "session-1",
+          "这个按钮有什么用？",
+          "codex-test",
+          {
+            onMessageDelta: () => undefined,
+            onToolCall: () => undefined,
+            onToolResult: () => undefined,
+            onUsage: () => undefined,
+            onComplete: () => undefined,
+            onError: () => undefined,
           },
-        });
+          {
+            requiredSkillIds: ["ripple:viaim-product-support"],
+            screenContext: {
+              app: "ripple",
+              screen_id: "session.chat",
+            },
+          }
+        );
       }
     );
   } finally {
@@ -2167,6 +2274,7 @@ test("api client behavior", async () => {
   await testUpdateSessionPatchesSelectedModel();
   await testCreateSessionPostsContextFolderPath();
   await testFetchSessionDetailsNormalizesBackendShape();
+  await testAgentDelegationApisUseExpectedRoutesAndPayloads();
   await testListApisFollowBackendPaginationCursors();
   testSessionFollowUpClientApisAreRemoved();
   await testTaskApisUseExpectedBackendShape();

@@ -150,6 +150,10 @@ export function useChatRun({
   const [lastContextTokens, setLastContextTokens] = useState(0);
   const [planSteps, setPlanSteps] = useState<PlanStep[]>([]);
   const [planProgress, setPlanProgress] = useState<PlanProgress | null>(null);
+  const [pendingControlRequest, setPendingControlRequest] = useState<Record<
+    string,
+    unknown
+  > | null>(null);
   const [feishuAuthWaiting, setFeishuAuthWaiting] = useState<FeishuAuthWaitingState | null>(null);
   const [availableSkills, setAvailableSkills] = useState<SkillInfo[]>([]);
   const [isLoadingSkills, setIsLoadingSkills] = useState(false);
@@ -220,6 +224,7 @@ export function useChatRun({
       setLastContextTokens(state.lastContextTokens);
       setPlanSteps(state.planSteps);
       setPlanProgress(state.planProgress);
+      setPendingControlRequest(null);
     },
     [clearPendingLocalImages]
   );
@@ -288,8 +293,7 @@ export function useChatRun({
       setAvailableSkills(
         skills.filter(
           (skill) =>
-            skill.enabled &&
-            (skill.user_status === "available" || skill.status === "available")
+            skill.enabled && (skill.user_status === "available" || skill.status === "available")
         )
       );
     } catch (error) {
@@ -312,6 +316,7 @@ export function useChatRun({
     setAttachmentUploadError(null);
     setPlanSteps([]);
     setPlanProgress(null);
+    setPendingControlRequest(null);
     setTokenUsage(emptyUsage);
     setLastContextTokens(0);
   }, [clearPendingLocalImages]);
@@ -352,6 +357,7 @@ export function useChatRun({
       setLastContextTokens(0);
       setPlanSteps(details.planSteps || []);
       setPlanProgress(details.planProgress || null);
+      setPendingControlRequest(details.pendingControlRequest ?? null);
       onWorkspaceRefresh();
     },
     [applyViewState, clearPendingLocalImages, onSelectedModelChange, onWorkspaceRefresh]
@@ -643,6 +649,7 @@ export function useChatRun({
       setLastContextTokens(baseLastContextTokens);
       setPlanSteps(basePlanSteps);
       setPlanProgress(basePlanProgress);
+      setPendingControlRequest(null);
 
       const isRunVisible = () => getSessionActions().getSessionId() === activeSessionId;
       const getRunningState = () => {
@@ -1033,8 +1040,7 @@ export function useChatRun({
         await sendChatMessage(activeSessionId, text, selectedModel, callbacks, {
           signal: abortController.signal,
           files: filesForSend,
-          requiredSkillIds:
-            manualRequiredSkillIds.length > 0 ? manualRequiredSkillIds : undefined,
+          requiredSkillIds: manualRequiredSkillIds.length > 0 ? manualRequiredSkillIds : undefined,
         });
         if (selectedRequiredSkillId) setSelectedRequiredSkillId(null);
       }
@@ -1656,6 +1662,7 @@ export function useChatRun({
     lastContextTokens,
     planSteps,
     planProgress,
+    pendingControlRequest,
     pendingPermission,
     currentSessionRuntimeStatus,
     timelineEvents,

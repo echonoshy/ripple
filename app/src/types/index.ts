@@ -525,9 +525,48 @@ export interface SessionDetail extends SessionSummary {
   messages: Record<string, unknown>[];
   pendingQuestion?: string | null;
   pendingOptions?: string[] | null;
+  pendingControlRequest?: Record<string, unknown> | null;
   pendingPermissionRequest?: PermissionRequestData | null;
   planSteps?: PlanStep[];
   planProgress?: PlanProgress | null;
+}
+
+export type AgentDelegationStatus =
+  | "pending_acceptance"
+  | "running"
+  | "awaiting_target_permission"
+  | "awaiting_requester_info"
+  | "completed"
+  | "failed"
+  | "cancelled"
+  | "rejected"
+  | string;
+
+export interface AgentDelegation {
+  delegationId: string;
+  requesterUserId: string;
+  requesterSessionId: string;
+  targetUserId: string;
+  targetSessionId?: string | null;
+  targetJobId?: string | null;
+  status: AgentDelegationStatus;
+  taskTitle: string;
+  taskPrompt: string;
+  createdAt: string;
+  updatedAt: string;
+  acceptedAt?: string | null;
+  completedAt?: string | null;
+  pendingClarification?: Record<string, unknown> | null;
+  lastAnswerEvent?: Record<string, unknown> | null;
+  reason?: string | null;
+  error?: string | null;
+}
+
+export interface AgentDelegationCreateInput {
+  targetUserId: string;
+  sourceSessionId: string;
+  taskTitle: string;
+  taskPrompt: string;
 }
 
 export interface PlanStep {

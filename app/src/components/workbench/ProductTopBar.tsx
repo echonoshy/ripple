@@ -6,6 +6,7 @@ import { IconTile } from "@/components/icons/IconTile";
 import RippleIcon from "@/components/icons/RippleIcon";
 import { type MessageKey, useI18n } from "@/i18n";
 import { fetchUserAvatarImage, fetchUserProfile } from "@/lib/api";
+import type { AgentDelegation } from "@/types";
 import {
   getUserProfileAvatarUri,
   getUserProfileDisplayName,
@@ -19,12 +20,17 @@ import {
   TYPOGRAPHY_SECTION_TITLE_CLASS,
   WORKBENCH_TOP_BAR_CLASS,
 } from "./stylePrimitives";
+import { AgentDelegationRequestsButton } from "./AgentDelegationControls";
 
 interface ProductTopBarProps {
   activeView: WorkspaceView;
   userId: string;
   onSelectView: (view: WorkspaceView) => void;
   onOpenSettings: () => void;
+  receivedAgentDelegations?: AgentDelegation[];
+  agentDelegationActionKey?: string | null;
+  onAcceptAgentDelegation?: (delegationId: string) => Promise<void> | void;
+  onRejectAgentDelegation?: (delegationId: string) => Promise<void> | void;
 }
 
 const navLabelKeys: Record<WorkspaceView, MessageKey> = {
@@ -40,6 +46,10 @@ export default function ProductTopBar({
   userId,
   onSelectView,
   onOpenSettings,
+  receivedAgentDelegations = [],
+  agentDelegationActionKey = null,
+  onAcceptAgentDelegation,
+  onRejectAgentDelegation,
 }: ProductTopBarProps) {
   const { t } = useI18n();
   const [profile, setProfile] = React.useState<Awaited<ReturnType<typeof fetchUserProfile>> | null>(
@@ -142,7 +152,13 @@ export default function ProductTopBar({
         </div>
       </nav>
 
-      <div className="flex flex-1 justify-end">
+      <div className="flex flex-1 justify-end gap-2">
+        <AgentDelegationRequestsButton
+          delegations={receivedAgentDelegations}
+          actionKey={agentDelegationActionKey}
+          onAccept={onAcceptAgentDelegation}
+          onReject={onRejectAgentDelegation}
+        />
         <button
           type="button"
           data-ripple-top-settings-entry="true"

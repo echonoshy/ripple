@@ -4,6 +4,10 @@ import { useReducedMotion } from "framer-motion";
 import { ChevronRight, Loader2 } from "lucide-react";
 import AuthGateway, { type AuthGatewayMode } from "@/components/AuthGateway";
 import {
+  acceptAgentDelegation,
+  answerAgentDelegation,
+  createAgentDelegation,
+  fetchAgentDelegations,
   fetchModels,
   getApiKey,
   getAuthMode,
@@ -16,6 +20,7 @@ import {
   loginWithPassword,
   claimInvite,
   logoutUserSession,
+  rejectAgentDelegation,
   AuthError,
 } from "@/lib/api";
 import MobileSessionStack from "@/components/workbench/MobileSessionStack";
@@ -51,6 +56,8 @@ import {
 } from "@/lib/workbench";
 import { shouldShowInspector, type WorkspaceView } from "@/lib/workspaceViews";
 import type {
+  AgentDelegation,
+  AgentDelegationCreateInput,
   SessionAttention,
   SessionControlAction,
   SessionDetail,
@@ -167,6 +174,9 @@ export default function Home() {
   const [acknowledgedSessionAttentionById, setAcknowledgedSessionAttentionById] = useState<
     Record<string, SessionAttention | undefined>
   >({});
+  const [sentAgentDelegations, setSentAgentDelegations] = useState<AgentDelegation[]>([]);
+  const [receivedAgentDelegations, setReceivedAgentDelegations] = useState<AgentDelegation[]>([]);
+  const [agentDelegationActionKey, setAgentDelegationActionKey] = useState<string | null>(null);
 
   useAndroidChatBackGesture({
     authState,
@@ -210,6 +220,49 @@ export default function Home() {
   const handleWorkspaceRefresh = useCallback(() => {
     setWorkspaceRefreshToken((prev) => prev + 1);
   }, []);
+
+  const refreshAgentDelegations = useCallback(async () => {
+    if (authState !== "authenticated") {
+      setSentAgentDelegations([]);
+      setReceivedAgentDelegations([]);
+      return;
+    }
+
+    try {
+      const [sent, received] = await Promise.all([
+        fetchAgentDelegations("sent"),
+        fetchAgentDelegations("received"),
+      ]);
+      setSentAgentDelegations(sent);
+      setReceivedAgentDelegations(received);
+    } catch (error) {
+      if (error instanceof AuthError) {
+        handleAuthExpired(t("auth.sessionExpired"));
+        return;
+      }
+      console.error("Failed to refresh agent delegations:", error);
+    }
+  }, [authState, handleAuthExpired, t]);
+
+  useEffect(() => {
+    if (authState !== "authenticated") {
+      setSentAgentDelegations([]);
+      setReceivedAgentDelegations([]);
+      return;
+    }
+
+    let cancelled = false;
+    const refresh = async () => {
+      if (cancelled) return;
+      await refreshAgentDelegations();
+    };
+    void refresh();
+    const intervalId = window.setInterval(refresh, 8000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [authState, refreshAgentDelegations]);
 
   const persistDefaultModel = useCallback(
     (model: string) => {
@@ -302,6 +355,7 @@ export default function Home() {
     lastContextTokens,
     planSteps,
     planProgress,
+    pendingControlRequest,
     currentSessionRuntimeStatus,
     timelineEvents,
     feishuAuthWaiting,
@@ -682,6 +736,80 @@ export default function Home() {
     [acknowledgeSessionAttention, switchSession]
   );
 
+  const runAgentDelegationAction = useCallback(
+    async (key: string, action: () => Promise<void>) => {
+      if (agentDelegationActionKey) return;
+      setAgentDelegationActionKey(key);
+      try {
+        await action();
+      } catch (error) {
+        if (error instanceof AuthError) {
+          handleAuthExpired(t("auth.sessionExpired"));
+          return;
+        }
+        console.error("Agent delegation action failed:", error);
+      } finally {
+        setAgentDelegationActionKey(null);
+      }
+    },
+    [agentDelegationActionKey, handleAuthExpired, t]
+  );
+
+  const handleCreateAgentDelegation = useCallback(
+    async (input: AgentDelegationCreateInput) => {
+      await runAgentDelegationAction("create", async () => {
+        await createAgentDelegation(input);
+        await refreshAgentDelegations();
+      });
+    },
+    [refreshAgentDelegations, runAgentDelegationAction]
+  );
+
+  const handleAcceptAgentDelegation = useCallback(
+    async (delegationId: string) => {
+      await runAgentDelegationAction(`accept:${delegationId}`, async () => {
+        const delegation = await acceptAgentDelegation(delegationId);
+        await refreshAgentDelegations();
+        await loadSessions({ showLoading: false });
+        if (delegation.targetSessionId) {
+          setActiveView("sessions");
+          setMobileMotionDirection(1);
+          setMobileSessionMode("chat");
+          await handleSwitchSession(delegation.targetSessionId);
+        }
+      });
+    },
+    [handleSwitchSession, loadSessions, refreshAgentDelegations, runAgentDelegationAction]
+  );
+
+  const handleRejectAgentDelegation = useCallback(
+    async (delegationId: string) => {
+      await runAgentDelegationAction(`reject:${delegationId}`, async () => {
+        await rejectAgentDelegation(delegationId);
+        await refreshAgentDelegations();
+      });
+    },
+    [refreshAgentDelegations, runAgentDelegationAction]
+  );
+
+  const handleAnswerAgentDelegation = useCallback(
+    async (delegationId: string, answer: string) => {
+      await runAgentDelegationAction(`answer:${delegationId}`, async () => {
+        await answerAgentDelegation(delegationId, answer);
+        await refreshAgentDelegations();
+        await loadSessions({ showLoading: false });
+        if (sessionId) await handleSwitchSession(sessionId);
+      });
+    },
+    [
+      handleSwitchSession,
+      loadSessions,
+      refreshAgentDelegations,
+      runAgentDelegationAction,
+      sessionId,
+    ]
+  );
+
   // ── New session ──
   const handleNewSession = async () => {
     setPendingMobileSession(null);
@@ -939,6 +1067,11 @@ export default function Home() {
   const isMobileSessionSwitchPending = Boolean(activePendingMobileSession);
   const sessionPageSession = activePendingMobileSession || selectedWorkbenchSession;
   const sessionPageSessionId = activePendingMobileSession?.sessionId ?? sessionId;
+  const sessionPageDelegatedSession = sessionPageSessionId
+    ? receivedAgentDelegations.find(
+        (delegation) => delegation.targetSessionId === sessionPageSessionId
+      ) || null
+    : null;
   const sessionPageMessages = isMobileSessionSwitchPending ? [] : messages;
   const sessionPageTimelineEvents = isMobileSessionSwitchPending ? [] : timelineEvents;
   const sessionPagePlanSteps = isMobileSessionSwitchPending ? [] : planSteps;
@@ -1089,6 +1222,12 @@ export default function Home() {
       isInspectorCollapsed={isInspectorCollapsed}
       restoreScrollTop={mobileSessionRestoreScrollTop}
       onRestoreScrollComplete={() => setMobileSessionRestoreScrollTop(null)}
+      agentDelegations={sentAgentDelegations}
+      delegatedSession={sessionPageDelegatedSession}
+      pendingControlRequest={isMobileSessionSwitchPending ? null : pendingControlRequest}
+      agentDelegationActionKey={agentDelegationActionKey}
+      onCreateAgentDelegation={handleCreateAgentDelegation}
+      onAnswerAgentDelegation={handleAnswerAgentDelegation}
     />
   );
   const mobileSessionList = (
@@ -1288,6 +1427,10 @@ export default function Home() {
             userId={userId}
             onSelectView={handleSelectView}
             onOpenSettings={() => handleSelectView("home")}
+            receivedAgentDelegations={receivedAgentDelegations}
+            agentDelegationActionKey={agentDelegationActionKey}
+            onAcceptAgentDelegation={handleAcceptAgentDelegation}
+            onRejectAgentDelegation={handleRejectAgentDelegation}
           />
         }
         content={animatedMainContent}

@@ -32,6 +32,7 @@ import {
   type ViewportMenuAnchorRect,
 } from "@/lib/menuPosition";
 import WorkspaceFolderPicker from "./WorkspaceFolderPicker";
+import { AgentDelegationComposerButton } from "./AgentDelegationControls";
 import {
   LUCIDE_STANDARD_STROKE_WIDTH,
   TYPOGRAPHY_META_CLASS,
@@ -75,6 +76,8 @@ interface SessionComposerProps {
   isLoadingSkills?: boolean;
   onLoadSkills?: () => void | Promise<void>;
   onSelectRequiredSkill?: (skillId: string | null) => void;
+  onCreateAgentDelegation?: () => void;
+  canCreateAgentDelegation?: boolean;
 }
 
 export function shouldExpandComposer(value: string, isComposerFocused: boolean): boolean {
@@ -181,6 +184,8 @@ export default function SessionComposer({
   isLoadingSkills = false,
   onLoadSkills,
   onSelectRequiredSkill,
+  onCreateAgentDelegation,
+  canCreateAgentDelegation = false,
 }: SessionComposerProps) {
   const { t } = useI18n();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -550,6 +555,17 @@ export default function SessionComposer({
             </div>
           )}
         </div>
+      )}
+      {onCreateAgentDelegation && (
+        <AgentDelegationComposerButton
+          disabled={!canCreateAgentDelegation || inputDisabled}
+          onClick={() => {
+            setIsFolderPickerOpen(false);
+            closeSkillMenu();
+            if (isModelDropdownOpen) closeModelMenu();
+            onCreateAgentDelegation();
+          }}
+        />
       )}
       <div className="relative flex items-center">
         <button

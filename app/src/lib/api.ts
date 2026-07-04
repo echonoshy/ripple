@@ -10,6 +10,8 @@ import {
   ConnectorInfo,
   ConnectorStatus,
   AgentRunInfo,
+  AgentDelegation,
+  AgentDelegationCreateInput,
   GogcliAccountsResponse,
   SessionDetail,
   SessionControlAction,
@@ -602,11 +604,32 @@ interface RawSessionDetail extends RawSessionSummary {
   messages?: Record<string, unknown>[];
   pending_question?: string | null;
   pending_options?: string[] | null;
+  pending_control_request?: Record<string, unknown> | null;
   pending_permission_request?: SessionDetail["pendingPermissionRequest"];
   plan_steps?: PlanStep[];
   plan_progress?: PlanProgress | null;
   task_steps?: PlanStep[];
   task_progress?: PlanProgress | null;
+}
+
+interface RawAgentDelegation {
+  delegation_id?: string;
+  requester_user_id?: string;
+  requester_session_id?: string;
+  target_user_id?: string;
+  target_session_id?: string | null;
+  target_job_id?: string | null;
+  status?: string;
+  task_title?: string;
+  task_prompt?: string;
+  created_at?: string;
+  updated_at?: string;
+  accepted_at?: string | null;
+  completed_at?: string | null;
+  pending_clarification?: Record<string, unknown> | null;
+  last_answer_event?: Record<string, unknown> | null;
+  reason?: string | null;
+  error?: string | null;
 }
 
 interface RawTaskProgress {
@@ -780,9 +803,32 @@ function normalizeSessionDetail(raw: RawSessionDetail): SessionDetail {
     messages: raw.messages || [],
     pendingQuestion: raw.pending_question ?? null,
     pendingOptions: raw.pending_options ?? null,
+    pendingControlRequest: raw.pending_control_request ?? null,
     pendingPermissionRequest: raw.pending_permission_request ?? null,
     planSteps: raw.plan_steps || raw.task_steps || [],
     planProgress: raw.plan_progress ?? raw.task_progress ?? null,
+  };
+}
+
+function normalizeAgentDelegation(raw: RawAgentDelegation): AgentDelegation {
+  return {
+    delegationId: raw.delegation_id || "",
+    requesterUserId: raw.requester_user_id || "",
+    requesterSessionId: raw.requester_session_id || "",
+    targetUserId: raw.target_user_id || "",
+    targetSessionId: raw.target_session_id ?? null,
+    targetJobId: raw.target_job_id ?? null,
+    status: raw.status || "pending_acceptance",
+    taskTitle: raw.task_title || "Agent delegation",
+    taskPrompt: raw.task_prompt || "",
+    createdAt: raw.created_at || "",
+    updatedAt: raw.updated_at || "",
+    acceptedAt: raw.accepted_at ?? null,
+    completedAt: raw.completed_at ?? null,
+    pendingClarification: raw.pending_clarification ?? null,
+    lastAnswerEvent: raw.last_answer_event ?? null,
+    reason: raw.reason ?? null,
+    error: raw.error ?? null,
   };
 }
 
@@ -1235,6 +1281,107 @@ export async function fetchSessionDetails(sessionId: string): Promise<SessionDet
   }
 }
 
+export async function fetchAgentDelegations(role: "sent" | "received"): Promise<AgentDelegation[]> {
+  const res = await fetch(`${API_URL}/agent-delegations?role=${encodeURIComponent(role)}`, {
+    headers: { ...authHeaders() },
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to fetch agent delegations (${res.status})`);
+  }
+  const data = (await res.json()) as unknown;
+  const rawDelegations =
+    isRecord(data) && Array.isArray(data.delegations)
+      ? data.delegations
+      : Array.isArray(data)
+        ? data
+        : [];
+  return (rawDelegations as RawAgentDelegation[]).map(normalizeAgentDelegation);
+}
+
+export async function createAgentDelegation(
+  input: AgentDelegationCreateInput
+): Promise<AgentDelegation> {
+  const res = await fetch(`${API_URL}/agent-delegations`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({
+      target_user_id: input.targetUserId,
+      source_session_id: input.sourceSessionId,
+      task_title: input.taskTitle,
+      task_prompt: input.taskPrompt,
+    }),
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to create agent delegation (${res.status})`);
+  }
+  return normalizeAgentDelegation((await res.json()) as RawAgentDelegation);
+}
+
+async function postAgentDelegationAction(
+  delegationId: string,
+  action: "accept" | "reject" | "cancel" | "answer",
+  body: Record<string, unknown> = {}
+): Promise<AgentDelegation> {
+  const res = await fetch(
+    `${API_URL}/agent-delegations/${encodeURIComponent(delegationId)}/${action}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(body),
+    }
+  );
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to ${action} agent delegation (${res.status})`);
+  }
+  return normalizeAgentDelegation((await res.json()) as RawAgentDelegation);
+}
+
+export async function acceptAgentDelegation(
+  delegationId: string,
+  reason?: string
+): Promise<AgentDelegation> {
+  return postAgentDelegationAction(
+    delegationId,
+    "accept",
+    reason?.trim() ? { reason: reason.trim() } : {}
+  );
+}
+
+export async function rejectAgentDelegation(
+  delegationId: string,
+  reason?: string
+): Promise<AgentDelegation> {
+  return postAgentDelegationAction(
+    delegationId,
+    "reject",
+    reason?.trim() ? { reason: reason.trim() } : {}
+  );
+}
+
+export async function cancelAgentDelegation(
+  delegationId: string,
+  reason?: string
+): Promise<AgentDelegation> {
+  return postAgentDelegationAction(
+    delegationId,
+    "cancel",
+    reason?.trim() ? { reason: reason.trim() } : {}
+  );
+}
+
+export async function answerAgentDelegation(
+  delegationId: string,
+  answer: string
+): Promise<AgentDelegation> {
+  return postAgentDelegationAction(delegationId, "answer", { answer });
+}
+
 export async function deleteSession(sessionId: string): Promise<boolean> {
   try {
     const res = await fetch(`${API_URL}/sessions/${encodeURIComponent(sessionId)}`, {
@@ -1373,13 +1520,10 @@ export async function resetMemory(): Promise<boolean> {
 
 export async function disableSessionMemory(sessionId: string): Promise<boolean> {
   try {
-    const res = await fetch(
-      `${API_URL}/sessions/${encodeURIComponent(sessionId)}/memory/disable`,
-      {
-        method: "POST",
-        headers: { ...authHeaders() },
-      }
-    );
+    const res = await fetch(`${API_URL}/sessions/${encodeURIComponent(sessionId)}/memory/disable`, {
+      method: "POST",
+      headers: { ...authHeaders() },
+    });
     if (res.status === 401) throw new AuthError();
     return res.ok;
   } catch (error) {
@@ -1574,10 +1718,18 @@ function changedFilesFromResponsesPayload(value: unknown): ChangedFile[] {
     if (typeof item.status === "string" && item.status.trim()) {
       file.status = item.status.trim();
     }
-    if (typeof item.additions === "number" && Number.isFinite(item.additions) && item.additions >= 0) {
+    if (
+      typeof item.additions === "number" &&
+      Number.isFinite(item.additions) &&
+      item.additions >= 0
+    ) {
       file.additions = Math.trunc(item.additions);
     }
-    if (typeof item.deletions === "number" && Number.isFinite(item.deletions) && item.deletions >= 0) {
+    if (
+      typeof item.deletions === "number" &&
+      Number.isFinite(item.deletions) &&
+      item.deletions >= 0
+    ) {
       file.deletions = Math.trunc(item.deletions);
     }
     if (typeof item.previous_path === "string" && item.previous_path.trim()) {

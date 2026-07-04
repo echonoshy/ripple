@@ -1,3 +1,4 @@
+pub mod agent_delegations;
 pub mod auth;
 pub mod bilibili;
 pub mod capabilities;
@@ -163,6 +164,25 @@ pub fn router(state: AppState) -> Router {
         .routes(utoipa_axum::routes!(auth::change_password));
 
     let protected_v1: OpenApiRouter<AppState> = OpenApiRouter::new()
+        .routes(utoipa_axum::routes!(
+            agent_delegations::list_agent_delegations,
+            agent_delegations::create_agent_delegation
+        ))
+        .routes(utoipa_axum::routes!(
+            agent_delegations::get_agent_delegation
+        ))
+        .routes(utoipa_axum::routes!(
+            agent_delegations::cancel_agent_delegation
+        ))
+        .routes(utoipa_axum::routes!(
+            agent_delegations::accept_agent_delegation
+        ))
+        .routes(utoipa_axum::routes!(
+            agent_delegations::reject_agent_delegation
+        ))
+        .routes(utoipa_axum::routes!(
+            agent_delegations::answer_agent_delegation
+        ))
         .routes(utoipa_axum::routes!(models::list_models))
         .routes(utoipa_axum::routes!(models::codex_runtime_info))
         .routes(utoipa_axum::routes!(models::system_info))
@@ -825,6 +845,204 @@ mod tests {
             request_json(state, Method::GET, "/v1/users/me", "wrong-key", None, None).await;
 
         assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn agent_delegation_create_lists_and_rejects_by_target_user() {
+        let state = test_state(vec!["service-key".to_string()]);
+
+        let (status, created_session) = request_json(
+            state.clone(),
+            Method::POST,
+            "/v1/sessions",
+            "service-key",
+            Some("alice"),
+            Some(json!({ "model": "codex-test" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let source_session_id = created_session
+            .get("session_id")
+            .and_then(Value::as_str)
+            .expect("session id");
+
+        let (status, created) = request_json(
+            state.clone(),
+            Method::POST,
+            "/v1/agent-delegations",
+            "service-key",
+            Some("alice"),
+            Some(json!({
+                "target_user_id": "bob",
+                "source_session_id": source_session_id,
+                "task_title": "Review the plan",
+                "task_prompt": "Please review the plan."
+            })),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            created.get("requester_user_id").and_then(Value::as_str),
+            Some("alice")
+        );
+        assert_eq!(
+            created.get("target_user_id").and_then(Value::as_str),
+            Some("bob")
+        );
+        let delegation_id = created
+            .get("delegation_id")
+            .and_then(Value::as_str)
+            .expect("delegation id");
+
+        let (status, received) = request_json(
+            state.clone(),
+            Method::GET,
+            "/v1/agent-delegations?role=received",
+            "service-key",
+            Some("bob"),
+            None,
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            received
+                .pointer("/delegations/0/delegation_id")
+                .and_then(Value::as_str),
+            Some(delegation_id)
+        );
+
+        let (status, rejected) = request_json(
+            state,
+            Method::POST,
+            &format!("/v1/agent-delegations/{delegation_id}/reject"),
+            "service-key",
+            Some("bob"),
+            Some(json!({ "reason": "Not available" })),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            rejected.get("status").and_then(Value::as_str),
+            Some("rejected")
+        );
+    }
+
+    #[tokio::test]
+    async fn agent_delegation_routes_require_auth() {
+        let state = test_state(vec!["service-key".to_string()]);
+
+        let (status, _) = request_json(
+            state,
+            Method::GET,
+            "/v1/agent-delegations",
+            "wrong-key",
+            Some("alice"),
+            None,
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn agent_delegation_answer_requires_requester_and_nonempty_answer() {
+        let state = test_state(vec!["service-key".to_string()]);
+        state
+            .storage
+            .upsert_agent_delegation(&json!({
+                "delegation_id": "dlg-awaiting-answer",
+                "requester_user_id": "alice",
+                "requester_session_id": "srv-alice",
+                "target_user_id": "bob",
+                "target_session_id": "srv-bob",
+                "target_job_id": "agent-old",
+                "status": "awaiting_requester_info",
+                "task_title": "Review the plan",
+                "task_prompt": "Please review the plan.",
+                "created_at": "2026-07-03T00:00:00Z",
+                "updated_at": "2026-07-03T00:00:00Z"
+            }))
+            .await
+            .expect("agent delegation");
+
+        let (status, _) = request_json(
+            state.clone(),
+            Method::POST,
+            "/v1/agent-delegations/dlg-awaiting-answer/answer",
+            "service-key",
+            Some("bob"),
+            Some(json!({ "answer": "Enterprise customers" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+
+        let (status, _) = request_json(
+            state,
+            Method::POST,
+            "/v1/agent-delegations/dlg-awaiting-answer/answer",
+            "service-key",
+            Some("alice"),
+            Some(json!({ "answer": "   " })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn agent_delegation_create_validates_source_and_target() {
+        let state = test_state(vec!["service-key".to_string()]);
+
+        let (status, _body) = request_json(
+            state.clone(),
+            Method::POST,
+            "/v1/agent-delegations",
+            "service-key",
+            Some("alice"),
+            Some(json!({
+                "target_user_id": "bob",
+                "source_session_id": "missing-session",
+                "task_title": "Review the plan",
+                "task_prompt": "Please review the plan."
+            })),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+
+        let (status, created_session) = request_json(
+            state.clone(),
+            Method::POST,
+            "/v1/sessions",
+            "service-key",
+            Some("alice"),
+            Some(json!({ "model": "codex-test" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let source_session_id = created_session
+            .get("session_id")
+            .and_then(Value::as_str)
+            .expect("session id");
+
+        let (status, _body) = request_json(
+            state,
+            Method::POST,
+            "/v1/agent-delegations",
+            "service-key",
+            Some("alice"),
+            Some(json!({
+                "target_user_id": "alice",
+                "source_session_id": source_session_id,
+                "task_title": "Review the plan",
+                "task_prompt": "Please review the plan."
+            })),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]

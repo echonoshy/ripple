@@ -13,6 +13,7 @@ use tokio::sync::OnceCell;
 use crate::config::AppConfig;
 use crate::sessions::SessionRecord;
 
+mod agent_delegations;
 mod auth;
 mod jobs;
 mod schema;
@@ -990,6 +991,100 @@ mod tests {
             Some("/workspace/demo")
         );
         assert_eq!(loaded.total_output_tokens, 2);
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn stores_agent_delegations_for_requester_and_target() -> anyhow::Result<()> {
+        let root =
+            std::env::temp_dir().join(format!("ripple-storage-test-{}", uuid::Uuid::new_v4()));
+        let storage = Storage::open(root.join(".ripple/ripple.sqlite"))?;
+        let record = serde_json::json!({
+            "delegation_id": "dlg-test",
+            "requester_user_id": "alice",
+            "requester_session_id": "srv-alice",
+            "target_user_id": "bob",
+            "status": "pending_acceptance",
+            "task_title": "Review the plan",
+            "task_prompt": "Please review the plan.",
+            "created_at": "2026-07-03T00:00:00Z",
+            "updated_at": "2026-07-03T00:00:00Z"
+        });
+
+        storage.upsert_agent_delegation(&record).await?;
+
+        let sent = storage
+            .list_agent_delegations_for_requester("alice")
+            .await?;
+        let received = storage.list_agent_delegations_for_target("bob").await?;
+
+        assert_eq!(sent.len(), 1);
+        assert_eq!(received.len(), 1);
+        assert_eq!(
+            sent[0].get("delegation_id").and_then(Value::as_str),
+            Some("dlg-test")
+        );
+        assert_eq!(
+            received[0].get("requester_user_id").and_then(Value::as_str),
+            Some("alice")
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn stores_agent_delegation_events_in_sequence() -> anyhow::Result<()> {
+        let root =
+            std::env::temp_dir().join(format!("ripple-storage-test-{}", uuid::Uuid::new_v4()));
+        let storage = Storage::open(root.join(".ripple/ripple.sqlite"))?;
+        let record = serde_json::json!({
+            "delegation_id": "dlg-event-test",
+            "requester_user_id": "alice",
+            "requester_session_id": "srv-alice",
+            "target_user_id": "bob",
+            "status": "awaiting_requester_info",
+            "task_title": "Review the plan",
+            "task_prompt": "Please review the plan.",
+            "created_at": "2026-07-03T00:00:00Z",
+            "updated_at": "2026-07-03T00:00:00Z"
+        });
+        storage.upsert_agent_delegation(&record).await?;
+
+        let first = storage
+            .append_agent_delegation_event(
+                "dlg-event-test",
+                "clarification_request",
+                Some("bob"),
+                &serde_json::json!({ "question": "Which segment?" }),
+            )
+            .await?;
+        let second = storage
+            .append_agent_delegation_event(
+                "dlg-event-test",
+                "clarification_answer",
+                Some("alice"),
+                &serde_json::json!({ "answer": "Enterprise." }),
+            )
+            .await?;
+
+        let events = storage
+            .list_agent_delegation_events("dlg-event-test")
+            .await?;
+
+        assert_eq!(first.get("seq").and_then(Value::as_i64), Some(1));
+        assert_eq!(second.get("seq").and_then(Value::as_i64), Some(2));
+        assert_eq!(events.len(), 2);
+        assert_eq!(
+            events[0].get("event_type").and_then(Value::as_str),
+            Some("clarification_request")
+        );
+        assert_eq!(
+            events[1].pointer("/payload/answer").and_then(Value::as_str),
+            Some("Enterprise.")
+        );
 
         let _ = std::fs::remove_dir_all(root);
         Ok(())

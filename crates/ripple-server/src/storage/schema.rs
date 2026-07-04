@@ -1,7 +1,7 @@
 use serde_json::Value;
 use sqlx::{Row, SqlitePool};
 
-pub const CURRENT_SCHEMA_VERSION: i64 = 11;
+pub const CURRENT_SCHEMA_VERSION: i64 = 12;
 
 const SCHEMA_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS sessions (
@@ -142,6 +142,35 @@ CREATE TABLE IF NOT EXISTS token_usage_events (
     record_json TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS agent_delegations (
+    delegation_id TEXT PRIMARY KEY NOT NULL,
+    requester_user_id TEXT NOT NULL,
+    requester_session_id TEXT NOT NULL,
+    target_user_id TEXT NOT NULL,
+    target_session_id TEXT,
+    target_job_id TEXT,
+    status TEXT NOT NULL,
+    task_title TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    accepted_at TEXT,
+    completed_at TEXT,
+    record_json TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS agent_delegation_events (
+    delegation_id TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    event_type TEXT NOT NULL,
+    actor_user_id TEXT,
+    created_at TEXT NOT NULL,
+    record_json TEXT NOT NULL,
+    PRIMARY KEY (delegation_id, seq),
+    FOREIGN KEY (delegation_id)
+        REFERENCES agent_delegations(delegation_id)
+        ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS user_profiles (
     user_id TEXT PRIMARY KEY NOT NULL,
     avatar_uri TEXT,
@@ -222,6 +251,12 @@ CREATE INDEX IF NOT EXISTS idx_token_usage_events_user_session
     ON token_usage_events(user_id, session_id);
 CREATE INDEX IF NOT EXISTS idx_token_usage_events_user_job
     ON token_usage_events(user_id, job_id);
+CREATE INDEX IF NOT EXISTS idx_agent_delegations_requester_updated
+    ON agent_delegations(requester_user_id, updated_at);
+CREATE INDEX IF NOT EXISTS idx_agent_delegations_target_status_updated
+    ON agent_delegations(target_user_id, status, updated_at);
+CREATE INDEX IF NOT EXISTS idx_agent_delegations_target_job
+    ON agent_delegations(target_user_id, target_job_id);
 CREATE INDEX IF NOT EXISTS idx_auth_users_status
     ON auth_users(status);
 CREATE INDEX IF NOT EXISTS idx_auth_sessions_user
@@ -480,6 +515,7 @@ async fn ensure_schema_migrations(pool: &SqlitePool) -> anyhow::Result<()> {
         (9_i64, "task_triggers_replace_schedules"),
         (10_i64, "token_usage_events_v1"),
         (11_i64, "session_fork_lineage_v1"),
+        (12_i64, "agent_delegations_v1"),
     ] {
         sqlx::query("INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (?, ?)")
             .bind(version)

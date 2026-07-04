@@ -14,9 +14,7 @@ use ripple_server::config::{
     UserAuthConfig,
 };
 use ripple_server::jobs::AgentRunCreateRequest;
-use ripple_server::services::{
-    task_triggers::trigger_due_task_triggers, tasks::trigger_due_task_actions,
-};
+use ripple_server::services::task_triggers::trigger_due_task_triggers;
 use ripple_server::sessions::CreateSessionInput;
 use ripple_server::state::AppState;
 use serde_json::{json, Value};
@@ -1811,7 +1809,7 @@ async fn task_create_rejects_invalid_action_without_partial_task() {
 }
 
 #[tokio::test]
-async fn due_task_action_trigger_runs_due_action_and_returns_result_to_session() {
+async fn task_action_wakeup_fields_do_not_trigger_without_time_trigger() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let fake_codex = write_fake_codex_app_server(&root);
     let (state, app) =
@@ -1874,15 +1872,11 @@ async fn due_task_action_trigger_runs_due_action_and_returns_result_to_session()
         "{created}"
     );
 
-    let triggered = trigger_due_task_actions(&state)
+    let triggered = trigger_due_task_triggers(&state)
         .await
-        .expect("trigger due task actions");
-    assert_eq!(
-        triggered
-            .get("smoke-user")
-            .and_then(|ids| ids.first())
-            .map(String::as_str),
-        Some("task-due-actions:act-due"),
+        .expect("trigger due task triggers");
+    assert!(
+        triggered.get("smoke-user").map_or(true, Vec::is_empty),
         "{triggered:?}"
     );
 
@@ -1904,17 +1898,13 @@ async fn due_task_action_trigger_runs_due_action_and_returns_result_to_session()
         .expect("due action");
     assert_eq!(
         due_action.get("status").and_then(Value::as_str),
-        Some("completed"),
+        Some("confirmed"),
         "{detail}"
     );
     assert!(due_action
         .get("result_summary")
-        .and_then(Value::as_str)
-        .is_some_and(|summary| summary.contains("fake codex completed")));
-    assert!(due_action
-        .get("last_run_id")
-        .and_then(Value::as_str)
-        .is_some());
+        .map_or(true, Value::is_null));
+    assert!(due_action.get("last_run_id").map_or(true, Value::is_null));
     assert_eq!(
         due_action.get("next_wakeup_at").and_then(Value::as_str),
         Some("2000-01-01T00:01:00Z"),
@@ -1946,10 +1936,10 @@ async fn due_task_action_trigger_runs_due_action_and_returns_result_to_session()
         .filter_map(|event| event.get("event_type").and_then(Value::as_str))
         .collect::<Vec<_>>();
     assert!(
-        event_types.contains(&"task_action_due_triggered"),
+        !event_types.contains(&"task_action_due_triggered"),
         "{events}"
     );
-    assert!(event_types.contains(&"task_action_completed"), "{events}");
+    assert!(!event_types.contains(&"task_action_completed"), "{events}");
 
     let (status, session_detail) = call(
         app,
@@ -1961,7 +1951,7 @@ async fn due_task_action_trigger_runs_due_action_and_returns_result_to_session()
     assert_eq!(status, StatusCode::OK, "{session_detail}");
     let session_text = session_detail.to_string();
     assert!(
-        session_text.contains("fake codex completed"),
+        !session_text.contains("fake codex completed"),
         "{session_detail}"
     );
 
@@ -1969,7 +1959,7 @@ async fn due_task_action_trigger_runs_due_action_and_returns_result_to_session()
 }
 
 #[tokio::test]
-async fn due_task_action_loop_skips_actions_owned_by_task_triggers() {
+async fn time_trigger_loop_runs_trigger_owned_actions() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let fake_codex = write_fake_codex_app_server(&root);
     let (state, app) =
@@ -2030,25 +2020,23 @@ async fn due_task_action_loop_skips_actions_owned_by_task_triggers() {
         1
     );
 
-    let triggered = trigger_due_task_actions(&state)
+    let triggered = trigger_due_task_triggers(&state)
         .await
-        .expect("trigger due task actions");
+        .expect("trigger due task triggers");
     assert!(
-        triggered.get("smoke-user").map_or(true, Vec::is_empty),
+        triggered
+            .get("smoke-user")
+            .is_some_and(|ids| ids.len() == 1),
         "{triggered:?}"
     );
 
-    let (status, detail) = call(
-        app,
-        Method::GET,
-        "/v1/tasks/task-trigger-owned-due",
-        Value::Null,
-    )
+    let detail = wait_for_get_json(app, "/v1/tasks/task-trigger-owned-due", |detail| {
+        detail.pointer("/actions/0/status").and_then(Value::as_str) == Some("completed")
+    })
     .await;
-    assert_eq!(status, StatusCode::OK, "{detail}");
     assert_eq!(
         detail.pointer("/actions/0/status").and_then(Value::as_str),
-        Some("confirmed"),
+        Some("completed"),
         "{detail}"
     );
 
@@ -6551,7 +6539,7 @@ async fn wait_for_get_json(
     mut matches: impl FnMut(&Value) -> bool,
 ) -> Value {
     let mut latest = Value::Null;
-    for _ in 0..160 {
+    for _ in 0..400 {
         let (status, body) = call(app.clone(), Method::GET, uri, Value::Null).await;
         assert_eq!(status, StatusCode::OK, "{body}");
         if matches(&body) {
@@ -7563,6 +7551,7 @@ async fn task_level_trigger_advances_ordered_actions_after_each_phase_run_limit(
             "confirmed",
             "active",
             true,
+            1_u64,
         ),
         (
             "act-series-b",
@@ -7572,8 +7561,9 @@ async fn task_level_trigger_advances_ordered_actions_after_each_phase_run_limit(
             "confirmed",
             "active",
             true,
+            2,
         ),
-        ("", 2, "completed", 1, "completed", "completed", false),
+        ("", 2, "completed", 1, "completed", "completed", false, 3),
     ] {
         mark_task_trigger_due(&state, "smoke-user", &trigger_id).await;
         let triggered = trigger_due_task_triggers(&state)
@@ -7662,6 +7652,10 @@ async fn task_level_trigger_advances_ordered_actions_after_each_phase_run_limit(
                     .pointer("/triggers/0/enabled")
                     .and_then(Value::as_bool)
                     == Some(expected.6)
+                    && triggers
+                        .pointer("/triggers/0/run_count")
+                        .and_then(Value::as_u64)
+                        == Some(expected.7)
             },
         )
         .await;
@@ -7670,6 +7664,13 @@ async fn task_level_trigger_advances_ordered_actions_after_each_phase_run_limit(
                 .pointer("/triggers/0/enabled")
                 .and_then(Value::as_bool),
             Some(expected.6),
+            "{triggers}"
+        );
+        assert_eq!(
+            triggers
+                .pointer("/triggers/0/run_count")
+                .and_then(Value::as_u64),
+            Some(expected.7),
             "{triggers}"
         );
     }

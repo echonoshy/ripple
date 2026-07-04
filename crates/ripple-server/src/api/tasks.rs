@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use axum::extract::{Path, Query, State};
 use axum::http::HeaderMap;
@@ -919,117 +919,6 @@ fn push_missing_field(missing: &mut Vec<String>, field: &str) {
     }
 }
 
-pub async fn trigger_due_task_actions(
-    state: &AppState,
-) -> Result<BTreeMap<String, Vec<String>>, ApiError> {
-    let now = OffsetDateTime::now_utc();
-    let mut triggered = BTreeMap::<String, Vec<String>>::new();
-    for user_id in state.storage.list_task_user_ids().await? {
-        let trigger_owned_actions = state
-            .storage
-            .list_task_triggers(&user_id)
-            .await?
-            .into_iter()
-            .filter_map(|trigger| {
-                let task_id = trigger.get("task_id").and_then(Value::as_str)?;
-                let action_id = trigger.get("task_action_id").and_then(Value::as_str)?;
-                Some((task_id.to_string(), action_id.to_string()))
-            })
-            .collect::<BTreeSet<_>>();
-        let tasks = state.storage.list_tasks(&user_id).await?;
-        for task in tasks {
-            if task_is_not_runnable(&task) {
-                continue;
-            }
-            let Some(task_id) = task.get("task_id").and_then(Value::as_str) else {
-                continue;
-            };
-            let actions = sort_task_actions_for_execution(
-                state.storage.list_task_actions(&user_id, task_id).await?,
-            );
-            let all_actions = actions.clone();
-            for mut action in actions {
-                if action.get("status").and_then(Value::as_str) != Some("confirmed") {
-                    continue;
-                }
-                if !action_dependencies_satisfied(&action, &all_actions) {
-                    continue;
-                }
-                let had_next_wakeup_at = action
-                    .get("next_wakeup_at")
-                    .and_then(Value::as_str)
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                    .is_some();
-                normalize_action_wakeup_fields(&mut action);
-                let Some(action_id) = action
-                    .get("action_id")
-                    .and_then(Value::as_str)
-                    .map(str::to_string)
-                else {
-                    continue;
-                };
-                if trigger_owned_actions.contains(&(task_id.to_string(), action_id.clone())) {
-                    continue;
-                }
-                let Some(wakeup_at_text) = action_wakeup_at(&action).map(str::to_string) else {
-                    continue;
-                };
-                let wakeup_at = match parse_datetime(&wakeup_at_text) {
-                    Ok(value) => value,
-                    Err(_) => continue,
-                };
-                if wakeup_at > now {
-                    continue;
-                }
-                if !had_next_wakeup_at {
-                    let mut updated = action.clone();
-                    set_field(&mut updated, "updated_at", json!(now_iso()));
-                    state
-                        .storage
-                        .upsert_task_action(&user_id, task_id, &updated)
-                        .await?;
-                }
-                append_task_event(
-                    &state.storage,
-                    &user_id,
-                    task_id,
-                    "task_action_due_triggered",
-                    json!({
-                        "action_id": action_id,
-                        "next_wakeup_at": wakeup_at_text
-                    }),
-                )
-                .await?;
-                match execute_task_action(state, &user_id, task_id, Some(action_id.as_str())).await
-                {
-                    Ok(_) => {
-                        triggered
-                            .entry(user_id.clone())
-                            .or_default()
-                            .push(format!("{task_id}:{action_id}"));
-                    }
-                    Err(err) => {
-                        let _ = update_task_action_record(
-                            &state.storage,
-                            &user_id,
-                            task_id,
-                            &action_id,
-                            &json!({
-                                "status": "blocked",
-                                "last_error": format!("{err:?}")
-                            }),
-                            Some("block_action"),
-                        )
-                        .await;
-                    }
-                }
-            }
-        }
-    }
-    Ok(triggered)
-}
-
 pub(crate) async fn create_task_from_payload(
     storage: &Storage,
     user_id: &str,
@@ -1465,28 +1354,6 @@ fn relative_action_wakeup_at(action: &Value) -> Option<String> {
     base.checked_add(time::Duration::seconds(seconds))?
         .format(&Rfc3339)
         .ok()
-}
-
-fn task_is_not_runnable(task: &Value) -> bool {
-    matches!(
-        task.get("status").and_then(Value::as_str),
-        Some("candidate" | "completed" | "cancelled" | "archived")
-    )
-}
-
-fn action_wakeup_at(action: &Value) -> Option<&str> {
-    action
-        .get("next_wakeup_at")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .or_else(|| {
-            action
-                .get("due_at")
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-        })
 }
 
 fn sort_task_actions_for_execution(mut actions: Vec<Value>) -> Vec<Value> {

@@ -68,7 +68,6 @@ where
         );
     }
     let task_trigger_task = tokio::spawn(services::task_triggers::task_trigger_loop(state.clone()));
-    let task_action_task = tokio::spawn(services::tasks::task_action_trigger_loop(state.clone()));
     let session_maintenance_task = tokio::spawn(state.sessions.clone().maintenance_loop());
     let codex_log_cleanup_task =
         tokio::spawn(codex::log_cleanup::maintenance_loop(state.config.clone()));
@@ -81,11 +80,18 @@ where
         .with_graceful_shutdown(shutdown)
         .await;
     task_trigger_task.abort();
-    task_action_task.abort();
     session_maintenance_task.abort();
     codex_log_cleanup_task.abort();
     result?;
     Ok(())
+}
+
+pub fn background_service_names() -> &'static [&'static str] {
+    &[
+        "task_trigger_loop",
+        "session_maintenance_loop",
+        "codex_log_cleanup_loop",
+    ]
 }
 
 fn cors_layer(config: &AppConfig) -> CorsLayer {
@@ -139,5 +145,18 @@ async fn shutdown_signal() {
     tokio::select! {
         _ = ctrl_c => {},
         _ = terminate => {},
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::background_service_names;
+
+    #[test]
+    fn scheduled_tasks_use_one_due_execution_loop() {
+        let names = background_service_names();
+
+        assert!(names.contains(&"task_trigger_loop"));
+        assert!(!names.contains(&"task_action_trigger_loop"));
     }
 }

@@ -2436,13 +2436,14 @@ mod tests {
         assert!(prompt.contains(
             "For product, company, support, or shared-knowledge questions, read the matching Available Skill before web_search"
         ));
-        assert!(prompt.contains("task_update"));
-        assert!(prompt.contains("Task actions may have triggers"));
+        assert!(prompt.contains("scheduled tasks"));
+        assert!(prompt.contains("future or recurring Codex execution"));
+        assert!(!prompt.contains("Task actions may have triggers"));
         assert!(prompt.contains(
-            "Tasks inferred from prior session context, memories, or recent work must use `mode=\"propose\"`"
+            "Only create or propose a scheduled task when the user clearly asks for future or recurring execution"
         ));
         assert!(prompt.contains(
-            "If the task goal, next action, timing, scope, or delivery target is unclear"
+            "If the schedule time, repeat interval, execution instruction, source/scope, or delivery target is unclear"
         ));
         assert!(prompt.contains(
             "ask one concise clarification question and do not call `codex_app.task_update` yet"
@@ -3018,7 +3019,7 @@ mod tests {
             None,
         );
 
-        assert!(prompt.contains("## Recent Task Triggers"));
+        assert!(prompt.contains("## Recent Scheduled Tasks"));
         assert!(!prompt.contains("## Recent Automations"));
         assert!(prompt.contains("\"trigger_id\": \"sch-price\""));
         assert!(prompt.contains("监控二手 M4 Pro 和 M5 Pro MacBook Pro 的价格"));

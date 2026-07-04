@@ -153,7 +153,7 @@ function renderTasksPage(
 function testTasksPageRendersTaskListAndDetail() {
   const html = renderTasksPage();
 
-  assert.match(html, />任务</);
+  assert.match(html, />定时任务</);
   assert.match(html, /整理客户方案/);
   assert.match(html, /1\/3/);
   assert.match(html, /33%/);
@@ -163,14 +163,13 @@ function testTasksPageRendersTaskListAndDetail() {
   assert.match(html, /缺少客户预算信息/);
   assert.match(html, /job-quote-1/);
   assert.match(html, /删除/);
-  assert.match(html, /计划/);
-  assert.match(html, /步骤计划/);
-  assert.match(html, /触发器/);
+  assert.match(html, /定时计划/);
+  assert.doesNotMatch(html, /步骤计划/);
   assert.match(html, /明早提醒/);
   assert.match(html, /运行 1\/1/);
   assert.match(html, /job-sch-trip/);
   assert.match(html, /步骤受阻/);
-  assert.match(html, /到期执行步骤/);
+  assert.doesNotMatch(html, /到期执行步骤/);
   assert.match(html, /开始执行步骤/);
   assert.ok(html.indexOf("步骤受阻") < html.indexOf("开始执行步骤"));
 }
@@ -205,7 +204,7 @@ function testTasksPageUsesFocusSplitLayout() {
   assert.match(html, /data-ripple-task-summary="true"/);
   assert.match(html, /data-ripple-task-actions-panel="true"/);
   assert.match(html, /data-ripple-task-activity-panel="true"/);
-  assert.match(html, /当前步骤/);
+  assert.match(html, /当前执行/);
   assert.match(html, /活动记录/);
 }
 
@@ -334,14 +333,14 @@ function testCompletedTaskSummaryDoesNotShowUnknownCurrentStep() {
   });
 
   assert.match(html, /All steps completed/);
-  assert.doesNotMatch(html, /Current step[\s\S]*Unknown/);
+  assert.doesNotMatch(html, /Current execution[\s\S]*Unknown/);
 }
 
 function testTasksPageLetsStepsBeEditedWithoutInlineTriggerButtons() {
   const source = readFileSync(new URL("./TasksPage.tsx", import.meta.url), "utf8");
   const html = renderTasksPage("en-US");
   const stepsPanelStart = html.indexOf('data-ripple-task-actions-panel="true"');
-  const triggersPanelStart = html.indexOf(">Triggers<", stepsPanelStart);
+  const triggersPanelStart = html.indexOf(">Schedules<", stepsPanelStart);
   assert.notEqual(stepsPanelStart, -1);
   assert.notEqual(triggersPanelStart, -1);
   const stepsPanel = html.slice(stepsPanelStart, triggersPanelStart);
@@ -350,7 +349,7 @@ function testTasksPageLetsStepsBeEditedWithoutInlineTriggerButtons() {
   assert.match(source, /submitActionEdit/);
   assert.match(source, /updateTaskAction\(selectedTask\.taskId, editingActionId/);
   assert.match(html, />Edit</);
-  assert.doesNotMatch(stepsPanel, />Add trigger</);
+  assert.doesNotMatch(stepsPanel, />Add schedule</);
 }
 
 function testAddStepDoesNotCollectTriggerTiming() {
@@ -396,8 +395,8 @@ function testTasksPageLoadingStateDoesNotClaimFailure() {
     isLoading: true,
   });
 
-  assert.match(html, /Loading tasks/);
-  assert.doesNotMatch(html, /Failed to load tasks/);
+  assert.match(html, /Loading scheduled tasks/);
+  assert.doesNotMatch(html, /Failed to load scheduled tasks/);
 }
 
 function testTasksPageDistinguishesFilteredEmptyState() {

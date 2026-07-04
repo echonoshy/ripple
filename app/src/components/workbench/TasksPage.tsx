@@ -766,19 +766,14 @@ export default function TasksPage({
         (trigger.task_action_id ? actionIds.has(trigger.task_action_id) : false)
     );
   }, [triggerList, selectedTask, visibleActions]);
-  const selectedTaskActionTriggers = useMemo(
-    () => visibleActions.filter((action) => Boolean(action.nextWakeupAt)),
-    [visibleActions]
-  );
   const selectedTaskNextRunAt = useMemo(
     () =>
-      earliestIso([
-        ...selectedTaskActionTriggers.map((action) => action.nextWakeupAt),
-        ...selectedTaskTriggers
+      earliestIso(
+        selectedTaskTriggers
           .filter((trigger) => trigger.enabled && !isTriggerCompleted(trigger))
-          .map((trigger) => trigger.next_run_at),
-      ]),
-    [selectedTaskActionTriggers, selectedTaskTriggers]
+          .map((trigger) => trigger.next_run_at)
+      ),
+    [selectedTaskTriggers]
   );
   const loading = isLoading ?? internalLoading;
   const errorMessage = error ?? internalError;
@@ -2026,7 +2021,7 @@ export default function TasksPage({
                           <div
                             className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} mt-0.5 truncate text-[#1F2329]`}
                           >
-                            {selectedTaskActionTriggers.length + selectedTaskTriggers.length}
+                            {selectedTaskTriggers.length}
                           </div>
                         </div>
                       </div>
@@ -2460,8 +2455,7 @@ export default function TasksPage({
                             </div>
                           </form>
                         ) : null}
-                        {selectedTaskActionTriggers.length === 0 &&
-                        selectedTaskTriggers.length === 0 ? (
+                        {selectedTaskTriggers.length === 0 ? (
                           <div
                             className={`${TYPOGRAPHY_BODY_CLASS} rounded-lg border border-dashed border-[#D0D3D6] bg-[#F8F9FA] px-3 py-5 text-center text-[#646A73]`}
                           >
@@ -2469,37 +2463,6 @@ export default function TasksPage({
                           </div>
                         ) : null}
                         <div className="grid gap-2">
-                          {selectedTaskActionTriggers.map((action) => (
-                            <div
-                              key={`task-action-trigger-${action.actionId}`}
-                              className={`${taskSoftPanelClass} grid gap-1.5 px-3 py-2`}
-                            >
-                              <div className="flex min-w-0 items-center justify-between gap-2">
-                                <div className="flex min-w-0 items-center gap-2">
-                                  <Clock3 size={15} className="shrink-0 text-[#1456F0]" />
-                                  <span className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} truncate`}>
-                                    {action.title}
-                                  </span>
-                                </div>
-                                <span
-                                  className={`${WORKBENCH_STATUS_NEUTRAL_CLASS} shrink-0 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}
-                                >
-                                  {t("tasks.actionTrigger")}
-                                </span>
-                              </div>
-                              <div className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
-                                {t("tasks.triggerNext")}:{" "}
-                                {formatDate(action.nextWakeupAt, locale, t("tasks.unknown"))}
-                              </div>
-                              {action.lastRunId ? (
-                                <span
-                                  className={`w-fit rounded-md border border-[#DEE0E3] bg-white px-1.5 py-0.5 font-[family-name:var(--font-mono)] ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} text-[#646A73]`}
-                                >
-                                  {t("tasks.lastRun")}: {action.lastRunId}
-                                </span>
-                              ) : null}
-                            </div>
-                          ))}
                           {selectedTaskTriggers.map((trigger) => (
                             <div
                               key={trigger.trigger_id}

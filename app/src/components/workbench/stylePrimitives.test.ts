@@ -136,8 +136,10 @@ const workspaceExplorerSource = readFileSync(
 );
 assert.match(
   workspaceExplorerSource,
-  /lg:grid-cols-\[244px_minmax\(0,1fr\)_minmax\(280px,360px\)\]/
+  /lg:grid-cols-\[244px_var\(--ripple-workspace-list-column\)\]/
 );
+assert.match(workspaceExplorerSource, /"--ripple-workspace-list-column"/);
+assert.match(workspaceExplorerSource, /minmax\(280px, \$\{splitPercent\}%\) minmax\(280px, 1fr\)/);
 assert.doesNotMatch(workspaceExplorerSource, /minmax\(320px,440px\)_minmax\(0,1fr\)/);
 
 const mobileReadableSources = [

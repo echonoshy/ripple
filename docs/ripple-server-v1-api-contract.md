@@ -511,16 +511,16 @@ resolve 接口返回 `{ ok, session_id, job_id, action }`，不是新的 SSE 流
 - `events_file` 和 `output_file` 仍保留给管理员调试，客户端不要依赖它们作为下载入口。
 - 服务重启时遗留 `queued/running` run 会标记为 `failed`，`failure_reason=interrupted_by_restart`。
 
-## Tasks
+## Scheduled Tasks
 
-Tasks 是当前持久 follow-up 和多步工作状态的主 API，不是旧兼容占位接口。
+Scheduled Tasks 是当前持久自动执行能力的主 API。v1 只把明确的未来/周期时间触发器作为任务入口；普通 todo、项目计划、无时间的 follow-up 不应进入这条链路。
 
-- `GET /v1/tasks` 列出当前 user 的 tasks；`POST /v1/tasks` 创建 task 和可选 actions。
+- `GET /v1/tasks` 列出当前 user 的 scheduled tasks；`POST /v1/tasks` 创建 scheduled task 和可选内部 action。
 - `GET /v1/tasks/:task_id` 返回 task、actions 和 progress；`PATCH /v1/tasks/:task_id` 更新 task。
 - `DELETE /v1/tasks/:task_id` 将 task 标记为 cancelled；`POST /v1/tasks/:task_id/delete` 物理删除 task、actions 和 events。
 - `POST /v1/tasks/:task_id/confirm` 将 candidate task/action 确认为可执行状态。
 - `POST /v1/tasks/:task_id/run-now` 从 task 的 `source_session_id` 构建一次 Codex run，并把进展写回 task events/actions。
-- `GET /v1/tasks/:task_id/actions`、`POST /v1/tasks/:task_id/actions`、`PATCH /v1/tasks/:task_id/actions/:action_id` 管理 task actions。
+- `GET /v1/tasks/:task_id/actions`、`POST /v1/tasks/:task_id/actions`、`PATCH /v1/tasks/:task_id/actions/:action_id` 管理内部 actions。actions 主要用于兼容历史数据和极少数明确分阶段的 scheduled task，不再作为独立的到期调度入口。
 - `GET /v1/tasks/:task_id/triggers` 返回 task-scoped triggers。TaskTrigger 通过 `trigger_type` 区分 driver；当前唯一已启用 driver 是 `time`，使用 `task_triggers` 存储，并在 response 中提供 `trigger_id` / `trigger_type`。
 - `POST /v1/tasks/:task_id/actions/:action_id/triggers` 为指定 action 创建 future/recurring trigger。
 - `PATCH /v1/tasks/:task_id/triggers/:trigger_id` 更新 time trigger 配置，包括 `kind`、`run_at`、`interval_seconds`、`max_runs`、`enabled`、policy、model 和 cwd 等字段。暂停会清空 `next_run_at`；恢复或修改时间配置会重新计算下一次执行时间。
@@ -529,9 +529,9 @@ Tasks 是当前持久 follow-up 和多步工作状态的主 API，不是旧兼�
 - `GET /v1/tasks/:task_id/events` 返回 task timeline。
 - `GET /v1/sessions/:session_id/tasks` 返回与 session 关联的 tasks。
 
-Chat 主链路会向 Codex 暴露 `codex_app.task_update` 动态工具。它只写 Ripple 控制面 task/action 状态，不要求 Codex 反向调用 Ripple HTTP API。支持 `propose`、`create`、`update_task`、`create_action`、`update_action`、`start_action`、`complete_action`、`block_action`、`wait_user` 和 `complete_task` 等模式。`wait_user` 会把 `reason`、`clarification_question` 和 `missing_fields` 持久化到 action，并产生 `task_action_waiting_user` event；`complete_task` 会写入 `result_summary` 和 `completed_at`。
+Chat 主链路会向 Codex 暴露 `codex_app.task_update` 动态工具，但 prompt 只允许它在用户明确要求未来/周期执行时创建或提议 scheduled task。它只写 Ripple 控制面 task/action 状态，不要求 Codex 反向调用 Ripple HTTP API。支持 `propose`、`create`、`update_task`、`create_action`、`update_action`、`start_action`、`complete_action`、`block_action`、`wait_user` 和 `complete_task` 等模式。`wait_user` 会把 `reason`、`clarification_question` 和 `missing_fields` 持久化到 action，并产生 `task_action_waiting_user` event；`complete_task` 会写入 `result_summary` 和 `completed_at`。
 
-Task 是唯一任务语义。旧 standalone schedule API 和 `schedules` 表已移除；time trigger 统一作为 Task Trigger 的一种 driver 存在。Task-linked trigger 到期时会走 TaskAction 执行链路，复用原 session/Codex thread，并把结果写回 task events/actions 和 source session。后续 hook/event/webhook 类触发器也应挂在同一 task trigger 模型下。
+旧 standalone schedule API 和 `schedules` 表已移除；time trigger 统一作为 Scheduled Task 的触发器存在。Task-linked trigger 到期时会走 TaskAction 执行链路，复用原 session/Codex thread，并把结果写回 task events/actions 和 source session。当前后台只启动 time trigger due loop；`task_actions.next_wakeup_at` 仅作为历史/展示兼容字段保留，不再驱动自动执行。
 
 ## Risk Confirmation
 

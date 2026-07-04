@@ -284,7 +284,7 @@ systemctl status ripple-runtime-backup.timer
 - `overlap_policy=skip`：上一轮仍在运行时跳过本轮。
 - `failure_policy=pause`：启动失败时暂停并记录 `failure_reason`。
 
-前端 Tasks 页面是当前 follow-up 中心，展示 task、actions、trigger、run history、事件和 result writeback。旧 standalone schedules 已移除；time trigger 是 Task Trigger 的一种 driver，后续 hook/event/webhook 触发器也应进入同一模型。
+前端 Tasks 页面是当前 scheduled task 中心，展示定时任务、time trigger、run history、事件和 result writeback。旧 standalone schedules 已移除；当前 v1 只启用 time trigger 后台循环。TaskAction 仍用于内部执行和历史兼容，但 `next_wakeup_at` 不再作为独立后台调度入口。
 
 ## Diagnostics
 

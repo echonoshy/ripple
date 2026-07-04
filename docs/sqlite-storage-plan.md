@@ -125,6 +125,8 @@ documents(user_id, updated_at)
 file_refs(user_id, workspace_path)
 ```
 
+说明：`task_actions.next_wakeup_at` 目前仅保留为历史兼容和列表排序字段；定时任务 v1 的自动执行入口是 `task_triggers.next_run_at`。
+
 SQLite 配置方向：
 
 ```sql

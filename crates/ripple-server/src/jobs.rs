@@ -60,6 +60,8 @@ pub struct AgentRunCreateRequest {
     pub codex_thread_id: Option<String>,
     #[serde(default)]
     pub codex_persistent_thread: bool,
+    #[serde(default)]
+    pub client_request_id: Option<String>,
     #[serde(default, skip_deserializing)]
     pub chat_user_input: Option<String>,
     #[serde(default, skip_deserializing)]
@@ -81,6 +83,10 @@ pub struct AgentRunInfo {
     pub stdout_tail: String,
     pub stderr_tail: String,
     pub error: Option<String>,
+    #[serde(default)]
+    pub req_id: Option<String>,
+    #[serde(default)]
+    pub client_req_id: Option<String>,
     #[serde(default)]
     pub pending_approval: Option<Value>,
     #[serde(default)]
@@ -183,6 +189,10 @@ impl JobManager {
             }
             if create.codex_persistent_thread {
                 object.insert("codex_persistent_thread".to_string(), json!(true));
+            }
+            if let Some(client_request_id) = &create.client_request_id {
+                object.insert("req_id".to_string(), json!(client_request_id));
+                object.insert("client_req_id".to_string(), json!(client_request_id));
             }
             if let Some(chat_user_input) = &create.chat_user_input {
                 object.insert("chat_user_input".to_string(), json!(chat_user_input));
@@ -324,6 +334,10 @@ impl JobManager {
         if let Some(object) = metadata.as_object_mut() {
             if let Some(session_id) = &session_id {
                 object.insert("session_id".to_string(), json!(session_id));
+            }
+            if let Some(client_request_id) = &create.client_request_id {
+                object.insert("req_id".to_string(), json!(client_request_id));
+                object.insert("client_req_id".to_string(), json!(client_request_id));
             }
         }
         let request = AgentRunnerRequest {
@@ -826,6 +840,8 @@ fn info_from_job(
         stdout_tail: redact_text(&job.stdout_tail),
         stderr_tail: redact_text(&job.stderr_tail),
         error: job.error.as_deref().map(redact_text),
+        req_id: metadata_string(&job.metadata, "req_id"),
+        client_req_id: metadata_string(&job.metadata, "client_req_id"),
         pending_approval,
         pending_user_input,
         metadata: job.metadata.clone(),
@@ -860,6 +876,8 @@ fn info_from_internal_result(
         stdout_tail: redact_text(&result.stdout_tail),
         stderr_tail: redact_text(&result.stderr_tail),
         error: result.error.as_deref().map(redact_text),
+        req_id: metadata_string(&metadata, "req_id"),
+        client_req_id: metadata_string(&metadata, "client_req_id"),
         pending_approval: None,
         pending_user_input: None,
         metadata,
@@ -874,6 +892,13 @@ fn merge_metadata(left: Value, right: Value) -> Value {
         }
     }
     Value::Object(base)
+}
+
+fn metadata_string(metadata: &Value, key: &str) -> Option<String> {
+    metadata
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::to_string)
 }
 
 #[derive(Clone)]
@@ -1088,6 +1113,8 @@ impl StoredJobRecord {
                 "task_trigger_id",
                 "task_trigger_title",
                 "task_trigger_reason",
+                "req_id",
+                "client_req_id",
             ] {
                 if let Some(value) = job.metadata.get(key).and_then(Value::as_str) {
                     object.insert(key.to_string(), json!(value));
@@ -1133,6 +1160,8 @@ impl StoredJobRecord {
             stdout_tail: redact_text(&Self::str(record, "stdout_tail")),
             stderr_tail: redact_text(&Self::str(record, "stderr_tail")),
             error: record.get("error").and_then(Value::as_str).map(redact_text),
+            req_id: Self::opt_str(record, "req_id"),
+            client_req_id: Self::opt_str(record, "client_req_id"),
             pending_approval: None,
             pending_user_input: None,
             metadata: record.clone(),
@@ -1301,7 +1330,13 @@ fn now_iso() -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{resolve_workspace_cwd, user_requested_image_generation};
+    use serde_json::json;
+
+    use crate::codex::app_server::AgentRunnerStatus;
+
+    use super::{
+        resolve_workspace_cwd, user_requested_image_generation, ExternalAgentJob, StoredJobRecord,
+    };
 
     #[test]
     fn image_generation_intent_requires_explicit_creation_request() {
@@ -1340,5 +1375,45 @@ mod tests {
         assert_eq!(resolved, workspace.canonicalize().unwrap().join("new-dir"));
 
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn stored_job_record_preserves_client_req_id() {
+        let workspace = std::path::PathBuf::from("/tmp/ripple-workspace");
+        let job = ExternalAgentJob {
+            job_id: "agent-test".to_string(),
+            provider: "codex".to_string(),
+            prompt: "test prompt".to_string(),
+            cwd: workspace.clone(),
+            user_id: Some("user-1".to_string()),
+            session_id: Some("session-1".to_string()),
+            metadata: json!({
+                "sandbox_cwd": "/workspace",
+                "req_id": "6a4b7ac03606b62950699ae6",
+                "client_req_id": "6a4b7ac03606b62950699ae6"
+            }),
+            status: AgentRunnerStatus::Completed,
+            created_at: "2026-07-06T09:52:03Z".to_string(),
+            updated_at: "2026-07-06T09:52:45Z".to_string(),
+            events_file: Some(workspace.join("events.jsonl")),
+            output_file: None,
+            exit_code: None,
+            stdout_tail: String::new(),
+            stderr_tail: String::new(),
+            error: None,
+        };
+
+        let record = StoredJobRecord::from_job(&job);
+
+        assert_eq!(
+            record.get("req_id").and_then(serde_json::Value::as_str),
+            Some("6a4b7ac03606b62950699ae6")
+        );
+        assert_eq!(
+            record
+                .get("client_req_id")
+                .and_then(serde_json::Value::as_str),
+            Some("6a4b7ac03606b62950699ae6")
+        );
     }
 }

@@ -1408,6 +1408,14 @@ fn agent_run_info_from_record(record: &Value) -> Option<AgentRunInfo> {
             .get("error")
             .and_then(Value::as_str)
             .map(str::to_string),
+        req_id: record
+            .get("req_id")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        client_req_id: record
+            .get("client_req_id")
+            .and_then(Value::as_str)
+            .map(str::to_string),
         pending_approval: None,
         pending_user_input: None,
         metadata: record.clone(),
@@ -1901,6 +1909,8 @@ mod tests {
             stdout_tail: "stdout summary".to_string(),
             stderr_tail: "stderr failure".to_string(),
             error: None,
+            req_id: None,
+            client_req_id: None,
             pending_approval: None,
             pending_user_input: None,
             metadata: json!({

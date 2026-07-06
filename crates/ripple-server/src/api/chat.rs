@@ -86,6 +86,8 @@ pub struct InternalChatRequest {
     pub stream: Option<bool>,
     pub session_id: Option<String>,
     #[serde(default)]
+    pub client_request_id: Option<String>,
+    #[serde(default)]
     pub required_skill_ids: Vec<String>,
     #[serde(default)]
     pub screen_context: Option<Value>,
@@ -123,6 +125,7 @@ impl ResponsesCreateRequest {
         )?;
         let client_context = metadata_client_context(self.metadata.as_ref())?;
         let screen_context = metadata_screen_context(self.metadata.as_ref())?;
+        let client_request_id = metadata_client_request_id(self.metadata.as_ref())?;
         let effort = self
             .reasoning
             .as_ref()
@@ -141,6 +144,7 @@ impl ResponsesCreateRequest {
             messages: responses_input_to_messages(self.input, self.instructions)?,
             stream: self.stream,
             session_id,
+            client_request_id,
             required_skill_ids,
             screen_context,
             client_context,
@@ -238,6 +242,31 @@ fn metadata_screen_context(metadata: Option<&Value>) -> Result<Option<Value>, Ap
         return Err(ApiError::bad_request("screen_context must be an object"));
     }
     Ok(Some(value.clone()))
+}
+
+fn metadata_client_request_id(metadata: Option<&Value>) -> Result<Option<String>, ApiError> {
+    let Some(metadata) = metadata else {
+        return Ok(None);
+    };
+    for key in ["req_id", "client_req_id", "external_req_id", "request_id"] {
+        let Some(value) = metadata.get(key) else {
+            continue;
+        };
+        let Some(text) = value.as_str() else {
+            return Err(ApiError::bad_request(format!("{key} must be a string")));
+        };
+        let trimmed = text.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if trimmed.len() > 256 || trimmed.chars().any(char::is_control) {
+            return Err(ApiError::bad_request(format!(
+                "{key} must be 1-256 printable characters"
+            )));
+        }
+        return Ok(Some(trimmed.to_string()));
+    }
+    Ok(None)
 }
 
 const VIAIM_PRODUCT_SUPPORT_SKILL_ID: &str = "ripple:viaim-product-support";
@@ -844,6 +873,7 @@ async fn create_codex_chat_run(args: &CodexChatStart) -> Result<AgentRunInfo, Ap
         task_trigger_reason: None,
         codex_thread_id: args.session.codex_thread_id.clone(),
         codex_persistent_thread: !args.request.temporary,
+        client_request_id: args.request.client_request_id.clone(),
         chat_user_input: Some(args.user_input.clone()),
         chat_user_content: Some(args.user_content.clone()),
     };
@@ -1171,6 +1201,7 @@ pub async fn poll_session_connector_auth(
             messages: vec![json!({"role": "user", "content": resume_user_input})],
             stream: request.stream,
             session_id: Some(session_id),
+            client_request_id: None,
             required_skill_ids: Vec::new(),
             screen_context: None,
             client_context: None,
@@ -2578,6 +2609,7 @@ mod tests {
             previous_response_id: None,
             metadata: Some(json!({
                 "ripple_session_id": "session-skill",
+                "req_id": "6a4b7ac03606b62950699ae6",
                 "required_skill_ids": ["ripple:viaim-product-support"],
                 "screen_context": {
                     "app": "ripple",
@@ -2592,6 +2624,10 @@ mod tests {
         let chat = request.into_chat_request().expect("chat request");
 
         assert_eq!(chat.session_id.as_deref(), Some("session-skill"));
+        assert_eq!(
+            chat.client_request_id.as_deref(),
+            Some("6a4b7ac03606b62950699ae6")
+        );
         assert_eq!(
             chat.required_skill_ids,
             vec!["ripple:viaim-product-support".to_string()]
@@ -2682,6 +2718,7 @@ mod tests {
             messages: Vec::new(),
             stream: None,
             session_id: None,
+            client_request_id: None,
             required_skill_ids: Vec::new(),
             screen_context: Some(json!({
                 "app": "ripple",
@@ -2718,6 +2755,7 @@ mod tests {
             messages: Vec::new(),
             stream: None,
             session_id: None,
+            client_request_id: None,
             required_skill_ids: Vec::new(),
             screen_context: None,
             client_context: Some(json!({

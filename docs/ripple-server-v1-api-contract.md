@@ -67,6 +67,7 @@
 - `/v1/responses` 返回 `object=response`、`output`、`output_text` 和 `metadata.ripple_session_id`；流式响应使用 `response.created`、`response.output_text.delta`、`response.completed`，Ripple 控制面事件以 `ripple.*` 扩展事件发送。需要 approval 或用户输入等等待态时，也会先发送对应 `ripple.*` 事件，再发送 terminal `response.completed` 和 `[DONE]`。
 - 响应继续返回 `x-ripple-session-id` header，调用方可用它确认最终使用的内部 session。
 - 调用方通过 `metadata.ripple_session_id` 或 `previous_response_id=resp_<session_id>` 传入的 session id 必须匹配 `[a-zA-Z0-9_-]{1,64}`。这是为了保证 session runtime 目录和 SQLite 主键都安全可控。
+- 调用方可通过 `metadata.req_id`、`metadata.client_req_id`、`metadata.external_req_id` 或 `metadata.request_id` 传入上游业务请求 ID。Ripple 会把该值写入 Codex job 的 `record_json.req_id` 和 `record_json.client_req_id`，便于后续从 SQLite 或 run 记录按业务请求反查 session/job/events。
 - `/v1/chat/completions` 不再注册；客户端和外部调用方必须使用 `/v1/responses`。
 
 ## Runs

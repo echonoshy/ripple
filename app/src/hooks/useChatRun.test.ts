@@ -385,6 +385,14 @@ function testSendFlowIncludesSelectedRequiredSkill() {
   assert.match(source, /setSelectedRequiredSkillId\(null\)/);
 }
 
+function testSendFlowIncludesBrowserContextSnapshot() {
+  const source = readFileSync(new URL("./useChatRun.ts", import.meta.url), "utf8");
+
+  assert.match(source, /getBrowserContext\?: \(\) => ChatBrowserContext \| null/);
+  assert.match(source, /const browserContext = getBrowserContext\?\.\(\) \?\? undefined;/);
+  assert.match(source, /browserContext,/);
+}
+
 function testSendFlowDoesNotIncludeClientContextFixtures() {
   const source = readFileSync(new URL("./useChatRun.ts", import.meta.url), "utf8");
 
@@ -458,6 +466,7 @@ test("useChatRun behavior", async () => {
   testFollowUpPollingIsRemovedFromChatRun();
   testSessionControlActionsStartFreshSessions();
   testSendFlowIncludesSelectedRequiredSkill();
+  testSendFlowIncludesBrowserContextSnapshot();
   testSendFlowDoesNotIncludeClientContextFixtures();
   testSendErrorsReleaseSessionForRetry();
   testAskUserMarksBackgroundSessionAsNewResult();

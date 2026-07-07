@@ -26,6 +26,24 @@ function testInspectorPanelPassesPendingOpenFileRequestToExplorer() {
 
 testInspectorPanelPassesPendingOpenFileRequestToExplorer();
 
+function testInspectorPanelProvidesFileAndBrowserTabs() {
+  const source = readFileSync(new URL("./InspectorPanel.tsx", import.meta.url), "utf8");
+  const html = renderToStaticMarkup(
+    <I18nProvider initialPreference="en-US">
+      <InspectorPanel userId="default" refreshToken={0} onBrowserContextChange={noop} />
+    </I18nProvider>
+  );
+
+  assert.match(source, /activeTab/);
+  assert.match(source, /BrowserPanel/);
+  assert.match(source, /onBrowserContextChange/);
+  assert.match(html, /role="tablist"/);
+  assert.match(html, />Files</);
+  assert.match(html, />Browser</);
+}
+
+testInspectorPanelProvidesFileAndBrowserTabs();
+
 function testInspectorPanelUsesSolidWorkbenchSurfaces() {
   const source = readFileSync(new URL("./InspectorPanel.tsx", import.meta.url), "utf8");
   const html = renderToStaticMarkup(

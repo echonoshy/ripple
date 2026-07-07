@@ -63,7 +63,10 @@ function testAppLoadsAgentContactsForContactsPage() {
   assert.match(appSource, /acceptAgentContactRequest/);
   assert.match(appSource, /removeAgentContact/);
   assert.match(appSource, /const \[agentContacts, setAgentContacts\]/);
-  assert.match(appSource, /const \[receivedAgentContactRequests, setReceivedAgentContactRequests\]/);
+  assert.match(
+    appSource,
+    /const \[receivedAgentContactRequests, setReceivedAgentContactRequests\]/
+  );
   assert.match(appSource, /contacts=\{agentContacts\}/);
   assert.match(appSource, /receivedContactRequests=\{receivedAgentContactRequests\}/);
   assert.match(appSource, /onAddContact=\{handleAddAgentContact\}/);
@@ -75,33 +78,78 @@ function testAppLoadsAgentContactsForContactsPage() {
 }
 
 function testAppRendersContactsAsTopLevelTaskEntry() {
+  const contactsRenderBlock =
+    appSource.match(
+      /activeView === "contacts" \? \([\s\S]*?\n\s{4}\) : activeView === "skills"/
+    )?.[0] || "";
+
   assert.match(
     appSource,
     /const ContactsPage = lazy\(\(\) => import\("@\/components\/workbench\/ContactsPage"\)\)/
   );
   assert.match(appSource, /activeView === "contacts"/);
   assert.match(appSource, /<ContactsPage/);
-  assert.match(appSource, /contacts=\{agentContacts\}/);
-  assert.match(appSource, /sentDelegations=\{sentAgentDelegations\}/);
-  assert.match(appSource, /receivedDelegations=\{receivedAgentDelegations\}/);
-  assert.match(appSource, /onCreateDelegation=\{handleCreateAgentDelegationFromContacts\}/);
-  assert.match(appSource, /onUpdateContact=\{handleUpdateAgentContact\}/);
-  assert.match(appSource, /onRemoveContact=\{handleRemoveAgentContact\}/);
+  assert.match(contactsRenderBlock, /contacts=\{agentContacts\}/);
+  assert.match(contactsRenderBlock, /sentDelegations=\{sentAgentDelegations\}/);
+  assert.match(contactsRenderBlock, /receivedDelegations=\{receivedAgentDelegations\}/);
+  assert.match(
+    contactsRenderBlock,
+    /onCreateDelegation=\{handleCreateAgentDelegationFromContacts\}/
+  );
+  assert.match(contactsRenderBlock, /onOpenSession=\{handleOpenTaskSession\}/);
+  assert.match(contactsRenderBlock, /onUpdateContact=\{handleUpdateAgentContact\}/);
+  assert.match(contactsRenderBlock, /onRemoveContact=\{handleRemoveAgentContact\}/);
   assert.match(contactsPageSource, /data-ripple-contacts-page="true"/);
   assert.match(contactsPageSource, /onCreateDelegation/);
   assert.match(contactsPageSource, /onUpdateContact/);
   assert.doesNotMatch(contactsPageSource, /SessionComposer/);
 }
 
-function testContactDelegationReturnsToSessionAfterCreate() {
+function testContactDelegationCreatesRequesterSessionAfterCreate() {
   const createFromContactsBlock =
     appSource.match(
       /const handleCreateAgentDelegationFromContacts = useCallback\([\s\S]*?\n\s{2}const handleAcceptAgentDelegation = useCallback/
     )?.[0] || "";
 
+  assert.match(createFromContactsBlock, /createNewSession\(defaultModel, activeContextFolderPath/);
+  assert.doesNotMatch(
+    createFromContactsBlock,
+    /ensureSession\(defaultModel, activeContextFolderPath\)/
+  );
+  assert.match(createFromContactsBlock, /requesterSession\.sessionId/);
   assert.match(createFromContactsBlock, /setActiveView\("sessions"\)/);
   assert.match(createFromContactsBlock, /setMobileSessionMode\("chat"\)/);
-  assert.match(createFromContactsBlock, /handleSwitchSession\(sourceSessionId\)/);
+  assert.match(createFromContactsBlock, /handleSwitchSession\(requesterSession\.sessionId\)/);
+}
+
+function testDelegationPollingRefreshesVisibleSessions() {
+  const refreshDelegationsBlock =
+    appSource.match(
+      /const refreshAgentDelegations = useCallback\([\s\S]*?\n\s{2}useEffect\(\(\) => \{/
+    )?.[0] || "";
+
+  assert.match(refreshDelegationsBlock, /refreshSessionForDelegationUpdates/);
+  assert.match(refreshDelegationsBlock, /requesterSessionId/);
+  assert.match(refreshDelegationsBlock, /targetSessionId/);
+}
+
+function testTasksChatSchedulingUsesNewSessionPrompts() {
+  const createScheduledTaskBlock =
+    appSource.match(
+      /const handleCreateScheduledTaskChat = useCallback\([\s\S]*?\n\s{2}const handleOpenSessionAction = useCallback/
+    )?.[0] || "";
+  const editScheduledTaskBlock =
+    appSource.match(
+      /const handleEditScheduledTaskChat = useCallback\([\s\S]*?\n\s{2}const handleOpenSessionAction = useCallback/
+    )?.[0] || "";
+
+  assert.match(createScheduledTaskBlock, /createNewSession\(defaultModel, activeContextFolderPath/);
+  assert.match(createScheduledTaskBlock, /t\("tasks\.createWithChatPrompt"\)/);
+  assert.match(editScheduledTaskBlock, /createNewSession\(defaultModel, activeContextFolderPath/);
+  assert.match(editScheduledTaskBlock, /t\("tasks\.editWithChatPrompt"/);
+  assert.match(editScheduledTaskBlock, /formatScheduledTaskTriggersForChat/);
+  assert.match(appSource, /onCreateScheduledTaskChat=\{handleCreateScheduledTaskChat\}/);
+  assert.match(appSource, /onEditScheduledTaskChat=\{handleEditScheduledTaskChat\}/);
 }
 
 function testNewSessionCreationDoesNotDependOnGlobalGenerationState() {
@@ -358,6 +406,14 @@ function testTopLevelMobileMotionDoesNotWaitThroughBlankFrame() {
   );
 }
 
+function testAppWiresBrowserContextIntoChatRun() {
+  assert.match(appSource, /type ChatBrowserContext/);
+  assert.match(appSource, /const \[browserContext, setBrowserContext\]/);
+  assert.match(appSource, /const browserContextRef = useRef<ChatBrowserContext \| null>\(null\)/);
+  assert.match(appSource, /getBrowserContext:\s*\(\) => browserContextRef\.current/);
+  assert.match(appSource, /onBrowserContextChange=\{setBrowserContext\}/);
+}
+
 testChatCompletionClearsResidualPlan();
 testSessionDetailsRestorePersistedPlan();
 testRestoringSessionRefreshesWorkspaceViews();
@@ -366,7 +422,9 @@ testAppDelegatesSessionLifecycle();
 testAppDelegatesChatRun();
 testAppLoadsAgentContactsForContactsPage();
 testAppRendersContactsAsTopLevelTaskEntry();
-testContactDelegationReturnsToSessionAfterCreate();
+testContactDelegationCreatesRequesterSessionAfterCreate();
+testDelegationPollingRefreshesVisibleSessions();
+testTasksChatSchedulingUsesNewSessionPrompts();
 testNewSessionCreationDoesNotDependOnGlobalGenerationState();
 testNewSessionCreationOptimisticallyUpdatesSessionList();
 testSwitchingCurrentSessionRefreshesDetails();
@@ -389,5 +447,6 @@ testEmptyCurrentSessionIsNotInferredIntoSidebar();
 testMobileSessionSelectionSlidesBeforeDetailsResolve();
 testPendingMobileSessionDoesNotRenderPreviousSessionContent();
 testTopLevelMobileMotionDoesNotWaitThroughBlankFrame();
+testAppWiresBrowserContextIntoChatRun();
 
 console.log("app plan tests passed");

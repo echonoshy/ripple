@@ -24,6 +24,7 @@ import {
   fetchTaskTriggers,
   fetchTasks,
   fetchSessionTasks,
+  fetchBrowserPage,
   fetchSessions,
   fetchSessionDetails,
   fetchAgentDelegations,
@@ -54,6 +55,7 @@ import {
   updateTaskTrigger,
   updateSession,
   updateTaskAction,
+  createTaskTrigger,
   createTaskActionTrigger,
   deleteTaskTrigger,
   disableSessionMemory,
@@ -325,6 +327,14 @@ async function testTaskTriggerApisUseTaskScopedRoutes() {
         run_at: "2026-06-18T07:30",
       });
       assert.equal(created.task_action_id, "act-remind");
+      const taskCreated = await createTaskTrigger("task/trip", {
+        title: "明早提醒",
+        prompt: "提醒准备材料",
+        kind: "once",
+        timezone: "Asia/Shanghai",
+        run_at: "2026-06-18T07:30",
+      });
+      assert.equal(taskCreated.task_id, "task-trip");
       const updated = await updateTaskTrigger("task/trip", "trg/linked", {
         title: "每半小时提醒",
         kind: "interval",
@@ -345,6 +355,7 @@ async function testTaskTriggerApisUseTaskScopedRoutes() {
       "GET /v1/task-triggers",
       "GET /v1/tasks/task%2Ftrip/triggers",
       "POST /v1/tasks/task%2Ftrip/actions/act%2Fremind/triggers",
+      "POST /v1/tasks/task%2Ftrip/triggers",
       "PATCH /v1/tasks/task%2Ftrip/triggers/trg%2Flinked",
       "POST /v1/tasks/task%2Ftrip/triggers/trg%2Flinked/run-now",
       "DELETE /v1/tasks/task%2Ftrip/triggers/trg%2Flinked",
@@ -358,6 +369,13 @@ async function testTaskTriggerApisUseTaskScopedRoutes() {
     run_at: "2026-06-18T07:30:00+08:00",
   });
   assert.deepEqual(requests[3]?.body, {
+    title: "明早提醒",
+    prompt: "提醒准备材料",
+    kind: "once",
+    timezone: "Asia/Shanghai",
+    run_at: "2026-06-18T07:30:00+08:00",
+  });
+  assert.deepEqual(requests[4]?.body, {
     title: "每半小时提醒",
     kind: "interval",
     timezone: "UTC",
@@ -945,7 +963,7 @@ async function testCreateTaskTriggerAddsOffsetForNonUtcRunAt() {
       );
     },
     async () => {
-      await createTaskActionTrigger("task-time", "act-time", {
+      await createTaskTrigger("task-time", {
         title: "Ping",
         prompt: "Say hi",
         kind: "once",
@@ -1377,6 +1395,11 @@ async function testAgentDelegationApisUseExpectedRoutesAndPayloads() {
     updated_at: "2026-07-04T01:01:00Z",
     accepted_at: "2026-07-04T01:02:00Z",
     completed_at: null,
+    result_text: "最终产物：已整理三条要点。",
+    result_status: "completed",
+    result_job_id: "job-b",
+    result_updated_at: "2026-07-04T01:03:00Z",
+    result_output_available: true,
     pending_clarification: { question: "Need version?" },
     last_answer_event: null,
     reason: null,
@@ -1404,6 +1427,10 @@ async function testAgentDelegationApisUseExpectedRoutesAndPayloads() {
       const listed = await fetchAgentDelegations("received");
       assert.equal(listed[0]?.delegationId, "dlg-1");
       assert.equal(listed[0]?.pendingClarification?.question, "Need version?");
+      assert.equal(listed[0]?.resultText, "最终产物：已整理三条要点。");
+      assert.equal(listed[0]?.resultStatus, "completed");
+      assert.equal(listed[0]?.resultJobId, "job-b");
+      assert.equal(listed[0]?.resultOutputAvailable, true);
 
       await createAgentDelegation({
         targetUserId: "bob",
@@ -2140,6 +2167,131 @@ async function testSendChatMessagePassesClientContextOption() {
   );
 }
 
+async function testSendChatMessagePassesBrowserContextOption() {
+  const requests: Array<{ body: Record<string, unknown> }> = [];
+  const globals = globalThis as unknown as {
+    document?: Pick<Document, "addEventListener" | "removeEventListener"> & { hidden: boolean };
+    window?: Pick<Window, "fetch" | "setTimeout" | "clearTimeout">;
+  };
+  const previousDocument = globals.document;
+  const previousWindow = globals.window;
+  globals.document = {
+    hidden: false,
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
+  };
+  globals.window = {
+    fetch: (...args) => globalThis.fetch(...args),
+    setTimeout: globalThis.setTimeout,
+    clearTimeout: globalThis.clearTimeout,
+  };
+  const browserContext = {
+    schema_version: "ripple.browser_context.v1",
+    active: true,
+    page: {
+      url: "https://example.com/article",
+      title: "Example article",
+      visible_text: "Important article body",
+    },
+  };
+
+  try {
+    await withFetch(
+      async (_input, init) => {
+        requests.push({
+          body: JSON.parse(String(init?.body || "{}")) as Record<string, unknown>,
+        });
+        return new Response("data: [DONE]\n\n", {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        });
+      },
+      async () => {
+        await sendChatMessage(
+          "session-1",
+          "总结当前网页",
+          "codex-test",
+          {
+            onMessageDelta: () => undefined,
+            onToolCall: () => undefined,
+            onToolResult: () => undefined,
+            onUsage: () => undefined,
+            onComplete: () => undefined,
+            onError: () => undefined,
+          },
+          {
+            browserContext,
+          }
+        );
+      }
+    );
+  } finally {
+    globals.document = previousDocument;
+    globals.window = previousWindow;
+  }
+
+  assert.equal(requests.length, 1);
+  assert.equal(
+    (
+      (requests[0].body.metadata as Record<string, unknown>)?.browser_context as Record<
+        string,
+        unknown
+      >
+    )?.schema_version,
+    "ripple.browser_context.v1"
+  );
+  assert.equal(
+    (
+      (
+        (requests[0].body.metadata as Record<string, unknown>)?.browser_context as Record<
+          string,
+          unknown
+        >
+      )?.page as Record<string, unknown>
+    )?.url,
+    "https://example.com/article"
+  );
+}
+
+async function testFetchBrowserPageUsesBrowserEndpoint() {
+  const requests: Array<{ url: string; method: string }> = [];
+
+  await withFetch(
+    async (input, init) => {
+      requests.push({
+        url: String(input),
+        method: init?.method || "GET",
+      });
+      return new Response(
+        JSON.stringify({
+          url: "https://example.com/article",
+          title: "Example article",
+          text: "Important article body",
+          truncated: false,
+          captured_at: "2026-07-07T00:00:00Z",
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+    },
+    async () => {
+      const page = await fetchBrowserPage("https://example.com/article?x=1");
+
+      assert.equal(page.title, "Example article");
+      assert.equal(page.text, "Important article body");
+    }
+  );
+
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].method, "GET");
+  assert.equal(
+    requests[0].url,
+    "http://140.143.229.103:8810/v1/browser/page?url=https%3A%2F%2Fexample.com%2Farticle%3Fx%3D1"
+  );
+}
+
 async function testSendChatMessageDoesNotSendPreferredSkillIds() {
   const requests: Array<{ body: Record<string, unknown> }> = [];
   const globals = globalThis as unknown as {
@@ -2364,6 +2516,8 @@ test("api client behavior", async () => {
   await testResponsesStreamCompletedReportsChangedFilesWithoutPatch();
   await testSendChatMessagePassesRequiredSkillsAndScreenContext();
   await testSendChatMessagePassesClientContextOption();
+  await testSendChatMessagePassesBrowserContextOption();
+  await testFetchBrowserPageUsesBrowserEndpoint();
   await testSendChatMessageDoesNotSendPreferredSkillIds();
   await testSessionControlActionUsesStructuredResponsesInput();
 });

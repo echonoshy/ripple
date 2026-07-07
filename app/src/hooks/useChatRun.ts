@@ -15,6 +15,7 @@ import type {
 import {
   AuthError,
   cancelSessionConnectorAuth,
+  type ChatBrowserContext,
   type ChatStreamCallbacks,
   fetchSkills,
   fetchSessionDetails,
@@ -90,6 +91,7 @@ interface UseChatRunOptions {
   onAuthExpired: (message: string) => void;
   onWorkspaceRefresh: () => void;
   getSessionActions: () => ChatRunSessionActions;
+  getBrowserContext?: () => ChatBrowserContext | null;
   onSessionAttention?: (sessionId: string, attention: SessionAttention | null) => void;
 }
 
@@ -134,6 +136,7 @@ export function useChatRun({
   onAuthExpired,
   onWorkspaceRefresh,
   getSessionActions,
+  getBrowserContext,
   onSessionAttention,
 }: UseChatRunOptions) {
   const { t } = useI18n();
@@ -1036,17 +1039,20 @@ export function useChatRun({
         );
       } else {
         const manualRequiredSkillIds = selectedRequiredSkillId ? [selectedRequiredSkillId] : [];
+        const browserContext = getBrowserContext?.() ?? undefined;
 
         await sendChatMessage(activeSessionId, text, selectedModel, callbacks, {
           signal: abortController.signal,
           files: filesForSend,
           requiredSkillIds: manualRequiredSkillIds.length > 0 ? manualRequiredSkillIds : undefined,
+          browserContext,
         });
         if (selectedRequiredSkillId) setSelectedRequiredSkillId(null);
       }
     },
     [
       getSessionActions,
+      getBrowserContext,
       handleAuthExpired,
       handleClearContext,
       handleCompactContext,

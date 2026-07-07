@@ -1,6 +1,7 @@
 pub mod agent_delegations;
 pub mod auth;
 pub mod bilibili;
+pub mod browser;
 pub mod capabilities;
 pub mod chat;
 pub mod connectors;
@@ -166,6 +167,7 @@ pub fn router(state: AppState) -> Router {
         .routes(utoipa_axum::routes!(auth::change_password));
 
     let protected_v1: OpenApiRouter<AppState> = OpenApiRouter::new()
+        .routes(utoipa_axum::routes!(browser::fetch_browser_page))
         .routes(utoipa_axum::routes!(
             agent_delegations::list_agent_delegations,
             agent_delegations::create_agent_delegation

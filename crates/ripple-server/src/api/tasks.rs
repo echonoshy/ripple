@@ -2588,6 +2588,7 @@ async fn execute_task_action_inner(
         base_instructions: None,
         turn_context: None,
         client_context: None,
+        browser_context: None,
         cwd: Some(cwd),
         input_items: vec![json!({"type": "text", "text": prompt.clone()})],
         model: Some(model),

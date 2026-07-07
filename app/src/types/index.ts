@@ -558,6 +558,11 @@ export interface AgentDelegation {
   completedAt?: string | null;
   pendingClarification?: Record<string, unknown> | null;
   lastAnswerEvent?: Record<string, unknown> | null;
+  resultText?: string | null;
+  resultStatus?: string | null;
+  resultJobId?: string | null;
+  resultUpdatedAt?: string | null;
+  resultOutputAvailable?: boolean;
   reason?: string | null;
   error?: string | null;
 }

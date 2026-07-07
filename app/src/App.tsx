@@ -12,6 +12,7 @@ import {
   fetchAgentContacts,
   fetchAgentContactRequests,
   fetchAgentDelegations,
+  fetchSessionDetails,
   fetchModels,
   getApiKey,
   getAuthMode,
@@ -29,6 +30,7 @@ import {
   removeAgentContact,
   updateAgentContact,
   AuthError,
+  type ChatBrowserContext,
 } from "@/lib/api";
 import MobileSessionStack from "@/components/workbench/MobileSessionStack";
 import MobileSessionsPage from "@/components/workbench/MobileSessionsPage";
@@ -71,6 +73,8 @@ import type {
   SessionAttention,
   SessionControlAction,
   SessionDetail,
+  TaskInfo,
+  TaskTriggerInfo,
   UsageInfo,
   WorkbenchSessionSummary,
   WorkspaceFileOpenRequest,
@@ -116,6 +120,24 @@ function LazyWorkbenchFallback() {
       <Loader2 size={20} className="animate-spin" />
     </div>
   );
+}
+
+function formatScheduledTaskTriggersForChat(triggers: TaskTriggerInfo[]): string {
+  if (triggers.length === 0) return "No time triggers";
+  return triggers
+    .map((trigger, index) => {
+      const schedule =
+        trigger.kind === "interval"
+          ? `every ${trigger.interval_seconds ?? "unknown"} seconds`
+          : trigger.run_at || trigger.next_run_at || "no scheduled time";
+      const maxRuns = trigger.max_runs ? `/${trigger.max_runs}` : "/unlimited";
+      return `${index + 1}. id=${trigger.trigger_id}, title=${trigger.title}, kind=${
+        trigger.kind
+      }, schedule=${schedule}, status=${trigger.status}, next_run_at=${
+        trigger.next_run_at || "none"
+      }, runs=${trigger.run_count}${maxRuns}`;
+    })
+    .join("\n");
 }
 
 export default function Home() {
@@ -166,6 +188,7 @@ export default function Home() {
   const [sessionScrollToBottomRequest, setSessionScrollToBottomRequest] = useState(0);
   const [workspaceRefreshToken, setWorkspaceRefreshToken] = useState(0);
   const [activeContextFolderPath, setActiveContextFolderPath] = useState<string | null>(null);
+  const [browserContext, setBrowserContext] = useState<ChatBrowserContext | null>(null);
   const [activeView, setActiveView] = useState<WorkspaceView>("sessions");
   const [mobileMotionDirection, setMobileMotionDirection] = useState(0);
   const [mobileFilesReturnToChat, setMobileFilesReturnToChat] = useState(false);
@@ -186,7 +209,9 @@ export default function Home() {
     Record<string, SessionAttention | undefined>
   >({});
   const [agentContacts, setAgentContacts] = useState<AgentContact[]>([]);
-  const [sentAgentContactRequests, setSentAgentContactRequests] = useState<AgentContactRequest[]>([]);
+  const [sentAgentContactRequests, setSentAgentContactRequests] = useState<AgentContactRequest[]>(
+    []
+  );
   const [receivedAgentContactRequests, setReceivedAgentContactRequests] = useState<
     AgentContactRequest[]
   >([]);
@@ -208,7 +233,11 @@ export default function Home() {
   const mobileSessionModeRef = useRef<"list" | "chat">(mobileSessionMode);
   const workspaceFileOpenRequestIdRef = useRef(0);
   const mobileSessionSelectionRequestRef = useRef(0);
+  const browserContextRef = useRef<ChatBrowserContext | null>(null);
   const displayWorkbenchSessionOrderRef = useRef<WorkbenchSessionSummary[]>([]);
+  const refreshSessionForDelegationUpdatesRef = useRef<(delegations: AgentDelegation[]) => void>(
+    () => undefined
+  );
 
   const sessionActionsRef = useRef<ChatRunSessionActions>({
     getSessionId: () => null,
@@ -220,6 +249,10 @@ export default function Home() {
     stopCurrentSession: async () => false,
     stopSession: async () => false,
   });
+
+  useEffect(() => {
+    browserContextRef.current = browserContext;
+  }, [browserContext]);
 
   const handleAuthExpired = useCallback((message: string) => {
     selectedModelOverrideBySessionRef.current = {};
@@ -294,6 +327,14 @@ export default function Home() {
       ]);
       setSentAgentDelegations(sent);
       setReceivedAgentDelegations(received);
+      const delegations = [...sent, ...received];
+      if (
+        delegations.some(
+          (delegation) => delegation.requesterSessionId || delegation.targetSessionId
+        )
+      ) {
+        refreshSessionForDelegationUpdatesRef.current(delegations);
+      }
     } catch (error) {
       if (error instanceof AuthError) {
         handleAuthExpired(t("auth.sessionExpired"));
@@ -473,6 +514,7 @@ export default function Home() {
     onAuthExpired: handleAuthExpired,
     onWorkspaceRefresh: handleWorkspaceRefresh,
     getSessionActions,
+    getBrowserContext: () => browserContextRef.current,
     onSessionAttention: handleSessionAttention,
   });
 
@@ -515,6 +557,38 @@ export default function Home() {
     onDeleteCurrentSession: resetSessionView,
     onSessionActivated: handleSessionActivated,
   });
+
+  const refreshSessionForDelegationUpdates = useCallback(
+    async (delegations: AgentDelegation[]) => {
+      const currentSessionId = selectedSessionIdRef.current;
+      if (!currentSessionId) return;
+      const shouldRefresh = delegations.some(
+        (delegation) =>
+          delegation.requesterSessionId === currentSessionId ||
+          delegation.targetSessionId === currentSessionId
+      );
+      if (!shouldRefresh) return;
+      try {
+        const details = await fetchSessionDetails(currentSessionId);
+        if (!details || selectedSessionIdRef.current !== currentSessionId) return;
+        handleApplySessionDetails(details);
+        await loadSessions({ showLoading: false });
+      } catch (error) {
+        if (error instanceof AuthError) {
+          handleAuthExpired(t("auth.sessionExpired"));
+          return;
+        }
+        console.error("Failed to refresh session for delegation updates:", error);
+      }
+    },
+    [handleApplySessionDetails, handleAuthExpired, loadSessions, t]
+  );
+
+  useEffect(() => {
+    refreshSessionForDelegationUpdatesRef.current = (delegations) => {
+      void refreshSessionForDelegationUpdates(delegations);
+    };
+  }, [refreshSessionForDelegationUpdates]);
 
   const handleSelectDefaultModel = useCallback(
     (model: string) => {
@@ -900,11 +974,16 @@ export default function Home() {
 
   const handleCreateAgentDelegationFromContacts = useCallback(
     async (input: ContactDelegationCreateInput) => {
-      const sourceSessionId = await ensureSession(defaultModel, activeContextFolderPath);
-      if (!sourceSessionId) return;
+      const requesterSession = await createNewSession(defaultModel, activeContextFolderPath, {
+        refresh: false,
+      });
+      if (!requesterSession) return;
+      await updateSessionById(requesterSession.sessionId, {
+        title: `委托给 @${input.targetUserId}: ${input.taskTitle}`,
+      });
       const delegation = await handleCreateAgentDelegation({
         targetUserId: input.targetUserId,
-        sourceSessionId,
+        sourceSessionId: requesterSession.sessionId,
         taskTitle: input.taskTitle,
         taskPrompt: input.taskPrompt,
       });
@@ -917,15 +996,16 @@ export default function Home() {
       setActiveView("sessions");
       setMobileMotionDirection(1);
       setMobileSessionMode("chat");
-      await handleSwitchSession(sourceSessionId);
+      await handleSwitchSession(requesterSession.sessionId);
     },
     [
       activeContextFolderPath,
+      createNewSession,
       defaultModel,
-      ensureSession,
       handleCreateAgentDelegation,
       handleSwitchSession,
       loadSessions,
+      updateSessionById,
     ]
   );
 
@@ -1086,6 +1166,48 @@ export default function Home() {
       }
     },
     [handleSendMessage, setInput]
+  );
+  const handleCreateScheduledTaskChat = useCallback(async () => {
+    setPendingMobileSession(null);
+    mobileSessionSelectionRequestRef.current += 1;
+    setMobileFilesReturnToChat(false);
+    setPendingWorkspaceFileOpen(null);
+    const session = await createNewSession(defaultModel, activeContextFolderPath, {
+      refresh: false,
+    });
+    if (!session) return;
+    setSelectedModel(session.model || defaultModel);
+    setActiveContextFolderPath(session.contextFolderPath ?? activeContextFolderPath);
+    setActiveView("sessions");
+    setMobileMotionDirection(1);
+    setMobileSessionMode("chat");
+    setInput(t("tasks.createWithChatPrompt"));
+  }, [activeContextFolderPath, createNewSession, defaultModel, setInput, t]);
+  const handleEditScheduledTaskChat = useCallback(
+    async (task: TaskInfo, triggers: TaskTriggerInfo[]) => {
+      setPendingMobileSession(null);
+      mobileSessionSelectionRequestRef.current += 1;
+      setMobileFilesReturnToChat(false);
+      setPendingWorkspaceFileOpen(null);
+      const session = await createNewSession(defaultModel, activeContextFolderPath, {
+        refresh: false,
+      });
+      if (!session) return;
+      setSelectedModel(session.model || defaultModel);
+      setActiveContextFolderPath(session.contextFolderPath ?? activeContextFolderPath);
+      setActiveView("sessions");
+      setMobileMotionDirection(1);
+      setMobileSessionMode("chat");
+      setInput(
+        t("tasks.editWithChatPrompt", {
+          taskId: task.taskId,
+          title: task.title,
+          objective: task.objective || task.title,
+          triggers: formatScheduledTaskTriggersForChat(triggers),
+        })
+      );
+    },
+    [activeContextFolderPath, createNewSession, defaultModel, setInput, t]
   );
   const handleOpenSessionAction = useCallback(
     (action: SessionControlAction, label: string) => {
@@ -1472,6 +1594,8 @@ export default function Home() {
         userId={userId}
         onAuthExpired={handleAuthExpired}
         onOpenSession={handleOpenTaskSession}
+        onCreateScheduledTaskChat={handleCreateScheduledTaskChat}
+        onEditScheduledTaskChat={handleEditScheduledTaskChat}
       />
     ) : activeView === "contacts" ? (
       <ContactsPage
@@ -1491,6 +1615,7 @@ export default function Home() {
         onRejectContactRequest={handleRejectAgentContactRequest}
         onAcceptDelegation={handleAcceptAgentDelegation}
         onRejectDelegation={handleRejectAgentDelegation}
+        onOpenSession={handleOpenTaskSession}
         onRefresh={async () => {
           await Promise.all([
             refreshAgentContacts(),
@@ -1668,6 +1793,7 @@ export default function Home() {
                 onCollapse={() => setIsInspectorCollapsed(true)}
                 openFileRequest={pendingWorkspaceFileOpen}
                 onOpenFileRequestConsumed={handlePendingWorkspaceFileOpenConsumed}
+                onBrowserContextChange={setBrowserContext}
               />
             </Suspense>
           ) : null

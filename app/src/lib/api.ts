@@ -629,6 +629,11 @@ interface RawAgentDelegation {
   updated_at?: string;
   accepted_at?: string | null;
   completed_at?: string | null;
+  result_text?: string | null;
+  result_status?: string | null;
+  result_job_id?: string | null;
+  result_updated_at?: string | null;
+  result_output_available?: boolean;
   pending_clarification?: Record<string, unknown> | null;
   last_answer_event?: Record<string, unknown> | null;
   reason?: string | null;
@@ -857,6 +862,11 @@ function normalizeAgentDelegation(raw: RawAgentDelegation): AgentDelegation {
     updatedAt: raw.updated_at || "",
     acceptedAt: raw.accepted_at ?? null,
     completedAt: raw.completed_at ?? null,
+    resultText: raw.result_text ?? null,
+    resultStatus: raw.result_status ?? null,
+    resultJobId: raw.result_job_id ?? null,
+    resultUpdatedAt: raw.result_updated_at ?? null,
+    resultOutputAvailable: raw.result_output_available === true,
     pendingClarification: raw.pending_clarification ?? null,
     lastAnswerEvent: raw.last_answer_event ?? null,
     reason: raw.reason ?? null,
@@ -921,6 +931,19 @@ export async function fetchModels(): Promise<{ id: string; owned_by: string }[]>
   if (!res.ok) throw new Error("Failed to fetch models");
   const data = await res.json();
   return data.data || [];
+}
+
+export async function fetchBrowserPage(url: string): Promise<BrowserPageResponse> {
+  const qs = new URLSearchParams({ url });
+  const res = await fetch(`${API_URL}/browser/page?${qs.toString()}`, {
+    headers: { ...authHeaders() },
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to fetch browser page (${res.status})`);
+  }
+  return (await res.json()) as BrowserPageResponse;
 }
 
 function urlWithCursor(url: string, cursor: string | null): string {
@@ -1188,6 +1211,23 @@ export async function createTaskActionTrigger(
       body: JSON.stringify(taskTriggerInputForRequest(input)),
     }
   );
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to create task trigger (${res.status})`);
+  }
+  return (await res.json()) as TaskTriggerInfo;
+}
+
+export async function createTaskTrigger(
+  taskId: string,
+  input: TaskTriggerCreateInput
+): Promise<TaskTriggerInfo> {
+  const res = await fetch(`${API_URL}/tasks/${encodeURIComponent(taskId)}/triggers`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify(taskTriggerInputForRequest(input)),
+  });
   if (res.status === 401) throw new AuthError();
   if (!res.ok) {
     const detail = await responseDetail(res);
@@ -1877,12 +1917,29 @@ export interface ChatClientContext {
   [key: string]: unknown;
 }
 
+export interface ChatBrowserContext {
+  schema_version?: string;
+  captured_at?: string;
+  active?: boolean;
+  page?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+export interface BrowserPageResponse {
+  url: string;
+  title?: string | null;
+  text: string;
+  truncated: boolean;
+  captured_at: string;
+}
+
 interface SendChatMessageOptions {
   signal?: AbortSignal;
   files?: ChatFileRef[];
   requiredSkillIds?: string[];
   screenContext?: ChatScreenContext;
   clientContext?: ChatClientContext | null;
+  browserContext?: ChatBrowserContext | null;
 }
 
 function responseIdForSession(sessionId: string): string {
@@ -2247,6 +2304,9 @@ export async function sendChatMessage(
   }
   if (options?.clientContext) {
     metadata.client_context = options.clientContext;
+  }
+  if (options?.browserContext) {
+    metadata.browser_context = options.browserContext;
   }
   return streamChatResponse(
     "/responses",

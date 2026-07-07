@@ -62,8 +62,8 @@ pub(crate) use media::{
 use media::{decode_base64_image_payload, workspace_path_or_none};
 use project_context::collect_folder_context;
 pub(crate) use prompt::{
-    build_codex_chat_base_instructions, build_codex_chat_turn_context, render_client_context,
-    RequiredSkillContext,
+    build_codex_chat_base_instructions, build_codex_chat_turn_context, render_browser_context,
+    render_client_context, RequiredSkillContext,
 };
 #[cfg(test)]
 use recent_context::recent_task_triggers_context_from_records;
@@ -92,6 +92,8 @@ pub struct InternalChatRequest {
     pub screen_context: Option<Value>,
     #[serde(default)]
     pub client_context: Option<Value>,
+    #[serde(default)]
+    pub browser_context: Option<Value>,
     #[serde(default)]
     pub temporary: bool,
     pub max_turns: Option<u32>,
@@ -123,6 +125,7 @@ impl ResponsesCreateRequest {
             &["required_skill_ids", "selected_skill_ids"],
         )?;
         let client_context = metadata_client_context(self.metadata.as_ref())?;
+        let browser_context = metadata_browser_context(self.metadata.as_ref())?;
         let screen_context = metadata_screen_context(self.metadata.as_ref())?;
         let effort = self
             .reasoning
@@ -145,6 +148,7 @@ impl ResponsesCreateRequest {
             required_skill_ids,
             screen_context,
             client_context,
+            browser_context,
             temporary: self.store == Some(false),
             max_turns: None,
             effort,
@@ -221,6 +225,22 @@ fn metadata_client_context(metadata: Option<&Value>) -> Result<Option<Value>, Ap
     }
     if !value.is_object() {
         return Err(ApiError::bad_request("client_context must be an object"));
+    }
+    Ok(Some(value.clone()))
+}
+
+fn metadata_browser_context(metadata: Option<&Value>) -> Result<Option<Value>, ApiError> {
+    let Some(metadata) = metadata else {
+        return Ok(None);
+    };
+    let Some(value) = metadata.get("browser_context") else {
+        return Ok(None);
+    };
+    if value.is_null() {
+        return Ok(None);
+    }
+    if !value.is_object() {
+        return Err(ApiError::bad_request("browser_context must be an object"));
     }
     Ok(Some(value.clone()))
 }
@@ -832,6 +852,7 @@ async fn create_codex_chat_run(args: &CodexChatStart) -> Result<AgentRunInfo, Ap
     let mut native_items = args.input_items.clone();
     native_items.push(json!({"type": "text", "text": prompt}));
     let client_context = render_client_context(effective_client_context(&args.request));
+    let browser_context = render_browser_context(args.request.browser_context.as_ref());
     let runtime_dir = args
         .state
         .sandboxes
@@ -842,6 +863,7 @@ async fn create_codex_chat_run(args: &CodexChatStart) -> Result<AgentRunInfo, Ap
         base_instructions: Some(base_instructions),
         turn_context: Some(turn_context),
         client_context,
+        browser_context,
         cwd: Some(chat_cwd_for_session(&args.session)),
         input_items: native_items,
         model: Some(args.model.clone()),
@@ -1181,6 +1203,7 @@ pub async fn poll_session_connector_auth(
             required_skill_ids: Vec::new(),
             screen_context: None,
             client_context: None,
+            browser_context: None,
             temporary: false,
             max_turns: None,
             effort: request.effort,
@@ -2801,6 +2824,50 @@ mod tests {
     }
 
     #[test]
+    fn responses_metadata_extracts_browser_context() {
+        let request = ResponsesCreateRequest {
+            model: Some("codex-test".to_string()),
+            input: json!([{"role": "user", "content": "总结当前网页"}]),
+            instructions: None,
+            stream: Some(false),
+            previous_response_id: None,
+            metadata: Some(json!({
+                "ripple_session_id": "session-browser",
+                "browser_context": {
+                    "schema_version": "ripple.browser_context.v1",
+                    "active": true,
+                    "page": {
+                        "url": "https://example.com/article",
+                        "title": "Example article",
+                        "visible_text": "Important article body"
+                    }
+                }
+            })),
+            store: None,
+            reasoning: None,
+            text: None,
+        };
+
+        let chat = request.into_chat_request().expect("chat request");
+
+        assert_eq!(chat.session_id.as_deref(), Some("session-browser"));
+        assert_eq!(
+            chat.browser_context
+                .as_ref()
+                .and_then(|value| value.pointer("/schema_version"))
+                .and_then(Value::as_str),
+            Some("ripple.browser_context.v1")
+        );
+        assert_eq!(
+            chat.browser_context
+                .as_ref()
+                .and_then(|value| value.pointer("/page/url"))
+                .and_then(Value::as_str),
+            Some("https://example.com/article")
+        );
+    }
+
+    #[test]
     fn screen_context_autorequires_viaim_skill_for_ripple_mvp_app() {
         let request = InternalChatRequest {
             model: None,
@@ -2813,6 +2880,7 @@ mod tests {
                 "screen_id": "session.chat"
             })),
             client_context: None,
+            browser_context: None,
             temporary: false,
             max_turns: None,
             effort: None,
@@ -2859,6 +2927,7 @@ mod tests {
                     "kind": "ai_headset"
                 }]
             })),
+            browser_context: None,
             temporary: false,
             max_turns: None,
             effort: None,

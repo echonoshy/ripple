@@ -517,6 +517,7 @@ async fn start_target_agent_run(
         base_instructions: Some(agent_delegation_base_instructions()),
         turn_context: None,
         client_context: None,
+        browser_context: None,
         cwd: None,
         input_items: vec![json!({"type": "text", "text": prompt})],
         model: Some(model),
@@ -668,7 +669,7 @@ async fn finalize_agent_delegation_run(
         "cancelled" => STATUS_CANCELLED,
         _ => STATUS_FAILED,
     };
-    mark_delegation_status(state, delegation_id, status, info.error.clone()).await?;
+    mark_delegation_run_finished(state, delegation_id, status, info, &output).await?;
     Ok(())
 }
 
@@ -729,6 +730,59 @@ async fn mark_delegation_status(
     }
     state.storage.upsert_agent_delegation(&record).await?;
     Ok(())
+}
+
+async fn mark_delegation_run_finished(
+    state: &AppState,
+    delegation_id: &str,
+    status: &str,
+    info: &AgentRunInfo,
+    output: &str,
+) -> Result<(), ApiError> {
+    let mut record = state
+        .storage
+        .get_agent_delegation(delegation_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("Agent delegation not found"))?;
+    let now = now_iso();
+    apply_delegation_run_result_fields(&mut record, info, status, output, &now);
+    state.storage.upsert_agent_delegation(&record).await?;
+    Ok(())
+}
+
+fn apply_delegation_run_result_fields(
+    record: &mut Value,
+    info: &AgentRunInfo,
+    status: &str,
+    output: &str,
+    now: &str,
+) {
+    let result_text = output.trim();
+    set_field(record, "status", json!(status));
+    set_field(record, "updated_at", json!(now));
+    set_field(record, "completed_at", json!(now));
+    set_field(record, "result_status", json!(info.status.as_str()));
+    set_field(record, "result_job_id", json!(info.job_id.as_str()));
+    set_field(record, "result_updated_at", json!(now));
+    set_field(
+        record,
+        "result_output_available",
+        json!(!result_text.is_empty()),
+    );
+    if result_text.is_empty() {
+        set_field(record, "result_text", Value::Null);
+    } else {
+        set_field(record, "result_text", json!(result_text));
+    }
+    if let Some(error) = info
+        .error
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        set_field(record, "error", json!(error));
+    } else if status == STATUS_COMPLETED {
+        set_field(record, "error", Value::Null);
+    }
 }
 
 async fn update_target_session_for_clarification(
@@ -1023,5 +1077,67 @@ I need one more thing.
         let output = "Task completed. Here is the final answer.";
 
         assert!(parse_delegation_clarification_request(output).is_none());
+    }
+
+    #[test]
+    fn records_final_result_fields_on_delegation_record() {
+        let mut record = json!({
+            "delegation_id": "dlg-1",
+            "status": STATUS_RUNNING,
+            "updated_at": "2026-07-07T01:00:00Z"
+        });
+        let info = AgentRunInfo {
+            job_id: "job-1".to_string(),
+            provider: "codex".to_string(),
+            status: "completed".to_string(),
+            output_file: Some("/tmp/output.txt".to_string()),
+            events_file: None,
+            created_at: "2026-07-07T01:00:00Z".to_string(),
+            updated_at: "2026-07-07T01:05:00Z".to_string(),
+            exit_code: Some(0),
+            prompt_preview: None,
+            sandbox_cwd: None,
+            stdout_tail: String::new(),
+            stderr_tail: String::new(),
+            error: None,
+            pending_approval: None,
+            pending_user_input: None,
+            metadata: Value::Null,
+        };
+
+        apply_delegation_run_result_fields(
+            &mut record,
+            &info,
+            STATUS_COMPLETED,
+            "最终产物：已整理三条要点。",
+            "2026-07-07T01:06:00Z",
+        );
+
+        assert_eq!(
+            record.get("status").and_then(Value::as_str),
+            Some(STATUS_COMPLETED)
+        );
+        assert_eq!(
+            record.get("result_text").and_then(Value::as_str),
+            Some("最终产物：已整理三条要点。")
+        );
+        assert_eq!(
+            record.get("result_status").and_then(Value::as_str),
+            Some("completed")
+        );
+        assert_eq!(
+            record.get("result_job_id").and_then(Value::as_str),
+            Some("job-1")
+        );
+        assert_eq!(
+            record
+                .get("result_output_available")
+                .and_then(Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            record.get("completed_at").and_then(Value::as_str),
+            Some("2026-07-07T01:06:00Z")
+        );
     }
 }

@@ -3,7 +3,6 @@
 import React, { useMemo, useState } from "react";
 import {
   AlertTriangle,
-  Bot,
   Check,
   Clock3,
   Loader2,
@@ -12,6 +11,7 @@ import {
   Save,
   Send,
   Trash2,
+  User,
   UserPlus,
   Users,
   X,
@@ -65,6 +65,7 @@ interface ContactsPageProps {
   onRejectContactRequest?: (requestId: string) => Promise<void> | void;
   onAcceptDelegation?: (delegationId: string) => Promise<void> | void;
   onRejectDelegation?: (delegationId: string) => Promise<void> | void;
+  onOpenSession?: (sessionId: string) => void;
   onRefresh?: () => Promise<unknown> | unknown;
 }
 
@@ -73,22 +74,71 @@ function contactDisplayName(contact: AgentContact): string {
 }
 
 function contactPrimaryName(contact: AgentContact): string {
-  return contact.remark || contactDisplayName(contact);
+  return contactDisplayName(contact);
 }
 
 function contactSecondaryText(contact: AgentContact): string {
   const parts = [`@${contact.contactUserId}`];
   const displayName = contactDisplayName(contact);
-  if (displayName && displayName !== contact.contactUserId && displayName !== contact.remark) {
-    parts.push(displayName);
-  }
-  if (contact.profile.login) {
+  if (contact.profile.login && contact.profile.login !== displayName) {
     parts.push(contact.profile.login);
   }
   return parts.join(" · ");
 }
 
-function syntheticContact(userId: string, profile?: AgentContactRequest["requesterProfile"]): AgentContact {
+function contactRemarkText(contact: AgentContact, t: ReturnType<typeof useI18n>["t"]): string {
+  return contact.remark.trim() || t("contacts.emptyRemark");
+}
+
+function contactInitials(contact: AgentContact): string {
+  const name = contactPrimaryName(contact).trim() || contact.contactUserId;
+  return Array.from(name).slice(0, 2).join("").toUpperCase();
+}
+
+function contactAvatarSrc(contact: AgentContact): string | null {
+  const uri = contact.profile.avatarUri?.trim();
+  if (!uri) return null;
+  if (uri.startsWith("http://") || uri.startsWith("https://") || uri.startsWith("data:")) {
+    return uri;
+  }
+  return null;
+}
+
+function ContactAvatar({ contact, size = "sm" }: { contact: AgentContact; size?: "sm" | "md" }) {
+  const src = contactAvatarSrc(contact);
+  const boxClass = size === "md" ? "h-10 w-10 text-[13px]" : "h-8 w-8 text-[11px]";
+  return (
+    <span
+      className={`inline-flex ${boxClass} shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#F0F5FF] font-medium text-[#1456F0]`}
+    >
+      {src ? (
+        <img src={src} alt="" aria-hidden="true" className="h-full w-full object-cover" />
+      ) : (
+        <span aria-hidden="true">{contactInitials(contact) || <User size={14} />}</span>
+      )}
+    </span>
+  );
+}
+
+function deriveDelegationTitle(prompt: string): string {
+  const firstLine =
+    prompt
+      .split("\n")
+      .map((line) => line.trim())
+      .find(Boolean) || "Agent delegation";
+  return firstLine.length > 48 ? `${firstLine.slice(0, 45)}...` : firstLine;
+}
+
+interface ContactHistoryItem {
+  delegation: AgentDelegation;
+  direction: "sent" | "received";
+  sessionId: string;
+}
+
+function syntheticContact(
+  userId: string,
+  profile?: AgentContactRequest["requesterProfile"]
+): AgentContact {
   return {
     ownerUserId: "",
     contactUserId: userId,
@@ -134,6 +184,10 @@ function delegationStatusClass(status: string): string {
   return WORKBENCH_STATUS_NEUTRAL_CLASS;
 }
 
+function delegationResultText(delegation: AgentDelegation): string {
+  return delegation.resultText?.trim() || "";
+}
+
 function formatDelegationTime(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
@@ -161,17 +215,18 @@ export default function ContactsPage({
   onRejectContactRequest,
   onAcceptDelegation,
   onRejectDelegation,
+  onOpenSession,
   onRefresh,
 }: ContactsPageProps) {
   const { t } = useI18n();
   const [selectedContactId, setSelectedContactId] = useState("");
   const [newContactUserId, setNewContactUserId] = useState("");
+  const [editingRemarkContactId, setEditingRemarkContactId] = useState<string | null>(null);
   const [remarkDraftState, setRemarkDraftState] = useState<{
     contactUserId: string;
     value: string;
   } | null>(null);
   const [taskDialogContactId, setTaskDialogContactId] = useState<string | null>(null);
-  const [taskTitle, setTaskTitle] = useState("");
   const [taskPrompt, setTaskPrompt] = useState("");
 
   const pendingIncomingDelegations = useMemo(
@@ -211,10 +266,6 @@ export default function ContactsPage({
     pendingIncomingDelegations,
     pendingSentContactRequests,
   ]);
-  const contactIds = useMemo(
-    () => new Set(contactRows.map((contact) => contact.contactUserId)),
-    [contactRows]
-  );
   const incomingDelegationsByRequesterId = useMemo(() => {
     const groups = new Map<string, AgentDelegation[]>();
     for (const delegation of pendingIncomingDelegations) {
@@ -242,13 +293,6 @@ export default function ContactsPage({
     }
     return groups;
   }, [pendingSentContactRequests]);
-  const visibleDelegations = useMemo(
-    () =>
-      sentDelegations
-        .filter((delegation) => contactIds.size === 0 || contactIds.has(delegation.targetUserId))
-        .slice(0, 8),
-    [contactIds, sentDelegations]
-  );
   const incomingCount = pendingIncomingDelegations.length;
   const pendingRequestCount = incomingCount + pendingIncomingContactRequests.length;
   const effectiveSelectedContactId = contactRows.some(
@@ -268,8 +312,38 @@ export default function ContactsPage({
     incomingContactRequestsByRequesterId.get(effectiveSelectedContactId) || [];
   const selectedSentContactRequests =
     sentContactRequestsByTargetId.get(effectiveSelectedContactId) || [];
+  const selectedContactHistory = useMemo<ContactHistoryItem[]>(() => {
+    if (!effectiveSelectedContactId) return [];
+    const sent: ContactHistoryItem[] = sentDelegations
+      .filter(
+        (delegation) =>
+          delegation.targetUserId === effectiveSelectedContactId &&
+          Boolean(delegation.requesterSessionId)
+      )
+      .map<ContactHistoryItem>((delegation) => ({
+        delegation,
+        direction: "sent",
+        sessionId: delegation.requesterSessionId,
+      }));
+    const received: ContactHistoryItem[] = receivedDelegations
+      .filter(
+        (delegation) =>
+          delegation.requesterUserId === effectiveSelectedContactId &&
+          Boolean(delegation.targetSessionId)
+      )
+      .map<ContactHistoryItem>((delegation) => ({
+        delegation,
+        direction: "received",
+        sessionId: delegation.targetSessionId || "",
+      }))
+      .filter((item) => Boolean(item.sessionId));
+    return [...sent, ...received].sort((left, right) =>
+      right.delegation.updatedAt.localeCompare(left.delegation.updatedAt)
+    );
+  }, [effectiveSelectedContactId, receivedDelegations, sentDelegations]);
   const remarkDraft =
-    selectedExistingContact && remarkDraftState?.contactUserId === selectedExistingContact.contactUserId
+    selectedExistingContact &&
+    remarkDraftState?.contactUserId === selectedExistingContact.contactUserId
       ? remarkDraftState.value
       : selectedExistingContact?.remark || "";
   const isAddingContact = Boolean(pendingActionKey && pendingActionKey.startsWith("contact:"));
@@ -277,14 +351,16 @@ export default function ContactsPage({
   const isSavingRemark =
     selectedExistingContact &&
     pendingActionKey === `update-contact:${selectedExistingContact.contactUserId}`;
+  const isEditingRemark = Boolean(
+    selectedExistingContact && editingRemarkContactId === selectedExistingContact.contactUserId
+  );
   const canAddContact = Boolean(newContactUserId.trim()) && !isAddingContact;
   const canSaveRemark = Boolean(
     selectedExistingContact &&
-      remarkDraft.trim() !== selectedExistingContact.remark &&
-      !isSavingRemark
+    remarkDraft.trim() !== selectedExistingContact.remark &&
+    !isSavingRemark
   );
-  const canSubmitTask =
-    Boolean(taskDialogContact && taskTitle.trim() && taskPrompt.trim()) && !isCreatingTask;
+  const canSubmitTask = Boolean(taskDialogContact && taskPrompt.trim()) && !isCreatingTask;
 
   return (
     <div
@@ -392,20 +468,17 @@ export default function ContactsPage({
                 <div className="grid gap-2">
                   {contactRows.map((contact) => {
                     const selected = contact.contactUserId === effectiveSelectedContactId;
-                    const removing = pendingActionKey === `remove-contact:${contact.contactUserId}`;
                     const contactIncomingDelegations =
                       incomingDelegationsByRequesterId.get(contact.contactUserId) || [];
                     const contactIncomingContactRequests =
                       incomingContactRequestsByRequesterId.get(contact.contactUserId) || [];
                     const contactRequestCount =
                       contactIncomingDelegations.length + contactIncomingContactRequests.length;
-                    const isExistingContact = contacts.some(
-                      (existingContact) => existingContact.contactUserId === contact.contactUserId
-                    );
                     return (
                       <div
                         key={contact.contactUserId}
-                        className={`group flex min-h-14 items-center gap-2 rounded-lg border px-2.5 py-2 transition-colors ${
+                        data-ripple-contact-row={contact.contactUserId}
+                        className={`group rounded-lg border transition-colors ${
                           selected
                             ? "border-[#1456F0] bg-[#F0F5FF]"
                             : "border-[#DEE0E3] bg-white hover:bg-[#F8F9FA]"
@@ -414,11 +487,9 @@ export default function ContactsPage({
                         <button
                           type="button"
                           onClick={() => setSelectedContactId(contact.contactUserId)}
-                          className="grid min-w-0 flex-1 grid-cols-[32px_minmax(0,1fr)_auto] items-center gap-2 text-left"
+                          className="grid min-h-16 w-full min-w-0 grid-cols-[32px_minmax(0,1fr)_auto] items-center gap-2 px-2.5 py-2 text-left"
                         >
-                          <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-[#1456F0]">
-                            <Bot size={15} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
-                          </span>
+                          <ContactAvatar contact={contact} />
                           <span className="min-w-0">
                             <span
                               className={`block truncate ${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#1F2329]`}
@@ -429,6 +500,11 @@ export default function ContactsPage({
                               className={`block truncate ${TYPOGRAPHY_META_CLASS} text-[#646A73]`}
                             >
                               {contactSecondaryText(contact)}
+                            </span>
+                            <span
+                              className={`block truncate ${TYPOGRAPHY_META_CLASS} text-[#8F959E]`}
+                            >
+                              {contactRemarkText(contact, t)}
                             </span>
                           </span>
                           {contactRequestCount > 0 ? (
@@ -446,40 +522,7 @@ export default function ContactsPage({
                             />
                           ) : null}
                         </button>
-                        {isExistingContact ? (
-                          <>
-                            <button
-                              type="button"
-                              aria-label={`${t("contacts.sendTask")} ${contact.contactUserId}`}
-                              title={t("contacts.sendTask")}
-                              disabled={Boolean(pendingActionKey)}
-                              onClick={() => {
-                                setSelectedContactId(contact.contactUserId);
-                                setTaskTitle("");
-                                setTaskPrompt("");
-                                setTaskDialogContactId(contact.contactUserId);
-                              }}
-                              className={`${WORKBENCH_SECONDARY_BUTTON_CLASS} h-8 shrink-0 !px-2`}
-                            >
-                              <Send size={13} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
-                              <span className="hidden sm:inline">{t("contacts.sendTask")}</span>
-                            </button>
-                            <button
-                              type="button"
-                              aria-label={`${t("contacts.removeContact")} ${contact.contactUserId}`}
-                              title={t("contacts.removeContact")}
-                              disabled={Boolean(pendingActionKey)}
-                              onClick={() => onRemoveContact(contact.contactUserId)}
-                              className={`${WORKBENCH_DANGER_BUTTON_CLASS} h-8 w-8 shrink-0 !px-0`}
-                            >
-                              {removing ? (
-                                <Loader2 size={13} className="animate-spin" />
-                              ) : (
-                                <Trash2 size={13} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
-                              )}
-                            </button>
-                          </>
-                        ) : null}
+                        <span hidden data-ripple-contact-row-end={contact.contactUserId} />
                       </div>
                     );
                   })}
@@ -515,15 +558,16 @@ export default function ContactsPage({
               {selectedContact ? (
                 <div className="grid gap-4 px-4 py-4">
                   <div className="flex min-w-0 items-start gap-3">
-                    <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#F0F5FF] text-[#1456F0]">
-                      <Bot size={18} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
-                    </span>
+                    <ContactAvatar contact={selectedContact} size="md" />
                     <div className="min-w-0">
                       <div className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} truncate text-[#1F2329]`}>
                         {contactPrimaryName(selectedContact)}
                       </div>
                       <div className={`${TYPOGRAPHY_META_CLASS} mt-0.5 truncate text-[#646A73]`}>
                         {contactSecondaryText(selectedContact)}
+                      </div>
+                      <div className={`${TYPOGRAPHY_META_CLASS} mt-0.5 truncate text-[#8F959E]`}>
+                        {contactRemarkText(selectedContact, t)}
                       </div>
                     </div>
                   </div>
@@ -669,58 +713,191 @@ export default function ContactsPage({
                   ) : null}
 
                   {selectedExistingContact ? (
-                    <form
-                      className="grid gap-2"
-                      onSubmit={async (event) => {
-                        event.preventDefault();
-                        if (!selectedExistingContact || !canSaveRemark) return;
-                        await onUpdateContact(selectedExistingContact.contactUserId, {
-                          remark: remarkDraft.trim(),
-                        });
-                      }}
-                    >
-                      <label className="grid gap-1">
-                        <span
-                          className={`inline-flex items-center gap-1 ${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#2B2F36]`}
-                        >
-                          <Pencil size={13} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
-                          {t("contacts.remark")}
-                        </span>
-                        <input
-                          value={remarkDraft}
-                          onChange={(event) =>
-                            setRemarkDraftState(
-                              selectedExistingContact
-                                ? {
-                                    contactUserId: selectedExistingContact.contactUserId,
-                                    value: event.target.value,
-                                  }
-                                : null
-                            )
-                          }
-                          placeholder={t("contacts.remarkPlaceholder")}
-                          disabled={Boolean(isSavingRemark)}
-                          className={`h-10 px-3 ${WORKBENCH_FIELD_CLASS} ${TYPOGRAPHY_BODY_CLASS}`}
-                        />
-                      </label>
+                    <section className="rounded-lg border border-[#EFF0F1] bg-[#F8F9FA] p-3">
                       <div className="flex flex-wrap items-center justify-between gap-2">
-                        <span className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
-                          {selectedExistingContact.remark || t("contacts.emptyRemark")}
-                        </span>
-                        <button
-                          type="submit"
-                          disabled={!canSaveRemark}
-                          className={`h-9 ${WORKBENCH_SECONDARY_BUTTON_CLASS} ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
-                        >
-                          {isSavingRemark ? (
-                            <Loader2 size={14} className="animate-spin" />
-                          ) : (
-                            <Save size={14} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
-                          )}
-                          {t("contacts.saveRemark")}
-                        </button>
+                        <div className="min-w-0">
+                          <div
+                            className={`inline-flex items-center gap-1 ${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#2B2F36]`}
+                          >
+                            <Pencil size={13} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
+                            {t("contacts.remark")}
+                          </div>
+                          <div
+                            className={`${TYPOGRAPHY_BODY_CLASS} mt-1 break-words text-[#1F2329]`}
+                          >
+                            {contactRemarkText(selectedExistingContact, t)}
+                          </div>
+                        </div>
+                        {!isEditingRemark ? (
+                          <button
+                            type="button"
+                            data-ripple-edit-remark-button={selectedExistingContact.contactUserId}
+                            disabled={Boolean(pendingActionKey)}
+                            onClick={() => {
+                              setEditingRemarkContactId(selectedExistingContact.contactUserId);
+                              setRemarkDraftState({
+                                contactUserId: selectedExistingContact.contactUserId,
+                                value: selectedExistingContact.remark,
+                              });
+                            }}
+                            className={`h-8 ${WORKBENCH_SECONDARY_BUTTON_CLASS} ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                          >
+                            <Pencil size={13} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
+                            {t("contacts.editRemark")}
+                          </button>
+                        ) : null}
                       </div>
-                    </form>
+                      {isEditingRemark ? (
+                        <form
+                          className="mt-3 grid gap-2"
+                          onSubmit={async (event) => {
+                            event.preventDefault();
+                            if (!selectedExistingContact || !canSaveRemark) return;
+                            await onUpdateContact(selectedExistingContact.contactUserId, {
+                              remark: remarkDraft.trim(),
+                            });
+                            setEditingRemarkContactId(null);
+                          }}
+                        >
+                          <label className="grid gap-1">
+                            <span className={`${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#2B2F36]`}>
+                              {t("contacts.remark")}
+                            </span>
+                            <input
+                              value={remarkDraft}
+                              onChange={(event) =>
+                                setRemarkDraftState({
+                                  contactUserId: selectedExistingContact.contactUserId,
+                                  value: event.target.value,
+                                })
+                              }
+                              placeholder={t("contacts.remarkPlaceholder")}
+                              disabled={Boolean(isSavingRemark)}
+                              className={`h-10 px-3 ${WORKBENCH_FIELD_CLASS} ${TYPOGRAPHY_BODY_CLASS}`}
+                            />
+                          </label>
+                          <div className="flex flex-wrap justify-end gap-2">
+                            <button
+                              type="button"
+                              disabled={Boolean(isSavingRemark)}
+                              onClick={() => {
+                                setEditingRemarkContactId(null);
+                                setRemarkDraftState(null);
+                              }}
+                              className={`h-9 ${WORKBENCH_SECONDARY_BUTTON_CLASS} ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                            >
+                              {t("contacts.cancelTask")}
+                            </button>
+                            <button
+                              type="submit"
+                              disabled={!canSaveRemark}
+                              className={`h-9 ${WORKBENCH_PRIMARY_BUTTON_CLASS} ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                            >
+                              {isSavingRemark ? (
+                                <Loader2 size={14} className="animate-spin" />
+                              ) : (
+                                <Save size={14} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
+                              )}
+                              {t("contacts.saveRemark")}
+                            </button>
+                          </div>
+                        </form>
+                      ) : null}
+                    </section>
+                  ) : null}
+
+                  {selectedContact ? (
+                    <details
+                      data-ripple-contact-history={selectedContact.contactUserId}
+                      className="group rounded-lg border border-[#EFF0F1] bg-white"
+                    >
+                      <summary
+                        className={`flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2.5 ${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#1F2329]`}
+                      >
+                        <span>{t("contacts.chatHistory")}</span>
+                        <span
+                          className={`inline-flex shrink-0 items-center rounded-full border border-[#DEE0E3] bg-[#F8F9FA] px-2 py-0.5 ${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#646A73]`}
+                        >
+                          {selectedContactHistory.length}
+                        </span>
+                      </summary>
+                      <div className="grid gap-2 border-t border-[#EFF0F1] p-3">
+                        {selectedContactHistory.length === 0 ? (
+                          <div
+                            className={`rounded-lg border border-dashed border-[#DEE0E3] bg-[#F8F9FA] px-3 py-3 ${TYPOGRAPHY_META_CLASS} text-[#646A73]`}
+                          >
+                            {t("contacts.noChatHistory")}
+                          </div>
+                        ) : (
+                          selectedContactHistory.map((item) => {
+                            const resultText = delegationResultText(item.delegation);
+                            return (
+                              <article
+                                key={`${item.direction}:${item.delegation.delegationId}`}
+                                className="rounded-lg border border-[#DEE0E3] bg-white px-3 py-2.5"
+                              >
+                                <div className="flex min-w-0 items-start justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <div
+                                      className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} truncate text-[#1F2329]`}
+                                    >
+                                      {item.delegation.taskTitle}
+                                    </div>
+                                    <div
+                                      className={`${TYPOGRAPHY_META_CLASS} mt-0.5 truncate text-[#646A73]`}
+                                    >
+                                      {t(
+                                        item.direction === "sent"
+                                          ? "contacts.historySent"
+                                          : "contacts.historyReceived"
+                                      )}{" "}
+                                      · {formatDelegationTime(item.delegation.updatedAt)}
+                                    </div>
+                                  </div>
+                                  <span
+                                    className={`shrink-0 ${TYPOGRAPHY_META_MEDIUM_CLASS} ${delegationStatusClass(
+                                      item.delegation.status
+                                    )}`}
+                                  >
+                                    {delegationStatusLabel(item.delegation.status, t)}
+                                  </span>
+                                </div>
+                                <div
+                                  className={`mt-1 line-clamp-2 ${TYPOGRAPHY_META_CLASS} text-[#2B2F36]`}
+                                >
+                                  {item.delegation.taskPrompt}
+                                </div>
+                                {resultText ? (
+                                  <div className="mt-2 rounded-lg border border-[#B7EDCE] bg-[#F0FBF5] px-2.5 py-2">
+                                    <div
+                                      className={`${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#16845B]`}
+                                    >
+                                      {t("contacts.delegationResult")}
+                                    </div>
+                                    <div
+                                      className={`mt-1 line-clamp-4 whitespace-pre-wrap ${TYPOGRAPHY_META_CLASS} text-[#1F2329]`}
+                                    >
+                                      {resultText}
+                                    </div>
+                                  </div>
+                                ) : null}
+                                <div className="mt-2 flex justify-end">
+                                  <button
+                                    type="button"
+                                    data-ripple-contact-history-session={item.sessionId}
+                                    onClick={() => onOpenSession?.(item.sessionId)}
+                                    disabled={!onOpenSession}
+                                    className={`h-8 ${WORKBENCH_SECONDARY_BUTTON_CLASS} ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                                  >
+                                    {t("contacts.openSession")}
+                                  </button>
+                                </div>
+                              </article>
+                            );
+                          })
+                        )}
+                      </div>
+                    </details>
                   ) : null}
 
                   {selectedExistingContact ? (
@@ -728,8 +905,21 @@ export default function ContactsPage({
                       <button
                         type="button"
                         disabled={Boolean(pendingActionKey)}
+                        onClick={() => onRemoveContact(selectedExistingContact.contactUserId)}
+                        className={`h-10 ${WORKBENCH_DANGER_BUTTON_CLASS} ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                      >
+                        {pendingActionKey ===
+                        `remove-contact:${selectedExistingContact.contactUserId}` ? (
+                          <Loader2 size={14} className="animate-spin" />
+                        ) : (
+                          <Trash2 size={14} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
+                        )}
+                        {t("contacts.removeContact")}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={Boolean(pendingActionKey)}
                         onClick={() => {
-                          setTaskTitle("");
                           setTaskPrompt("");
                           setTaskDialogContactId(selectedExistingContact.contactUserId);
                         }}
@@ -748,56 +938,6 @@ export default function ContactsPage({
                   {t("contacts.chooseContactFirst")}
                 </div>
               )}
-            </section>
-
-            <section className={`${WORKBENCH_SECTION_CLASS} overflow-hidden`}>
-              <div className="border-b border-[#EFF0F1] px-4 py-3">
-                <h2 className={`${TYPOGRAPHY_SECTION_TITLE_CLASS} text-[#1F2329]`}>
-                  {t("contacts.recentTasks")}
-                </h2>
-              </div>
-              <div className="grid gap-2 p-3">
-                {visibleDelegations.length === 0 ? (
-                  <div
-                    className={`rounded-lg border border-dashed border-[#DEE0E3] bg-[#F8F9FA] px-3 py-4 ${TYPOGRAPHY_BODY_CLASS} text-[#646A73]`}
-                  >
-                    {t("contacts.noRecentTasks")}
-                  </div>
-                ) : (
-                  visibleDelegations.map((delegation) => (
-                    <article
-                      key={delegation.delegationId}
-                      className="rounded-lg border border-[#DEE0E3] bg-white px-3 py-2.5"
-                    >
-                      <div className="flex min-w-0 items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div
-                            className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} truncate text-[#1F2329]`}
-                          >
-                            {delegation.taskTitle}
-                          </div>
-                          <div
-                            className={`${TYPOGRAPHY_META_CLASS} mt-0.5 truncate text-[#646A73]`}
-                          >
-                            @{delegation.targetUserId} ·{" "}
-                            {formatDelegationTime(delegation.updatedAt)}
-                          </div>
-                        </div>
-                        <span
-                          className={`shrink-0 ${TYPOGRAPHY_META_MEDIUM_CLASS} ${delegationStatusClass(
-                            delegation.status
-                          )}`}
-                        >
-                          {delegationStatusLabel(delegation.status, t)}
-                        </span>
-                      </div>
-                      <div className={`mt-1 line-clamp-2 ${TYPOGRAPHY_META_CLASS} text-[#2B2F36]`}>
-                        {delegation.taskPrompt}
-                      </div>
-                    </article>
-                  ))
-                )}
-              </div>
             </section>
           </div>
         </div>
@@ -840,26 +980,13 @@ export default function ContactsPage({
                 if (!taskDialogContact || !canSubmitTask) return;
                 await onCreateDelegation({
                   targetUserId: taskDialogContact.contactUserId,
-                  taskTitle: taskTitle.trim(),
+                  taskTitle: deriveDelegationTitle(taskPrompt),
                   taskPrompt: taskPrompt.trim(),
                 });
-                setTaskTitle("");
                 setTaskPrompt("");
                 setTaskDialogContactId(null);
               }}
             >
-              <label className="grid gap-1">
-                <span className={`${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#2B2F36]`}>
-                  {t("contacts.taskTitle")}
-                </span>
-                <input
-                  value={taskTitle}
-                  onChange={(event) => setTaskTitle(event.target.value)}
-                  placeholder={t("contacts.taskTitlePlaceholder")}
-                  disabled={isCreatingTask}
-                  className={`h-10 px-3 ${WORKBENCH_FIELD_CLASS} ${TYPOGRAPHY_BODY_CLASS}`}
-                />
-              </label>
               <label className="grid gap-1">
                 <span className={`${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#2B2F36]`}>
                   {t("contacts.taskDetails")}

@@ -144,6 +144,8 @@ function renderTasksPage(
         onRunTaskNow={noop}
         onCancelTask={noop}
         onDeleteTask={noop}
+        onCreateScheduledTaskChat={noop}
+        onEditScheduledTaskChat={noop}
         {...props}
       />
     </I18nProvider>
@@ -155,23 +157,22 @@ function testTasksPageRendersTaskListAndDetail() {
 
   assert.match(html, />定时任务</);
   assert.match(html, /整理客户方案/);
-  assert.match(html, /1\/3/);
-  assert.match(html, /33%/);
-  assert.match(html, /生成报价/);
-  assert.match(html, /整理会议纪要/);
+  assert.doesNotMatch(html, /1\/3/);
+  assert.doesNotMatch(html, /33%/);
+  assert.doesNotMatch(html, /整理会议纪要/);
   assert.match(html, /查看来源会话/);
-  assert.match(html, /缺少客户预算信息/);
-  assert.match(html, /job-quote-1/);
+  assert.doesNotMatch(html, /缺少客户预算信息/);
+  assert.doesNotMatch(html, /job-quote-1/);
   assert.match(html, /删除/);
-  assert.match(html, /定时计划/);
+  assert.match(html, /时间触发/);
   assert.doesNotMatch(html, /步骤计划/);
   assert.match(html, /明早提醒/);
   assert.match(html, /运行 1\/1/);
   assert.match(html, /job-sch-trip/);
-  assert.match(html, /步骤受阻/);
+  assert.match(html, /执行受阻/);
   assert.doesNotMatch(html, /到期执行步骤/);
-  assert.match(html, /开始执行步骤/);
-  assert.ok(html.indexOf("步骤受阻") < html.indexOf("开始执行步骤"));
+  assert.match(html, /开始执行/);
+  assert.ok(html.indexOf("执行受阻") < html.indexOf("开始执行"));
 }
 
 function testPrimaryNavigationNoLongerIncludesAutos() {
@@ -196,15 +197,41 @@ function testTasksPageKeepsAutomationOutOfPrimaryNavigation() {
   assert.doesNotMatch(source, /disconnectConnector/);
 }
 
+function testTasksPageKeepsChatCreationOutOfEmptyState() {
+  const source = readFileSync(new URL("./TasksPage.tsx", import.meta.url), "utf8");
+  const html = renderTasksPage("en-US", { tasks: [], actions: [], events: [], triggers: [] });
+  const emptyStateStart = source.indexOf("orderedTasks.length === 0 && !loading");
+  const taskMapStart = source.indexOf("{orderedTasks.map", emptyStateStart);
+  const emptyStateSource = source.slice(emptyStateStart, taskMapStart);
+
+  assert.match(source, /onCreateScheduledTaskChat\?: \(\) => void/);
+  assert.match(source, /data-ripple-create-scheduled-task-chat="true"/);
+  assert.match(html, />Create in chat</);
+  assert.match(html, /No scheduled tasks/);
+  assert.doesNotMatch(emptyStateSource, /data-ripple-create-scheduled-task-chat="true"/);
+}
+
+function testTasksPageOffersChatEditingForSelectedTask() {
+  const source = readFileSync(new URL("./TasksPage.tsx", import.meta.url), "utf8");
+  const html = renderTasksPage("en-US");
+
+  assert.match(
+    source,
+    /onEditScheduledTaskChat\?: \(task: TaskInfo, triggers: TaskTriggerInfo\[\]\) => void/
+  );
+  assert.match(source, /data-ripple-edit-scheduled-task-chat="true"/);
+  assert.match(html, />Edit in chat</);
+}
+
 function testTasksPageUsesFocusSplitLayout() {
   const html = renderTasksPage();
 
   assert.match(html, /data-ripple-task-focus-split="true"/);
   assert.match(html, /data-ripple-task-inbox="true"/);
   assert.match(html, /data-ripple-task-summary="true"/);
-  assert.match(html, /data-ripple-task-actions-panel="true"/);
+  assert.match(html, /data-ripple-task-schedule-panel="true"/);
   assert.match(html, /data-ripple-task-activity-panel="true"/);
-  assert.match(html, /当前执行/);
+  assert.match(html, /下次执行/);
   assert.match(html, /活动记录/);
 }
 
@@ -240,10 +267,10 @@ function testTasksPageShowsPendingConfirmationTaskStatus() {
 function testTasksPageStacksMobileSummaryActionsBelowTitle() {
   const source = readFileSync(new URL("./TasksPage.tsx", import.meta.url), "utf8");
   const summaryStart = source.indexOf('data-ripple-task-summary="true"');
-  const progressStart = source.indexOf('{t("tasks.progress")}', summaryStart);
+  const summaryStatsStart = source.indexOf('{t("tasks.nextRun")}', summaryStart);
   assert.notEqual(summaryStart, -1);
-  assert.notEqual(progressStart, -1);
-  const summaryHeaderSource = source.slice(summaryStart, progressStart);
+  assert.notEqual(summaryStatsStart, -1);
+  const summaryHeaderSource = source.slice(summaryStart, summaryStatsStart);
 
   assert.match(summaryHeaderSource, /flex-col/);
   assert.match(summaryHeaderSource, /sm:flex-row/);
@@ -315,7 +342,7 @@ function testTasksPageExposesTriggerEditingControls() {
   assert.match(html, /Runs 2\/5/);
 }
 
-function testCompletedTaskSummaryDoesNotShowUnknownCurrentStep() {
+function testCompletedTaskSummaryDoesNotShowStepProgress() {
   const completedTask: TaskInfo = {
     ...task,
     status: "completed",
@@ -332,53 +359,58 @@ function testCompletedTaskSummaryDoesNotShowUnknownCurrentStep() {
     actions: actions.map((action) => ({ ...action, status: "completed" })),
   });
 
-  assert.match(html, /All steps completed/);
-  assert.doesNotMatch(html, /Current execution[\s\S]*Unknown/);
+  assert.doesNotMatch(html, /All steps completed/);
+  assert.doesNotMatch(html, /Current execution/);
+  assert.doesNotMatch(html, /Progress/);
 }
 
-function testTasksPageLetsStepsBeEditedWithoutInlineTriggerButtons() {
+function testTasksPageKeepsTaskActionsInternal() {
   const source = readFileSync(new URL("./TasksPage.tsx", import.meta.url), "utf8");
   const html = renderTasksPage("en-US");
-  const stepsPanelStart = html.indexOf('data-ripple-task-actions-panel="true"');
-  const triggersPanelStart = html.indexOf(">Schedules<", stepsPanelStart);
-  assert.notEqual(stepsPanelStart, -1);
-  assert.notEqual(triggersPanelStart, -1);
-  const stepsPanel = html.slice(stepsPanelStart, triggersPanelStart);
 
-  assert.match(source, /editingActionId/);
-  assert.match(source, /submitActionEdit/);
-  assert.match(source, /updateTaskAction\(selectedTask\.taskId, editingActionId/);
-  assert.match(html, />Edit</);
-  assert.doesNotMatch(stepsPanel, />Add schedule</);
+  assert.doesNotMatch(html, /data-ripple-task-actions-panel="true"/);
+  assert.doesNotMatch(html, />Execution steps</);
+  assert.doesNotMatch(html, />Add step</);
+  assert.doesNotMatch(html, />Sort</);
+  assert.doesNotMatch(source, /editingActionId/);
+  assert.doesNotMatch(source, /submitActionEdit/);
+  assert.doesNotMatch(source, /updateTaskAction\(/);
 }
 
-function testAddStepDoesNotCollectTriggerTiming() {
+function testTaskPageDoesNotExposeStepCreation() {
   const source = readFileSync(new URL("./TasksPage.tsx", import.meta.url), "utf8");
 
+  assert.doesNotMatch(source, /createTaskAction/);
+  assert.doesNotMatch(source, /tasks\.addAction/);
+  assert.doesNotMatch(source, /tasks\.actionTitlePlaceholder/);
   assert.doesNotMatch(source, /newActionWakeupAt/);
   assert.doesNotMatch(source, /tasks\.optionalWakeupAt/);
   assert.doesNotMatch(source, /nextWakeupAt: newActionWakeupAt/);
 }
 
-function testTasksPageUsesDedicatedStepSortingMode() {
+function testTasksPageDoesNotExposeStepSortingMode() {
   const html = renderTasksPage("en-US");
   const source = readFileSync(new URL("./TasksPage.tsx", import.meta.url), "utf8");
 
-  assert.match(html, />Sort</);
+  assert.doesNotMatch(html, />Sort</);
   assert.doesNotMatch(html, /Move step up/);
   assert.doesNotMatch(html, /Move step down/);
-  assert.match(source, /isActionSortMode/);
-  assert.match(source, /draggable=\{isActionSortMode\}/);
-  assert.match(source, /onDragStart/);
-  assert.match(source, /onDrop/);
-  assert.match(source, /tasks\.finishSortingActions/);
-  assert.match(source, /tasks\.cancelSortingActions/);
-  assert.match(source, /tasks\.actionSortPosition/);
+  assert.doesNotMatch(source, /isActionSortMode/);
+  assert.doesNotMatch(source, /draggable=\{isActionSortMode\}/);
+  assert.doesNotMatch(source, /tasks\.finishSortingActions/);
+  assert.doesNotMatch(source, /tasks\.cancelSortingActions/);
+  assert.doesNotMatch(source, /tasks\.actionSortPosition/);
 }
 
-function testTriggerFormDoesNotDuplicateStepContentFields() {
+function testTimeTriggerFormBelongsToTheTask() {
   const source = readFileSync(new URL("./TasksPage.tsx", import.meta.url), "utf8");
+  const html = renderTasksPage("en-US");
 
+  assert.match(source, /createTaskTrigger\(selectedTask\.taskId/);
+  assert.doesNotMatch(source, /createTaskActionTrigger/);
+  assert.doesNotMatch(html, />Schedules</);
+  assert.doesNotMatch(html, />Add schedule</);
+  assert.match(html, />Time trigger</);
   assert.doesNotMatch(source, /newTriggerTitle/);
   assert.doesNotMatch(source, /newTriggerPrompt/);
   assert.doesNotMatch(source, /tasks\.triggerTitlePlaceholder/);
@@ -516,6 +548,8 @@ function testTasksPageRequiresConfirmationForDestructiveActions() {
 testTasksPageRendersTaskListAndDetail();
 testPrimaryNavigationNoLongerIncludesAutos();
 testTasksPageKeepsAutomationOutOfPrimaryNavigation();
+testTasksPageKeepsChatCreationOutOfEmptyState();
+testTasksPageOffersChatEditingForSelectedTask();
 testTasksPageUsesFocusSplitLayout();
 testTasksPageShowsPendingConfirmationTriggers();
 testTasksPageShowsPendingConfirmationTaskStatus();
@@ -523,11 +557,11 @@ testTasksPageStacksMobileSummaryActionsBelowTitle();
 testTasksPageShowsFailedTriggersAsErrors();
 testTasksPageShowsCompletedTriggersAsCompleted();
 testTasksPageExposesTriggerEditingControls();
-testCompletedTaskSummaryDoesNotShowUnknownCurrentStep();
-testTasksPageLetsStepsBeEditedWithoutInlineTriggerButtons();
-testAddStepDoesNotCollectTriggerTiming();
-testTasksPageUsesDedicatedStepSortingMode();
-testTriggerFormDoesNotDuplicateStepContentFields();
+testCompletedTaskSummaryDoesNotShowStepProgress();
+testTasksPageKeepsTaskActionsInternal();
+testTaskPageDoesNotExposeStepCreation();
+testTasksPageDoesNotExposeStepSortingMode();
+testTimeTriggerFormBelongsToTheTask();
 testTasksPageLoadingStateDoesNotClaimFailure();
 testTasksPageDistinguishesFilteredEmptyState();
 testTasksPageDoesNotRenderStatusFilterTabs();

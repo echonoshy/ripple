@@ -12,14 +12,14 @@ import {
 function testMainNavItemsExposeDesktopProductTabs() {
   assert.deepEqual(
     mainNavItems.map((item) => item.id),
-    ["sessions", "tasks", "contacts", "files", "skills"]
+    ["sessions", "files", "contacts", "tasks", "skills"]
   );
 }
 
 function testMobileNavKeepsSettingsEntry() {
   assert.deepEqual(
     mobileNavItems.map((item) => item.id),
-    ["sessions", "tasks", "contacts", "files", "skills", "home"]
+    ["sessions", "files", "contacts", "tasks", "skills", "home"]
   );
 }
 

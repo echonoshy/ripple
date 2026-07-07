@@ -14,7 +14,7 @@ import {
   X,
   XCircle,
 } from "lucide-react";
-import type { AgentDelegation, AgentDelegationCreateInput } from "@/types";
+import type { AgentContact, AgentDelegation, AgentDelegationCreateInput } from "@/types";
 import {
   LUCIDE_STANDARD_STROKE_WIDTH,
   TYPOGRAPHY_BODY_CLASS,
@@ -141,6 +141,7 @@ export function AgentDelegationStatusCard({
   compact?: boolean;
 }) {
   const updatedAt = formatTime(delegation.updatedAt);
+  const resultText = delegation.resultText?.trim() || "";
   return (
     <article className={`${WORKBENCH_SECTION_CLASS} overflow-hidden`}>
       <div className="flex items-start gap-3 px-3 py-2.5">
@@ -174,6 +175,14 @@ export function AgentDelegationStatusCard({
               </span>
             </div>
           )}
+          {resultText && (
+            <div className="mt-2 rounded-lg border border-[#B7EDCE] bg-[#F0FBF5] px-2.5 py-2">
+              <div className={`${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#16845B]`}>委托产物</div>
+              <div className={`mt-1 whitespace-pre-wrap ${TYPOGRAPHY_BODY_CLASS} text-[#1F2329]`}>
+                {resultText}
+              </div>
+            </div>
+          )}
           {(delegation.reason || delegation.error || updatedAt) && (
             <div className={`mt-1.5 flex flex-wrap gap-x-2 gap-y-1 ${TYPOGRAPHY_META_CLASS}`}>
               {updatedAt && <span className="text-[#8F959E]">更新 {updatedAt}</span>}
@@ -195,9 +204,9 @@ export function DelegatedSessionBanner({ delegation }: { delegation: AgentDelega
       <Bot size={16} className="mt-0.5 shrink-0 text-[#1456F0]" />
       <div className="min-w-0">
         <div className={TYPOGRAPHY_BODY_MEDIUM_CLASS}>
-          来自 @{delegation.requesterUserId} 的任务
+          来自 @{delegation.requesterUserId} 的委托，新开的执行 session
         </div>
-        <div className={`mt-0.5 line-clamp-2 ${TYPOGRAPHY_META_CLASS} text-[#2B2F36]`}>
+        <div className={`mt-0.5 ${TYPOGRAPHY_META_CLASS} text-[#2B2F36]`}>
           {delegation.taskTitle} · {delegation.taskPrompt}
         </div>
       </div>
@@ -265,22 +274,35 @@ export function AgentDelegationCreateDialog({
   sourceSessionId,
   defaultTaskTitle,
   defaultTaskPrompt,
+  contacts,
   pending,
   onClose,
+  onAddContact,
   onSubmit,
 }: {
   sourceSessionId: string;
   defaultTaskTitle?: string;
   defaultTaskPrompt?: string;
+  contacts?: AgentContact[];
   pending: boolean;
   onClose: () => void;
+  onAddContact?: (contactUserId: string) => Promise<void> | void;
   onSubmit: (input: AgentDelegationCreateInput) => Promise<void> | void;
 }) {
+  const contactMode = Boolean(contacts);
   const [targetUserId, setTargetUserId] = useState("");
+  const [selectedContactId, setSelectedContactId] = useState(contacts?.[0]?.contactUserId || "");
+  const [newContactUserId, setNewContactUserId] = useState("");
   const [taskTitle, setTaskTitle] = useState(defaultTaskTitle || "");
   const [taskPrompt, setTaskPrompt] = useState(defaultTaskPrompt || "");
+  const effectiveSelectedContactId =
+    contactMode && contacts?.some((contact) => contact.contactUserId === selectedContactId)
+      ? selectedContactId
+      : contacts?.[0]?.contactUserId || "";
+  const selectedTargetUserId = contactMode ? effectiveSelectedContactId : targetUserId.trim();
   const canSubmit =
-    Boolean(targetUserId.trim() && taskTitle.trim() && taskPrompt.trim()) && !pending;
+    Boolean(selectedTargetUserId && taskTitle.trim() && taskPrompt.trim()) && !pending;
+  const canAddContact = Boolean(newContactUserId.trim()) && !pending && Boolean(onAddContact);
 
   return (
     <div
@@ -294,7 +316,7 @@ export function AgentDelegationCreateDialog({
           event.preventDefault();
           if (!canSubmit) return;
           await onSubmit({
-            targetUserId: targetUserId.trim(),
+            targetUserId: selectedTargetUserId,
             sourceSessionId,
             taskTitle: taskTitle.trim(),
             taskPrompt: taskPrompt.trim(),
@@ -311,7 +333,7 @@ export function AgentDelegationCreateDialog({
               委托给其他用户
             </h2>
             <div className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
-              对方授权后，会启动他的 agent session 执行一次任务。
+              对方授权后，会启动他的 agent session 处理这次委托。
             </div>
           </div>
           <button
@@ -325,17 +347,94 @@ export function AgentDelegationCreateDialog({
           </button>
         </div>
         <div className="space-y-3 px-4 py-4">
+          {contactMode ? (
+            <section>
+              <div className="flex items-center justify-between gap-3">
+                <span className={`${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#2B2F36]`}>已添加用户</span>
+                <span className={`${TYPOGRAPHY_META_CLASS} text-[#8F959E]`}>
+                  {contacts?.length || 0} 个联系人
+                </span>
+              </div>
+              {contacts && contacts.length > 0 ? (
+                <div className="mt-2 grid max-h-40 gap-2 overflow-y-auto">
+                  {contacts.map((contact) => {
+                    const selected = effectiveSelectedContactId === contact.contactUserId;
+                    return (
+                      <button
+                        key={contact.contactUserId}
+                        type="button"
+                        onClick={() => setSelectedContactId(contact.contactUserId)}
+                        className={`flex min-h-12 items-center gap-2 rounded-lg border px-2.5 py-2 text-left transition-colors ${
+                          selected
+                            ? "border-[#1456F0] bg-[#F0F5FF]"
+                            : "border-[#DEE0E3] bg-white hover:bg-[#F8F9FA]"
+                        }`}
+                      >
+                        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#F0F5FF] text-[#1456F0]">
+                          <Bot size={15} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span
+                            className={`block truncate ${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#1F2329]`}
+                          >
+                            {contact.profile.userName || contact.contactUserId}
+                          </span>
+                          <span
+                            className={`block truncate ${TYPOGRAPHY_META_CLASS} text-[#646A73]`}
+                          >
+                            @{contact.contactUserId}
+                            {contact.profile.login ? ` · ${contact.profile.login}` : ""}
+                          </span>
+                        </span>
+                        {selected && <Check size={15} className="shrink-0 text-[#1456F0]" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div
+                  className={`mt-2 rounded-lg border border-dashed border-[#DEE0E3] bg-[#F8F9FA] px-3 py-3 ${TYPOGRAPHY_META_CLASS} text-[#646A73]`}
+                >
+                  先添加一个已知 user_id，再把委托发送给对方 agent。
+                </div>
+              )}
+              <div className="mt-2 flex gap-2">
+                <input
+                  value={newContactUserId}
+                  onChange={(event) => setNewContactUserId(event.target.value)}
+                  placeholder="添加 user_id"
+                  className={`h-9 min-w-0 flex-1 px-3 ${WORKBENCH_FIELD_CLASS} ${TYPOGRAPHY_BODY_CLASS}`}
+                />
+                <button
+                  type="button"
+                  disabled={!canAddContact}
+                  onClick={async () => {
+                    const nextContactUserId = newContactUserId.trim();
+                    if (!nextContactUserId || !onAddContact) return;
+                    await onAddContact(nextContactUserId);
+                    setNewContactUserId("");
+                    setSelectedContactId(nextContactUserId);
+                  }}
+                  className={`h-9 shrink-0 ${WORKBENCH_SECONDARY_BUTTON_CLASS} ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                >
+                  <UserPlus size={14} />
+                  添加
+                </button>
+              </div>
+            </section>
+          ) : (
+            <label className="block">
+              <span className={`${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#2B2F36]`}>目标 user_id</span>
+              <input
+                value={targetUserId}
+                onChange={(event) => setTargetUserId(event.target.value)}
+                placeholder="例如 bob"
+                className={`mt-1 h-9 w-full px-3 ${WORKBENCH_FIELD_CLASS} ${TYPOGRAPHY_BODY_CLASS}`}
+              />
+            </label>
+          )}
           <label className="block">
-            <span className={`${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#2B2F36]`}>目标 user_id</span>
-            <input
-              value={targetUserId}
-              onChange={(event) => setTargetUserId(event.target.value)}
-              placeholder="例如 bob"
-              className={`mt-1 h-9 w-full px-3 ${WORKBENCH_FIELD_CLASS} ${TYPOGRAPHY_BODY_CLASS}`}
-            />
-          </label>
-          <label className="block">
-            <span className={`${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#2B2F36]`}>任务标题</span>
+            <span className={`${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#2B2F36]`}>委托标题</span>
             <input
               value={taskTitle}
               onChange={(event) => setTaskTitle(event.target.value)}
@@ -344,7 +443,7 @@ export function AgentDelegationCreateDialog({
             />
           </label>
           <label className="block">
-            <span className={`${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#2B2F36]`}>任务内容</span>
+            <span className={`${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#2B2F36]`}>委托说明</span>
             <textarea
               value={taskPrompt}
               onChange={(event) => setTaskPrompt(event.target.value)}
@@ -453,7 +552,7 @@ export function AgentDelegationRequestsButton({
           <div className="border-b border-[#EFF0F1] px-3 py-2">
             <div className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#1F2329]`}>Agent 请求</div>
             <div className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
-              授权后会在你的沙箱中启动对方委托的任务。
+              授权后会在你的沙箱中处理对方发来的委托。
             </div>
           </div>
           <div className="max-h-[360px] overflow-y-auto p-2">

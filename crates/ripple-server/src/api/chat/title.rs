@@ -64,6 +64,7 @@ async fn generate_and_apply_session_title(
         base_instructions: None,
         turn_context: None,
         client_context: None,
+        browser_context: None,
         cwd: Some("/workspace".to_string()),
         input_items: vec![json!({"type": "text", "text": prompt})],
         model: Some(model),

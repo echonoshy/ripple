@@ -36,6 +36,9 @@ pub struct AgentRunCreateRequest {
     #[serde(default, skip)]
     #[schema(ignore)]
     pub client_context: Option<String>,
+    #[serde(default, skip)]
+    #[schema(ignore)]
+    pub browser_context: Option<String>,
     #[serde(default)]
     pub cwd: Option<String>,
     #[serde(default)]
@@ -224,6 +227,7 @@ impl JobManager {
             base_instructions: create.base_instructions,
             turn_context: create.turn_context,
             client_context: create.client_context,
+            browser_context: create.browser_context,
             cwd,
             input_items: create.input_items,
             model: create.model,
@@ -336,6 +340,7 @@ impl JobManager {
             base_instructions: create.base_instructions,
             turn_context: create.turn_context,
             client_context: create.client_context,
+            browser_context: create.browser_context,
             cwd: cwd.clone(),
             input_items: create.input_items,
             model: create.model,

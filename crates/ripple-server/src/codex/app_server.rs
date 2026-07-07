@@ -1115,6 +1115,7 @@ impl CodexAppServerProvider {
                 base_instructions: None,
                 turn_context: None,
                 client_context: None,
+                browser_context: None,
                 cwd,
                 input_items: Vec::new(),
                 model: Some(model.clone()),
@@ -1918,6 +1919,20 @@ fn turn_start_params(
             }),
         );
     }
+    if let Some(browser_context) = request
+        .browser_context
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        additional_context.insert(
+            "ripple_browser_context".to_string(),
+            json!({
+                "value": browser_context,
+                "kind": "untrusted"
+            }),
+        );
+    }
     if !additional_context.is_empty() {
         params.insert(
             "additionalContext".to_string(),
@@ -2190,6 +2205,7 @@ mod tests {
             base_instructions: None,
             turn_context: None,
             client_context: None,
+            browser_context: None,
             cwd: PathBuf::from("/tmp/ripple-test"),
             input_items: vec![
                 json!({"type": "skill", "name": "google_workspace"}),
@@ -2237,6 +2253,7 @@ mod tests {
                     .to_string(),
             ),
             client_context: None,
+            browser_context: None,
             cwd: PathBuf::from("/tmp/ripple-test"),
             input_items: Vec::new(),
             model: None,
@@ -2290,6 +2307,7 @@ mod tests {
                 "Client-provided state:\n- left_battery_percent: 80\n- right_battery_percent: 78\n- case_battery_percent: 55"
                     .to_string(),
             ),
+            browser_context: None,
             cwd: PathBuf::from("/tmp/ripple-test"),
             input_items: Vec::new(),
             model: None,
@@ -2316,6 +2334,46 @@ mod tests {
             .expect("client context additionalContext");
         assert!(client_context.contains("left_battery_percent: 80"));
         assert!(client_context.contains("case_battery_percent: 55"));
+    }
+
+    #[test]
+    fn turn_start_params_send_browser_context_as_untrusted_additional_context() {
+        let request = AgentRunnerRequest {
+            provider: "codex".to_string(),
+            prompt: "总结当前网页".to_string(),
+            base_instructions: None,
+            turn_context: None,
+            client_context: None,
+            browser_context: Some(
+                "{\"schema_version\":\"ripple.browser_context.v1\",\"page\":{\"url\":\"https://example.com/article\",\"title\":\"Example article\",\"visible_text\":\"Important article body\"}}"
+                    .to_string(),
+            ),
+            cwd: PathBuf::from("/tmp/ripple-test"),
+            input_items: Vec::new(),
+            model: None,
+            effort: None,
+            summary: None,
+            output_schema: None,
+            max_runtime_seconds: 60,
+            user_id: Some("alice".to_string()),
+            session_id: Some("session-1".to_string()),
+            metadata: json!({}),
+        };
+
+        let params = turn_start_params("thread-1", &request, "never");
+
+        assert_eq!(
+            params
+                .pointer("/additionalContext/ripple_browser_context/kind")
+                .and_then(Value::as_str),
+            Some("untrusted")
+        );
+        let browser_context = params
+            .pointer("/additionalContext/ripple_browser_context/value")
+            .and_then(Value::as_str)
+            .expect("browser context additionalContext");
+        assert!(browser_context.contains("https://example.com/article"));
+        assert!(browser_context.contains("Important article body"));
     }
 
     #[test]
@@ -2353,6 +2411,7 @@ mod tests {
             base_instructions: None,
             turn_context: None,
             client_context: None,
+            browser_context: None,
             cwd: PathBuf::from("/tmp/ripple-test"),
             input_items: Vec::new(),
             model: None,
@@ -2380,6 +2439,7 @@ mod tests {
             base_instructions: None,
             turn_context: None,
             client_context: None,
+            browser_context: None,
             cwd: PathBuf::from("/tmp/ripple-test"),
             input_items: Vec::new(),
             model: None,
@@ -2427,6 +2487,7 @@ mod tests {
             base_instructions: Some("base".to_string()),
             turn_context: None,
             client_context: None,
+            browser_context: None,
             cwd: PathBuf::from("/tmp/ripple-test/folder"),
             input_items: Vec::new(),
             model: Some("gpt-5".to_string()),
@@ -2579,6 +2640,7 @@ mod tests {
             base_instructions: None,
             turn_context: None,
             client_context: None,
+            browser_context: None,
             cwd: workspace.clone(),
             input_items: Vec::new(),
             model: None,
@@ -2622,6 +2684,7 @@ mod tests {
             base_instructions: None,
             turn_context: None,
             client_context: None,
+            browser_context: None,
             cwd: workspace.clone(),
             input_items: Vec::new(),
             model: None,

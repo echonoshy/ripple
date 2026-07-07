@@ -33,7 +33,7 @@
 
 - Rust 后端：`crates/ripple-server`
 - Rust 后端要保持 Web / Tauri / Mobile 客户端依赖的 `/v1` response shape、SSE 事件、session 状态和 connector auth 流程稳定。
-- 后端当前状态文档：`docs/rust-backend-migration.md`
+- 后端当前状态文档：`docs/BACKEND_ARCHITECTURE.md`
 
 当前 Rust 后端已经覆盖的主要能力：
 

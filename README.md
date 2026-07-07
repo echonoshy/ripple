@@ -129,7 +129,7 @@ bun run build
 | 文档指南 | 职责描述 | 路径 |
 | :--- | :--- | :--- |
 | **系统开发原则** | 最核心的开发原则、编码纪律与系统边界定义 | [AGENTS.md](AGENTS.md) |
-| **Rust 后端当前态** | 记录当前 Rust 控制面覆盖范围、运行边界和剩余硬化项 | [rust-backend-migration.md](docs/rust-backend-migration.md) |
+| **后端架构** | 记录当前 Rust 控制面、SQLite 边界、运行边界和 worker pool | [BACKEND_ARCHITECTURE.md](docs/BACKEND_ARCHITECTURE.md) |
 | **Skill 开发规范** | 了解如何为系统编写、注册并集成新的能力（Skills） | [SKILLS.md](docs/SKILLS.md) |
 | **构建与部署指南** | 生产环境下的多用户部署、反向代理与物理隔离沙箱配置 | [BUILD_AND_DEPLOY.md](docs/BUILD_AND_DEPLOY.md) |
 | **Tauri 移动端开发** | 针对 iOS 和 Android 客户端的编译、明文例外及打包细节 | [TAURI_MOBILE.md](docs/TAURI_MOBILE.md) |

@@ -5,12 +5,36 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import { I18nProvider, type LocalePreference } from "@/i18n";
 import ProductTopBar from "./ProductTopBar";
+import type { AgentDelegation } from "@/types";
 
 const productTopBarSource = readFileSync(new URL("./ProductTopBar.tsx", import.meta.url), "utf8");
 
 function noop() {}
 
-function renderProductTopBar(locale: LocalePreference = "en-US") {
+const incomingDelegation: AgentDelegation = {
+  delegationId: "dlg-incoming",
+  requesterUserId: "bob",
+  requesterSessionId: "sess-bob",
+  targetUserId: "default",
+  targetSessionId: null,
+  targetJobId: null,
+  status: "pending_acceptance",
+  taskTitle: "Review launch copy",
+  taskPrompt: "Please review the launch copy.",
+  createdAt: "2026-07-07T01:00:00Z",
+  updatedAt: "2026-07-07T01:01:00Z",
+  acceptedAt: null,
+  completedAt: null,
+  pendingClarification: null,
+  lastAnswerEvent: null,
+  reason: null,
+  error: null,
+};
+
+function renderProductTopBar(
+  locale: LocalePreference = "en-US",
+  receivedAgentDelegations: AgentDelegation[] = []
+) {
   return renderToStaticMarkup(
     <I18nProvider initialPreference={locale}>
       <ProductTopBar
@@ -18,6 +42,7 @@ function renderProductTopBar(locale: LocalePreference = "en-US") {
         userId="default"
         onSelectView={noop}
         onOpenSettings={noop}
+        receivedAgentDelegations={receivedAgentDelegations}
       />
     </I18nProvider>
   );
@@ -28,11 +53,13 @@ function testDesktopProductTabsExcludeSettings() {
 
   assert.match(html, /data-ripple-product-top-bar="true"/);
   assert.match(html, />Sessions</);
-  assert.match(html, />Tasks</);
+  assert.match(html, />Scheduled</);
+  assert.match(html, />Contacts</);
   assert.match(html, />Files</);
   assert.match(html, />Skills</);
   assert.match(html, /data-ripple-top-tab="sessions"/);
   assert.match(html, /data-ripple-top-tab="tasks"/);
+  assert.match(html, /data-ripple-top-tab="contacts"/);
   assert.match(html, /data-ripple-top-tab="files"/);
   assert.match(html, /data-ripple-top-tab="skills"/);
   assert.doesNotMatch(html, />Connectors</);
@@ -105,9 +132,9 @@ function testDesktopProductTabsUseEqualWidths() {
     (match) => match[0]
   );
 
-  assert.equal(tabButtons.length, 4);
+  assert.equal(tabButtons.length, 5);
   for (const button of tabButtons) {
-    assert.match(button, /w-\[132px\]/);
+    assert.match(button, /w-\[116px\]/);
     assert.match(button, /justify-center/);
     assert.match(button, /whitespace-nowrap/);
   }
@@ -117,19 +144,31 @@ function testDesktopProductTabIconsDoNotShrink() {
   const html = renderProductTopBar();
   const icons = [...html.matchAll(/<svg[^>]*class="[^"]*h-4 w-4 shrink-0[^"]*"[^>]*>/g)];
 
-  assert.equal(icons.length, 4);
+  assert.equal(icons.length, 5);
 }
 
 function testDesktopProductTabsRenderChineseLabels() {
   const html = renderProductTopBar("zh-CN");
 
   assert.match(html, />会话</);
-  assert.match(html, />任务</);
+  assert.match(html, />定时</);
+  assert.doesNotMatch(html, />任务</);
+  assert.match(html, />联系人</);
   assert.match(html, />文件</);
   assert.match(html, />能力</);
   assert.doesNotMatch(html, />连接</);
   assert.doesNotMatch(html, />自动化</);
   assert.match(html, /aria-label="打开 default 的个人设置"/);
+}
+
+function testAgentRequestsAreMergedIntoContactsTab() {
+  const html = renderProductTopBar("zh-CN", [incomingDelegation]);
+  const contactsTab = html.match(/<button[^>]*data-ripple-top-tab="contacts"[^>]*>[\s\S]*?<\/button>/)?.[0] || "";
+
+  assert.match(contactsTab, /data-ripple-contacts-badge="true"/);
+  assert.match(contactsTab, />1</);
+  assert.doesNotMatch(html, /data-ripple-agent-delegation-requests/);
+  assert.doesNotMatch(html, />Agent 请求</);
 }
 
 testDesktopProductTabsExcludeSettings();
@@ -141,5 +180,6 @@ testProductTopBarUsesSharedWorkbenchTopBarPrimitive();
 testDesktopProductTabsUseEqualWidths();
 testDesktopProductTabIconsDoNotShrink();
 testDesktopProductTabsRenderChineseLabels();
+testAgentRequestsAreMergedIntoContactsTab();
 
 console.log("product top bar tests passed");

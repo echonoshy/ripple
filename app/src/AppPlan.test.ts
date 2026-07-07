@@ -7,6 +7,10 @@ const sessionPageSource = readFileSync(
   new URL("./components/workbench/SessionPage.tsx", import.meta.url),
   "utf8"
 );
+const contactsPageSource = readFileSync(
+  new URL("./components/workbench/ContactsPage.tsx", import.meta.url),
+  "utf8"
+);
 const sessionLifecycleSource = readFileSync(
   new URL("./hooks/useSessionLifecycle.ts", import.meta.url),
   "utf8"
@@ -50,6 +54,54 @@ function testAppDelegatesChatRun() {
   assert.match(appSource, /useChatRun/);
   assert.doesNotMatch(appSource, /sendChatMessage/);
   assert.doesNotMatch(appSource, /uploadWorkspaceAttachment/);
+}
+
+function testAppLoadsAgentContactsForContactsPage() {
+  assert.match(appSource, /fetchAgentContacts/);
+  assert.match(appSource, /fetchAgentContactRequests/);
+  assert.match(appSource, /createAgentContactRequest/);
+  assert.match(appSource, /acceptAgentContactRequest/);
+  assert.match(appSource, /removeAgentContact/);
+  assert.match(appSource, /const \[agentContacts, setAgentContacts\]/);
+  assert.match(appSource, /const \[receivedAgentContactRequests, setReceivedAgentContactRequests\]/);
+  assert.match(appSource, /contacts=\{agentContacts\}/);
+  assert.match(appSource, /receivedContactRequests=\{receivedAgentContactRequests\}/);
+  assert.match(appSource, /onAddContact=\{handleAddAgentContact\}/);
+  assert.match(appSource, /onAcceptContactRequest=\{handleAcceptAgentContactRequest\}/);
+  assert.match(appSource, /onRemoveContact=\{handleRemoveAgentContact\}/);
+  assert.doesNotMatch(sessionPageSource, /agentContacts\?: AgentContact\[\]/);
+  assert.doesNotMatch(sessionPageSource, /AgentDelegationCreateDialog/);
+  assert.doesNotMatch(sessionPageSource, /onCreateAgentDelegation=/);
+}
+
+function testAppRendersContactsAsTopLevelTaskEntry() {
+  assert.match(
+    appSource,
+    /const ContactsPage = lazy\(\(\) => import\("@\/components\/workbench\/ContactsPage"\)\)/
+  );
+  assert.match(appSource, /activeView === "contacts"/);
+  assert.match(appSource, /<ContactsPage/);
+  assert.match(appSource, /contacts=\{agentContacts\}/);
+  assert.match(appSource, /sentDelegations=\{sentAgentDelegations\}/);
+  assert.match(appSource, /receivedDelegations=\{receivedAgentDelegations\}/);
+  assert.match(appSource, /onCreateDelegation=\{handleCreateAgentDelegationFromContacts\}/);
+  assert.match(appSource, /onUpdateContact=\{handleUpdateAgentContact\}/);
+  assert.match(appSource, /onRemoveContact=\{handleRemoveAgentContact\}/);
+  assert.match(contactsPageSource, /data-ripple-contacts-page="true"/);
+  assert.match(contactsPageSource, /onCreateDelegation/);
+  assert.match(contactsPageSource, /onUpdateContact/);
+  assert.doesNotMatch(contactsPageSource, /SessionComposer/);
+}
+
+function testContactDelegationReturnsToSessionAfterCreate() {
+  const createFromContactsBlock =
+    appSource.match(
+      /const handleCreateAgentDelegationFromContacts = useCallback\([\s\S]*?\n\s{2}const handleAcceptAgentDelegation = useCallback/
+    )?.[0] || "";
+
+  assert.match(createFromContactsBlock, /setActiveView\("sessions"\)/);
+  assert.match(createFromContactsBlock, /setMobileSessionMode\("chat"\)/);
+  assert.match(createFromContactsBlock, /handleSwitchSession\(sourceSessionId\)/);
 }
 
 function testNewSessionCreationDoesNotDependOnGlobalGenerationState() {
@@ -312,6 +364,9 @@ testRestoringSessionRefreshesWorkspaceViews();
 testAuthInitEffectDoesNotDependOnInlineCallbacks();
 testAppDelegatesSessionLifecycle();
 testAppDelegatesChatRun();
+testAppLoadsAgentContactsForContactsPage();
+testAppRendersContactsAsTopLevelTaskEntry();
+testContactDelegationReturnsToSessionAfterCreate();
 testNewSessionCreationDoesNotDependOnGlobalGenerationState();
 testNewSessionCreationOptimisticallyUpdatesSessionList();
 testSwitchingCurrentSessionRefreshesDetails();

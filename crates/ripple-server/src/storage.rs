@@ -15,6 +15,8 @@ use crate::sessions::SessionRecord;
 
 mod agent_delegations;
 mod auth;
+mod contact_requests;
+mod contacts;
 mod jobs;
 mod schema;
 mod task_triggers;
@@ -1085,6 +1087,54 @@ mod tests {
             events[1].pointer("/payload/answer").and_then(Value::as_str),
             Some("Enterprise.")
         );
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn accepts_contact_requests_by_creating_bidirectional_contacts() -> anyhow::Result<()> {
+        let root =
+            std::env::temp_dir().join(format!("ripple-storage-test-{}", uuid::Uuid::new_v4()));
+        let storage = Storage::open(root.join(".ripple/ripple.sqlite"))?;
+        let request = serde_json::json!({
+            "request_id": "creq-test",
+            "requester_user_id": "alice",
+            "target_user_id": "bob",
+            "status": "pending",
+            "message": "一起协作",
+            "created_at": "2026-07-07T00:00:00Z",
+            "updated_at": "2026-07-07T00:00:00Z"
+        });
+
+        storage.upsert_contact_request(&request).await?;
+        let received = storage.list_contact_requests_for_target("bob").await?;
+
+        assert_eq!(received.len(), 1);
+        assert_eq!(
+            received[0].get("requester_user_id").and_then(Value::as_str),
+            Some("alice")
+        );
+
+        let accepted = storage
+            .accept_contact_request_bidirectional("creq-test", "bob")
+            .await?
+            .expect("accepted contact request");
+        let alice_contacts = storage.list_contacts("alice").await?;
+        let bob_contacts = storage.list_contacts("bob").await?;
+
+        assert_eq!(
+            accepted.get("status").and_then(Value::as_str),
+            Some("accepted")
+        );
+        assert!(alice_contacts
+            .iter()
+            .any(|contact| contact.get("contact_user_id").and_then(Value::as_str) == Some("bob")));
+        assert!(bob_contacts
+            .iter()
+            .any(
+                |contact| contact.get("contact_user_id").and_then(Value::as_str) == Some("alice")
+            ));
 
         let _ = std::fs::remove_dir_all(root);
         Ok(())

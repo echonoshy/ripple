@@ -22,11 +22,13 @@ interface MobileTabBarProps {
   onSelectView: (view: WorkspaceView) => void;
   isHidden?: boolean;
   placement?: "fixed" | "absolute";
+  contactsBadgeCount?: number;
 }
 
 const mobileNavLabelKeys: Record<WorkspaceView, MessageKey> = {
   sessions: "nav.sessions",
   tasks: "nav.tasks",
+  contacts: "nav.contacts",
   files: "nav.files",
   skills: "nav.skills",
   home: "nav.settings",
@@ -37,6 +39,7 @@ export default function MobileTabBar({
   onSelectView,
   isHidden = false,
   placement = "fixed",
+  contactsBadgeCount = 0,
 }: MobileTabBarProps) {
   const { t } = useI18n();
   const reduceMotion = useReducedMotion();
@@ -88,7 +91,7 @@ export default function MobileTabBar({
                 <motion.span
                   animate={{ scale: selected && !reduceMotion ? 1.06 : 1 }}
                   transition={transition}
-                  className="inline-flex"
+                  className="relative inline-flex"
                 >
                   <IconTile
                     tone={selected ? "accent" : "neutral"}
@@ -101,6 +104,14 @@ export default function MobileTabBar({
                   >
                     <Icon size={15} strokeWidth={LUCIDE_NAV_STROKE_WIDTH} />
                   </IconTile>
+                  {item.id === "contacts" && contactsBadgeCount > 0 ? (
+                    <span
+                      data-ripple-mobile-tab-badge="contacts"
+                      className="absolute -top-1.5 -right-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[#F53F3F] px-1 text-[11px] leading-4 font-medium text-white"
+                    >
+                      {contactsBadgeCount}
+                    </span>
+                  ) : null}
                 </motion.span>
                 <span className="max-w-full truncate">{label}</span>
               </motion.button>

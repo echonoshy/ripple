@@ -13,7 +13,8 @@ function noop() {}
 function renderMobileTabBar(
   locale: LocalePreference = "en-US",
   isHidden = false,
-  placement: "fixed" | "absolute" = "fixed"
+  placement: "fixed" | "absolute" = "fixed",
+  contactsBadgeCount = 0
 ) {
   return renderToStaticMarkup(
     <I18nProvider initialPreference={locale}>
@@ -22,6 +23,7 @@ function renderMobileTabBar(
         onSelectView={noop}
         isHidden={isHidden}
         placement={placement}
+        contactsBadgeCount={contactsBadgeCount}
       />
     </I18nProvider>
   );
@@ -32,8 +34,10 @@ function testUsesShortMobileNavigationLabels() {
 
   assert.match(html, />Sessions</);
   assert.match(html, /aria-label="Open Sessions"/);
-  assert.match(html, />Tasks</);
-  assert.match(html, /aria-label="Open Tasks"/);
+  assert.match(html, />Scheduled</);
+  assert.match(html, /aria-label="Open Scheduled"/);
+  assert.match(html, />Contacts</);
+  assert.match(html, /aria-label="Open Contacts"/);
   assert.match(html, />Files</);
   assert.match(html, /aria-label="Open Files"/);
   assert.match(html, />Skills</);
@@ -56,7 +60,9 @@ function testUsesChineseMobileNavigationLabels() {
 
   assert.match(html, />会话</);
   assert.match(html, /aria-label="打开会话"/);
-  assert.match(html, />任务</);
+  assert.match(html, />定时</);
+  assert.doesNotMatch(html, />任务</);
+  assert.match(html, />联系人</);
   assert.match(html, />文件</);
   assert.match(html, />能力</);
   assert.match(html, />设置</);
@@ -137,7 +143,7 @@ testUsesQuietSelectedTabTreatment();
 function testEveryMobileTabUsesSoftIconTile() {
   const html = renderMobileTabBar();
 
-  assert.equal((html.match(/data-ripple-icon-tile="true"/g) || []).length, 5);
+  assert.equal((html.match(/data-ripple-icon-tile="true"/g) || []).length, 6);
   assert.match(html, /data-tone="accent"/);
   assert.match(html, /data-tone="neutral"/);
 }
@@ -158,5 +164,14 @@ function testMobileNavigationLabelsUseReadableType() {
 }
 
 testMobileNavigationLabelsUseReadableType();
+
+function testContactsTabCanShowRequestBadge() {
+  const html = renderMobileTabBar("zh-CN", false, "fixed", 3);
+
+  assert.match(html, /data-ripple-mobile-tab-badge="contacts"/);
+  assert.match(html, />3</);
+}
+
+testContactsTabCanShowRequestBadge();
 
 console.log("mobile tab bar tests passed");

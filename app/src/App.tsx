@@ -5,8 +5,12 @@ import { ChevronRight, Loader2 } from "lucide-react";
 import AuthGateway, { type AuthGatewayMode } from "@/components/AuthGateway";
 import {
   acceptAgentDelegation,
+  acceptAgentContactRequest,
   answerAgentDelegation,
+  createAgentContactRequest,
   createAgentDelegation,
+  fetchAgentContacts,
+  fetchAgentContactRequests,
   fetchAgentDelegations,
   fetchModels,
   getApiKey,
@@ -21,6 +25,9 @@ import {
   claimInvite,
   logoutUserSession,
   rejectAgentDelegation,
+  rejectAgentContactRequest,
+  removeAgentContact,
+  updateAgentContact,
   AuthError,
 } from "@/lib/api";
 import MobileSessionStack from "@/components/workbench/MobileSessionStack";
@@ -30,6 +37,7 @@ import ProductTopBar from "@/components/workbench/ProductTopBar";
 import SessionPage from "@/components/workbench/SessionPage";
 import WorkbenchShell from "@/components/workbench/WorkbenchShell";
 import WorkspaceNav from "@/components/workbench/WorkspaceNav";
+import type { ContactDelegationCreateInput } from "@/components/workbench/ContactsPage";
 import {
   mobilePageSwitchTransition,
   mobilePageVariants,
@@ -56,6 +64,8 @@ import {
 } from "@/lib/workbench";
 import { shouldShowInspector, type WorkspaceView } from "@/lib/workspaceViews";
 import type {
+  AgentContact,
+  AgentContactRequest,
   AgentDelegation,
   AgentDelegationCreateInput,
   SessionAttention,
@@ -85,6 +95,7 @@ import {
 } from "@/hooks/workbenchLayout";
 
 const TasksPage = lazy(() => import("@/components/workbench/TasksPage"));
+const ContactsPage = lazy(() => import("@/components/workbench/ContactsPage"));
 const FilesPage = lazy(() => import("@/components/workbench/FilesPage"));
 const InspectorPanel = lazy(() => import("@/components/workbench/InspectorPanel"));
 const SettingsPage = lazy(() => import("@/components/workbench/SettingsPage"));
@@ -174,6 +185,11 @@ export default function Home() {
   const [acknowledgedSessionAttentionById, setAcknowledgedSessionAttentionById] = useState<
     Record<string, SessionAttention | undefined>
   >({});
+  const [agentContacts, setAgentContacts] = useState<AgentContact[]>([]);
+  const [sentAgentContactRequests, setSentAgentContactRequests] = useState<AgentContactRequest[]>([]);
+  const [receivedAgentContactRequests, setReceivedAgentContactRequests] = useState<
+    AgentContactRequest[]
+  >([]);
   const [sentAgentDelegations, setSentAgentDelegations] = useState<AgentDelegation[]>([]);
   const [receivedAgentDelegations, setReceivedAgentDelegations] = useState<AgentDelegation[]>([]);
   const [agentDelegationActionKey, setAgentDelegationActionKey] = useState<string | null>(null);
@@ -221,6 +237,49 @@ export default function Home() {
     setWorkspaceRefreshToken((prev) => prev + 1);
   }, []);
 
+  const refreshAgentContacts = useCallback(async () => {
+    if (authState !== "authenticated") {
+      setAgentContacts([]);
+      setSentAgentContactRequests([]);
+      setReceivedAgentContactRequests([]);
+      return;
+    }
+
+    try {
+      const contacts = await fetchAgentContacts();
+      setAgentContacts(contacts);
+    } catch (error) {
+      if (error instanceof AuthError) {
+        handleAuthExpired(t("auth.sessionExpired"));
+        return;
+      }
+      console.error("Failed to refresh agent contacts:", error);
+    }
+  }, [authState, handleAuthExpired, t]);
+
+  const refreshAgentContactRequests = useCallback(async () => {
+    if (authState !== "authenticated") {
+      setSentAgentContactRequests([]);
+      setReceivedAgentContactRequests([]);
+      return;
+    }
+
+    try {
+      const [sent, received] = await Promise.all([
+        fetchAgentContactRequests("sent"),
+        fetchAgentContactRequests("received"),
+      ]);
+      setSentAgentContactRequests(sent);
+      setReceivedAgentContactRequests(received);
+    } catch (error) {
+      if (error instanceof AuthError) {
+        handleAuthExpired(t("auth.sessionExpired"));
+        return;
+      }
+      console.error("Failed to refresh agent contact requests:", error);
+    }
+  }, [authState, handleAuthExpired, t]);
+
   const refreshAgentDelegations = useCallback(async () => {
     if (authState !== "authenticated") {
       setSentAgentDelegations([]);
@@ -246,6 +305,37 @@ export default function Home() {
 
   useEffect(() => {
     if (authState !== "authenticated") {
+      setAgentContacts([]);
+      setSentAgentContactRequests([]);
+      setReceivedAgentContactRequests([]);
+      return;
+    }
+
+    void refreshAgentContacts();
+  }, [authState, refreshAgentContacts, userId]);
+
+  useEffect(() => {
+    if (authState !== "authenticated") {
+      setSentAgentContactRequests([]);
+      setReceivedAgentContactRequests([]);
+      return;
+    }
+
+    let cancelled = false;
+    const refresh = async () => {
+      if (cancelled) return;
+      await refreshAgentContactRequests();
+    };
+    void refresh();
+    const intervalId = window.setInterval(refresh, 8000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [authState, refreshAgentContactRequests, userId]);
+
+  useEffect(() => {
+    if (authState !== "authenticated") {
       setSentAgentDelegations([]);
       setReceivedAgentDelegations([]);
       return;
@@ -262,7 +352,7 @@ export default function Home() {
       cancelled = true;
       window.clearInterval(intervalId);
     };
-  }, [authState, refreshAgentDelegations]);
+  }, [authState, refreshAgentDelegations, userId]);
 
   const persistDefaultModel = useCallback(
     (model: string) => {
@@ -497,6 +587,11 @@ export default function Home() {
       setSelectedModel(preferredModel);
       setSessionAttentionById({});
       setAcknowledgedSessionAttentionById({});
+      setAgentContacts([]);
+      setSentAgentContactRequests([]);
+      setReceivedAgentContactRequests([]);
+      setSentAgentDelegations([]);
+      setReceivedAgentDelegations([]);
       setActiveContextFolderPath(null);
       setPendingMobileSession(null);
       mobileSessionSelectionRequestRef.current += 1;
@@ -756,13 +851,82 @@ export default function Home() {
   );
 
   const handleCreateAgentDelegation = useCallback(
-    async (input: AgentDelegationCreateInput) => {
+    async (input: AgentDelegationCreateInput): Promise<AgentDelegation | null> => {
+      let createdDelegation: AgentDelegation | null = null;
       await runAgentDelegationAction("create", async () => {
-        await createAgentDelegation(input);
+        createdDelegation = await createAgentDelegation(input);
         await refreshAgentDelegations();
       });
+      return createdDelegation;
     },
     [refreshAgentDelegations, runAgentDelegationAction]
+  );
+
+  const handleAddAgentContact = useCallback(
+    async (contactUserId: string) => {
+      const nextContactUserId = contactUserId.trim();
+      if (!nextContactUserId) return;
+      await runAgentDelegationAction(`contact:${nextContactUserId}`, async () => {
+        await createAgentContactRequest(nextContactUserId);
+        await refreshAgentContactRequests();
+      });
+    },
+    [refreshAgentContactRequests, runAgentDelegationAction]
+  );
+
+  const handleUpdateAgentContact = useCallback(
+    async (contactUserId: string, input: { remark: string }) => {
+      const nextContactUserId = contactUserId.trim();
+      if (!nextContactUserId) return;
+      await runAgentDelegationAction(`update-contact:${nextContactUserId}`, async () => {
+        await updateAgentContact(nextContactUserId, input);
+        await refreshAgentContacts();
+      });
+    },
+    [refreshAgentContacts, runAgentDelegationAction]
+  );
+
+  const handleRemoveAgentContact = useCallback(
+    async (contactUserId: string) => {
+      const nextContactUserId = contactUserId.trim();
+      if (!nextContactUserId) return;
+      await runAgentDelegationAction(`remove-contact:${nextContactUserId}`, async () => {
+        await removeAgentContact(nextContactUserId);
+        await refreshAgentContacts();
+      });
+    },
+    [refreshAgentContacts, runAgentDelegationAction]
+  );
+
+  const handleCreateAgentDelegationFromContacts = useCallback(
+    async (input: ContactDelegationCreateInput) => {
+      const sourceSessionId = await ensureSession(defaultModel, activeContextFolderPath);
+      if (!sourceSessionId) return;
+      const delegation = await handleCreateAgentDelegation({
+        targetUserId: input.targetUserId,
+        sourceSessionId,
+        taskTitle: input.taskTitle,
+        taskPrompt: input.taskPrompt,
+      });
+      if (!delegation) return;
+      await loadSessions({ showLoading: false });
+      setPendingMobileSession(null);
+      mobileSessionSelectionRequestRef.current += 1;
+      setMobileFilesReturnToChat(false);
+      setPendingWorkspaceFileOpen(null);
+      setActiveView("sessions");
+      setMobileMotionDirection(1);
+      setMobileSessionMode("chat");
+      await handleSwitchSession(sourceSessionId);
+    },
+    [
+      activeContextFolderPath,
+      defaultModel,
+      ensureSession,
+      handleCreateAgentDelegation,
+      handleSwitchSession,
+      loadSessions,
+    ]
   );
 
   const handleAcceptAgentDelegation = useCallback(
@@ -790,6 +954,26 @@ export default function Home() {
       });
     },
     [refreshAgentDelegations, runAgentDelegationAction]
+  );
+
+  const handleAcceptAgentContactRequest = useCallback(
+    async (requestId: string) => {
+      await runAgentDelegationAction(`accept-contact-request:${requestId}`, async () => {
+        await acceptAgentContactRequest(requestId);
+        await Promise.all([refreshAgentContacts(), refreshAgentContactRequests()]);
+      });
+    },
+    [refreshAgentContacts, refreshAgentContactRequests, runAgentDelegationAction]
+  );
+
+  const handleRejectAgentContactRequest = useCallback(
+    async (requestId: string) => {
+      await runAgentDelegationAction(`reject-contact-request:${requestId}`, async () => {
+        await rejectAgentContactRequest(requestId);
+        await refreshAgentContactRequests();
+      });
+    },
+    [refreshAgentContactRequests, runAgentDelegationAction]
   );
 
   const handleAnswerAgentDelegation = useCallback(
@@ -1072,6 +1256,15 @@ export default function Home() {
         (delegation) => delegation.targetSessionId === sessionPageSessionId
       ) || null
     : null;
+  const contactsBadgeCount = useMemo(() => {
+    const pendingDelegationCount = receivedAgentDelegations.filter(
+      (delegation) => delegation.status === "pending_acceptance"
+    ).length;
+    const pendingContactRequestCount = receivedAgentContactRequests.filter(
+      (request) => request.status === "pending"
+    ).length;
+    return pendingDelegationCount + pendingContactRequestCount;
+  }, [receivedAgentContactRequests, receivedAgentDelegations]);
   const sessionPageMessages = isMobileSessionSwitchPending ? [] : messages;
   const sessionPageTimelineEvents = isMobileSessionSwitchPending ? [] : timelineEvents;
   const sessionPagePlanSteps = isMobileSessionSwitchPending ? [] : planSteps;
@@ -1226,7 +1419,6 @@ export default function Home() {
       delegatedSession={sessionPageDelegatedSession}
       pendingControlRequest={isMobileSessionSwitchPending ? null : pendingControlRequest}
       agentDelegationActionKey={agentDelegationActionKey}
-      onCreateAgentDelegation={handleCreateAgentDelegation}
       onAnswerAgentDelegation={handleAnswerAgentDelegation}
     />
   );
@@ -1245,7 +1437,12 @@ export default function Home() {
   );
   const mobileSessionChat = renderSessionPage();
   const sessionsMobileNav = (
-    <MobileTabBar activeView={activeView} onSelectView={handleSelectView} placement="absolute" />
+    <MobileTabBar
+      activeView={activeView}
+      onSelectView={handleSelectView}
+      placement="absolute"
+      contactsBadgeCount={contactsBadgeCount}
+    />
   );
 
   const mainContent =
@@ -1275,6 +1472,32 @@ export default function Home() {
         userId={userId}
         onAuthExpired={handleAuthExpired}
         onOpenSession={handleOpenTaskSession}
+      />
+    ) : activeView === "contacts" ? (
+      <ContactsPage
+        key={`contacts:${userId}`}
+        userId={userId}
+        contacts={agentContacts}
+        sentContactRequests={sentAgentContactRequests}
+        receivedContactRequests={receivedAgentContactRequests}
+        sentDelegations={sentAgentDelegations}
+        receivedDelegations={receivedAgentDelegations}
+        pendingActionKey={agentDelegationActionKey}
+        onAddContact={handleAddAgentContact}
+        onUpdateContact={handleUpdateAgentContact}
+        onRemoveContact={handleRemoveAgentContact}
+        onCreateDelegation={handleCreateAgentDelegationFromContacts}
+        onAcceptContactRequest={handleAcceptAgentContactRequest}
+        onRejectContactRequest={handleRejectAgentContactRequest}
+        onAcceptDelegation={handleAcceptAgentDelegation}
+        onRejectDelegation={handleRejectAgentDelegation}
+        onRefresh={async () => {
+          await Promise.all([
+            refreshAgentContacts(),
+            refreshAgentContactRequests(),
+            refreshAgentDelegations(),
+          ]);
+        }}
       />
     ) : activeView === "skills" ? (
       <SkillsPage
@@ -1351,7 +1574,11 @@ export default function Home() {
     );
   const mobileNav =
     activeView === "sessions" ? null : (
-      <MobileTabBar activeView={activeView} onSelectView={handleSelectView} />
+      <MobileTabBar
+        activeView={activeView}
+        onSelectView={handleSelectView}
+        contactsBadgeCount={contactsBadgeCount}
+      />
     );
   const mobileMotionStage = activeView === "sessions" ? "sessions:page" : `${activeView}:page`;
   const animatedMainContent = (
@@ -1427,10 +1654,8 @@ export default function Home() {
             userId={userId}
             onSelectView={handleSelectView}
             onOpenSettings={() => handleSelectView("home")}
+            contactsBadgeCount={contactsBadgeCount}
             receivedAgentDelegations={receivedAgentDelegations}
-            agentDelegationActionKey={agentDelegationActionKey}
-            onAcceptAgentDelegation={handleAcceptAgentDelegation}
-            onRejectAgentDelegation={handleRejectAgentDelegation}
           />
         }
         content={animatedMainContent}

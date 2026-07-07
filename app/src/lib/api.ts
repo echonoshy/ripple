@@ -10,6 +10,9 @@ import {
   ConnectorInfo,
   ConnectorStatus,
   AgentRunInfo,
+  AgentContact,
+  AgentContactDeleteResponse,
+  AgentContactRequest,
   AgentDelegation,
   AgentDelegationCreateInput,
   GogcliAccountsResponse,
@@ -632,6 +635,35 @@ interface RawAgentDelegation {
   error?: string | null;
 }
 
+interface RawAgentContact {
+  owner_user_id?: string;
+  contact_user_id?: string;
+  remark?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  profile?: {
+    user_id?: string;
+    user_name?: string;
+    display_name?: string | null;
+    login?: string | null;
+    avatar_uri?: string | null;
+  } | null;
+}
+
+interface RawAgentContactRequest {
+  request_id?: string;
+  requester_user_id?: string;
+  target_user_id?: string;
+  status?: string;
+  message?: string | null;
+  reason?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  completed_at?: string | null;
+  requester_profile?: RawAgentContact["profile"];
+  target_profile?: RawAgentContact["profile"];
+}
+
 interface RawTaskProgress {
   completed?: number;
   total?: number;
@@ -829,6 +861,57 @@ function normalizeAgentDelegation(raw: RawAgentDelegation): AgentDelegation {
     lastAnswerEvent: raw.last_answer_event ?? null,
     reason: raw.reason ?? null,
     error: raw.error ?? null,
+  };
+}
+
+function normalizeAgentContact(raw: RawAgentContact): AgentContact {
+  const profile = raw.profile || {};
+  const contactUserId = raw.contact_user_id || profile.user_id || "";
+  return {
+    ownerUserId: raw.owner_user_id || "",
+    contactUserId,
+    remark: typeof raw.remark === "string" ? raw.remark : "",
+    createdAt: raw.created_at || "",
+    updatedAt: raw.updated_at || "",
+    profile: {
+      userId: profile.user_id || contactUserId,
+      userName: profile.user_name || profile.display_name || profile.login || contactUserId,
+      displayName: profile.display_name ?? null,
+      login: profile.login ?? null,
+      avatarUri: profile.avatar_uri ?? null,
+    },
+  };
+}
+
+function normalizeAgentContactProfile(
+  raw: RawAgentContact["profile"] | undefined | null,
+  fallbackUserId: string
+): AgentContact["profile"] {
+  const profile = raw || {};
+  return {
+    userId: profile.user_id || fallbackUserId,
+    userName: profile.user_name || profile.display_name || profile.login || fallbackUserId,
+    displayName: profile.display_name ?? null,
+    login: profile.login ?? null,
+    avatarUri: profile.avatar_uri ?? null,
+  };
+}
+
+function normalizeAgentContactRequest(raw: RawAgentContactRequest): AgentContactRequest {
+  const requesterUserId = raw.requester_user_id || "";
+  const targetUserId = raw.target_user_id || "";
+  return {
+    requestId: raw.request_id || "",
+    requesterUserId,
+    targetUserId,
+    status: raw.status || "pending",
+    message: raw.message ?? null,
+    reason: raw.reason ?? null,
+    createdAt: raw.created_at || "",
+    updatedAt: raw.updated_at || "",
+    completedAt: raw.completed_at ?? null,
+    requesterProfile: normalizeAgentContactProfile(raw.requester_profile, requesterUserId),
+    targetProfile: normalizeAgentContactProfile(raw.target_profile, targetUserId),
   };
 }
 
@@ -1298,6 +1381,152 @@ export async function fetchAgentDelegations(role: "sent" | "received"): Promise<
         ? data
         : [];
   return (rawDelegations as RawAgentDelegation[]).map(normalizeAgentDelegation);
+}
+
+export async function fetchAgentContacts(): Promise<AgentContact[]> {
+  const res = await fetch(`${API_URL}/contacts`, {
+    headers: { ...authHeaders() },
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to fetch contacts (${res.status})`);
+  }
+  const data = (await res.json()) as unknown;
+  const rawContacts =
+    isRecord(data) && Array.isArray(data.contacts)
+      ? data.contacts
+      : Array.isArray(data)
+        ? data
+        : [];
+  return (rawContacts as RawAgentContact[]).map(normalizeAgentContact);
+}
+
+export async function addAgentContact(contactUserId: string): Promise<AgentContact> {
+  const res = await fetch(`${API_URL}/contacts`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ contact_user_id: contactUserId }),
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to add contact (${res.status})`);
+  }
+  return normalizeAgentContact((await res.json()) as RawAgentContact);
+}
+
+export async function updateAgentContact(
+  contactUserId: string,
+  input: { remark: string }
+): Promise<AgentContact> {
+  const res = await fetch(`${API_URL}/contacts/${encodeURIComponent(contactUserId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ remark: input.remark }),
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to update contact (${res.status})`);
+  }
+  return normalizeAgentContact((await res.json()) as RawAgentContact);
+}
+
+export async function removeAgentContact(
+  contactUserId: string
+): Promise<AgentContactDeleteResponse> {
+  const res = await fetch(`${API_URL}/contacts/${encodeURIComponent(contactUserId)}`, {
+    method: "DELETE",
+    headers: { ...authHeaders() },
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to remove contact (${res.status})`);
+  }
+  const data = (await res.json()) as Record<string, unknown>;
+  return {
+    deleted: data.deleted === true,
+    contactUserId: typeof data.contact_user_id === "string" ? data.contact_user_id : contactUserId,
+  };
+}
+
+export async function fetchAgentContactRequests(
+  role: "sent" | "received"
+): Promise<AgentContactRequest[]> {
+  const res = await fetch(`${API_URL}/contact-requests?role=${encodeURIComponent(role)}`, {
+    headers: { ...authHeaders() },
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to fetch contact requests (${res.status})`);
+  }
+  const data = (await res.json()) as unknown;
+  const rawRequests =
+    isRecord(data) && Array.isArray(data.requests)
+      ? data.requests
+      : Array.isArray(data)
+        ? data
+        : [];
+  return (rawRequests as RawAgentContactRequest[]).map(normalizeAgentContactRequest);
+}
+
+export async function createAgentContactRequest(
+  targetUserId: string,
+  message?: string
+): Promise<AgentContactRequest> {
+  const res = await fetch(`${API_URL}/contact-requests`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({
+      target_user_id: targetUserId,
+      message: message?.trim() || undefined,
+    }),
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to create contact request (${res.status})`);
+  }
+  return normalizeAgentContactRequest((await res.json()) as RawAgentContactRequest);
+}
+
+async function postAgentContactRequestAction(
+  requestId: string,
+  action: "accept" | "reject",
+  body: Record<string, unknown> = {}
+): Promise<AgentContactRequest> {
+  const res = await fetch(
+    `${API_URL}/contact-requests/${encodeURIComponent(requestId)}/${action}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(body),
+    }
+  );
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to ${action} contact request (${res.status})`);
+  }
+  return normalizeAgentContactRequest((await res.json()) as RawAgentContactRequest);
+}
+
+export async function acceptAgentContactRequest(requestId: string): Promise<AgentContactRequest> {
+  return postAgentContactRequestAction(requestId, "accept");
+}
+
+export async function rejectAgentContactRequest(
+  requestId: string,
+  reason?: string
+): Promise<AgentContactRequest> {
+  return postAgentContactRequestAction(
+    requestId,
+    "reject",
+    reason?.trim() ? { reason: reason.trim() } : {}
+  );
 }
 
 export async function createAgentDelegation(

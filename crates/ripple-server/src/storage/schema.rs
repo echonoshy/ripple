@@ -1,7 +1,7 @@
 use serde_json::Value;
 use sqlx::{Row, SqlitePool};
 
-pub const CURRENT_SCHEMA_VERSION: i64 = 12;
+pub const CURRENT_SCHEMA_VERSION: i64 = 14;
 
 const SCHEMA_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS sessions (
@@ -171,6 +171,26 @@ CREATE TABLE IF NOT EXISTS agent_delegation_events (
         ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS contacts (
+    owner_user_id TEXT NOT NULL,
+    contact_user_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    record_json TEXT NOT NULL,
+    PRIMARY KEY (owner_user_id, contact_user_id)
+);
+
+CREATE TABLE IF NOT EXISTS contact_requests (
+    request_id TEXT PRIMARY KEY NOT NULL,
+    requester_user_id TEXT NOT NULL,
+    target_user_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    completed_at TEXT,
+    record_json TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS user_profiles (
     user_id TEXT PRIMARY KEY NOT NULL,
     avatar_uri TEXT,
@@ -257,6 +277,12 @@ CREATE INDEX IF NOT EXISTS idx_agent_delegations_target_status_updated
     ON agent_delegations(target_user_id, status, updated_at);
 CREATE INDEX IF NOT EXISTS idx_agent_delegations_target_job
     ON agent_delegations(target_user_id, target_job_id);
+CREATE INDEX IF NOT EXISTS idx_contacts_owner_updated
+    ON contacts(owner_user_id, updated_at);
+CREATE INDEX IF NOT EXISTS idx_contact_requests_requester_updated
+    ON contact_requests(requester_user_id, updated_at);
+CREATE INDEX IF NOT EXISTS idx_contact_requests_target_status_updated
+    ON contact_requests(target_user_id, status, updated_at);
 CREATE INDEX IF NOT EXISTS idx_auth_users_status
     ON auth_users(status);
 CREATE INDEX IF NOT EXISTS idx_auth_sessions_user
@@ -516,6 +542,8 @@ async fn ensure_schema_migrations(pool: &SqlitePool) -> anyhow::Result<()> {
         (10_i64, "token_usage_events_v1"),
         (11_i64, "session_fork_lineage_v1"),
         (12_i64, "agent_delegations_v1"),
+        (13_i64, "contacts_v1"),
+        (14_i64, "contact_requests_v1"),
     ] {
         sqlx::query("INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (?, ?)")
             .bind(version)

@@ -569,6 +569,44 @@ export interface AgentDelegationCreateInput {
   taskPrompt: string;
 }
 
+export interface AgentContactProfile {
+  userId: string;
+  userName: string;
+  displayName?: string | null;
+  login?: string | null;
+  avatarUri?: string | null;
+}
+
+export interface AgentContact {
+  ownerUserId: string;
+  contactUserId: string;
+  remark: string;
+  createdAt: string;
+  updatedAt: string;
+  profile: AgentContactProfile;
+}
+
+export type AgentContactRequestStatus = "pending" | "accepted" | "rejected" | string;
+
+export interface AgentContactRequest {
+  requestId: string;
+  requesterUserId: string;
+  targetUserId: string;
+  status: AgentContactRequestStatus;
+  message?: string | null;
+  reason?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string | null;
+  requesterProfile: AgentContactProfile;
+  targetProfile: AgentContactProfile;
+}
+
+export interface AgentContactDeleteResponse {
+  deleted: boolean;
+  contactUserId: string;
+}
+
 export interface PlanStep {
   id: string;
   subject: string;

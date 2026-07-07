@@ -21,7 +21,6 @@ import {
 } from "lucide-react";
 import type {
   AgentDelegation,
-  AgentDelegationCreateInput,
   Message,
   PlanStep,
   PlanProgress,
@@ -43,7 +42,6 @@ import {
 import SessionComposer from "./SessionComposer";
 import SessionTimeline from "./SessionTimeline";
 import {
-  AgentDelegationCreateDialog,
   AgentDelegationStatusCard,
   DelegatedSessionBanner,
   DelegationClarificationCard,
@@ -294,7 +292,6 @@ interface SessionPageProps {
   delegatedSession?: AgentDelegation | null;
   pendingControlRequest?: Record<string, unknown> | null;
   agentDelegationActionKey?: string | null;
-  onCreateAgentDelegation?: (input: AgentDelegationCreateInput) => Promise<void> | void;
   onAnswerAgentDelegation?: (delegationId: string, answer: string) => Promise<void> | void;
 }
 
@@ -350,7 +347,6 @@ export default function SessionPage({
   delegatedSession = null,
   pendingControlRequest = null,
   agentDelegationActionKey = null,
-  onCreateAgentDelegation,
   onAnswerAgentDelegation,
 }: SessionPageProps) {
   const { t } = useI18n();
@@ -369,7 +365,6 @@ export default function SessionPage({
   const previousTokenUsageTotalRef = useRef(tokenUsage.total_tokens);
   const previousTokenFooterVisibleRef = useRef<boolean | null>(null);
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
-  const [isDelegationDialogOpen, setIsDelegationDialogOpen] = useState(false);
   const [mobileHeaderHeight, setMobileHeaderHeight] = useState(
     MOBILE_CHAT_HEADER_FALLBACK_HEIGHT_PX
   );
@@ -456,7 +451,6 @@ export default function SessionPage({
   const visibleAgentDelegations = agentDelegations.filter(
     (delegation) => delegation.requesterSessionId === sessionId
   );
-  const canCreateAgentDelegation = Boolean(sessionId && onCreateAgentDelegation);
 
   const restoreComposerFocusedScrollTop = useCallback(() => {
     if (!isComposerFocusedRef.current) return;
@@ -1015,25 +1009,8 @@ export default function SessionPage({
           workspaceScopePath={workspaceScopePath}
           onSelectWorkspaceFolder={onSelectWorkspaceFolder}
           onFocusStateChange={handleComposerFocusStateChange}
-          onCreateAgentDelegation={
-            onCreateAgentDelegation ? () => setIsDelegationDialogOpen(true) : undefined
-          }
-          canCreateAgentDelegation={canCreateAgentDelegation}
         />
       </div>
-      {isDelegationDialogOpen && sessionId && onCreateAgentDelegation && (
-        <AgentDelegationCreateDialog
-          sourceSessionId={sessionId}
-          defaultTaskTitle={session?.title || ""}
-          defaultTaskPrompt={input}
-          pending={agentDelegationActionKey === "create"}
-          onClose={() => setIsDelegationDialogOpen(false)}
-          onSubmit={async (delegationInput) => {
-            await onCreateAgentDelegation(delegationInput);
-            setIsDelegationDialogOpen(false);
-          }}
-        />
-      )}
     </div>
   );
 }

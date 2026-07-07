@@ -11,6 +11,7 @@ import {
   compactSessionContext,
   confirmTask,
   createAgentDelegation,
+  addAgentContact,
   createSession,
   createTaskAction,
   deleteTask,
@@ -26,6 +27,7 @@ import {
   fetchSessions,
   fetchSessionDetails,
   fetchAgentDelegations,
+  fetchAgentContacts,
   fetchMemoryStatus,
   fetchMemorySummary,
   forkSession,
@@ -40,6 +42,7 @@ import {
   resolveApiUrl,
   resetMemory,
   rejectAgentDelegation,
+  removeAgentContact,
   runTaskTriggerNow,
   runTaskNow,
   searchWorkspaceFiles,
@@ -47,6 +50,7 @@ import {
   sendSessionControlAction,
   stopSession,
   updateTask,
+  updateAgentContact,
   updateTaskTrigger,
   updateSession,
   updateTaskAction,
@@ -1439,6 +1443,78 @@ async function testAgentDelegationApisUseExpectedRoutesAndPayloads() {
   ]);
 }
 
+async function testAgentContactApisUseExpectedRoutesAndPayloads() {
+  const requests: Array<{ method: string; path: string; body: unknown }> = [];
+  const rawContact = {
+    owner_user_id: "alice",
+    contact_user_id: "bob",
+    remark: "发布负责人",
+    created_at: "2026-07-06T01:00:00Z",
+    updated_at: "2026-07-06T01:01:00Z",
+    profile: {
+      user_id: "bob",
+      user_name: "Bob",
+      display_name: "Bob",
+      login: "bob@example.com",
+      avatar_uri: "/v1/users/me/avatar/avatar.png",
+    },
+  };
+
+  await withFetch(
+    async (input, init) => {
+      const url = new URL(String(input));
+      requests.push({
+        method: init?.method || "GET",
+        path: `${url.pathname}${url.search}`,
+        body: init?.body ? JSON.parse(String(init.body)) : null,
+      });
+      return new Response(
+        JSON.stringify(
+          url.pathname === "/v1/contacts" && !init?.method
+            ? { contacts: [rawContact], count: 1 }
+            : url.pathname === "/v1/contacts/bob" && init?.method === "PATCH"
+              ? { ...rawContact, remark: JSON.parse(String(init.body)).remark }
+              : url.pathname === "/v1/contacts/bob" && init?.method === "DELETE"
+                ? { deleted: true, contact_user_id: "bob" }
+                : rawContact
+        ),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    },
+    async () => {
+      const listed = await fetchAgentContacts();
+      assert.equal(listed[0]?.contactUserId, "bob");
+      assert.equal(listed[0]?.remark, "发布负责人");
+      assert.equal(listed[0]?.profile?.userName, "Bob");
+
+      const added = await addAgentContact("bob");
+      assert.equal(added.contactUserId, "bob");
+
+      const updated = await updateAgentContact("bob", { remark: "值班联系人" });
+      assert.equal(updated.remark, "值班联系人");
+
+      const removed = await removeAgentContact("bob");
+      assert.equal(removed.deleted, true);
+      assert.equal(removed.contactUserId, "bob");
+    }
+  );
+
+  assert.deepEqual(requests, [
+    { method: "GET", path: "/v1/contacts", body: null },
+    {
+      method: "POST",
+      path: "/v1/contacts",
+      body: { contact_user_id: "bob" },
+    },
+    {
+      method: "PATCH",
+      path: "/v1/contacts/bob",
+      body: { remark: "值班联系人" },
+    },
+    { method: "DELETE", path: "/v1/contacts/bob", body: null },
+  ]);
+}
+
 function testSessionFollowUpClientApisAreRemoved() {
   const source = readFileSync(new URL("./api.ts", import.meta.url), "utf8");
 
@@ -2275,6 +2351,7 @@ test("api client behavior", async () => {
   await testCreateSessionPostsContextFolderPath();
   await testFetchSessionDetailsNormalizesBackendShape();
   await testAgentDelegationApisUseExpectedRoutesAndPayloads();
+  await testAgentContactApisUseExpectedRoutesAndPayloads();
   await testListApisFollowBackendPaginationCursors();
   testSessionFollowUpClientApisAreRemoved();
   await testTaskApisUseExpectedBackendShape();

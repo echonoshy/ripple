@@ -1,7 +1,7 @@
 import type { ComponentType } from "react";
-import { FileText, ListTodo, MessageCircle, Settings, Sparkles } from "lucide-react";
+import { FileText, ListTodo, MessageCircle, Settings, Sparkles, Users } from "lucide-react";
 
-export type WorkspaceView = "home" | "sessions" | "tasks" | "files" | "skills";
+export type WorkspaceView = "home" | "sessions" | "tasks" | "contacts" | "files" | "skills";
 
 export interface WorkspaceNavItem {
   id: WorkspaceView;
@@ -11,7 +11,8 @@ export interface WorkspaceNavItem {
 
 export const mainNavItems: WorkspaceNavItem[] = [
   { id: "sessions", label: "Sessions", icon: MessageCircle },
-  { id: "tasks", label: "Tasks", icon: ListTodo },
+  { id: "tasks", label: "Scheduled", icon: ListTodo },
+  { id: "contacts", label: "Contacts", icon: Users },
   { id: "files", label: "Files", icon: FileText },
   { id: "skills", label: "Skills", icon: Sparkles },
 ];

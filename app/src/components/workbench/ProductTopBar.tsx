@@ -20,22 +20,20 @@ import {
   TYPOGRAPHY_SECTION_TITLE_CLASS,
   WORKBENCH_TOP_BAR_CLASS,
 } from "./stylePrimitives";
-import { AgentDelegationRequestsButton } from "./AgentDelegationControls";
 
 interface ProductTopBarProps {
   activeView: WorkspaceView;
   userId: string;
   onSelectView: (view: WorkspaceView) => void;
   onOpenSettings: () => void;
+  contactsBadgeCount?: number;
   receivedAgentDelegations?: AgentDelegation[];
-  agentDelegationActionKey?: string | null;
-  onAcceptAgentDelegation?: (delegationId: string) => Promise<void> | void;
-  onRejectAgentDelegation?: (delegationId: string) => Promise<void> | void;
 }
 
 const navLabelKeys: Record<WorkspaceView, MessageKey> = {
   sessions: "nav.sessions",
   tasks: "nav.tasks",
+  contacts: "nav.contacts",
   files: "nav.files",
   skills: "nav.skills",
   home: "nav.settings",
@@ -46,10 +44,8 @@ export default function ProductTopBar({
   userId,
   onSelectView,
   onOpenSettings,
+  contactsBadgeCount,
   receivedAgentDelegations = [],
-  agentDelegationActionKey = null,
-  onAcceptAgentDelegation,
-  onRejectAgentDelegation,
 }: ProductTopBarProps) {
   const { t } = useI18n();
   const [profile, setProfile] = React.useState<Awaited<ReturnType<typeof fetchUserProfile>> | null>(
@@ -60,6 +56,9 @@ export default function ProductTopBar({
 
   const avatarUri = getUserProfileAvatarUri(profile);
   const displayName = getUserProfileDisplayName(profile, userId);
+  const effectiveContactsBadgeCount =
+    contactsBadgeCount ??
+    receivedAgentDelegations.filter((delegation) => delegation.status === "pending_acceptance").length;
 
   React.useEffect(() => {
     let cancelled = false;
@@ -128,7 +127,7 @@ export default function ProductTopBar({
                 type="button"
                 data-ripple-top-tab={item.id}
                 onClick={() => onSelectView(item.id)}
-                className={`relative inline-flex h-8 w-[132px] shrink-0 items-center justify-center gap-1.5 rounded-lg border px-3 ${TYPOGRAPHY_BODY_MEDIUM_CLASS} whitespace-nowrap transition-colors ${
+                className={`relative inline-flex h-8 w-[116px] shrink-0 items-center justify-center gap-1.5 rounded-lg border px-3 ${TYPOGRAPHY_BODY_MEDIUM_CLASS} whitespace-nowrap transition-colors ${
                   selected
                     ? "border-[#BACEFD] bg-[#F0F5FF] text-[#1456F0] shadow-none"
                     : "border-transparent text-[#2B2F36] hover:bg-white hover:text-[#1F2329]"
@@ -140,6 +139,14 @@ export default function ProductTopBar({
                   strokeWidth={LUCIDE_NAV_STROKE_WIDTH}
                 />
                 {t(navLabelKeys[item.id])}
+                {item.id === "contacts" && effectiveContactsBadgeCount > 0 ? (
+                  <span
+                    data-ripple-contacts-badge="true"
+                    className="absolute -top-1 -right-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[#F53F3F] px-1.5 text-[11px] leading-5 font-medium text-white"
+                  >
+                    {effectiveContactsBadgeCount}
+                  </span>
+                ) : null}
                 {selected ? (
                   <span
                     aria-hidden="true"
@@ -153,12 +160,6 @@ export default function ProductTopBar({
       </nav>
 
       <div className="flex flex-1 justify-end gap-2">
-        <AgentDelegationRequestsButton
-          delegations={receivedAgentDelegations}
-          actionKey={agentDelegationActionKey}
-          onAccept={onAcceptAgentDelegation}
-          onReject={onRejectAgentDelegation}
-        />
         <button
           type="button"
           data-ripple-top-settings-entry="true"

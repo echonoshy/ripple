@@ -4,6 +4,8 @@ pub mod bilibili;
 pub mod capabilities;
 pub mod chat;
 pub mod connectors;
+pub mod contact_requests;
+pub mod contacts;
 pub mod documents;
 pub mod health;
 pub mod memory;
@@ -182,6 +184,22 @@ pub fn router(state: AppState) -> Router {
         ))
         .routes(utoipa_axum::routes!(
             agent_delegations::answer_agent_delegation
+        ))
+        .routes(utoipa_axum::routes!(
+            contacts::list_contacts,
+            contacts::add_contact
+        ))
+        .routes(utoipa_axum::routes!(contacts::update_contact))
+        .routes(utoipa_axum::routes!(contacts::delete_contact))
+        .routes(utoipa_axum::routes!(
+            contact_requests::list_contact_requests,
+            contact_requests::create_contact_request
+        ))
+        .routes(utoipa_axum::routes!(
+            contact_requests::accept_contact_request
+        ))
+        .routes(utoipa_axum::routes!(
+            contact_requests::reject_contact_request
         ))
         .routes(utoipa_axum::routes!(models::list_models))
         .routes(utoipa_axum::routes!(models::codex_runtime_info))
@@ -845,6 +863,129 @@ mod tests {
             request_json(state, Method::GET, "/v1/users/me", "wrong-key", None, None).await;
 
         assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn contacts_can_be_added_listed_and_removed() {
+        let state = test_state(vec!["service-key".to_string()]);
+
+        let (status, created) = request_json(
+            state.clone(),
+            Method::POST,
+            "/v1/contacts",
+            "service-key",
+            Some("alice"),
+            Some(json!({ "contact_user_id": "bob" })),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            created.get("owner_user_id").and_then(Value::as_str),
+            Some("alice")
+        );
+        assert_eq!(
+            created.get("contact_user_id").and_then(Value::as_str),
+            Some("bob")
+        );
+        assert_eq!(
+            created
+                .pointer("/profile/user_name")
+                .and_then(Value::as_str),
+            Some("bob")
+        );
+
+        let (status, updated) = request_json(
+            state.clone(),
+            Method::PATCH,
+            "/v1/contacts/bob",
+            "service-key",
+            Some("alice"),
+            Some(json!({ "remark": "发布负责人" })),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            updated.get("remark").and_then(Value::as_str),
+            Some("发布负责人")
+        );
+
+        let (status, listed) = request_json(
+            state.clone(),
+            Method::GET,
+            "/v1/contacts",
+            "service-key",
+            Some("alice"),
+            None,
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(listed.get("count").and_then(Value::as_u64), Some(1));
+        assert_eq!(
+            listed
+                .pointer("/contacts/0/contact_user_id")
+                .and_then(Value::as_str),
+            Some("bob")
+        );
+        assert_eq!(
+            listed.pointer("/contacts/0/remark").and_then(Value::as_str),
+            Some("发布负责人")
+        );
+
+        let (status, deleted) = request_json(
+            state.clone(),
+            Method::DELETE,
+            "/v1/contacts/bob",
+            "service-key",
+            Some("alice"),
+            None,
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(deleted.get("deleted").and_then(Value::as_bool), Some(true));
+
+        let (status, listed) = request_json(
+            state,
+            Method::GET,
+            "/v1/contacts",
+            "service-key",
+            Some("alice"),
+            None,
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(listed.get("count").and_then(Value::as_u64), Some(0));
+    }
+
+    #[tokio::test]
+    async fn contacts_reject_self_and_invalid_user_ids() {
+        let state = test_state(vec!["service-key".to_string()]);
+
+        let (status, _) = request_json(
+            state.clone(),
+            Method::POST,
+            "/v1/contacts",
+            "service-key",
+            Some("alice"),
+            Some(json!({ "contact_user_id": "alice" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+
+        let (status, _) = request_json(
+            state,
+            Method::POST,
+            "/v1/contacts",
+            "service-key",
+            Some("alice"),
+            Some(json!({ "contact_user_id": "bad user" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]

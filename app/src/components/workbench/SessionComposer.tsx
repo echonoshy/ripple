@@ -107,6 +107,58 @@ function skillDisplayName(skill: SkillInfo): string {
   return skill.display_name || skill.name;
 }
 
+export interface ComposerSkillOption {
+  key: string;
+  label: string;
+  skillId: string;
+  skill: SkillInfo;
+}
+
+function isSelectableSkill(skill: SkillInfo): boolean {
+  return skill.enabled && (skill.user_status === "available" || skill.status === "available");
+}
+
+function skillFamilyRoot(skill: SkillInfo): string | null {
+  const [root, suffix] = skill.name.split("-", 2);
+  if (!root || !suffix) return null;
+  return root;
+}
+
+export function buildComposerSkillOptions(skills: SkillInfo[]): ComposerSkillOption[] {
+  const selectableSkills = skills.filter(isSelectableSkill);
+  const sharedByRoot = new Map<string, SkillInfo>();
+  for (const skill of selectableSkills) {
+    const root = skillFamilyRoot(skill);
+    if (root && skill.name === `${root}-shared`) sharedByRoot.set(root, skill);
+  }
+
+  const emittedRoots = new Set<string>();
+  const options: ComposerSkillOption[] = [];
+  for (const skill of selectableSkills) {
+    const root = skillFamilyRoot(skill);
+    if (root && sharedByRoot.has(root)) {
+      if (emittedRoots.has(root)) continue;
+      const sharedSkill = sharedByRoot.get(root)!;
+      options.push({
+        key: `family:${root}`,
+        label: root,
+        skillId: sharedSkill.id,
+        skill: sharedSkill,
+      });
+      emittedRoots.add(root);
+      continue;
+    }
+
+    options.push({
+      key: skill.id,
+      label: skillDisplayName(skill),
+      skillId: skill.id,
+      skill,
+    });
+  }
+  return options;
+}
+
 interface ModelMenuPosition {
   top: number;
   left: number;
@@ -219,9 +271,13 @@ export default function SessionComposer({
   const selectedRequiredSkill = availableSkills.find(
     (skill) => skill.id === selectedRequiredSkillId
   );
-  const selectableSkills = availableSkills.filter(
-    (skill) => skill.enabled && (skill.user_status === "available" || skill.status === "available")
+  const selectableSkillOptions = buildComposerSkillOptions(availableSkills);
+  const selectedRequiredSkillOption = selectableSkillOptions.find(
+    (option) => option.skillId === selectedRequiredSkillId
   );
+  const selectedRequiredSkillLabel =
+    selectedRequiredSkillOption?.label ||
+    (selectedRequiredSkill ? skillDisplayName(selectedRequiredSkill) : null);
   const sendControlLayoutClass = isExpandedComposer
     ? "col-start-2 row-start-2 justify-self-end"
     : "lg:mb-[2px]";
@@ -502,15 +558,15 @@ export default function SessionComposer({
             type="button"
             data-ripple-composer-skill-button
             aria-label={t("composer.selectSkill")}
-            aria-pressed={Boolean(selectedRequiredSkill)}
+            aria-pressed={Boolean(selectedRequiredSkillLabel)}
             title={
-              selectedRequiredSkill
-                ? t("composer.selectedSkill", { name: skillDisplayName(selectedRequiredSkill) })
+              selectedRequiredSkillLabel
+                ? t("composer.selectedSkill", { name: selectedRequiredSkillLabel })
                 : t("composer.selectSkill")
             }
             onClick={handleSkillButtonClick}
             className={`${COMPOSER_ICON_BUTTON_CLASS} ${
-              selectedRequiredSkill || isSkillMenuOpen ? COMPOSER_ICON_BUTTON_ACTIVE_CLASS : ""
+              selectedRequiredSkillLabel || isSkillMenuOpen ? COMPOSER_ICON_BUTTON_ACTIVE_CLASS : ""
             }`}
           >
             {isLoadingSkills ? (
@@ -526,28 +582,28 @@ export default function SessionComposer({
               role="menu"
               className={`absolute bottom-full left-0 z-40 mb-2 max-h-72 w-72 overflow-y-auto ${WORKBENCH_MENU_CLASS}`}
             >
-              {selectableSkills.length === 0 ? (
+              {selectableSkillOptions.length === 0 ? (
                 <div className={`px-2.5 py-2 ${TYPOGRAPHY_MICRO_CLASS} text-[#646A73]`}>
                   {isLoadingSkills ? t("skills.refresh") : t("skills.noResults")}
                 </div>
               ) : (
-                selectableSkills.map((skill) => {
-                  const selected = skill.id === selectedRequiredSkillId;
+                selectableSkillOptions.map((option) => {
+                  const selected = option.skillId === selectedRequiredSkillId;
                   return (
                     <button
-                      key={skill.id}
+                      key={option.key}
                       type="button"
                       role="menuitemradio"
                       aria-checked={selected}
                       onClick={() => {
-                        onSelectRequiredSkill(skill.id);
+                        onSelectRequiredSkill(option.skillId);
                         closeSkillMenu();
                       }}
                       className={`${WORKBENCH_MENU_ITEM_CLASS} min-h-8 justify-between ${TYPOGRAPHY_META_CLASS} ${
                         selected ? "bg-[#F0F5FF] text-[#1456F0]" : "text-[#1F2329]"
                       }`}
                     >
-                      <span className="min-w-0 truncate">{skillDisplayName(skill)}</span>
+                      <span className="min-w-0 truncate">{option.label}</span>
                     </button>
                   );
                 })
@@ -663,14 +719,14 @@ export default function SessionComposer({
           onChange={handleAttachChange}
           disabled={attachDisabled}
         />
-        {selectedRequiredSkill && onSelectRequiredSkill && (
+        {selectedRequiredSkillLabel && onSelectRequiredSkill && (
           <div className="flex min-w-0 px-1 pt-0.5 pb-1">
             <div
               data-ripple-composer-skill-chip
               className={`inline-flex max-w-full items-center gap-1.5 rounded-lg border border-[#BACEFD] bg-[#F0F5FF] px-2 py-1 ${TYPOGRAPHY_MICRO_CLASS} text-[#1456F0]`}
             >
               <Blocks size={13} className="shrink-0" strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
-              <span className="min-w-0 truncate">{skillDisplayName(selectedRequiredSkill)}</span>
+              <span className="min-w-0 truncate">{selectedRequiredSkillLabel}</span>
               <button
                 type="button"
                 aria-label={t("composer.clearSelectedSkill")}

@@ -4,8 +4,13 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { I18nProvider, type LocalePreference } from "@/i18n";
-import SessionComposer, { composerToolbarClassName, shouldExpandComposer } from "./SessionComposer";
+import SessionComposer, {
+  buildComposerSkillOptions,
+  composerToolbarClassName,
+  shouldExpandComposer,
+} from "./SessionComposer";
 import type { PendingLocalImage } from "@/lib/pendingImages";
+import type { SkillInfo } from "@/types";
 
 function noop() {}
 
@@ -18,6 +23,21 @@ const pastedImage: PendingLocalImage = {
   size: 3,
   source: "paste",
 };
+
+function skill(overrides: Partial<SkillInfo> & Pick<SkillInfo, "id" | "name">): SkillInfo {
+  return {
+    type: "skill",
+    display_name: overrides.name,
+    description: "test skill",
+    source: "ripple",
+    display_source: "system",
+    path: `skills/${overrides.name}/SKILL.md`,
+    user_status: "available",
+    enabled: true,
+    status: "available",
+    ...overrides,
+  };
+}
 
 function renderComposer(
   overrides: Partial<React.ComponentProps<typeof SessionComposer>> = {},
@@ -187,7 +207,8 @@ function testComposerUsesWorkbenchSurfaceScaleAndIndependentToolButtons() {
 
 function testComposerModelMenuUsesViewportPortal() {
   const source = readFileSync(new URL("./SessionComposer.tsx", import.meta.url), "utf8");
-  const modelMenuBlock = source.match(/const modelMenu = \([\s\S]*?const modelMenuPortal/)?.[0] || "";
+  const modelMenuBlock =
+    source.match(/const modelMenu = \([\s\S]*?const modelMenuPortal/)?.[0] || "";
 
   assert.match(source, /createPortal/);
   assert.match(source, /data-ripple-composer-model-menu/);
@@ -231,6 +252,58 @@ function testComposerShowsRequiredSkillPickerChip() {
   assert.match(html, /aria-label="Select skill"/);
   assert.match(html, /viaim Product Support/);
   assert.match(html, /aria-label="Clear selected skill"/);
+}
+
+function testComposerCollapsesGogSkillFamilyToSharedEntry() {
+  const options = buildComposerSkillOptions([
+    skill({ id: "ripple:gog-docs", name: "gog-docs" }),
+    skill({ id: "ripple:gog-shared", name: "gog-shared" }),
+    skill({ id: "ripple:gog-sheets", name: "gog-sheets" }),
+    skill({
+      id: "ripple:viaim-product-support",
+      name: "viaim-product-support",
+      display_name: "viaim Product Support",
+    }),
+  ]);
+
+  assert.deepEqual(
+    options.map((option) => [option.label, option.skillId]),
+    [
+      ["gog", "ripple:gog-shared"],
+      ["viaim Product Support", "ripple:viaim-product-support"],
+    ]
+  );
+}
+
+function testComposerKeepsGogSubSkillsWhenNoSharedEntryExists() {
+  const options = buildComposerSkillOptions([
+    skill({ id: "ripple:gog-docs", name: "gog-docs" }),
+    skill({ id: "ripple:gog-sheets", name: "gog-sheets" }),
+  ]);
+
+  assert.deepEqual(
+    options.map((option) => [option.label, option.skillId]),
+    [
+      ["gog-docs", "ripple:gog-docs"],
+      ["gog-sheets", "ripple:gog-sheets"],
+    ]
+  );
+}
+
+function testComposerShowsSharedGogSelectionAsGog() {
+  const html = renderComposer({
+    availableSkills: [
+      skill({ id: "ripple:gog-docs", name: "gog-docs" }),
+      skill({ id: "ripple:gog-shared", name: "gog-shared" }),
+      skill({ id: "ripple:gog-sheets", name: "gog-sheets" }),
+    ],
+    selectedRequiredSkillId: "ripple:gog-shared",
+    onSelectRequiredSkill: noop,
+  });
+
+  assert.match(html, /data-ripple-composer-skill-chip/);
+  assert.match(html, />gog</);
+  assert.doesNotMatch(html, />gog-shared</);
 }
 
 function testComposerDoesNotExposeClientContextFixturePicker() {
@@ -388,6 +461,9 @@ testComposerUsesWorkbenchSurfaceScaleAndIndependentToolButtons();
 testComposerModelMenuUsesViewportPortal();
 testComposerModelButtonHasStableExplainerAnchor();
 testComposerShowsRequiredSkillPickerChip();
+testComposerCollapsesGogSkillFamilyToSharedEntry();
+testComposerKeepsGogSubSkillsWhenNoSharedEntryExists();
+testComposerShowsSharedGogSelectionAsGog();
 testComposerDoesNotExposeClientContextFixturePicker();
 testComposerModelMenuSelectsOnTouchPointerDown();
 testComposerModelMenuClosesWithExplicitCloseCallback();

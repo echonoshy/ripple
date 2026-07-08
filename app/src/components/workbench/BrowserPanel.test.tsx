@@ -61,6 +61,17 @@ function testBrowserPanelUsesNativeTauriBrowserWhenAvailable() {
   assert.match(source, /browser\.nativeMode/);
 }
 
+function testBrowserPanelFallsBackToSystemBrowserInTauri() {
+  const source = readFileSync(new URL("./BrowserPanel.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /isTauriRuntime/);
+  assert.match(source, /systemBrowserMode/);
+  assert.match(source, /openInSystemBrowser/);
+  assert.match(source, /openExternalUrl\(normalizedAddress,\s*"ripple-browser"\)/);
+  assert.match(source, /browser\.systemMode/);
+  assert.match(source, /browser\.openExternalFailed/);
+}
+
 function testBrowserPanelDirectlyFramesHttpWebSites() {
   const source = readFileSync(new URL("./BrowserPanel.tsx", import.meta.url), "utf8");
 
@@ -119,6 +130,7 @@ testBrowserPanelBuildsAgentReadableContext();
 testBrowserPanelExplainsBlockedEmbeddedPreview();
 testBrowserPanelUsesSandboxedPreviewHtml();
 testBrowserPanelUsesNativeTauriBrowserWhenAvailable();
+testBrowserPanelFallsBackToSystemBrowserInTauri();
 testBrowserPanelDirectlyFramesHttpWebSites();
 testBrowserPanelPreservesAgentReadableContextInNativeMode();
 testBrowserPanelAvoidsStalePreviewAndSlowFetchJank();

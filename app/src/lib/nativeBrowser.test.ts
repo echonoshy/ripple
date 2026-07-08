@@ -23,7 +23,8 @@ function testNativeBrowserTracksViewportRectAndVisibility() {
 }
 
 function testNativeBrowserOnlyRunsInTauriRuntime() {
-  assert.doesNotMatch(source, /ENABLE_NATIVE_BROWSER_SURFACE\s*=\s*false/);
+  assert.match(source, /ENABLE_NATIVE_BROWSER_SURFACE\s*=\s*false/);
+  assert.match(source, /if \(!ENABLE_NATIVE_BROWSER_SURFACE\) return false/);
   assert.match(source, /return isTauriRuntime\(\)/);
   assert.match(source, /typeof window === "undefined"/);
   assert.match(source, /return false/);

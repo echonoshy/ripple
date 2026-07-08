@@ -1,5 +1,7 @@
 import { isTauriRuntime } from "./platform";
 
+const ENABLE_NATIVE_BROWSER_SURFACE = false;
+
 export interface NativeBrowserBounds {
   x: number;
   y: number;
@@ -41,6 +43,9 @@ type UnlistenFn = () => void;
 
 export function isNativeBrowserAvailable(): boolean {
   if (typeof window === "undefined" || typeof document === "undefined") return false;
+  // Keep the inline child WebView disabled by default. Arbitrary external pages
+  // can destabilize the main Tauri window's WebKit process on macOS.
+  if (!ENABLE_NATIVE_BROWSER_SURFACE) return false;
   return isTauriRuntime();
 }
 

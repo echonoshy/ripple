@@ -24,7 +24,7 @@ import {
   type NativeBrowserPageLoadEvent,
   type NativeBrowserSurface,
 } from "@/lib/nativeBrowser";
-import { openExternalUrl } from "@/lib/platform";
+import { isTauriRuntime, openExternalUrl } from "@/lib/platform";
 import { WORKBENCH_ICON_BUTTON_CLASS } from "./stylePrimitives";
 
 interface BrowserPanelProps {
@@ -37,6 +37,11 @@ type BrowserStatus = "idle" | "loading" | "loaded" | "failed";
 interface BrowserHistoryState {
   entries: string[];
   index: number;
+}
+
+interface BrowserCaptureOptions {
+  recordHistory?: boolean;
+  openInSystemBrowser?: boolean;
 }
 
 function isHttpBrowserUrl(value: string): boolean {
@@ -89,6 +94,7 @@ export default function BrowserPanel({
   const canGoBack = history.index > 0;
   const canGoForward = history.index >= 0 && history.index < history.entries.length - 1;
   const nativeBrowserAvailable = isNativeBrowserAvailable();
+  const systemBrowserMode = !nativeBrowserAvailable && isTauriRuntime();
   const activeUrl = pendingNavigationUrl || frameUrl || address;
   const isPreviewBlocked = page?.embeddable === false;
   const shouldUsePreviewHtml = Boolean(page?.preview_html);
@@ -149,10 +155,11 @@ export default function BrowserPanel({
   );
 
   const capturePage = useCallback(
-    async (value: string, options: { recordHistory?: boolean } = {}) => {
+    async (value: string, options: BrowserCaptureOptions = {}) => {
       const captureId = latestCaptureIdRef.current + 1;
       latestCaptureIdRef.current = captureId;
       const shouldRecordHistory = options.recordHistory ?? true;
+      const shouldOpenInSystemBrowser = options.openInSystemBrowser === true && systemBrowserMode;
       const normalizedAddress = normalizeBrowserUrlInput(value);
 
       setAddress(normalizedAddress);
@@ -177,6 +184,14 @@ export default function BrowserPanel({
       }
 
       let nativePreviewActive = false;
+
+      if (shouldOpenInSystemBrowser) {
+        void openExternalUrl(normalizedAddress, "ripple-browser").then((result) => {
+          if (!result.opened) {
+            setError(t("browser.openExternalFailed"));
+          }
+        });
+      }
 
       if (nativeBrowserAvailable) {
         const nativeUrl = normalizedAddress;
@@ -252,7 +267,15 @@ export default function BrowserPanel({
         }
       }
     },
-    [clearAttachedContext, handleNativePageLoad, nativeBrowserAvailable, publishContext, pushHistory, t]
+    [
+      clearAttachedContext,
+      handleNativePageLoad,
+      nativeBrowserAvailable,
+      publishContext,
+      pushHistory,
+      systemBrowserMode,
+      t,
+    ]
   );
 
   const handleAttachCurrentPage = useCallback(() => {
@@ -328,12 +351,12 @@ export default function BrowserPanel({
       if (event.source !== iframeRef.current?.contentWindow) return;
       if (!isBrowserNavigateMessage(event.data)) return;
       if (!isHttpBrowserUrl(event.data.url)) return;
-      void capturePage(event.data.url);
+      void capturePage(event.data.url, { openInSystemBrowser: systemBrowserMode });
     };
 
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, [capturePage]);
+  }, [capturePage, systemBrowserMode]);
 
   useEffect(() => {
     return () => {
@@ -345,7 +368,7 @@ export default function BrowserPanel({
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    void capturePage(address);
+    void capturePage(address, { openInSystemBrowser: systemBrowserMode });
   };
 
   const handleRefresh = () => {
@@ -459,6 +482,8 @@ export default function BrowserPanel({
         <span className="min-w-0 truncate">
           {nativeBrowserAvailable && frameUrl
             ? `${t("browser.nativeMode")} · ${activeUrl}`
+            : systemBrowserMode && activeUrl
+              ? `${t("browser.systemMode")} · ${activeUrl}`
             : page?.title || activeUrl || t("browser.empty")}
         </span>
         <div className="flex shrink-0 items-center gap-2">

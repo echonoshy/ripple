@@ -14,7 +14,14 @@ import SessionPage, {
   shouldShowTokenFooter,
   shouldSuppressTimelineAutoScroll,
 } from "./SessionPage";
-import type { Message, UsageInfo, WorkbenchSessionSummary } from "@/types";
+import type {
+  AgentContact,
+  Conversation,
+  ConversationMessage,
+  Message,
+  UsageInfo,
+  WorkbenchSessionSummary,
+} from "@/types";
 
 const sessionPageSource = readFileSync(new URL("./SessionPage.tsx", import.meta.url), "utf8");
 
@@ -113,6 +120,162 @@ function renderSessionPageWithTimelineContent() {
         models={[{ id: "codex-medium", owned_by: "ripple" }]}
         isModelDropdownOpen={false}
         sessionId="srv-test"
+        onNewSession={noop}
+        onInputChange={noop}
+        onAttachFiles={noop}
+        onRemovePendingFile={noop}
+        onAddPendingImages={noop}
+        onRemovePendingLocalImage={noop}
+        onToggleModelDropdown={noop}
+        onCloseModelDropdown={noop}
+        onSelectModel={noop}
+        onSend={noop}
+        onStop={noop}
+        onQuickReply={noop}
+        onPermissionResolve={noop}
+      />
+    </I18nProvider>
+  );
+}
+
+function renderCollaborationSessionPage() {
+  const contact: AgentContact = {
+    ownerUserId: "alice",
+    contactUserId: "bob",
+    remark: "",
+    createdAt: "2026-07-07T00:00:00Z",
+    updatedAt: "2026-07-07T00:00:00Z",
+    profile: {
+      userId: "bob",
+      userName: "Ling Long",
+      displayName: "Ling Long",
+      login: "ling@example.com",
+      avatarUri: null,
+    },
+  };
+  const conversation: Conversation = {
+    conversationId: "conv-1",
+    kind: "direct",
+    directKey: "alice:bob",
+    title: null,
+    createdByUserId: "alice",
+    createdAt: "2026-07-07T00:00:00Z",
+    updatedAt: "2026-07-07T00:02:00Z",
+    lastMessageAt: "2026-07-07T00:03:00Z",
+    participants: [
+      {
+        conversationId: "conv-1",
+        actorType: "user",
+        actorId: "alice",
+        userId: "alice",
+        role: "member",
+        status: "active",
+      },
+      {
+        conversationId: "conv-1",
+        actorType: "user",
+        actorId: "bob",
+        userId: "bob",
+        role: "member",
+        status: "active",
+      },
+    ],
+  };
+  const messages: ConversationMessage[] = [
+    {
+      conversationId: "conv-1",
+      seq: 1,
+      messageId: "cmsg-1",
+      senderUserId: "bob",
+      senderActorType: "user",
+      senderActorId: "bob",
+      kind: "text",
+      body: { text: "你好" },
+      createdAt: "2026-07-07T00:01:00Z",
+    },
+    {
+      conversationId: "conv-1",
+      seq: 2,
+      messageId: "cmsg-2",
+      senderUserId: "alice",
+      senderActorType: "user",
+      senderActorId: "alice",
+      kind: "agent_invocation",
+      body: {
+        text: "整理上面的内容",
+        invocation: {
+          invocationId: "ainv-1",
+          conversationId: "conv-1",
+          requestMessageId: "cmsg-2",
+          requesterUserId: "alice",
+          targetUserId: "bob",
+          targetAgentId: "bob-agent",
+          status: "pending_approval",
+          prompt: "整理上面的内容",
+          requiresTargetApproval: true,
+          contextSnapshot: { conversationId: "conv-1", messages: [] },
+          createdAt: "2026-07-07T00:02:00Z",
+          updatedAt: "2026-07-07T00:02:00Z",
+        },
+      },
+      createdAt: "2026-07-07T00:02:00Z",
+    },
+    {
+      conversationId: "conv-1",
+      seq: 3,
+      messageId: "cmsg-3",
+      senderUserId: "bob",
+      senderActorType: "agent",
+      senderActorId: "bob-agent",
+      kind: "agent_invocation_event",
+      body: {
+        eventType: "completed",
+        text: "整理完成",
+        invocation: {
+          invocationId: "ainv-1",
+          conversationId: "conv-1",
+          requestMessageId: "cmsg-2",
+          requesterUserId: "alice",
+          targetUserId: "bob",
+          targetAgentId: "bob-agent",
+          status: "completed",
+          prompt: "整理上面的内容",
+          requiresTargetApproval: true,
+          contextSnapshot: { conversationId: "conv-1", messages: [] },
+          createdAt: "2026-07-07T00:02:00Z",
+          updatedAt: "2026-07-07T00:03:00Z",
+          resultText: "整理完成",
+        },
+      },
+      createdAt: "2026-07-07T00:03:00Z",
+    },
+  ];
+  return renderToStaticMarkup(
+    <I18nProvider initialPreference="zh-CN">
+      <SessionPage
+        userId="alice"
+        session={null}
+        messages={[]}
+        timelineEvents={[]}
+        planProgress={null}
+        planSteps={[]}
+        tokenUsage={{ prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }}
+        lastContextTokens={0}
+        input=""
+        pendingFiles={[]}
+        pendingLocalImages={[]}
+        isGenerating={false}
+        focusToken={0}
+        selectedModel="codex-medium"
+        models={[{ id: "codex-medium", owned_by: "ripple" }]}
+        isModelDropdownOpen={false}
+        sessionId="conversation:conv-1"
+        collaborationContext={{
+          conversation,
+          contact,
+          messages,
+          currentUserId: "alice",
+        }}
         onNewSession={noop}
         onInputChange={noop}
         onAttachFiles={noop}
@@ -912,6 +1075,17 @@ function testMobileChatStatusUsesStaticGenerationIndicators() {
   assert.match(sessionPageSource, /isGenerating\s*\?\s*"bg-\[#1456F0\]"\s*:\s*"bg-\[#22A06B\]"/);
 }
 
+function testCollaborationTimelineSeparatesHumanAgentRequestsAndAgentResults() {
+  const html = renderCollaborationSessionPage();
+
+  assert.match(html, /data-ripple-collaboration-message-kind="text"/);
+  assert.match(html, /data-ripple-collaboration-message-kind="agent_invocation"/);
+  assert.match(html, /data-ripple-collaboration-message-kind="agent_invocation_event"/);
+  assert.match(html, /请求 Ling Long 的 Agent/);
+  assert.match(html, /Ling Long 的 Agent/);
+  assert.match(html, /Agent 结果/);
+}
+
 testOmitsPlaceholderSessionHeaderControls();
 testMobileHeaderButtonsUseToolbarStyling();
 testSessionPageUsesSharedWorkbenchBackground();
@@ -961,5 +1135,6 @@ testMobileOverlayMeasurementsUseBorderBoxHeight();
 testMobileTimelinePadsForOverlayHeaderAndComposer();
 testPendingSessionDetailsShowSkeletonInsteadOfPreviousMessages();
 testMobileChatStatusUsesStaticGenerationIndicators();
+testCollaborationTimelineSeparatesHumanAgentRequestsAndAgentResults();
 
 console.log("session page tests passed");

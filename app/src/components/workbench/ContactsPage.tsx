@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
+  Bot,
   Check,
   Clock3,
   Loader2,
@@ -17,7 +18,15 @@ import {
   X,
 } from "lucide-react";
 import { type MessageKey, useI18n } from "@/i18n";
-import type { AgentContact, AgentContactRequest, AgentDelegation } from "@/types";
+import type {
+  AgentContact,
+  AgentContactRequest,
+  AgentDelegation,
+  AgentInvocation,
+  AgentInvocationCreateInput,
+  Conversation,
+  ConversationMessage,
+} from "@/types";
 import MobilePageHeader from "./MobilePageHeader";
 import {
   LUCIDE_STANDARD_STROKE_WIDTH,
@@ -67,6 +76,15 @@ interface ContactsPageProps {
   onRejectDelegation?: (delegationId: string) => Promise<void> | void;
   onOpenSession?: (sessionId: string) => void;
   onRefresh?: () => Promise<unknown> | unknown;
+  conversationByContactUserId?: Record<string, Conversation | undefined>;
+  conversationMessagesById?: Record<string, ConversationMessage[] | undefined>;
+  onEnsureDirectConversation?: (contactUserId: string) => Promise<void> | void;
+  onOpenConversation?: (contactUserId: string) => Promise<void> | void;
+  onSendConversationMessage?: (conversationId: string, text: string) => Promise<void> | void;
+  onCreateAgentInvocation?: (
+    conversationId: string,
+    input: AgentInvocationCreateInput
+  ) => Promise<void> | void;
 }
 
 function contactDisplayName(contact: AgentContact): string {
@@ -188,6 +206,36 @@ function delegationResultText(delegation: AgentDelegation): string {
   return delegation.resultText?.trim() || "";
 }
 
+function conversationMessageText(message: ConversationMessage): string {
+  const text = message.body.text;
+  if (typeof text === "string" && text.trim()) return text;
+  const invocation = message.body.invocation;
+  if (invocation?.resultText?.trim()) return invocation.resultText.trim();
+  if (invocation?.prompt) return invocation.prompt;
+  return "";
+}
+
+function agentInvocationStatusText(
+  invocation: AgentInvocation,
+  targetName: string,
+  t: ReturnType<typeof useI18n>["t"]
+): string {
+  if (invocation.status === "pending_approval") {
+    return t("contacts.agentWaitingApproval", { name: targetName });
+  }
+  if (invocation.status === "approved") return t("contacts.agentApproved");
+  if (
+    invocation.status === "awaiting_target_permission" ||
+    invocation.status === "awaiting_permission"
+  ) {
+    return t("contacts.agentAwaitingPermission", { name: targetName });
+  }
+  if (invocation.status === "rejected") return t("contacts.agentRejected");
+  if (invocation.status === "completed") return t("contacts.agentCompleted");
+  if (invocation.status === "failed") return t("contacts.agentFailed");
+  return t("contacts.agentRunning");
+}
+
 function formatDelegationTime(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
@@ -217,6 +265,12 @@ export default function ContactsPage({
   onRejectDelegation,
   onOpenSession,
   onRefresh,
+  conversationByContactUserId = {},
+  conversationMessagesById = {},
+  onEnsureDirectConversation,
+  onOpenConversation,
+  onSendConversationMessage,
+  onCreateAgentInvocation,
 }: ContactsPageProps) {
   const { t } = useI18n();
   const [selectedContactId, setSelectedContactId] = useState("");
@@ -228,6 +282,8 @@ export default function ContactsPage({
   } | null>(null);
   const [taskDialogContactId, setTaskDialogContactId] = useState<string | null>(null);
   const [taskPrompt, setTaskPrompt] = useState("");
+  const [conversationDraft, setConversationDraft] = useState("");
+  const ensuredConversationContactIdRef = useRef<string | null>(null);
 
   const pendingIncomingDelegations = useMemo(
     () => receivedDelegations.filter((delegation) => delegation.status === "pending_acceptance"),
@@ -304,6 +360,7 @@ export default function ContactsPage({
     contactRows.find((contact) => contact.contactUserId === effectiveSelectedContactId) || null;
   const selectedExistingContact =
     contacts.find((contact) => contact.contactUserId === effectiveSelectedContactId) || null;
+  const selectedExistingContactId = selectedExistingContact?.contactUserId || "";
   const taskDialogContact =
     contacts.find((contact) => contact.contactUserId === taskDialogContactId) || null;
   const selectedIncomingDelegations =
@@ -361,6 +418,33 @@ export default function ContactsPage({
     !isSavingRemark
   );
   const canSubmitTask = Boolean(taskDialogContact && taskPrompt.trim()) && !isCreatingTask;
+  const selectedConversation = selectedExistingContact
+    ? conversationByContactUserId[selectedExistingContact.contactUserId] || null
+    : null;
+  const selectedConversationMessages = selectedConversation
+    ? conversationMessagesById[selectedConversation.conversationId] || []
+    : [];
+  const canSendConversationMessage =
+    Boolean(selectedConversation && conversationDraft.trim()) && !pendingActionKey;
+  const canCreateAgentInvocation =
+    Boolean(selectedConversation && conversationDraft.trim() && onCreateAgentInvocation) &&
+    !pendingActionKey;
+
+  useEffect(() => {
+    if (!selectedExistingContactId) {
+      ensuredConversationContactIdRef.current = null;
+      return;
+    }
+    if (selectedConversation) {
+      ensuredConversationContactIdRef.current = selectedExistingContactId;
+      return;
+    }
+    if (!onEnsureDirectConversation) return;
+    if (ensuredConversationContactIdRef.current === selectedExistingContactId) return;
+
+    ensuredConversationContactIdRef.current = selectedExistingContactId;
+    void onEnsureDirectConversation(selectedExistingContactId);
+  }, [onEnsureDirectConversation, selectedConversation, selectedExistingContactId]);
 
   return (
     <div
@@ -559,16 +643,111 @@ export default function ContactsPage({
                 <div className="grid gap-4 px-4 py-4">
                   <div className="flex min-w-0 items-start gap-3">
                     <ContactAvatar contact={selectedContact} size="md" />
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                       <div className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} truncate text-[#1F2329]`}>
                         {contactPrimaryName(selectedContact)}
                       </div>
                       <div className={`${TYPOGRAPHY_META_CLASS} mt-0.5 truncate text-[#646A73]`}>
                         {contactSecondaryText(selectedContact)}
                       </div>
-                      <div className={`${TYPOGRAPHY_META_CLASS} mt-0.5 truncate text-[#8F959E]`}>
-                        {contactRemarkText(selectedContact, t)}
-                      </div>
+                      {selectedExistingContact ? (
+                        <div
+                          data-ripple-contact-summary-remark={selectedExistingContact.contactUserId}
+                          className="mt-0.5 min-w-0"
+                        >
+                          {isEditingRemark ? (
+                            <form
+                              className="flex min-w-0 items-center gap-1.5"
+                              onSubmit={async (event) => {
+                                event.preventDefault();
+                                if (!selectedExistingContact || !canSaveRemark) return;
+                                await onUpdateContact(selectedExistingContact.contactUserId, {
+                                  remark: remarkDraft.trim(),
+                                });
+                                setEditingRemarkContactId(null);
+                                setRemarkDraftState(null);
+                              }}
+                            >
+                              <input
+                                aria-label={t("contacts.editRemark")}
+                                value={remarkDraft}
+                                onChange={(event) =>
+                                  setRemarkDraftState({
+                                    contactUserId: selectedExistingContact.contactUserId,
+                                    value: event.target.value,
+                                  })
+                                }
+                                placeholder={t("contacts.remarkPlaceholder")}
+                                disabled={Boolean(isSavingRemark)}
+                                className={`h-8 min-w-0 flex-1 px-2.5 ${WORKBENCH_FIELD_CLASS} ${TYPOGRAPHY_META_CLASS}`}
+                              />
+                              <button
+                                type="button"
+                                aria-label={t("contacts.cancelTask")}
+                                title={t("contacts.cancelTask")}
+                                disabled={Boolean(isSavingRemark)}
+                                onClick={() => {
+                                  setEditingRemarkContactId(null);
+                                  setRemarkDraftState(null);
+                                }}
+                                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[#DEE0E3] bg-white text-[#2B2F36] transition-colors hover:bg-[#F8F9FA] disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                <X size={13} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
+                              </button>
+                              <button
+                                type="submit"
+                                aria-label={t("contacts.saveRemark")}
+                                title={t("contacts.saveRemark")}
+                                disabled={!canSaveRemark}
+                                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#1456F0] text-white transition-colors hover:bg-[#0F4BD8] disabled:cursor-not-allowed disabled:bg-[#EFF0F1] disabled:text-[#8F959E]"
+                              >
+                                {isSavingRemark ? (
+                                  <Loader2 size={13} className="animate-spin" />
+                                ) : (
+                                  <Save size={13} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
+                                )}
+                              </button>
+                            </form>
+                          ) : (
+                            <div className="flex min-w-0 items-center gap-1.5">
+                              <span
+                                className={`min-w-0 truncate ${TYPOGRAPHY_META_CLASS} text-[#8F959E]`}
+                              >
+                                {contactRemarkText(selectedExistingContact, t)}
+                              </span>
+                              <button
+                                type="button"
+                                data-ripple-edit-remark-button={
+                                  selectedExistingContact.contactUserId
+                                }
+                                aria-label={t("contacts.editRemark")}
+                                title={t("contacts.editRemark")}
+                                disabled={Boolean(pendingActionKey)}
+                                onClick={() => {
+                                  setEditingRemarkContactId(selectedExistingContact.contactUserId);
+                                  setRemarkDraftState({
+                                    contactUserId: selectedExistingContact.contactUserId,
+                                    value: selectedExistingContact.remark,
+                                  });
+                                }}
+                                className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-transparent text-[#8F959E] transition-colors hover:border-[#DEE0E3] hover:bg-white hover:text-[#2B2F36] disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                <Pencil size={12} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
+                              </button>
+                            </div>
+                          )}
+                          <span
+                            hidden
+                            data-ripple-contact-summary-remark-end={
+                              selectedExistingContact.contactUserId
+                            }
+                          />
+                        </div>
+                      ) : (
+                        <div className={`${TYPOGRAPHY_META_CLASS} mt-0.5 truncate text-[#8F959E]`}>
+                          {contactRemarkText(selectedContact, t)}
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -713,96 +892,142 @@ export default function ContactsPage({
                   ) : null}
 
                   {selectedExistingContact ? (
-                    <section className="rounded-lg border border-[#EFF0F1] bg-[#F8F9FA] p-3">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
+                    <section
+                      data-ripple-contact-conversation={selectedExistingContact.contactUserId}
+                      className="rounded-lg border border-[#EFF0F1] bg-white"
+                    >
+                      <div className="flex items-center justify-between gap-3 border-b border-[#EFF0F1] px-3 py-2.5">
                         <div className="min-w-0">
-                          <div
-                            className={`inline-flex items-center gap-1 ${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#2B2F36]`}
-                          >
-                            <Pencil size={13} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
-                            {t("contacts.remark")}
-                          </div>
-                          <div
-                            className={`${TYPOGRAPHY_BODY_CLASS} mt-1 break-words text-[#1F2329]`}
-                          >
-                            {contactRemarkText(selectedExistingContact, t)}
-                          </div>
+                          <h3 className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#1F2329]`}>
+                            {t("contacts.conversationTitle")}
+                          </h3>
+                          <p className={`${TYPOGRAPHY_META_CLASS} mt-0.5 text-[#646A73]`}>
+                            {t("contacts.conversationSubtitle")}
+                          </p>
                         </div>
-                        {!isEditingRemark ? (
+                        <span
+                          className={`inline-flex shrink-0 items-center rounded-full border border-[#DEE0E3] bg-[#F8F9FA] px-2 py-0.5 ${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#646A73]`}
+                        >
+                          {selectedConversationMessages.length}
+                        </span>
+                      </div>
+                      <div className="grid max-h-72 gap-2 overflow-y-auto p-3">
+                        {selectedConversationMessages.length === 0 ? (
+                          <div
+                            className={`rounded-lg border border-dashed border-[#DEE0E3] bg-[#F8F9FA] px-3 py-3 ${TYPOGRAPHY_META_CLASS} text-[#646A73]`}
+                          >
+                            {t("contacts.conversationEmpty")}
+                          </div>
+                        ) : (
+                          selectedConversationMessages.map((message) => {
+                            const invocation = message.body.invocation;
+                            const text = conversationMessageText(message);
+                            const fromSelf = message.senderUserId === userId;
+                            const targetName =
+                              invocation?.targetUserId === selectedExistingContact.contactUserId
+                                ? contactPrimaryName(selectedExistingContact)
+                                : userId;
+                            return (
+                              <article
+                                key={message.messageId}
+                                className={`rounded-lg border px-3 py-2.5 ${
+                                  invocation
+                                    ? "border-[#BACEFD] bg-[#F0F5FF]"
+                                    : "border-[#DEE0E3] bg-white"
+                                }`}
+                              >
+                                <div className="flex min-w-0 items-center justify-between gap-3">
+                                  <div className={`${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#646A73]`}>
+                                    {fromSelf ? t("contacts.fromMe") : `@${message.senderUserId}`}
+                                  </div>
+                                  {invocation ? (
+                                    <span
+                                      className={`${TYPOGRAPHY_META_MEDIUM_CLASS} ${WORKBENCH_STATUS_WARNING_CLASS}`}
+                                    >
+                                      {agentInvocationStatusText(invocation, targetName, t)}
+                                    </span>
+                                  ) : null}
+                                </div>
+                                <div
+                                  className={`mt-1 whitespace-pre-wrap ${TYPOGRAPHY_BODY_CLASS} text-[#1F2329]`}
+                                >
+                                  {text}
+                                </div>
+                              </article>
+                            );
+                          })
+                        )}
+                      </div>
+                      <form
+                        className="grid gap-2 border-t border-[#EFF0F1] p-3"
+                        onSubmit={async (event) => {
+                          event.preventDefault();
+                          if (!selectedConversation || !canSendConversationMessage) return;
+                          const text = conversationDraft.trim();
+                          await onSendConversationMessage?.(
+                            selectedConversation.conversationId,
+                            text
+                          );
+                          setConversationDraft("");
+                        }}
+                      >
+                        <textarea
+                          value={conversationDraft}
+                          onChange={(event) => setConversationDraft(event.target.value)}
+                          rows={3}
+                          placeholder={t("contacts.conversationPlaceholder")}
+                          className={`${WORKBENCH_FIELD_CLASS} min-h-20 resize-none px-3 py-2 ${TYPOGRAPHY_BODY_CLASS}`}
+                        />
+                        <div className="flex flex-wrap items-center justify-end gap-2">
                           <button
                             type="button"
-                            data-ripple-edit-remark-button={selectedExistingContact.contactUserId}
-                            disabled={Boolean(pendingActionKey)}
-                            onClick={() => {
-                              setEditingRemarkContactId(selectedExistingContact.contactUserId);
-                              setRemarkDraftState({
-                                contactUserId: selectedExistingContact.contactUserId,
-                                value: selectedExistingContact.remark,
+                            disabled={!canCreateAgentInvocation}
+                            onClick={async () => {
+                              if (!selectedConversation || !canCreateAgentInvocation) return;
+                              const prompt = conversationDraft.trim();
+                              await onCreateAgentInvocation?.(selectedConversation.conversationId, {
+                                targetUserId: selectedExistingContact.contactUserId,
+                                prompt,
+                                contextMessageCount: 20,
                               });
+                              setConversationDraft("");
                             }}
-                            className={`h-8 ${WORKBENCH_SECONDARY_BUTTON_CLASS} ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                            className={`h-9 ${WORKBENCH_SECONDARY_BUTTON_CLASS} ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
                           >
-                            <Pencil size={13} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
-                            {t("contacts.editRemark")}
+                            <Bot size={14} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />@
+                            {selectedExistingContact.contactUserId}-agent
                           </button>
-                        ) : null}
-                      </div>
-                      {isEditingRemark ? (
-                        <form
-                          className="mt-3 grid gap-2"
-                          onSubmit={async (event) => {
-                            event.preventDefault();
-                            if (!selectedExistingContact || !canSaveRemark) return;
-                            await onUpdateContact(selectedExistingContact.contactUserId, {
-                              remark: remarkDraft.trim(),
-                            });
-                            setEditingRemarkContactId(null);
-                          }}
-                        >
-                          <label className="grid gap-1">
-                            <span className={`${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#2B2F36]`}>
-                              {t("contacts.remark")}
-                            </span>
-                            <input
-                              value={remarkDraft}
-                              onChange={(event) =>
-                                setRemarkDraftState({
-                                  contactUserId: selectedExistingContact.contactUserId,
-                                  value: event.target.value,
-                                })
-                              }
-                              placeholder={t("contacts.remarkPlaceholder")}
-                              disabled={Boolean(isSavingRemark)}
-                              className={`h-10 px-3 ${WORKBENCH_FIELD_CLASS} ${TYPOGRAPHY_BODY_CLASS}`}
-                            />
-                          </label>
-                          <div className="flex flex-wrap justify-end gap-2">
-                            <button
-                              type="button"
-                              disabled={Boolean(isSavingRemark)}
-                              onClick={() => {
-                                setEditingRemarkContactId(null);
-                                setRemarkDraftState(null);
-                              }}
-                              className={`h-9 ${WORKBENCH_SECONDARY_BUTTON_CLASS} ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
-                            >
-                              {t("contacts.cancelTask")}
-                            </button>
-                            <button
-                              type="submit"
-                              disabled={!canSaveRemark}
-                              className={`h-9 ${WORKBENCH_PRIMARY_BUTTON_CLASS} ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
-                            >
-                              {isSavingRemark ? (
-                                <Loader2 size={14} className="animate-spin" />
-                              ) : (
-                                <Save size={14} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
-                              )}
-                              {t("contacts.saveRemark")}
-                            </button>
-                          </div>
-                        </form>
-                      ) : null}
+                          <button
+                            type="button"
+                            disabled={!canCreateAgentInvocation}
+                            onClick={async () => {
+                              if (!selectedConversation || !canCreateAgentInvocation) return;
+                              const prompt = conversationDraft.trim();
+                              await onCreateAgentInvocation?.(selectedConversation.conversationId, {
+                                targetUserId: userId,
+                                prompt,
+                                contextMessageCount: 20,
+                              });
+                              setConversationDraft("");
+                            }}
+                            className={`h-9 ${WORKBENCH_SECONDARY_BUTTON_CLASS} ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                          >
+                            <Bot size={14} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />@{userId}
+                            -agent
+                          </button>
+                          <button
+                            type="submit"
+                            disabled={!canSendConversationMessage}
+                            className={`h-9 ${WORKBENCH_PRIMARY_BUTTON_CLASS} ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                          >
+                            <Send size={14} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
+                            {t("contacts.sendMessage")}
+                          </button>
+                        </div>
+                        <div className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
+                          {t("contacts.requestAgent")}
+                        </div>
+                      </form>
                     </section>
                   ) : null}
 
@@ -919,14 +1144,15 @@ export default function ContactsPage({
                       <button
                         type="button"
                         disabled={Boolean(pendingActionKey)}
-                        onClick={() => {
-                          setTaskPrompt("");
-                          setTaskDialogContactId(selectedExistingContact.contactUserId);
-                        }}
-                        className={`h-10 ${WORKBENCH_PRIMARY_BUTTON_CLASS} ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                        onClick={() =>
+                          (onOpenConversation || onEnsureDirectConversation)?.(
+                            selectedExistingContact.contactUserId
+                          )
+                        }
+                        className={`h-10 ${WORKBENCH_SECONDARY_BUTTON_CLASS} ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
                       >
                         <Send size={14} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
-                        {t("contacts.sendTask")}
+                        {t("contacts.openConversation")}
                       </button>
                     </div>
                   ) : null}

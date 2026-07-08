@@ -15,7 +15,11 @@ import {
   AgentContactRequest,
   AgentDelegation,
   AgentDelegationCreateInput,
+  AgentInvocation,
+  AgentInvocationCreateInput,
   GogcliAccountsResponse,
+  Conversation,
+  ConversationMessage,
   SessionDetail,
   SessionControlAction,
   SessionSummary,
@@ -669,6 +673,68 @@ interface RawAgentContactRequest {
   target_profile?: RawAgentContact["profile"];
 }
 
+interface RawConversationParticipant {
+  conversation_id?: string;
+  actor_type?: string;
+  actor_id?: string;
+  user_id?: string;
+  role?: string;
+  status?: string;
+  last_read_message_seq?: number;
+}
+
+interface RawConversation {
+  conversation_id?: string;
+  kind?: string;
+  direct_key?: string | null;
+  title?: string | null;
+  created_by_user_id?: string;
+  created_at?: string;
+  updated_at?: string;
+  last_message_at?: string | null;
+  participants?: RawConversationParticipant[];
+}
+
+interface RawConversationMessage {
+  conversation_id?: string;
+  seq?: number;
+  message_id?: string;
+  sender_user_id?: string;
+  sender_actor_type?: string;
+  sender_actor_id?: string;
+  kind?: string;
+  body?: Record<string, unknown> | null;
+  created_at?: string;
+}
+
+interface RawAgentInvocation {
+  invocation_id?: string;
+  conversation_id?: string;
+  request_message_id?: string | null;
+  requester_user_id?: string;
+  target_user_id?: string;
+  target_agent_id?: string;
+  status?: string;
+  prompt?: string;
+  requires_target_approval?: boolean;
+  context_snapshot?: {
+    conversation_id?: string | null;
+    messages?: RawConversationMessage[];
+  } | null;
+  created_at?: string;
+  updated_at?: string;
+  approved_at?: string | null;
+  completed_at?: string | null;
+  target_session_id?: string | null;
+  target_job_id?: string | null;
+  approved_by_user_id?: string | null;
+  decision_note?: string | null;
+  result_status?: string | null;
+  result_text?: string | null;
+  result_output_available?: boolean;
+  error?: string | null;
+}
+
 interface RawTaskProgress {
   completed?: number;
   total?: number;
@@ -922,6 +988,84 @@ function normalizeAgentContactRequest(raw: RawAgentContactRequest): AgentContact
     completedAt: raw.completed_at ?? null,
     requesterProfile: normalizeAgentContactProfile(raw.requester_profile, requesterUserId),
     targetProfile: normalizeAgentContactProfile(raw.target_profile, targetUserId),
+  };
+}
+
+function normalizeConversationParticipant(raw: RawConversationParticipant): Conversation["participants"][number] {
+  return {
+    conversationId: raw.conversation_id || "",
+    actorType: raw.actor_type || "user",
+    actorId: raw.actor_id || raw.user_id || "",
+    userId: raw.user_id || raw.actor_id || "",
+    role: raw.role || "member",
+    status: raw.status || "active",
+    lastReadMessageSeq:
+      typeof raw.last_read_message_seq === "number" ? raw.last_read_message_seq : undefined,
+  };
+}
+
+function normalizeConversation(raw: RawConversation): Conversation {
+  return {
+    conversationId: raw.conversation_id || "",
+    kind: raw.kind || "direct",
+    directKey: raw.direct_key ?? null,
+    title: raw.title ?? null,
+    createdByUserId: raw.created_by_user_id || "",
+    createdAt: raw.created_at || "",
+    updatedAt: raw.updated_at || "",
+    lastMessageAt: raw.last_message_at ?? null,
+    participants: (raw.participants || []).map(normalizeConversationParticipant),
+  };
+}
+
+function normalizeConversationMessage(raw: RawConversationMessage): ConversationMessage {
+  const body = raw.body || {};
+  return {
+    conversationId: raw.conversation_id || "",
+    seq: typeof raw.seq === "number" ? raw.seq : 0,
+    messageId: raw.message_id || "",
+    senderUserId: raw.sender_user_id || "",
+    senderActorType: raw.sender_actor_type || "user",
+    senderActorId: raw.sender_actor_id || raw.sender_user_id || "",
+    kind: raw.kind || "text",
+    body: {
+      ...body,
+      ...(isRecord(body.invocation)
+        ? { invocation: normalizeAgentInvocation(body.invocation as RawAgentInvocation) }
+        : {}),
+      ...(typeof body.event_type === "string" ? { eventType: body.event_type } : {}),
+    },
+    createdAt: raw.created_at || "",
+  };
+}
+
+function normalizeAgentInvocation(raw: RawAgentInvocation): AgentInvocation {
+  return {
+    invocationId: raw.invocation_id || "",
+    conversationId: raw.conversation_id || "",
+    requestMessageId: raw.request_message_id ?? null,
+    requesterUserId: raw.requester_user_id || "",
+    targetUserId: raw.target_user_id || "",
+    targetAgentId: raw.target_agent_id || `${raw.target_user_id || ""}-agent`,
+    status: raw.status || "pending_approval",
+    prompt: raw.prompt || "",
+    requiresTargetApproval: raw.requires_target_approval === true,
+    contextSnapshot: {
+      conversationId: raw.context_snapshot?.conversation_id ?? null,
+      messages: (raw.context_snapshot?.messages || []).map(normalizeConversationMessage),
+    },
+    createdAt: raw.created_at || "",
+    updatedAt: raw.updated_at || "",
+    approvedAt: raw.approved_at ?? null,
+    completedAt: raw.completed_at ?? null,
+    targetSessionId: raw.target_session_id ?? null,
+    targetJobId: raw.target_job_id ?? null,
+    approvedByUserId: raw.approved_by_user_id ?? null,
+    decisionNote: raw.decision_note ?? null,
+    resultStatus: raw.result_status ?? null,
+    resultText: raw.result_text ?? null,
+    resultOutputAvailable: raw.result_output_available === true,
+    error: raw.error ?? null,
   };
 }
 
@@ -1567,6 +1711,171 @@ export async function rejectAgentContactRequest(
     "reject",
     reason?.trim() ? { reason: reason.trim() } : {}
   );
+}
+
+export async function fetchConversations(): Promise<Conversation[]> {
+  const res = await fetch(`${API_URL}/conversations`, {
+    headers: { ...authHeaders() },
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to fetch conversations (${res.status})`);
+  }
+  const data = (await res.json()) as unknown;
+  const rawConversations =
+    isRecord(data) && Array.isArray(data.conversations)
+      ? data.conversations
+      : Array.isArray(data)
+        ? data
+        : [];
+  return (rawConversations as RawConversation[]).map(normalizeConversation);
+}
+
+export async function createDirectConversation(contactUserId: string): Promise<Conversation> {
+  const res = await fetch(`${API_URL}/conversations/direct`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ contact_user_id: contactUserId }),
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to create direct conversation (${res.status})`);
+  }
+  return normalizeConversation((await res.json()) as RawConversation);
+}
+
+export async function fetchConversationMessages(
+  conversationId: string,
+  options: { afterSeq?: number } = {}
+): Promise<ConversationMessage[]> {
+  const afterSeq =
+    typeof options.afterSeq === "number" && Number.isFinite(options.afterSeq)
+      ? Math.max(0, Math.floor(options.afterSeq))
+      : null;
+  const query = afterSeq && afterSeq > 0 ? `?after_seq=${encodeURIComponent(String(afterSeq))}` : "";
+  const res = await fetch(
+    `${API_URL}/conversations/${encodeURIComponent(conversationId)}/messages${query}`,
+    {
+      headers: { ...authHeaders() },
+    }
+  );
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to fetch conversation messages (${res.status})`);
+  }
+  const data = (await res.json()) as unknown;
+  const rawMessages =
+    isRecord(data) && Array.isArray(data.messages)
+      ? data.messages
+      : Array.isArray(data)
+        ? data
+        : [];
+  return (rawMessages as RawConversationMessage[]).map(normalizeConversationMessage);
+}
+
+export async function markConversationRead(
+  conversationId: string,
+  lastReadMessageSeq: number
+): Promise<Conversation["participants"][number]> {
+  const res = await fetch(`${API_URL}/conversations/${encodeURIComponent(conversationId)}/read`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ last_read_message_seq: Math.max(0, Math.floor(lastReadMessageSeq)) }),
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to mark conversation read (${res.status})`);
+  }
+  const data = (await res.json()) as unknown;
+  const rawParticipant =
+    isRecord(data) && isRecord(data.participant)
+      ? (data.participant as RawConversationParticipant)
+      : {};
+  return normalizeConversationParticipant(rawParticipant);
+}
+
+export async function createConversationMessage(
+  conversationId: string,
+  text: string
+): Promise<ConversationMessage> {
+  const res = await fetch(
+    `${API_URL}/conversations/${encodeURIComponent(conversationId)}/messages`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ text }),
+    }
+  );
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to create conversation message (${res.status})`);
+  }
+  return normalizeConversationMessage((await res.json()) as RawConversationMessage);
+}
+
+export async function createAgentInvocation(
+  conversationId: string,
+  input: AgentInvocationCreateInput
+): Promise<AgentInvocation> {
+  const res = await fetch(
+    `${API_URL}/conversations/${encodeURIComponent(conversationId)}/agent-invocations`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({
+        target_user_id: input.targetUserId,
+        prompt: input.prompt,
+        context_message_count: input.contextMessageCount,
+      }),
+    }
+  );
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to create agent invocation (${res.status})`);
+  }
+  return normalizeAgentInvocation((await res.json()) as RawAgentInvocation);
+}
+
+async function postAgentInvocationDecision(
+  invocationId: string,
+  action: "approve" | "reject",
+  note?: string
+): Promise<AgentInvocation> {
+  const bodyKey = action === "approve" ? "note" : "reason";
+  const res = await fetch(
+    `${API_URL}/agent-invocations/${encodeURIComponent(invocationId)}/${action}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(note?.trim() ? { [bodyKey]: note.trim() } : {}),
+    }
+  );
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to ${action} agent invocation (${res.status})`);
+  }
+  return normalizeAgentInvocation((await res.json()) as RawAgentInvocation);
+}
+
+export async function approveAgentInvocation(
+  invocationId: string,
+  note?: string
+): Promise<AgentInvocation> {
+  return postAgentInvocationDecision(invocationId, "approve", note);
+}
+
+export async function rejectAgentInvocation(
+  invocationId: string,
+  reason?: string
+): Promise<AgentInvocation> {
+  return postAgentInvocationDecision(invocationId, "reject", reason);
 }
 
 export async function createAgentDelegation(

@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 
 import {
   acceptAgentDelegation,
+  approveAgentInvocation,
   answerAgentDelegation,
   cancelConnectorAuth,
   cancelTask,
@@ -12,6 +13,9 @@ import {
   confirmTask,
   createAgentDelegation,
   addAgentContact,
+  createAgentInvocation,
+  createConversationMessage,
+  createDirectConversation,
   createSession,
   createTaskAction,
   deleteTask,
@@ -29,6 +33,8 @@ import {
   fetchSessionDetails,
   fetchAgentDelegations,
   fetchAgentContacts,
+  fetchConversationMessages,
+  fetchConversations,
   fetchMemoryStatus,
   fetchMemorySummary,
   forkSession,
@@ -37,6 +43,7 @@ import {
   fetchWorkspaceDocumentPreview,
   fetchWorkspaceFilePreview,
   getApiOrigin,
+  markConversationRead,
   parseWorkspaceLink,
   renameWorkspaceEntry,
   resolveSessionPermissionRequest,
@@ -1542,6 +1549,178 @@ async function testAgentContactApisUseExpectedRoutesAndPayloads() {
   ]);
 }
 
+async function testConversationAndAgentInvocationApisUseExpectedRoutesAndPayloads() {
+  const requests: Array<{ method: string; path: string; body: unknown }> = [];
+  const rawConversation = {
+    conversation_id: "conv-1",
+    kind: "direct",
+    direct_key: "alice:bob",
+    title: null,
+    created_by_user_id: "alice",
+    created_at: "2026-07-07T01:00:00Z",
+    updated_at: "2026-07-07T01:01:00Z",
+    last_message_at: "2026-07-07T01:01:00Z",
+    participants: [
+      {
+        conversation_id: "conv-1",
+        actor_type: "user",
+        actor_id: "alice",
+        user_id: "alice",
+        role: "member",
+        status: "active",
+      },
+      {
+        conversation_id: "conv-1",
+        actor_type: "user",
+        actor_id: "bob",
+        user_id: "bob",
+        role: "member",
+        status: "active",
+      },
+    ],
+  };
+  const rawMessage = {
+    conversation_id: "conv-1",
+    seq: 1,
+    message_id: "cmsg-1",
+    sender_user_id: "alice",
+    sender_actor_type: "user",
+    sender_actor_id: "alice",
+    kind: "text",
+    body: { text: "先一起看这个方案" },
+    created_at: "2026-07-07T01:01:00Z",
+  };
+  const rawInvocation = {
+    invocation_id: "ainv-1",
+    conversation_id: "conv-1",
+    request_message_id: "cmsg-2",
+    requester_user_id: "alice",
+    target_user_id: "bob",
+    target_agent_id: "bob-agent",
+    status: "pending_approval",
+    prompt: "@bob-agent 帮我们整理上面的方案",
+    requires_target_approval: true,
+    context_snapshot: { conversation_id: "conv-1", messages: [rawMessage] },
+    created_at: "2026-07-07T01:02:00Z",
+    updated_at: "2026-07-07T01:02:00Z",
+  };
+  const rawStartedInvocation = {
+    ...rawInvocation,
+    status: "running",
+    target_session_id: "session-agent-1",
+    target_job_id: "agent-1",
+    updated_at: "2026-07-07T01:03:00Z",
+  };
+
+  await withFetch(
+    async (input, init) => {
+      const url = new URL(String(input));
+      requests.push({
+        method: init?.method || "GET",
+        path: `${url.pathname}${url.search}`,
+        body: init?.body ? JSON.parse(String(init.body)) : null,
+      });
+      let payload: unknown = rawConversation;
+      if (url.pathname === "/v1/conversations" && !init?.method) {
+        payload = { conversations: [rawConversation], count: 1 };
+      } else if (url.pathname === "/v1/conversations/conv%2F1/messages" && !init?.method) {
+        payload = { messages: [rawMessage], count: 1 };
+      } else if (url.pathname === "/v1/conversations/conv%2F1/read") {
+        payload = {
+          participant: {
+            conversation_id: "conv-1",
+            actor_type: "user",
+            actor_id: "alice",
+            user_id: "alice",
+            role: "member",
+            status: "active",
+            last_read_message_seq: 1,
+          },
+        };
+      } else if (
+        url.pathname === "/v1/conversations/conv%2F1/agent-invocations"
+      ) {
+        payload = rawInvocation;
+      } else if (url.pathname === "/v1/agent-invocations/ainv%2F1/approve") {
+        payload = rawStartedInvocation;
+      } else if (url.pathname === "/v1/conversations/conv%2F1/messages") {
+        payload = rawMessage;
+      }
+      return new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    },
+    async () => {
+      const conversations = await fetchConversations();
+      assert.equal(conversations[0]?.conversationId, "conv-1");
+      assert.equal(conversations[0]?.participants[1]?.userId, "bob");
+
+      const direct = await createDirectConversation("bob");
+      assert.equal(direct.conversationId, "conv-1");
+
+      const messages = await fetchConversationMessages("conv/1");
+      assert.equal(messages[0]?.body.text, "先一起看这个方案");
+
+      const newerMessages = await fetchConversationMessages("conv/1", { afterSeq: 1 });
+      assert.equal(newerMessages[0]?.body.text, "先一起看这个方案");
+
+      await markConversationRead("conv/1", 1);
+
+      const message = await createConversationMessage("conv/1", "继续讨论");
+      assert.equal(message.messageId, "cmsg-1");
+
+      const invocation = await createAgentInvocation("conv/1", {
+        targetUserId: "bob",
+        prompt: "@bob-agent 帮我们整理上面的方案",
+        contextMessageCount: 10,
+      });
+      assert.equal(invocation.invocationId, "ainv-1");
+      assert.equal(invocation.requiresTargetApproval, true);
+      assert.equal(invocation.contextSnapshot.messages[0]?.messageId, "cmsg-1");
+
+      const approved = await approveAgentInvocation("ainv/1", "可以执行");
+      assert.equal(approved.status, "running");
+      assert.equal(approved.targetJobId, "agent-1");
+    }
+  );
+
+  assert.deepEqual(requests, [
+    { method: "GET", path: "/v1/conversations", body: null },
+    {
+      method: "POST",
+      path: "/v1/conversations/direct",
+      body: { contact_user_id: "bob" },
+    },
+    { method: "GET", path: "/v1/conversations/conv%2F1/messages", body: null },
+    { method: "GET", path: "/v1/conversations/conv%2F1/messages?after_seq=1", body: null },
+    {
+      method: "POST",
+      path: "/v1/conversations/conv%2F1/read",
+      body: { last_read_message_seq: 1 },
+    },
+    {
+      method: "POST",
+      path: "/v1/conversations/conv%2F1/messages",
+      body: { text: "继续讨论" },
+    },
+    {
+      method: "POST",
+      path: "/v1/conversations/conv%2F1/agent-invocations",
+      body: {
+        target_user_id: "bob",
+        prompt: "@bob-agent 帮我们整理上面的方案",
+        context_message_count: 10,
+      },
+    },
+    {
+      method: "POST",
+      path: "/v1/agent-invocations/ainv%2F1/approve",
+      body: { note: "可以执行" },
+    },
+  ]);
+}
+
 function testSessionFollowUpClientApisAreRemoved() {
   const source = readFileSync(new URL("./api.ts", import.meta.url), "utf8");
 
@@ -2504,6 +2683,7 @@ test("api client behavior", async () => {
   await testFetchSessionDetailsNormalizesBackendShape();
   await testAgentDelegationApisUseExpectedRoutesAndPayloads();
   await testAgentContactApisUseExpectedRoutesAndPayloads();
+  await testConversationAndAgentInvocationApisUseExpectedRoutesAndPayloads();
   await testListApisFollowBackendPaginationCursors();
   testSessionFollowUpClientApisAreRemoved();
   await testTaskApisUseExpectedBackendShape();

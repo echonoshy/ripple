@@ -429,6 +429,35 @@ function testComposerShowsPendingLocalImagePreview() {
   assert.match(html, /aria-label="Remove pasted-image\.png"/);
 }
 
+function testConversationComposerShowsAgentTargetPickerAndChip() {
+  const html = renderComposer({
+    mode: "conversation",
+    value: "整理一下上面的内容",
+    agentMentionOptions: [
+      {
+        targetUserId: "bob",
+        label: "Ling Long",
+        description: "@bob-agent",
+        kind: "contact_agent",
+      },
+      {
+        targetUserId: "alice",
+        label: "My Agent",
+        description: "@alice-agent",
+        kind: "self_agent",
+      },
+    ],
+    selectedAgentMentionTargetId: "bob",
+    onSelectAgentMentionTarget: noop,
+  });
+
+  assert.match(html, /data-ripple-composer-agent-button/);
+  assert.match(html, /aria-label="Choose Agent target"/);
+  assert.match(html, /data-ripple-composer-agent-target-chip/);
+  assert.match(html, /Ling Long/);
+  assert.match(html, /Clear Agent target/);
+}
+
 function testLocalImageOnlyMessageCanSend() {
   const html = renderComposer({ pendingLocalImages: [pastedImage] });
   const sendButton = html.match(/<button[^>]*aria-label="Send message"[^>]*>/)?.[0] || "";
@@ -477,6 +506,7 @@ testComposerExpandsWhenFocusedWithoutInput();
 testComposerRecalculatesTextareaHeightAfterExpansion();
 testComposerShowsAttachmentUploadStateAndErrors();
 testComposerShowsPendingLocalImagePreview();
+testConversationComposerShowsAgentTargetPickerAndChip();
 testLocalImageOnlyMessageCanSend();
 testComposerHasPasteAndDropImageHandlers();
 

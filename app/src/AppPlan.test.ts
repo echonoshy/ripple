@@ -105,6 +105,16 @@ function testAppRendersContactsAsTopLevelTaskEntry() {
   assert.doesNotMatch(contactsPageSource, /SessionComposer/);
 }
 
+function testAppWiresCollaborationChatsIntoSessions() {
+  assert.match(appSource, /buildCollaborationSessionSummary/);
+  assert.match(appSource, /selectedCollaborationSessionId/);
+  assert.match(appSource, /displayWorkbenchSessionsWithCollaborations/);
+  assert.match(appSource, /handleOpenCollaborationChat/);
+  assert.match(appSource, /onOpenConversation=\{handleOpenCollaborationChat\}/);
+  assert.match(appSource, /collaborationContext=/);
+  assert.match(sessionPageSource, /collaborationContext\?: CollaborationContext \| null/);
+}
+
 function testContactDelegationCreatesRequesterSessionAfterCreate() {
   const createFromContactsBlock =
     appSource.match(
@@ -382,19 +392,19 @@ function testMobileSessionSelectionSlidesBeforeDetailsResolve() {
 function testPendingMobileSessionDoesNotRenderPreviousSessionContent() {
   assert.match(
     appSource,
-    /const sessionPageMessages = isMobileSessionSwitchPending \? \[\] : messages/
+    /const sessionPageMessages =\s*isMobileSessionSwitchPending \|\| isCollaborationChatActive \? \[\] : messages/
   );
   assert.match(
     appSource,
-    /const sessionPageTimelineEvents = isMobileSessionSwitchPending \? \[\] : timelineEvents/
+    /const sessionPageTimelineEvents =\s*isMobileSessionSwitchPending \|\| isCollaborationChatActive \? \[\] : timelineEvents/
   );
   assert.match(
     appSource,
-    /const sessionPagePlanSteps = isMobileSessionSwitchPending \? \[\] : planSteps/
+    /const sessionPagePlanSteps =\s*isMobileSessionSwitchPending \|\| isCollaborationChatActive \? \[\] : planSteps/
   );
   assert.match(
     appSource,
-    /const sessionPageTokenUsage = isMobileSessionSwitchPending \? emptyUsage : tokenUsage/
+    /const sessionPageTokenUsage =\s*isMobileSessionSwitchPending \|\| isCollaborationChatActive \? emptyUsage : tokenUsage/
   );
 }
 
@@ -422,6 +432,7 @@ testAppDelegatesSessionLifecycle();
 testAppDelegatesChatRun();
 testAppLoadsAgentContactsForContactsPage();
 testAppRendersContactsAsTopLevelTaskEntry();
+testAppWiresCollaborationChatsIntoSessions();
 testContactDelegationCreatesRequesterSessionAfterCreate();
 testDelegationPollingRefreshesVisibleSessions();
 testTasksChatSchedulingUsesNewSessionPrompts();

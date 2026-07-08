@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import {
   AlertTriangle,
   Blocks,
+  Bot,
   BrainCircuit,
   FileText,
   FolderGit2,
@@ -43,6 +44,7 @@ import {
 
 interface SessionComposerProps {
   userId?: string;
+  mode?: "session" | "conversation";
   value: string;
   onChange: (value: string) => void;
   onSend: () => void;
@@ -75,6 +77,9 @@ interface SessionComposerProps {
   isLoadingSkills?: boolean;
   onLoadSkills?: () => void | Promise<void>;
   onSelectRequiredSkill?: (skillId: string | null) => void;
+  agentMentionOptions?: ComposerAgentMentionOption[];
+  selectedAgentMentionTargetId?: string | null;
+  onSelectAgentMentionTarget?: (targetUserId: string | null) => void;
 }
 
 export function shouldExpandComposer(value: string, isComposerFocused: boolean): boolean {
@@ -109,6 +114,13 @@ export interface ComposerSkillOption {
   label: string;
   skillId: string;
   skill: SkillInfo;
+}
+
+export interface ComposerAgentMentionOption {
+  targetUserId: string;
+  label: string;
+  description?: string;
+  kind: "contact_agent" | "self_agent" | string;
 }
 
 function isSelectableSkill(skill: SkillInfo): boolean {
@@ -201,6 +213,7 @@ function getComposerModelMenuPosition(
 
 export default function SessionComposer({
   userId,
+  mode = "session",
   value,
   onChange,
   onSend,
@@ -233,6 +246,9 @@ export default function SessionComposer({
   isLoadingSkills = false,
   onLoadSkills,
   onSelectRequiredSkill,
+  agentMentionOptions = [],
+  selectedAgentMentionTargetId = null,
+  onSelectAgentMentionTarget,
 }: SessionComposerProps) {
   const { t } = useI18n();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -243,15 +259,21 @@ export default function SessionComposer({
   const modelMenuRef = useRef<HTMLDivElement>(null);
   const skillDropdownRef = useRef<HTMLDivElement>(null);
   const skillMenuRef = useRef<HTMLDivElement>(null);
+  const agentMentionDropdownRef = useRef<HTMLDivElement>(null);
+  const agentMentionMenuRef = useRef<HTMLDivElement>(null);
   const folderPickerRef = useRef<HTMLDivElement>(null);
   const touchSelectedModelRef = useRef<string | null>(null);
   const [isComposerFocused, setIsComposerFocused] = useState(false);
   const [isFolderPickerOpen, setIsFolderPickerOpen] = useState(false);
   const [isSkillMenuOpen, setIsSkillMenuOpen] = useState(false);
+  const [isAgentMentionMenuOpen, setIsAgentMentionMenuOpen] = useState(false);
   const [modelMenuPosition, setModelMenuPosition] = useState<ModelMenuPosition | null>(null);
-  const canSend = Boolean(value.trim() || pendingFiles.length > 0 || pendingLocalImages.length > 0);
+  const isConversationMode = mode === "conversation";
+  const canSend = isConversationMode
+    ? Boolean(value.trim())
+    : Boolean(value.trim() || pendingFiles.length > 0 || pendingLocalImages.length > 0);
   const inputDisabled = isGenerating;
-  const attachDisabled = inputDisabled || isUploadingFiles;
+  const attachDisabled = isConversationMode || inputDisabled || isUploadingFiles;
   const sendDisabled = isGenerating || isBlocked || isUploadingFiles;
   const hasFocusFolder = Boolean(contextFolderPath);
   const effectiveWorkspaceScopeLabel = workspaceScopeLabel || t("files.workspaceName");
@@ -273,6 +295,9 @@ export default function SessionComposer({
   const selectedRequiredSkillLabel =
     selectedRequiredSkillOption?.label ||
     (selectedRequiredSkill ? skillDisplayName(selectedRequiredSkill) : null);
+  const selectedAgentMentionOption =
+    agentMentionOptions.find((option) => option.targetUserId === selectedAgentMentionTargetId) ||
+    null;
   const sendControlLayoutClass = isExpandedComposer
     ? "col-start-2 row-start-2 justify-self-end"
     : "lg:mb-[2px]";
@@ -300,6 +325,10 @@ export default function SessionComposer({
 
   const closeSkillMenu = useCallback(() => {
     setIsSkillMenuOpen(false);
+  }, []);
+
+  const closeAgentMentionMenu = useCallback(() => {
+    setIsAgentMentionMenuOpen(false);
   }, []);
 
   const adjustHeight = useCallback(() => {
@@ -386,6 +415,29 @@ export default function SessionComposer({
     };
   }, [closeSkillMenu, isSkillMenuOpen]);
 
+  useEffect(() => {
+    if (!isAgentMentionMenuOpen) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (agentMentionDropdownRef.current?.contains(target)) return;
+      if (agentMentionMenuRef.current?.contains(target)) return;
+      closeAgentMentionMenu();
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeAgentMentionMenu();
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown, true);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [closeAgentMentionMenu, isAgentMentionMenuOpen]);
+
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key !== "Enter" || event.shiftKey) return;
     if (event.nativeEvent.isComposing || event.keyCode === 229) return;
@@ -396,6 +448,14 @@ export default function SessionComposer({
   const handleComposerChange = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
     const nextValue = event.target.value;
     onChange(nextValue);
+    if (
+      isConversationMode &&
+      nextValue.endsWith("@") &&
+      agentMentionOptions.length > 0 &&
+      onSelectAgentMentionTarget
+    ) {
+      setIsAgentMentionMenuOpen(true);
+    }
   };
 
   const handleAttachChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -406,7 +466,7 @@ export default function SessionComposer({
   };
 
   const handlePaste = (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    if (attachDisabled) return;
+    if (isConversationMode || attachDisabled) return;
     const files = filesFromClipboardData(event.clipboardData);
     if (files.length === 0) return;
     const { images, attachments: attachmentFiles } = partitionTransferFiles(files);
@@ -429,6 +489,7 @@ export default function SessionComposer({
   const handleModelButtonClick = () => {
     setIsFolderPickerOpen(false);
     closeSkillMenu();
+    closeAgentMentionMenu();
     if (isModelDropdownOpen) {
       closeModelMenu();
       return;
@@ -440,9 +501,18 @@ export default function SessionComposer({
   const handleSkillButtonClick = () => {
     if (!onSelectRequiredSkill) return;
     setIsFolderPickerOpen(false);
+    closeAgentMentionMenu();
     if (isModelDropdownOpen) closeModelMenu();
     if (!isSkillMenuOpen) void onLoadSkills?.();
     setIsSkillMenuOpen((open) => !open);
+  };
+
+  const handleAgentMentionButtonClick = () => {
+    if (!onSelectAgentMentionTarget || agentMentionOptions.length === 0) return;
+    setIsFolderPickerOpen(false);
+    closeSkillMenu();
+    if (isModelDropdownOpen) closeModelMenu();
+    setIsAgentMentionMenuOpen((open) => !open);
   };
 
   const handleModelOptionPointerDown = useCallback(
@@ -517,7 +587,61 @@ export default function SessionComposer({
   const toolbarLayoutClass = composerToolbarClassName(isExpandedComposer);
   const toolbarControls = (
     <div className={toolbarLayoutClass}>
-      {onSelectWorkspaceFolder && (
+      {isConversationMode && agentMentionOptions.length > 0 && onSelectAgentMentionTarget && (
+        <div ref={agentMentionDropdownRef} className="relative flex shrink-0 items-center">
+          <button
+            type="button"
+            data-ripple-composer-agent-button
+            aria-label={t("composer.chooseAgentTarget")}
+            aria-pressed={Boolean(selectedAgentMentionOption)}
+            title={t("composer.chooseAgentTarget")}
+            onClick={handleAgentMentionButtonClick}
+            className={`${COMPOSER_ICON_BUTTON_CLASS} ${
+              selectedAgentMentionOption || isAgentMentionMenuOpen
+                ? COMPOSER_ICON_BUTTON_ACTIVE_CLASS
+                : ""
+            }`}
+          >
+            <Bot size={16} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
+          </button>
+          {isAgentMentionMenuOpen && (
+            <div
+              ref={agentMentionMenuRef}
+              data-ripple-composer-agent-menu
+              role="menu"
+              className={`absolute bottom-full left-0 z-40 mb-2 max-h-72 w-72 overflow-y-auto ${WORKBENCH_MENU_CLASS}`}
+            >
+              {agentMentionOptions.map((option) => {
+                const selected = option.targetUserId === selectedAgentMentionTargetId;
+                return (
+                  <button
+                    key={`${option.kind}:${option.targetUserId}`}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={selected}
+                    onClick={() => {
+                      onSelectAgentMentionTarget(option.targetUserId);
+                      closeAgentMentionMenu();
+                      textareaRef.current?.focus();
+                    }}
+                    className={`${WORKBENCH_MENU_ITEM_CLASS} min-h-9 justify-between ${TYPOGRAPHY_META_CLASS} ${
+                      selected ? "bg-[#F0F5FF] text-[#1456F0]" : "text-[#1F2329]"
+                    }`}
+                  >
+                    <span className="min-w-0 truncate">{option.label}</span>
+                    {option.description ? (
+                      <span className={`${TYPOGRAPHY_MICRO_CLASS} shrink-0 text-[#8F959E]`}>
+                        {option.description}
+                      </span>
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+      {!isConversationMode && onSelectWorkspaceFolder && (
         <div ref={folderPickerRef} className="relative flex shrink-0 items-center">
           <button
             type="button"
@@ -547,7 +671,7 @@ export default function SessionComposer({
           <span className="sr-only">{workspaceScopePath}</span>
         </div>
       )}
-      {onSelectRequiredSkill && (
+      {!isConversationMode && onSelectRequiredSkill && (
         <div ref={skillDropdownRef} className="relative flex shrink-0 items-center">
           <button
             type="button"
@@ -607,36 +731,40 @@ export default function SessionComposer({
           )}
         </div>
       )}
-      <div className="relative flex items-center">
-        <button
-          type="button"
-          aria-label={t("composer.attachFiles")}
-          title={t("composer.attachFiles")}
-          onClick={() => fileInputRef.current?.click()}
-          disabled={attachDisabled}
-          className={COMPOSER_ICON_BUTTON_CLASS}
-        >
-          {isUploadingFiles ? (
-            <Loader2 size={15} className="animate-spin" />
-          ) : (
-            <Paperclip size={16} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
-          )}
-        </button>
-      </div>
-      <div ref={modelDropdownRef} className="relative flex shrink-0 items-center">
-        <button
-          ref={modelButtonRef}
-          type="button"
-          data-ripple-composer-model-button
-          aria-label={t("composer.selectModel")}
-          title={t("composer.modelTitle", { model: formatModelName(selectedModel) })}
-          onClick={handleModelButtonClick}
-          className={COMPOSER_ICON_BUTTON_CLASS}
-        >
-          <BrainCircuit size={16} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
-        </button>
-        {isModelDropdownOpen && !modelMenuPortal ? modelMenu : null}
-      </div>
+      {!isConversationMode && (
+        <div className="relative flex items-center">
+          <button
+            type="button"
+            aria-label={t("composer.attachFiles")}
+            title={t("composer.attachFiles")}
+            onClick={() => fileInputRef.current?.click()}
+            disabled={attachDisabled}
+            className={COMPOSER_ICON_BUTTON_CLASS}
+          >
+            {isUploadingFiles ? (
+              <Loader2 size={15} className="animate-spin" />
+            ) : (
+              <Paperclip size={16} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
+            )}
+          </button>
+        </div>
+      )}
+      {!isConversationMode && (
+        <div ref={modelDropdownRef} className="relative flex shrink-0 items-center">
+          <button
+            ref={modelButtonRef}
+            type="button"
+            data-ripple-composer-model-button
+            aria-label={t("composer.selectModel")}
+            title={t("composer.modelTitle", { model: formatModelName(selectedModel) })}
+            onClick={handleModelButtonClick}
+            className={COMPOSER_ICON_BUTTON_CLASS}
+          >
+            <BrainCircuit size={16} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
+          </button>
+          {isModelDropdownOpen && !modelMenuPortal ? modelMenu : null}
+        </div>
+      )}
     </div>
   );
 
@@ -656,11 +784,17 @@ export default function SessionComposer({
       placeholder={
         isGenerating
           ? t("composer.working")
-          : isBlocked
-            ? t("composer.draftNextMessage")
-            : hasSession
-              ? t("composer.askAnything")
-              : t("composer.askAnything")
+            : isBlocked
+              ? t("composer.draftNextMessage")
+              : isConversationMode
+                ? selectedAgentMentionOption
+                  ? t("contacts.agentTargetPlaceholder", {
+                      name: selectedAgentMentionOption.label,
+                    })
+                  : t("contacts.conversationPlaceholder")
+                : hasSession
+                  ? t("composer.askAnything")
+                  : t("composer.askAnything")
       }
       className={`session-composer-input mb-[2px] max-h-[104px] min-h-10 min-w-0 resize-none bg-transparent px-1.5 py-2 ${TYPOGRAPHY_MOBILE_BODY_CLASS} text-[#1F2329] outline-none [-ms-overflow-style:none] [scrollbar-width:none] placeholder:text-[15px] placeholder:text-[#8F959E] disabled:opacity-60 lg:mb-0 lg:max-h-[180px] lg:min-h-[36px] lg:px-2 lg:py-1.5 lg:text-[14px] lg:leading-[22px] lg:placeholder:text-[#8F959E] [&::-webkit-scrollbar]:hidden [&::-webkit-scrollbar]:h-0 [&::-webkit-scrollbar]:w-0 ${
         isExpandedComposer ? "col-span-2 row-start-1 w-full" : "flex-1"
@@ -703,7 +837,29 @@ export default function SessionComposer({
           onChange={handleAttachChange}
           disabled={attachDisabled}
         />
-        {selectedRequiredSkillLabel && onSelectRequiredSkill && (
+        {isConversationMode && selectedAgentMentionOption && onSelectAgentMentionTarget && (
+          <div className="flex min-w-0 px-1 pt-0.5 pb-1">
+            <div
+              data-ripple-composer-agent-target-chip
+              className={`inline-flex max-w-full items-center gap-1.5 rounded-lg border border-[#FAD355]/65 bg-[#FFF8DB] px-2 py-1 ${TYPOGRAPHY_MICRO_CLASS} text-[#8B5E00]`}
+            >
+              <Bot size={13} className="shrink-0" strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
+              <span className="min-w-0 truncate">
+                {t("contacts.agentTargetChip", { name: selectedAgentMentionOption.label })}
+              </span>
+              <button
+                type="button"
+                aria-label={t("composer.clearAgentTarget")}
+                title={t("composer.clearAgentTarget")}
+                onClick={() => onSelectAgentMentionTarget(null)}
+                className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[#8B5E00] hover:bg-[#FCECC4]"
+              >
+                <X size={11} />
+              </button>
+            </div>
+          </div>
+        )}
+        {!isConversationMode && selectedRequiredSkillLabel && onSelectRequiredSkill && (
           <div className="flex min-w-0 px-1 pt-0.5 pb-1">
             <div
               data-ripple-composer-skill-chip
@@ -738,7 +894,7 @@ export default function SessionComposer({
           {sendControl}
         </div>
         {modelMenuPortal}
-        {pendingLocalImages.length > 0 && (
+        {!isConversationMode && pendingLocalImages.length > 0 && (
           <div className="flex flex-wrap gap-2 px-1 pt-1 pb-2">
             {pendingLocalImages.map((image) => (
               <span
@@ -770,7 +926,7 @@ export default function SessionComposer({
             ))}
           </div>
         )}
-        {pendingFiles.length > 0 && (
+        {!isConversationMode && pendingFiles.length > 0 && (
           <div className="flex flex-wrap gap-1.5 px-1 pt-1 pb-2">
             {pendingFiles.map((file) => (
               <span
@@ -793,7 +949,7 @@ export default function SessionComposer({
             ))}
           </div>
         )}
-        {(isUploadingFiles || uploadError) && (
+        {!isConversationMode && (isUploadingFiles || uploadError) && (
           <div
             className={`flex min-w-0 items-start gap-1.5 px-2 pt-1 pb-2 ${TYPOGRAPHY_MICRO_CLASS} ${
               uploadError ? "text-[#B42318]" : "text-[#646A73]"

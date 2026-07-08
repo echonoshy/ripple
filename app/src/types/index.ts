@@ -531,6 +531,95 @@ export interface SessionDetail extends SessionSummary {
   planProgress?: PlanProgress | null;
 }
 
+export interface ConversationParticipant {
+  conversationId: string;
+  actorType: "user" | "agent" | string;
+  actorId: string;
+  userId: string;
+  role: "owner" | "member" | string;
+  status: "active" | "left" | string;
+  lastReadMessageSeq?: number;
+}
+
+export interface Conversation {
+  conversationId: string;
+  kind: "direct" | "group" | string;
+  directKey?: string | null;
+  title?: string | null;
+  createdByUserId: string;
+  createdAt: string;
+  updatedAt: string;
+  lastMessageAt?: string | null;
+  participants: ConversationParticipant[];
+}
+
+export interface ConversationMessageBody {
+  text?: string;
+  eventType?: string;
+  invocation?: AgentInvocation;
+  [key: string]: unknown;
+}
+
+export interface ConversationMessage {
+  conversationId: string;
+  seq: number;
+  messageId: string;
+  senderUserId: string;
+  senderActorType: "user" | "agent" | "system" | string;
+  senderActorId: string;
+  kind: "text" | "agent_invocation" | "agent_invocation_event" | "system" | string;
+  body: ConversationMessageBody;
+  createdAt: string;
+}
+
+export interface AgentInvocationContextSnapshot {
+  conversationId?: string | null;
+  messages: ConversationMessage[];
+}
+
+export type AgentInvocationStatus =
+  | "pending_approval"
+  | "approved"
+  | "running"
+  | "awaiting_permission"
+  | "awaiting_target_permission"
+  | "completed"
+  | "failed"
+  | "cancelled"
+  | "rejected"
+  | string;
+
+export interface AgentInvocation {
+  invocationId: string;
+  conversationId: string;
+  requestMessageId?: string | null;
+  requesterUserId: string;
+  targetUserId: string;
+  targetAgentId: string;
+  status: AgentInvocationStatus;
+  prompt: string;
+  requiresTargetApproval: boolean;
+  contextSnapshot: AgentInvocationContextSnapshot;
+  createdAt: string;
+  updatedAt: string;
+  approvedAt?: string | null;
+  completedAt?: string | null;
+  targetSessionId?: string | null;
+  targetJobId?: string | null;
+  approvedByUserId?: string | null;
+  decisionNote?: string | null;
+  resultStatus?: string | null;
+  resultText?: string | null;
+  resultOutputAvailable?: boolean;
+  error?: string | null;
+}
+
+export interface AgentInvocationCreateInput {
+  targetUserId: string;
+  prompt: string;
+  contextMessageCount?: number;
+}
+
 export type AgentDelegationStatus =
   | "pending_acceptance"
   | "running"
@@ -693,7 +782,10 @@ export type WorkbenchSessionStatus =
   | "idle";
 
 export interface WorkbenchSessionSummary {
+  kind?: "session" | "conversation";
   sessionId: string;
+  conversationId?: string;
+  contactUserId?: string;
   title: string;
   pinned: boolean;
   contextFolderPath?: string | null;

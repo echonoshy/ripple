@@ -6,14 +6,21 @@ import AuthGateway, { type AuthGatewayMode } from "@/components/AuthGateway";
 import {
   acceptAgentDelegation,
   acceptAgentContactRequest,
+  approveAgentInvocation,
   answerAgentDelegation,
   createAgentContactRequest,
   createAgentDelegation,
+  createAgentInvocation,
+  createConversationMessage,
+  createDirectConversation,
   fetchAgentContacts,
   fetchAgentContactRequests,
   fetchAgentDelegations,
+  fetchConversationMessages,
+  fetchConversations,
   fetchSessionDetails,
   fetchModels,
+  markConversationRead,
   getApiKey,
   getAuthMode,
   setApiKey,
@@ -27,6 +34,7 @@ import {
   logoutUserSession,
   rejectAgentDelegation,
   rejectAgentContactRequest,
+  rejectAgentInvocation,
   removeAgentContact,
   updateAgentContact,
   AuthError,
@@ -50,6 +58,12 @@ import { type ChatRunSessionActions, useChatRun } from "@/hooks/useChatRun";
 import { useSessionLifecycle } from "@/hooks/useSessionLifecycle";
 import { clearStoredCurrentSessionId } from "@/lib/sessionPersistence";
 import {
+  buildCollaborationSessionSummary,
+  collaborationSessionId,
+  conversationIdFromCollaborationSessionId,
+  parseAgentMentionCommand,
+} from "@/lib/collaborationChat";
+import {
   initialLoginUserIdInput,
   loginUserIdValidationMessage,
   normalizeLoginUserId,
@@ -62,6 +76,7 @@ import {
   sessionAttentionFromStatus,
   sessionStatusToWorkbenchStatus,
   shouldNotifySessionAttention,
+  sortWorkbenchSessions,
   stabilizeWorkbenchSessionOrder,
 } from "@/lib/workbench";
 import { shouldShowInspector, type WorkspaceView } from "@/lib/workspaceViews";
@@ -70,6 +85,9 @@ import type {
   AgentContactRequest,
   AgentDelegation,
   AgentDelegationCreateInput,
+  AgentInvocationCreateInput,
+  Conversation,
+  ConversationMessage,
   SessionAttention,
   SessionControlAction,
   SessionDetail,
@@ -104,6 +122,23 @@ const FilesPage = lazy(() => import("@/components/workbench/FilesPage"));
 const InspectorPanel = lazy(() => import("@/components/workbench/InspectorPanel"));
 const SettingsPage = lazy(() => import("@/components/workbench/SettingsPage"));
 const SkillsPage = lazy(() => import("@/components/workbench/SkillsPage"));
+
+function latestConversationSeq(messages: ConversationMessage[] | undefined): number {
+  return (messages || []).reduce((latest, message) => Math.max(latest, message.seq || 0), 0);
+}
+
+function mergeConversationMessages(
+  current: ConversationMessage[] | undefined,
+  incoming: ConversationMessage[]
+): ConversationMessage[] {
+  if (!current || current.length === 0) return [...incoming].sort((a, b) => a.seq - b.seq);
+  if (incoming.length === 0) return current;
+  const byId = new Map<string, ConversationMessage>();
+  for (const message of current) byId.set(message.messageId, message);
+  for (const message of incoming) byId.set(message.messageId, message);
+  return Array.from(byId.values()).sort((a, b) => a.seq - b.seq);
+}
+
 const emptyUsage: UsageInfo = {
   prompt_tokens: 0,
   completion_tokens: 0,
@@ -218,6 +253,18 @@ export default function Home() {
   const [sentAgentDelegations, setSentAgentDelegations] = useState<AgentDelegation[]>([]);
   const [receivedAgentDelegations, setReceivedAgentDelegations] = useState<AgentDelegation[]>([]);
   const [agentDelegationActionKey, setAgentDelegationActionKey] = useState<string | null>(null);
+  const [conversationByContactUserId, setConversationByContactUserId] = useState<
+    Record<string, Conversation | undefined>
+  >({});
+  const [conversationMessagesById, setConversationMessagesById] = useState<
+    Record<string, ConversationMessage[] | undefined>
+  >({});
+  const [selectedCollaborationSessionId, setSelectedCollaborationSessionId] = useState<
+    string | null
+  >(null);
+  const [selectedConversationAgentTargetId, setSelectedConversationAgentTargetId] = useState<
+    string | null
+  >(null);
 
   useAndroidChatBackGesture({
     authState,
@@ -235,6 +282,7 @@ export default function Home() {
   const mobileSessionSelectionRequestRef = useRef(0);
   const browserContextRef = useRef<ChatBrowserContext | null>(null);
   const displayWorkbenchSessionOrderRef = useRef<WorkbenchSessionSummary[]>([]);
+  const conversationMessagesByIdRef = useRef<Record<string, ConversationMessage[] | undefined>>({});
   const refreshSessionForDelegationUpdatesRef = useRef<(delegations: AgentDelegation[]) => void>(
     () => undefined
   );
@@ -253,6 +301,10 @@ export default function Home() {
   useEffect(() => {
     browserContextRef.current = browserContext;
   }, [browserContext]);
+
+  useEffect(() => {
+    conversationMessagesByIdRef.current = conversationMessagesById;
+  }, [conversationMessagesById]);
 
   const handleAuthExpired = useCallback((message: string) => {
     selectedModelOverrideBySessionRef.current = {};
@@ -344,6 +396,77 @@ export default function Home() {
     }
   }, [authState, handleAuthExpired, t]);
 
+  const refreshAgentConversations = useCallback(async () => {
+    if (authState !== "authenticated") {
+      setConversationByContactUserId({});
+      setConversationMessagesById({});
+      return;
+    }
+
+    try {
+      const conversations = await fetchConversations();
+      const nextByContact: Record<string, Conversation | undefined> = {};
+      for (const conversation of conversations) {
+        if (conversation.kind !== "direct") continue;
+        const contactParticipant = conversation.participants.find(
+          (participant) => participant.userId && participant.userId !== userId
+        );
+        if (contactParticipant?.userId) {
+          nextByContact[contactParticipant.userId] = conversation;
+        }
+      }
+      setConversationByContactUserId(nextByContact);
+      const messagePairs = await Promise.all(
+        conversations.map(async (conversation) => {
+          const currentMessages =
+            conversationMessagesByIdRef.current[conversation.conversationId] || [];
+          const afterSeq = latestConversationSeq(currentMessages);
+          const messages = await fetchConversationMessages(conversation.conversationId, {
+            afterSeq,
+          });
+          return [
+            conversation.conversationId,
+            mergeConversationMessages(currentMessages, messages),
+          ] as const;
+        })
+      );
+      setConversationMessagesById(Object.fromEntries(messagePairs));
+    } catch (error) {
+      if (error instanceof AuthError) {
+        handleAuthExpired(t("auth.sessionExpired"));
+        return;
+      }
+      console.error("Failed to refresh agent conversations:", error);
+    }
+  }, [authState, handleAuthExpired, t, userId]);
+
+  const refreshConversationMessages = useCallback(async (
+    conversationId: string,
+    options: { incremental?: boolean; markRead?: boolean } = {}
+  ) => {
+    const currentMessages = conversationMessagesByIdRef.current[conversationId] || [];
+    const afterSeq = options.incremental ? latestConversationSeq(currentMessages) : undefined;
+    const messages = await fetchConversationMessages(conversationId, { afterSeq });
+    const nextMessages = options.incremental
+      ? mergeConversationMessages(currentMessages, messages)
+      : messages;
+    conversationMessagesByIdRef.current = {
+      ...conversationMessagesByIdRef.current,
+      [conversationId]: nextMessages,
+    };
+    setConversationMessagesById((current) => ({
+      ...current,
+      [conversationId]: nextMessages,
+    }));
+    if (options.markRead) {
+      const latestSeq = latestConversationSeq(nextMessages);
+      if (latestSeq > 0) {
+        await markConversationRead(conversationId, latestSeq);
+      }
+    }
+    return nextMessages;
+  }, []);
+
   useEffect(() => {
     if (authState !== "authenticated") {
       setAgentContacts([]);
@@ -394,6 +517,26 @@ export default function Home() {
       window.clearInterval(intervalId);
     };
   }, [authState, refreshAgentDelegations, userId]);
+
+  useEffect(() => {
+    if (authState !== "authenticated") {
+      setConversationByContactUserId({});
+      setConversationMessagesById({});
+      return;
+    }
+
+    let cancelled = false;
+    const refresh = async () => {
+      if (cancelled) return;
+      await refreshAgentConversations();
+    };
+    void refresh();
+    const intervalId = window.setInterval(refresh, 12000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [authState, refreshAgentConversations, userId]);
 
   const persistDefaultModel = useCallback(
     (model: string) => {
@@ -666,6 +809,9 @@ export default function Home() {
       setReceivedAgentContactRequests([]);
       setSentAgentDelegations([]);
       setReceivedAgentDelegations([]);
+      setConversationByContactUserId({});
+      setConversationMessagesById({});
+      setSelectedCollaborationSessionId(null);
       setActiveContextFolderPath(null);
       setPendingMobileSession(null);
       mobileSessionSelectionRequestRef.current += 1;
@@ -788,6 +934,9 @@ export default function Home() {
       selectedModelOverrideBySessionRef.current = {};
       setSessionAttentionById({});
       setAcknowledgedSessionAttentionById({});
+      setConversationByContactUserId({});
+      setConversationMessagesById({});
+      setSelectedCollaborationSessionId(null);
       setActiveContextFolderPath(null);
       abortRunAndResetSessionView();
       resetSessionsForUserChange();
@@ -807,6 +956,9 @@ export default function Home() {
       selectedModelOverrideBySessionRef.current = {};
       setSessionAttentionById({});
       setAcknowledgedSessionAttentionById({});
+      setConversationByContactUserId({});
+      setConversationMessagesById({});
+      setSelectedCollaborationSessionId(null);
       setActiveContextFolderPath(null);
       abortRunAndResetSessionView();
       resetSessionsForUserChange();
@@ -899,6 +1051,7 @@ export default function Home() {
       if (switched) {
         acknowledgeSessionAttention(targetSessionId);
         setSessionScrollToBottomRequest((request) => request + 1);
+        setSelectedCollaborationSessionId(null);
       }
       return switched;
     },
@@ -970,6 +1123,95 @@ export default function Home() {
       });
     },
     [refreshAgentContacts, runAgentDelegationAction]
+  );
+
+  const handleEnsureDirectConversation = useCallback(
+    async (contactUserId: string) => {
+      const nextContactUserId = contactUserId.trim();
+      if (!nextContactUserId) return;
+      await runAgentDelegationAction(`conversation:${nextContactUserId}`, async () => {
+        const conversation = await createDirectConversation(nextContactUserId);
+        setConversationByContactUserId((current) => ({
+          ...current,
+          [nextContactUserId]: conversation,
+        }));
+        await refreshConversationMessages(conversation.conversationId);
+      });
+    },
+    [refreshConversationMessages, runAgentDelegationAction]
+  );
+
+  const handleOpenCollaborationChat = useCallback(
+    async (contactUserId: string) => {
+      const nextContactUserId = contactUserId.trim();
+      if (!nextContactUserId) return;
+      await runAgentDelegationAction(`conversation:${nextContactUserId}`, async () => {
+        const conversation = await createDirectConversation(nextContactUserId);
+        setConversationByContactUserId((current) => ({
+          ...current,
+          [nextContactUserId]: conversation,
+        }));
+        await refreshConversationMessages(conversation.conversationId, { markRead: true });
+        setSelectedCollaborationSessionId(collaborationSessionId(conversation.conversationId));
+        setPendingMobileSession(null);
+        mobileSessionSelectionRequestRef.current += 1;
+        setMobileFilesReturnToChat(false);
+        setPendingWorkspaceFileOpen(null);
+        setActiveView("sessions");
+        setMobileMotionDirection(1);
+        setMobileSessionMode("chat");
+        setSessionScrollToBottomRequest((request) => request + 1);
+      });
+    },
+    [refreshConversationMessages, runAgentDelegationAction]
+  );
+
+  const handleSendConversationMessage = useCallback(
+    async (conversationId: string, text: string) => {
+      const nextText = text.trim();
+      if (!conversationId || !nextText) return;
+      await runAgentDelegationAction(`conversation-message:${conversationId}`, async () => {
+        await createConversationMessage(conversationId, nextText);
+        await refreshConversationMessages(conversationId, { markRead: true });
+      });
+    },
+    [refreshConversationMessages, runAgentDelegationAction]
+  );
+
+  const handleCreateAgentInvocation = useCallback(
+    async (conversationId: string, input: AgentInvocationCreateInput) => {
+      const prompt = input.prompt.trim();
+      if (!conversationId || !input.targetUserId.trim() || !prompt) return;
+      await runAgentDelegationAction(`agent-invocation:${conversationId}`, async () => {
+        await createAgentInvocation(conversationId, {
+          ...input,
+          prompt,
+          targetUserId: input.targetUserId.trim(),
+        });
+        await refreshConversationMessages(conversationId, { markRead: true });
+      });
+    },
+    [refreshConversationMessages, runAgentDelegationAction]
+  );
+
+  const handleApproveAgentInvocation = useCallback(
+    async (conversationId: string, invocationId: string) => {
+      await runAgentDelegationAction(`approve-agent-invocation:${invocationId}`, async () => {
+        await approveAgentInvocation(invocationId);
+        await refreshConversationMessages(conversationId, { markRead: true });
+      });
+    },
+    [refreshConversationMessages, runAgentDelegationAction]
+  );
+
+  const handleRejectAgentInvocation = useCallback(
+    async (conversationId: string, invocationId: string) => {
+      await runAgentDelegationAction(`reject-agent-invocation:${invocationId}`, async () => {
+        await rejectAgentInvocation(invocationId);
+        await refreshConversationMessages(conversationId, { markRead: true });
+      });
+    },
+    [refreshConversationMessages, runAgentDelegationAction]
   );
 
   const handleCreateAgentDelegationFromContacts = useCallback(
@@ -1077,6 +1319,7 @@ export default function Home() {
   // ── New session ──
   const handleNewSession = async () => {
     setPendingMobileSession(null);
+    setSelectedCollaborationSessionId(null);
     mobileSessionSelectionRequestRef.current += 1;
     const session = await createNewSession(defaultModel, activeContextFolderPath, {
       refresh: false,
@@ -1113,6 +1356,7 @@ export default function Home() {
   const handleForkSession = async (targetSessionId: string) => {
     const forked = await forkSessionById(targetSessionId);
     if (!forked) return;
+    setSelectedCollaborationSessionId(null);
     setSelectedModel(forked.model || defaultModel);
     setActiveContextFolderPath(forked.contextFolderPath ?? null);
     setActiveView("sessions");
@@ -1135,12 +1379,12 @@ export default function Home() {
       setActiveView(view);
       if (view === "sessions") {
         setMobileSessionMode("list");
-        if (sessionId) {
+        if (!selectedCollaborationSessionId && sessionId) {
           void handleSwitchSession(sessionId);
         }
       }
     },
-    [activeView, handleSwitchSession, sessionId]
+    [activeView, handleSwitchSession, selectedCollaborationSessionId, sessionId]
   );
   const handleReturnFromMobileFiles = useCallback(() => {
     setPendingMobileSession(null);
@@ -1169,6 +1413,7 @@ export default function Home() {
   );
   const handleCreateScheduledTaskChat = useCallback(async () => {
     setPendingMobileSession(null);
+    setSelectedCollaborationSessionId(null);
     mobileSessionSelectionRequestRef.current += 1;
     setMobileFilesReturnToChat(false);
     setPendingWorkspaceFileOpen(null);
@@ -1186,6 +1431,7 @@ export default function Home() {
   const handleEditScheduledTaskChat = useCallback(
     async (task: TaskInfo, triggers: TaskTriggerInfo[]) => {
       setPendingMobileSession(null);
+      setSelectedCollaborationSessionId(null);
       mobileSessionSelectionRequestRef.current += 1;
       setMobileFilesReturnToChat(false);
       setPendingWorkspaceFileOpen(null);
@@ -1212,6 +1458,7 @@ export default function Home() {
   const handleOpenSessionAction = useCallback(
     (action: SessionControlAction, label: string) => {
       setPendingMobileSession(null);
+      setSelectedCollaborationSessionId(null);
       mobileSessionSelectionRequestRef.current += 1;
       setMobileFilesReturnToChat(false);
       setPendingWorkspaceFileOpen(null);
@@ -1338,9 +1585,115 @@ export default function Home() {
     sessionListVisibleForStableOrder,
     sessionAttentionById,
   ]);
+  const collaborationSessions = useMemo(() => {
+    return agentContacts
+      .map((contact) => {
+        const conversation = conversationByContactUserId[contact.contactUserId];
+        if (!conversation) return null;
+        return buildCollaborationSessionSummary({
+          conversation,
+          contact,
+          messages: conversationMessagesById[conversation.conversationId] || [],
+          currentUserId: userId,
+        });
+      })
+      .filter((session): session is WorkbenchSessionSummary => Boolean(session));
+  }, [agentContacts, conversationByContactUserId, conversationMessagesById, userId]);
+  const displayWorkbenchSessionsWithCollaborations = useMemo(
+    () => sortWorkbenchSessions([...collaborationSessions, ...displayWorkbenchSessions]),
+    [collaborationSessions, displayWorkbenchSessions]
+  );
+  const selectedCollaborationSession = selectedCollaborationSessionId
+    ? displayWorkbenchSessionsWithCollaborations.find(
+        (session) => session.sessionId === selectedCollaborationSessionId
+      ) || null
+    : null;
   const selectedWorkbenchSession = sessionId
     ? displayWorkbenchSessions.find((session) => session.sessionId === sessionId) || null
     : null;
+  const selectedCollaborationConversationId = selectedCollaborationSessionId
+    ? conversationIdFromCollaborationSessionId(selectedCollaborationSessionId)
+    : null;
+  const selectedCollaborationConversation = selectedCollaborationConversationId
+    ? Object.values(conversationByContactUserId).find(
+        (conversation) => conversation?.conversationId === selectedCollaborationConversationId
+      ) || null
+    : null;
+  const selectedCollaborationContact =
+    selectedCollaborationConversation && selectedCollaborationSession?.contactUserId
+      ? agentContacts.find(
+          (contact) => contact.contactUserId === selectedCollaborationSession.contactUserId
+        ) || null
+      : null;
+  const selectedCollaborationMessages = selectedCollaborationConversation
+    ? conversationMessagesById[selectedCollaborationConversation.conversationId] || []
+    : [];
+  const isCollaborationChatActive = Boolean(
+    selectedCollaborationConversation && selectedCollaborationContact
+  );
+  const sessionPageAgentMentionOptions = useMemo(() => {
+    if (!isCollaborationChatActive || !selectedCollaborationContact) return [];
+    const contactName =
+      selectedCollaborationContact.profile.userName ||
+      selectedCollaborationContact.profile.displayName ||
+      selectedCollaborationContact.contactUserId;
+    return [
+      {
+        targetUserId: selectedCollaborationContact.contactUserId,
+        label: contactName,
+        description: `@${selectedCollaborationContact.contactUserId}-agent`,
+        kind: "contact_agent",
+      },
+      {
+        targetUserId: userId,
+        label: t("contacts.myAgent"),
+        description: `@${userId}-agent`,
+        kind: "self_agent",
+      },
+    ];
+  }, [isCollaborationChatActive, selectedCollaborationContact, t, userId]);
+  const effectiveSelectedConversationAgentTargetId = sessionPageAgentMentionOptions.some(
+    (option) => option.targetUserId === selectedConversationAgentTargetId
+  )
+    ? selectedConversationAgentTargetId
+    : null;
+  useEffect(() => {
+    if (authState !== "authenticated" || !selectedCollaborationConversationId) return;
+
+    let cancelled = false;
+    const refresh = async () => {
+      if (cancelled) return;
+      try {
+        await refreshConversationMessages(selectedCollaborationConversationId, {
+          incremental: true,
+          markRead: true,
+        });
+      } catch (error) {
+        if (error instanceof AuthError) {
+          handleAuthExpired(t("auth.sessionExpired"));
+          return;
+        }
+        console.error("Failed to poll collaboration conversation:", error);
+      }
+    };
+    void refresh();
+    const intervalId = window.setInterval(refresh, 2500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [
+    authState,
+    handleAuthExpired,
+    refreshConversationMessages,
+    selectedCollaborationConversationId,
+    t,
+  ]);
+
+  useEffect(() => {
+    setSelectedConversationAgentTargetId(null);
+  }, [selectedCollaborationConversationId]);
+
   const shouldPatchSelectedSessionModel = Boolean(sessionId && selectedWorkbenchSession);
   const handleSelectModel = useCallback(
     (model: string) => {
@@ -1366,13 +1719,16 @@ export default function Home() {
   const handleCloseModelDropdown = useCallback(() => {
     setOpenModelDropdown(null);
   }, []);
+  const selectedSessionListItemId = selectedCollaborationSessionId || sessionId;
   const activePendingMobileSession =
-    pendingMobileSession && pendingMobileSession.sessionId !== sessionId
+    pendingMobileSession && pendingMobileSession.sessionId !== selectedSessionListItemId
       ? pendingMobileSession
       : null;
   const isMobileSessionSwitchPending = Boolean(activePendingMobileSession);
-  const sessionPageSession = activePendingMobileSession || selectedWorkbenchSession;
-  const sessionPageSessionId = activePendingMobileSession?.sessionId ?? sessionId;
+  const sessionPageSession =
+    activePendingMobileSession || selectedCollaborationSession || selectedWorkbenchSession;
+  const sessionPageSessionId =
+    activePendingMobileSession?.sessionId ?? selectedCollaborationSessionId ?? sessionId;
   const sessionPageDelegatedSession = sessionPageSessionId
     ? receivedAgentDelegations.find(
         (delegation) => delegation.targetSessionId === sessionPageSessionId
@@ -1387,28 +1743,82 @@ export default function Home() {
     ).length;
     return pendingDelegationCount + pendingContactRequestCount;
   }, [receivedAgentContactRequests, receivedAgentDelegations]);
-  const sessionPageMessages = isMobileSessionSwitchPending ? [] : messages;
-  const sessionPageTimelineEvents = isMobileSessionSwitchPending ? [] : timelineEvents;
-  const sessionPagePlanSteps = isMobileSessionSwitchPending ? [] : planSteps;
-  const sessionPagePlanProgress = isMobileSessionSwitchPending ? null : planProgress;
-  const sessionPageTokenUsage = isMobileSessionSwitchPending ? emptyUsage : tokenUsage;
-  const sessionPageLastContextTokens = isMobileSessionSwitchPending ? 0 : lastContextTokens;
+  const sessionPageMessages =
+    isMobileSessionSwitchPending || isCollaborationChatActive ? [] : messages;
+  const sessionPageTimelineEvents =
+    isMobileSessionSwitchPending || isCollaborationChatActive ? [] : timelineEvents;
+  const sessionPagePlanSteps =
+    isMobileSessionSwitchPending || isCollaborationChatActive ? [] : planSteps;
+  const sessionPagePlanProgress =
+    isMobileSessionSwitchPending || isCollaborationChatActive ? null : planProgress;
+  const sessionPageTokenUsage =
+    isMobileSessionSwitchPending || isCollaborationChatActive ? emptyUsage : tokenUsage;
+  const sessionPageLastContextTokens =
+    isMobileSessionSwitchPending || isCollaborationChatActive ? 0 : lastContextTokens;
   const sessionPageInput = isMobileSessionSwitchPending ? "" : input;
-  const sessionPagePendingFiles = isMobileSessionSwitchPending ? [] : pendingFiles;
-  const sessionPagePendingLocalImages = isMobileSessionSwitchPending ? [] : pendingLocalImages;
-  const sessionPageIsUploadingFiles = isMobileSessionSwitchPending ? false : isUploadingFiles;
-  const sessionPageUploadError = isMobileSessionSwitchPending ? null : attachmentUploadError;
+  const sessionPagePendingFiles =
+    isMobileSessionSwitchPending || isCollaborationChatActive ? [] : pendingFiles;
+  const sessionPagePendingLocalImages =
+    isMobileSessionSwitchPending || isCollaborationChatActive ? [] : pendingLocalImages;
+  const sessionPageIsUploadingFiles =
+    isMobileSessionSwitchPending || isCollaborationChatActive ? false : isUploadingFiles;
+  const sessionPageUploadError =
+    isMobileSessionSwitchPending || isCollaborationChatActive ? null : attachmentUploadError;
   const sessionPageSelectedModel = activePendingMobileSession?.model || selectedModel;
   const sessionPageContextFolderPath =
     activePendingMobileSession?.contextFolderPath ?? activeContextFolderPath;
   const sessionPageIsGenerating = Boolean(
-    sessionPageSessionId && runningSessionIds.includes(sessionPageSessionId)
+    !isCollaborationChatActive &&
+    sessionPageSessionId &&
+    runningSessionIds.includes(sessionPageSessionId)
   );
-  const isComposerBlocked = sessionPageSession?.status === "compacting";
+  const isComposerBlocked =
+    !isCollaborationChatActive && sessionPageSession?.status === "compacting";
+  const sessionPageCollaborationContext =
+    isCollaborationChatActive && selectedCollaborationConversation && selectedCollaborationContact
+      ? {
+          conversation: selectedCollaborationConversation,
+          contact: selectedCollaborationContact,
+          messages: selectedCollaborationMessages,
+          currentUserId: userId,
+          pendingActionKey: agentDelegationActionKey,
+          onApproveInvocation: handleApproveAgentInvocation,
+          onRejectInvocation: handleRejectAgentInvocation,
+        }
+      : null;
+
+  const handleSelectSessionListItem = useCallback(
+    async (targetSessionId: string): Promise<boolean> => {
+      const conversationId = conversationIdFromCollaborationSessionId(targetSessionId);
+      setPendingMobileSession(null);
+      mobileSessionSelectionRequestRef.current += 1;
+      setMobileFilesReturnToChat(false);
+      setPendingWorkspaceFileOpen(null);
+      setActiveView("sessions");
+      setMobileMotionDirection(1);
+      setMobileSessionMode("chat");
+
+      if (conversationId) {
+        setSelectedCollaborationSessionId(targetSessionId);
+        await refreshConversationMessages(conversationId, { markRead: true });
+        setSessionScrollToBottomRequest((request) => request + 1);
+        return true;
+      }
+
+      return handleSwitchSession(targetSessionId);
+    },
+    [handleSwitchSession, refreshConversationMessages]
+  );
 
   const handleSelectMobileSession = useCallback(
     async (targetSessionId: string) => {
-      const targetSession = displayWorkbenchSessions.find(
+      const conversationId = conversationIdFromCollaborationSessionId(targetSessionId);
+      if (conversationId) {
+        await handleSelectSessionListItem(targetSessionId);
+        return;
+      }
+
+      const targetSession = displayWorkbenchSessionsWithCollaborations.find(
         (session) => session.sessionId === targetSessionId
       ) || {
         sessionId: targetSessionId,
@@ -1442,7 +1852,13 @@ export default function Home() {
         setMobileSessionMode("list");
       }
     },
-    [displayWorkbenchSessions, handleSwitchSession, selectedModel, sessionId]
+    [
+      displayWorkbenchSessionsWithCollaborations,
+      handleSelectSessionListItem,
+      handleSwitchSession,
+      selectedModel,
+      sessionId,
+    ]
   );
 
   const handleSelectChatFolder = useCallback(
@@ -1473,9 +1889,66 @@ export default function Home() {
     [activeContextFolderPath, selectedWorkbenchSession, sessionId, updateSessionById]
   );
 
+  const handleSendSessionPageMessage = useCallback(async () => {
+    if (
+      !isCollaborationChatActive ||
+      !selectedCollaborationConversation ||
+      !selectedCollaborationContact
+    ) {
+      handleSendMessage();
+      return;
+    }
+
+    const text = input.trim();
+    if (!text) return;
+    const allowedAgentUserIds = [userId, selectedCollaborationContact.contactUserId];
+    const explicitAgentTargetId =
+      effectiveSelectedConversationAgentTargetId &&
+      allowedAgentUserIds.includes(effectiveSelectedConversationAgentTargetId)
+        ? effectiveSelectedConversationAgentTargetId
+        : null;
+    const mentionCommand = explicitAgentTargetId
+      ? { targetUserId: explicitAgentTargetId, prompt: text }
+      : parseAgentMentionCommand(text, allowedAgentUserIds);
+    await runAgentDelegationAction(
+      mentionCommand
+        ? `agent-invocation:${selectedCollaborationConversation.conversationId}`
+        : `conversation-message:${selectedCollaborationConversation.conversationId}`,
+      async () => {
+        if (mentionCommand) {
+          await createAgentInvocation(selectedCollaborationConversation.conversationId, {
+            targetUserId: mentionCommand.targetUserId,
+            prompt: mentionCommand.prompt,
+            contextMessageCount: 20,
+          });
+          setSelectedConversationAgentTargetId(null);
+        } else {
+          await createConversationMessage(selectedCollaborationConversation.conversationId, text);
+        }
+        setInput(() => "");
+        await refreshConversationMessages(selectedCollaborationConversation.conversationId, {
+          markRead: true,
+        });
+        setSessionScrollToBottomRequest((request) => request + 1);
+      }
+    );
+  }, [
+    handleSendMessage,
+    input,
+    isCollaborationChatActive,
+    effectiveSelectedConversationAgentTargetId,
+    refreshConversationMessages,
+    runAgentDelegationAction,
+    selectedCollaborationContact,
+    selectedCollaborationConversation,
+    setInput,
+    userId,
+  ]);
+
   const handleOpenTaskSession = useCallback(
     (targetSessionId: string) => {
       setPendingMobileSession(null);
+      setSelectedCollaborationSessionId(null);
       mobileSessionSelectionRequestRef.current += 1;
       setMobileFilesReturnToChat(false);
       setPendingWorkspaceFileOpen(null);
@@ -1527,7 +2000,7 @@ export default function Home() {
       onSelectModel={handleSelectModel}
       onLoadSkills={loadAvailableSkills}
       onSelectRequiredSkill={setSelectedRequiredSkillId}
-      onSend={handleSendMessage}
+      onSend={handleSendSessionPageMessage}
       onStop={handleStop}
       onQuickReply={handleQuickReply}
       onPermissionResolve={handlePermissionResolve}
@@ -1542,14 +2015,18 @@ export default function Home() {
       pendingControlRequest={isMobileSessionSwitchPending ? null : pendingControlRequest}
       agentDelegationActionKey={agentDelegationActionKey}
       onAnswerAgentDelegation={handleAnswerAgentDelegation}
+      collaborationContext={sessionPageCollaborationContext}
+      agentMentionOptions={sessionPageAgentMentionOptions}
+      selectedAgentMentionTargetId={effectiveSelectedConversationAgentTargetId}
+      onSelectAgentMentionTarget={setSelectedConversationAgentTargetId}
     />
   );
   const mobileSessionList = (
     <MobileSessionsPage
-      sessions={displayWorkbenchSessions}
+      sessions={displayWorkbenchSessionsWithCollaborations}
       isLoading={isLoadingSessions}
       sessionLoadError={sessionLoadError}
-      selectedSessionId={sessionId}
+      selectedSessionId={selectedSessionListItemId}
       onNewSession={handleNewSession}
       onSelectSession={(selectedSessionId) => void handleSelectMobileSession(selectedSessionId)}
       onDeleteSession={handleDeleteSession}
@@ -1616,11 +2093,18 @@ export default function Home() {
         onAcceptDelegation={handleAcceptAgentDelegation}
         onRejectDelegation={handleRejectAgentDelegation}
         onOpenSession={handleOpenTaskSession}
+        conversationByContactUserId={conversationByContactUserId}
+        conversationMessagesById={conversationMessagesById}
+        onEnsureDirectConversation={handleEnsureDirectConversation}
+        onOpenConversation={handleOpenCollaborationChat}
+        onSendConversationMessage={handleSendConversationMessage}
+        onCreateAgentInvocation={handleCreateAgentInvocation}
         onRefresh={async () => {
           await Promise.all([
             refreshAgentContacts(),
             refreshAgentContactRequests(),
             refreshAgentDelegations(),
+            refreshAgentConversations(),
           ]);
         }}
       />
@@ -1652,13 +2136,13 @@ export default function Home() {
               style={{ width: sessionRailWidth }}
             >
               <WorkspaceNav
-                sessions={displayWorkbenchSessions}
-                selectedSessionId={sessionId}
+                sessions={displayWorkbenchSessionsWithCollaborations}
+                selectedSessionId={selectedSessionListItemId}
                 isLoading={isLoadingSessions}
                 sessionLoadError={sessionLoadError}
                 onNewSession={handleNewSession}
                 onSelectSession={(selectedSessionId) => {
-                  void handleSwitchSession(selectedSessionId);
+                  void handleSelectSessionListItem(selectedSessionId);
                   setMobileSessionMode("chat");
                 }}
                 onDeleteSession={handleDeleteSession}

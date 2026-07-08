@@ -232,15 +232,20 @@ function testMobileSessionSearchHasExplicitCancelState() {
 function testSessionRowsExposeIosStyleSwipeActions() {
   const html = renderMobileSessionsPage();
   const leadingActionsSource =
-    mobileSessionsPageSource.match(/leadingActions=\{\[([\s\S]*?)\]\}\s*trailingActions=/)?.[1] ||
-    "";
+    mobileSessionsPageSource.match(
+      /leadingActions=\{\s*isConversation\s*\?\s*\[\]\s*:\s*\[([\s\S]*?)\]\s*\}\s*trailingActions=/
+    )?.[1] || "";
   const trailingActionsSource =
-    mobileSessionsPageSource.match(/trailingActions=\{\[([\s\S]*?)\]\}\s*className=/)?.[1] || "";
+    mobileSessionsPageSource.match(
+      /trailingActions=\{\s*isConversation\s*\?\s*\[\]\s*:\s*\[([\s\S]*?)\]\s*\}\s*className=/
+    )?.[1] || "";
 
   assert.match(mobileSessionsPageSource, /import SwipeActionRow/);
   assert.match(mobileSessionsPageSource, /data-ripple-mobile-session-swipe/);
+  assert.match(mobileSessionsPageSource, /const isConversation = session\.kind === "conversation"/);
   assert.match(mobileSessionsPageSource, /trailingActions=\{/);
   assert.match(mobileSessionsPageSource, /leadingActions=\{/);
+  assert.match(mobileSessionsPageSource, /isConversation\s*\?\s*\[\]/);
   assert.match(leadingActionsSource, /key: "pin"/);
   assert.doesNotMatch(leadingActionsSource, /key: "rename"/);
   assert.doesNotMatch(leadingActionsSource, /key: "delete"/);

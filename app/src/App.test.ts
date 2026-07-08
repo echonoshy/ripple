@@ -103,7 +103,10 @@ function testDesktopSessionRailStillUsesSeparateLayout() {
 
   assert.match(source, /data-ripple-session-layout="desktop"/);
   assert.match(source, /className="relative hidden h-full min-h-0 lg:flex"/);
-  assert.match(source, /<WorkspaceNav[\s\S]*sessions=\{displayWorkbenchSessions\}/);
+  assert.match(
+    source,
+    /<WorkspaceNav[\s\S]*sessions=\{displayWorkbenchSessionsWithCollaborations\}/
+  );
 }
 
 function testMobileContentUsesSharedMotionTransitions() {
@@ -205,7 +208,10 @@ function testSessionRailOnlyLivesInsideSessionsView() {
   const source = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
 
   assert.match(source, /data-ripple-session-layout="desktop"/);
-  assert.match(source, /<WorkspaceNav[\s\S]*sessions=\{displayWorkbenchSessions\}/);
+  assert.match(
+    source,
+    /<WorkspaceNav[\s\S]*sessions=\{displayWorkbenchSessionsWithCollaborations\}/
+  );
   assert.doesNotMatch(source, /activeView === "files"[\s\S]{0,240}<WorkspaceNav/);
 }
 

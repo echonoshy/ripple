@@ -377,6 +377,7 @@ export default function MobileSessionsPage({
             <AnimatePresence initial={false}>
               {visibleSessions.map((session, sessionIndex) => {
                 const selected = session.sessionId === selectedSessionId;
+                const isConversation = session.kind === "conversation";
                 const activityTime = formatSessionActivityTime(
                   session.lastActivityAt,
                   new Date(),
@@ -445,53 +446,61 @@ export default function MobileSessionsPage({
                   >
                     <SwipeActionRow
                       data-ripple-mobile-session-swipe
-                      leadingActions={[
-                        {
-                          key: "pin",
-                          label: session.pinned ? t("sessions.unpin") : t("sessions.pin"),
-                          icon: <Pin size={14} />,
-                          tone: "accent",
-                          onClick: () => {
-                            void onUpdateSession(session.sessionId, {
-                              pinned: !session.pinned,
-                            });
-                          },
-                        },
-                      ]}
-                      trailingActions={[
-                        {
-                          key: "rename",
-                          label: t("sessions.rename"),
-                          icon: <Edit3 size={14} />,
-                          tone: "neutral",
-                          onClick: () => {
-                            setEditingSessionId(session.sessionId);
-                            setEditingTitle(session.title);
-                          },
-                        },
-                        ...(onForkSession
-                          ? [
+                      leadingActions={
+                        isConversation
+                          ? []
+                          : [
                               {
-                                key: "fork",
-                                label: t("sessions.fork"),
-                                icon: <GitFork size={14} />,
-                                tone: "neutral" as const,
+                                key: "pin",
+                                label: session.pinned ? t("sessions.unpin") : t("sessions.pin"),
+                                icon: <Pin size={14} />,
+                                tone: "accent",
                                 onClick: () => {
-                                  onForkSession(session.sessionId);
+                                  void onUpdateSession(session.sessionId, {
+                                    pinned: !session.pinned,
+                                  });
                                 },
                               },
                             ]
-                          : []),
-                        {
-                          key: "delete",
-                          label: t("sessions.delete"),
-                          icon: <Trash2 size={14} />,
-                          tone: "danger",
-                          onClick: (event) => {
-                            onDeleteSession(session.sessionId, event);
-                          },
-                        },
-                      ]}
+                      }
+                      trailingActions={
+                        isConversation
+                          ? []
+                          : [
+                              {
+                                key: "rename",
+                                label: t("sessions.rename"),
+                                icon: <Edit3 size={14} />,
+                                tone: "neutral",
+                                onClick: () => {
+                                  setEditingSessionId(session.sessionId);
+                                  setEditingTitle(session.title);
+                                },
+                              },
+                              ...(onForkSession
+                                ? [
+                                    {
+                                      key: "fork",
+                                      label: t("sessions.fork"),
+                                      icon: <GitFork size={14} />,
+                                      tone: "neutral" as const,
+                                      onClick: () => {
+                                        onForkSession(session.sessionId);
+                                      },
+                                    },
+                                  ]
+                                : []),
+                              {
+                                key: "delete",
+                                label: t("sessions.delete"),
+                                icon: <Trash2 size={14} />,
+                                tone: "danger",
+                                onClick: (event) => {
+                                  onDeleteSession(session.sessionId, event);
+                                },
+                              },
+                            ]
+                      }
                       className={isMenuActive ? "z-50 rounded-lg" : "z-10 rounded-lg"}
                     >
                       <div
@@ -520,15 +529,18 @@ export default function MobileSessionsPage({
                             }
                             onSelectSession(session.sessionId);
                           }}
-                          onPointerDown={(event) =>
-                            handleSessionLongPressStart(session.sessionId, event)
-                          }
+                          onPointerDown={(event) => {
+                            if (!isConversation) {
+                              handleSessionLongPressStart(session.sessionId, event);
+                            }
+                          }}
                           onPointerMove={handleSessionLongPressMove}
                           onPointerUp={clearSessionLongPress}
                           onPointerCancel={clearSessionLongPress}
                           onPointerLeave={clearSessionLongPress}
                           onContextMenu={(event) => {
                             event.preventDefault();
+                            if (isConversation) return;
                             clearSessionLongPress();
                             longPressedSessionIdRef.current = session.sessionId;
                             setActiveMenuSessionId(session.sessionId);
@@ -542,7 +554,9 @@ export default function MobileSessionsPage({
                               >
                                 {session.title}
                               </span>
-                              {session.pinned ? (
+                              {isConversation ? (
+                                <MessageCircle size={13} className="shrink-0 text-[#1456F0]" />
+                              ) : session.pinned ? (
                                 <Pin size={12} className="shrink-0 text-[#646A73]" />
                               ) : null}
                               <SessionAttentionDot attention={session.attention} reserveSpace />

@@ -11,16 +11,23 @@ import {
 } from "react";
 import {
   AlertTriangle,
+  Bot,
   BrainCircuit,
   ChevronLeft,
+  Check,
   CheckCircle2,
   Circle,
   Folder,
   Loader2,
   MessageCircleMore,
+  X,
 } from "lucide-react";
 import type {
+  AgentContact,
   AgentDelegation,
+  AgentInvocation,
+  Conversation,
+  ConversationMessage,
   Message,
   PlanStep,
   PlanProgress,
@@ -40,6 +47,7 @@ import {
   type PendingLocalImage,
 } from "@/lib/pendingImages";
 import SessionComposer from "./SessionComposer";
+import type { ComposerAgentMentionOption } from "./SessionComposer";
 import SessionTimeline from "./SessionTimeline";
 import {
   AgentDelegationStatusCard,
@@ -293,6 +301,212 @@ interface SessionPageProps {
   pendingControlRequest?: Record<string, unknown> | null;
   agentDelegationActionKey?: string | null;
   onAnswerAgentDelegation?: (delegationId: string, answer: string) => Promise<void> | void;
+  collaborationContext?: CollaborationContext | null;
+  agentMentionOptions?: ComposerAgentMentionOption[];
+  selectedAgentMentionTargetId?: string | null;
+  onSelectAgentMentionTarget?: (targetUserId: string | null) => void;
+}
+
+interface CollaborationContext {
+  conversation: Conversation;
+  contact: AgentContact;
+  messages: ConversationMessage[];
+  currentUserId: string;
+  pendingActionKey?: string | null;
+  onApproveInvocation?: (conversationId: string, invocationId: string) => Promise<void> | void;
+  onRejectInvocation?: (conversationId: string, invocationId: string) => Promise<void> | void;
+}
+
+function collaborationMessageText(message: ConversationMessage): string {
+  const text = message.body.text;
+  if (typeof text === "string" && text.trim()) return text;
+  const invocation = message.body.invocation;
+  if (invocation?.resultText?.trim()) return invocation.resultText.trim();
+  if (invocation?.prompt) return invocation.prompt;
+  return "";
+}
+
+function collaborationInvocationStatusText(
+  invocation: AgentInvocation,
+  contact: AgentContact,
+  currentUserId: string,
+  t: ReturnType<typeof useI18n>["t"]
+): string {
+  const targetName =
+    invocation.targetUserId === currentUserId
+      ? currentUserId
+      : contact.profile.userName || contact.profile.displayName || contact.contactUserId;
+  if (invocation.status === "pending_approval") {
+    return t("contacts.agentWaitingApproval", { name: targetName });
+  }
+  if (invocation.status === "approved") return t("contacts.agentApproved");
+  if (
+    invocation.status === "awaiting_target_permission" ||
+    invocation.status === "awaiting_permission"
+  ) {
+    return t("contacts.agentAwaitingPermission", { name: targetName });
+  }
+  if (invocation.status === "rejected") return t("contacts.agentRejected");
+  if (invocation.status === "completed") return t("contacts.agentCompleted");
+  if (invocation.status === "failed") return t("contacts.agentFailed");
+  return t("contacts.agentRunning");
+}
+
+function CollaborationTimeline({ context }: { context: CollaborationContext }) {
+  const { t } = useI18n();
+  const contactName =
+    context.contact.profile.userName ||
+    context.contact.profile.displayName ||
+    context.contact.contactUserId;
+  const participantName = (userId: string) => {
+    if (userId === context.currentUserId) return t("contacts.fromMe");
+    if (userId === context.contact.contactUserId) return contactName;
+    return `@${userId}`;
+  };
+  const agentOwnerName = (userId: string) => {
+    if (userId === context.currentUserId) return t("contacts.myAgent");
+    if (userId === context.contact.contactUserId) return contactName;
+    return `@${userId}`;
+  };
+  return (
+    <div className="space-y-3">
+      <section className="rounded-xl border border-[#BACEFD] bg-[#F0F5FF] px-3 py-2.5">
+        <div className={`flex items-center gap-2 ${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#1F2329]`}>
+          <MessageCircleMore size={16} className="text-[#1456F0]" />
+          {t("contacts.conversationTitle")} · {contactName}
+        </div>
+        <div className={`${TYPOGRAPHY_META_CLASS} mt-1 text-[#646A73]`}>
+          {t("contacts.conversationSubtitle")}
+        </div>
+        <div className={`${TYPOGRAPHY_META_CLASS} mt-2 text-[#646A73]`}>
+          @{context.contact.contactUserId}-agent · @{context.currentUserId}-agent
+        </div>
+      </section>
+
+      {context.messages.length === 0 ? (
+        <div
+          className={`rounded-xl border border-dashed border-[#DEE0E3] bg-[#F8F9FA] px-3 py-4 ${TYPOGRAPHY_BODY_CLASS} text-[#646A73]`}
+        >
+          {t("contacts.conversationEmpty")}
+        </div>
+      ) : (
+        context.messages.map((message) => {
+          const invocation = message.body.invocation;
+          const fromSelf = message.senderUserId === context.currentUserId;
+          const isAgentRequest = message.kind === "agent_invocation" && Boolean(invocation);
+          const isAgentResult =
+            message.kind === "agent_invocation_event" || message.senderActorType === "agent";
+          const ownerName = agentOwnerName(
+            invocation?.targetUserId || message.senderUserId || context.contact.contactUserId
+          );
+          const authorLabel = isAgentResult
+            ? t("contacts.agentOwnerLabel", { name: ownerName })
+            : participantName(message.senderUserId);
+          const text = collaborationMessageText(message);
+          const canDecide =
+            invocation?.targetUserId === context.currentUserId &&
+            invocation.status === "pending_approval";
+          const deciding =
+            invocation &&
+            (context.pendingActionKey === `approve-agent-invocation:${invocation.invocationId}` ||
+              context.pendingActionKey === `reject-agent-invocation:${invocation.invocationId}`);
+          return (
+            <article
+              key={message.messageId}
+              data-ripple-collaboration-message-kind={message.kind}
+              className={`max-w-[88%] rounded-xl border px-3 py-2.5 ${
+                isAgentResult
+                  ? "mr-auto border-[#B7EDCE] bg-[#F0FBF5]"
+                  : isAgentRequest
+                    ? "ml-auto border-[#FAD355]/65 bg-[#FFF8DB]"
+                    : fromSelf
+                      ? "ml-auto border-[#BACEFD] bg-[#F0F5FF]"
+                      : "mr-auto border-[#DEE0E3] bg-white"
+              }`}
+            >
+              <div className="flex min-w-0 items-center justify-between gap-3">
+                <span className={`${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#646A73]`}>
+                  {authorLabel}
+                </span>
+                {isAgentRequest ? (
+                  <span
+                    className={`inline-flex shrink-0 items-center gap-1 ${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#8B5E00]`}
+                  >
+                    <Bot size={13} />
+                    {t("contacts.agentTargetChip", { name: ownerName })}
+                  </span>
+                ) : null}
+                {isAgentResult ? (
+                  <span
+                    className={`inline-flex shrink-0 items-center gap-1 ${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#16845B]`}
+                  >
+                    <Bot size={13} />
+                    {t("contacts.agentResultLabel")}
+                  </span>
+                ) : null}
+                {invocation ? (
+                  <span
+                    className={`inline-flex shrink-0 items-center gap-1 ${TYPOGRAPHY_META_MEDIUM_CLASS} ${
+                      isAgentResult ? "text-[#16845B]" : "text-[#8B5E00]"
+                    }`}
+                  >
+                    <Bot size={13} />
+                    {collaborationInvocationStatusText(
+                      invocation,
+                      context.contact,
+                      context.currentUserId,
+                      t
+                    )}
+                  </span>
+                ) : null}
+              </div>
+              {text ? (
+                <div className={`mt-1 whitespace-pre-wrap ${TYPOGRAPHY_BODY_CLASS} text-[#1F2329]`}>
+                  {text}
+                </div>
+              ) : null}
+              {canDecide ? (
+                <div className="mt-3 flex justify-end gap-2">
+                  <button
+                    type="button"
+                    disabled={Boolean(deciding)}
+                    onClick={() =>
+                      context.onRejectInvocation?.(
+                        context.conversation.conversationId,
+                        invocation.invocationId
+                      )
+                    }
+                    className={`inline-flex h-8 items-center gap-1 rounded-lg border border-[#FAD4D4] bg-white px-2.5 ${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#B42318] transition-colors hover:bg-[#FFF1F0] disabled:opacity-50`}
+                  >
+                    <X size={13} />
+                    {t("contacts.rejectDelegation")}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={Boolean(deciding)}
+                    onClick={() =>
+                      context.onApproveInvocation?.(
+                        context.conversation.conversationId,
+                        invocation.invocationId
+                      )
+                    }
+                    className={`inline-flex h-8 items-center gap-1 rounded-lg border border-[#1456F0] bg-[#1456F0] px-2.5 ${TYPOGRAPHY_META_MEDIUM_CLASS} text-white transition-colors hover:bg-[#0F4BD8] disabled:opacity-50`}
+                  >
+                    {deciding ? (
+                      <Loader2 size={13} className="animate-spin" />
+                    ) : (
+                      <Check size={13} />
+                    )}
+                    {t("contacts.acceptDelegation")}
+                  </button>
+                </div>
+              ) : null}
+            </article>
+          );
+        })
+      )}
+    </div>
+  );
 }
 
 export default function SessionPage({
@@ -348,6 +562,10 @@ export default function SessionPage({
   pendingControlRequest = null,
   agentDelegationActionKey = null,
   onAnswerAgentDelegation,
+  collaborationContext = null,
+  agentMentionOptions = [],
+  selectedAgentMentionTargetId = null,
+  onSelectAgentMentionTarget,
 }: SessionPageProps) {
   const { t } = useI18n();
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
@@ -939,16 +1157,20 @@ export default function SessionPage({
                 </div>
               )}
 
-              <SessionTimeline
-                userId={userId}
-                messages={messages}
-                events={timelineEvents}
-                isGenerating={isGenerating}
-                onQuickReply={onQuickReply}
-                onPermissionResolve={onPermissionResolve}
-                onFeishuAuthOpen={onFeishuAuthOpen}
-                feishuAuthWaiting={feishuAuthWaiting}
-              />
+              {collaborationContext ? (
+                <CollaborationTimeline context={collaborationContext} />
+              ) : (
+                <SessionTimeline
+                  userId={userId}
+                  messages={messages}
+                  events={timelineEvents}
+                  isGenerating={isGenerating}
+                  onQuickReply={onQuickReply}
+                  onPermissionResolve={onPermissionResolve}
+                  onFeishuAuthOpen={onFeishuAuthOpen}
+                  feishuAuthWaiting={feishuAuthWaiting}
+                />
+              )}
             </>
           )}
         </div>
@@ -977,6 +1199,7 @@ export default function SessionPage({
       >
         <SessionComposer
           userId={userId}
+          mode={collaborationContext ? "conversation" : "session"}
           value={isSessionLoading ? "" : input}
           onChange={onInputChange}
           onSend={handleComposerSend}
@@ -1004,6 +1227,9 @@ export default function SessionPage({
           isLoadingSkills={isLoadingSkills}
           onLoadSkills={onLoadSkills}
           onSelectRequiredSkill={onSelectRequiredSkill}
+          agentMentionOptions={agentMentionOptions}
+          selectedAgentMentionTargetId={selectedAgentMentionTargetId}
+          onSelectAgentMentionTarget={onSelectAgentMentionTarget}
           contextFolderPath={effectiveContextFolderPath}
           workspaceScopeLabel={workspaceScopeLabel}
           workspaceScopePath={workspaceScopePath}

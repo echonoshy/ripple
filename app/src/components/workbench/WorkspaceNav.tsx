@@ -7,6 +7,7 @@ import {
   Edit3,
   GitFork,
   Loader2,
+  MessageCircle,
   MoreHorizontal,
   Pin,
   Plus,
@@ -139,6 +140,7 @@ export default function WorkspaceNav({
           <div className="space-y-1">
             {sessions.map((session) => {
               const selected = session.sessionId === selectedSessionId;
+              const isConversation = session.kind === "conversation";
               const activityTime = formatSessionActivityTime(
                 session.lastActivityAt,
                 new Date(),
@@ -200,7 +202,11 @@ export default function WorkspaceNav({
                       : "border-transparent text-[#2B2F36] hover:bg-[#F8F9FA] hover:text-[#1F2329]"
                   }`}
                 >
-                  <SessionAttentionDot attention={session.attention} reserveSpace />
+                  {isConversation ? (
+                    <MessageCircle size={14} className="shrink-0 text-[#1456F0]" />
+                  ) : (
+                    <SessionAttentionDot attention={session.attention} reserveSpace />
+                  )}
                   <button
                     type="button"
                     onClick={() => onSelectSession(session.sessionId)}
@@ -223,24 +229,26 @@ export default function WorkspaceNav({
                     )}
                   </button>
 
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      setActiveMenuSessionId(
-                        activeMenuSessionId === session.sessionId ? null : session.sessionId
-                      );
-                    }}
-                    className={`h-6 w-6 shrink-0 items-center justify-center rounded-lg border transition-all ${
-                      activeMenuSessionId === session.sessionId
-                        ? "z-50 flex border-[#DEE0E3] bg-white text-[#1F2329] shadow-[0_2px_8px_rgba(31,35,41,0.06)]"
-                        : "hidden border-transparent text-[#8F959E] group-hover:flex hover:border-[#DEE0E3] hover:bg-white hover:text-[#1F2329] active:scale-[0.92]"
-                    }`}
-                    aria-label={t("sessions.options")}
-                    title={t("sessions.options")}
-                  >
-                    <MoreHorizontal size={14} />
-                  </button>
+                  {!isConversation ? (
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setActiveMenuSessionId(
+                          activeMenuSessionId === session.sessionId ? null : session.sessionId
+                        );
+                      }}
+                      className={`h-6 w-6 shrink-0 items-center justify-center rounded-lg border transition-all ${
+                        activeMenuSessionId === session.sessionId
+                          ? "z-50 flex border-[#DEE0E3] bg-white text-[#1F2329] shadow-[0_2px_8px_rgba(31,35,41,0.06)]"
+                          : "hidden border-transparent text-[#8F959E] group-hover:flex hover:border-[#DEE0E3] hover:bg-white hover:text-[#1F2329] active:scale-[0.92]"
+                      }`}
+                      aria-label={t("sessions.options")}
+                      title={t("sessions.options")}
+                    >
+                      <MoreHorizontal size={14} />
+                    </button>
+                  ) : null}
 
                   {activeMenuSessionId === session.sessionId && (
                     <div

@@ -61,15 +61,14 @@ function testBrowserPanelUsesNativeTauriBrowserWhenAvailable() {
   assert.match(source, /browser\.nativeMode/);
 }
 
-function testBrowserPanelFallsBackToSystemBrowserInTauri() {
+function testBrowserPanelKeepsNavigationInsideApp() {
   const source = readFileSync(new URL("./BrowserPanel.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /isTauriRuntime/);
-  assert.match(source, /systemBrowserMode/);
-  assert.match(source, /openInSystemBrowser/);
-  assert.match(source, /openExternalUrl\(normalizedAddress,\s*"ripple-browser"\)/);
-  assert.match(source, /browser\.systemMode/);
-  assert.match(source, /browser\.openExternalFailed/);
+  assert.doesNotMatch(source, /systemBrowserMode/);
+  assert.doesNotMatch(source, /openInSystemBrowser/);
+  assert.doesNotMatch(source, /openExternalUrl\(normalizedAddress,\s*"ripple-browser"\)/);
+  assert.match(source, /void capturePage\(address\)/);
+  assert.match(source, /void capturePage\(event\.data\.url\)/);
 }
 
 function testBrowserPanelDirectlyFramesHttpWebSites() {
@@ -130,7 +129,7 @@ testBrowserPanelBuildsAgentReadableContext();
 testBrowserPanelExplainsBlockedEmbeddedPreview();
 testBrowserPanelUsesSandboxedPreviewHtml();
 testBrowserPanelUsesNativeTauriBrowserWhenAvailable();
-testBrowserPanelFallsBackToSystemBrowserInTauri();
+testBrowserPanelKeepsNavigationInsideApp();
 testBrowserPanelDirectlyFramesHttpWebSites();
 testBrowserPanelPreservesAgentReadableContextInNativeMode();
 testBrowserPanelAvoidsStalePreviewAndSlowFetchJank();

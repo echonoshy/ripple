@@ -7,10 +7,21 @@ export interface NativeBrowserBounds {
   height: number;
 }
 
-export interface NativeBrowserPageLoadEvent {
+export interface NativeBrowserStateEvent {
   label: string;
   url: string;
-  phase: "started" | "finished";
+  phase:
+    | "started"
+    | "finished"
+    | "title-changed"
+    | "new-window"
+    | "download-requested"
+    | "download-finished";
+  title: string | null;
+  canGoBack: boolean;
+  canGoForward: boolean;
+  downloadPath?: string | null;
+  downloadSuccess?: boolean | null;
 }
 
 export interface NativeBrowserCapturedPage {
@@ -24,9 +35,9 @@ export interface NativeBrowserCapturedPage {
 
 export interface NativeBrowserSurface {
   navigate: (url: string) => Promise<void>;
-  reload: () => Promise<void>;
   goBack: () => Promise<void>;
   goForward: () => Promise<void>;
+  reload: () => Promise<void>;
   captureCurrentPage: () => Promise<NativeBrowserCapturedPage>;
   syncBounds: () => Promise<void>;
   close: () => Promise<void>;
@@ -36,12 +47,7 @@ interface NativeBrowserSurfaceOptions {
   label: string;
   element: HTMLElement;
   initialUrl: string;
-  onPageLoad?: (event: NativeBrowserPageLoadEvent) => void;
-}
-
-interface NativeBrowserOpenUrlEvent {
-  label: string;
-  url: string;
+  onStateChange?: (event: NativeBrowserStateEvent) => void;
 }
 
 type UnlistenFn = () => void;
@@ -58,14 +64,13 @@ export async function createNativeBrowserSurface(
     throw new Error("Native browser is only available in the Tauri client");
   }
 
-  const { label, element, initialUrl, onPageLoad } = options;
+  const { label, element, initialUrl, onStateChange } = options;
   let currentUrl = initialUrl;
   let closed = false;
   let lastVisible = false;
   let latestIntersectionRatio = 1;
   let syncScheduled = false;
-  let unlistenPageLoad: UnlistenFn | null = null;
-  let unlistenOpenUrl: UnlistenFn | null = null;
+  let unlistenBrowserState: UnlistenFn | null = null;
 
   const syncBounds = async () => {
     if (closed) return;
@@ -109,22 +114,13 @@ export async function createNativeBrowserSurface(
   document.addEventListener("visibilitychange", handleWindowChange);
 
   const { listen } = await import("@tauri-apps/api/event");
-  unlistenPageLoad = await listen<NativeBrowserPageLoadEvent>(
-    "ripple-browser-page-load",
-    (event) => {
-      if (event.payload.label !== label) return;
+  unlistenBrowserState = await listen<NativeBrowserStateEvent>("ripple-browser-state", (event) => {
+    if (event.payload.label !== label) return;
+    if (event.payload.url) {
       currentUrl = event.payload.url;
-      onPageLoad?.(event.payload);
     }
-  );
-  unlistenOpenUrl = await listen<NativeBrowserOpenUrlEvent>(
-    "ripple-browser-open-url",
-    (event) => {
-      if (event.payload.label !== label || !isHttpUrl(event.payload.url)) return;
-      currentUrl = event.payload.url;
-      void navigateNativeBrowser({ label, url: currentUrl }).then(syncBounds);
-    }
-  );
+    onStateChange?.(event.payload);
+  });
 
   await openNativeBrowser({
     label,
@@ -139,16 +135,16 @@ export async function createNativeBrowserSurface(
       await navigateNativeBrowser({ label, url });
       await syncBounds();
     },
-    async reload() {
-      await reloadNativeBrowser({ label });
-      await syncBounds();
-    },
     async goBack() {
       await backNativeBrowser({ label });
       await syncBounds();
     },
     async goForward() {
       await forwardNativeBrowser({ label });
+      await syncBounds();
+    },
+    async reload() {
+      await reloadNativeBrowser({ label });
       await syncBounds();
     },
     async captureCurrentPage() {
@@ -163,10 +159,8 @@ export async function createNativeBrowserSurface(
       window.removeEventListener("resize", handleWindowChange);
       window.removeEventListener("scroll", handleWindowChange, true);
       document.removeEventListener("visibilitychange", handleWindowChange);
-      unlistenPageLoad?.();
-      unlistenPageLoad = null;
-      unlistenOpenUrl?.();
-      unlistenOpenUrl = null;
+      unlistenBrowserState?.();
+      unlistenBrowserState = null;
       await closeNativeBrowser({ label });
     },
   };
@@ -276,13 +270,4 @@ function measureViewport(
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
-}
-
-function isHttpUrl(value: string): boolean {
-  try {
-    const url = new URL(value);
-    return url.protocol === "http:" || url.protocol === "https:";
-  } catch {
-    return false;
-  }
 }

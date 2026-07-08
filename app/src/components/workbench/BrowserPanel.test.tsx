@@ -31,6 +31,15 @@ function testBrowserPanelBuildsAgentReadableContext() {
   assert.match(source, /onBrowserContextChange\(context\.active \? context : null\)/);
 }
 
+function testBrowserPanelKeepsNativeBrowserOutOfAgentContext() {
+  const source = readFileSync(new URL("./BrowserPanel.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /publishNativeBrowserState/);
+  assert.match(source, /onBrowserContextChange\(null\)/);
+  assert.doesNotMatch(source, /publishContext\(nativeUrl,\s*null\)/);
+  assert.doesNotMatch(source, /publishContext\(event\.url,\s*null\)/);
+}
+
 function testBrowserPanelExplainsBlockedEmbeddedPreview() {
   const source = readFileSync(new URL("./BrowserPanel.tsx", import.meta.url), "utf8");
 
@@ -64,8 +73,10 @@ function testBrowserPanelUsesNativeTauriBrowserWhenAvailable() {
 function testBrowserPanelUsesNativeHistoryControls() {
   const source = readFileSync(new URL("./BrowserPanel.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /nativeBrowserRef\.current\?\.goBack\(\)/);
-  assert.match(source, /nativeBrowserRef\.current\?\.goForward\(\)/);
+  assert.match(source, /nativeBrowserRef\.current\.goBack/);
+  assert.match(source, /nativeBrowserRef\.current\.goForward/);
+  assert.match(source, /nativeCanGoBack/);
+  assert.match(source, /nativeCanGoForward/);
   assert.match(source, /if \(nativeBrowserAvailable && nativeBrowserRef\.current\)/);
 }
 
@@ -143,6 +154,7 @@ function testBrowserPanelRequiresExplicitPageAttachment() {
 
 testBrowserPanelRendersBrowserControls();
 testBrowserPanelBuildsAgentReadableContext();
+testBrowserPanelKeepsNativeBrowserOutOfAgentContext();
 testBrowserPanelExplainsBlockedEmbeddedPreview();
 testBrowserPanelUsesSandboxedPreviewHtml();
 testBrowserPanelUsesNativeTauriBrowserWhenAvailable();

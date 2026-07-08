@@ -3,5 +3,16 @@
   "identifier": "main",
   "description": "Main Ripple window permissions",
   "windows": ["main"],
-  "permissions": ["core:default", "opener:allow-open-url", "opener:allow-default-urls"]
+  "permissions": [
+    "core:default",
+    "opener:allow-open-url",
+    "opener:allow-default-urls",
+    "ripple-browser:allow-open",
+    "ripple-browser:allow-resize",
+    "ripple-browser:allow-navigate",
+    "ripple-browser:allow-reload",
+    "ripple-browser:allow-close",
+    "ripple-browser:allow-show",
+    "ripple-browser:allow-hide"
+  ]
 }

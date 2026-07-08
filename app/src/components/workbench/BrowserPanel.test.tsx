@@ -31,7 +31,76 @@ function testBrowserPanelBuildsAgentReadableContext() {
   assert.match(source, /onBrowserContextChange\(context\.active \? context : null\)/);
 }
 
+function testBrowserPanelExplainsBlockedEmbeddedPreview() {
+  const source = readFileSync(new URL("./BrowserPanel.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /page\?\.embeddable === false/);
+  assert.match(source, /browser\.previewBlocked/);
+}
+
+function testBrowserPanelUsesSandboxedPreviewHtml() {
+  const source = readFileSync(new URL("./BrowserPanel.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /shouldUsePreviewHtml = Boolean\(page\?\.preview_html\)/);
+  assert.match(source, /srcDoc=\{shouldUsePreviewHtml \? \(page\?\.preview_html/);
+  assert.match(source, /ripple-browser-navigate/);
+  assert.match(source, /window\.addEventListener\("message"/);
+  assert.doesNotMatch(source, /allow-popups/);
+  assert.doesNotMatch(source, /allow-popups-to-escape-sandbox/);
+}
+
+function testBrowserPanelUsesNativeTauriBrowserWhenAvailable() {
+  const source = readFileSync(new URL("./BrowserPanel.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /createNativeBrowserSurface/);
+  assert.match(source, /isNativeBrowserAvailable/);
+  assert.match(source, /nativeBrowserViewportRef/);
+  assert.match(source, /nativeBrowserRef/);
+  assert.match(source, /data-ripple-native-browser-viewport/);
+  assert.match(source, /browser\.nativeMode/);
+}
+
+function testBrowserPanelDirectlyFramesHttpWebSites() {
+  const source = readFileSync(new URL("./BrowserPanel.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /isDirectBrowserIframeUrl/);
+  assert.match(source, /shouldUseDirectIframe/);
+  assert.match(source, /isDirectBrowserIframeUrl\(normalizedAddress\)/);
+  assert.match(source, /sandbox=\{[\s\S]*shouldUseDirectIframe\s*\?\s*undefined/);
+}
+
+function testBrowserPanelAvoidsStalePreviewAndSlowFetchJank() {
+  const source = readFileSync(new URL("./BrowserPanel.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /latestCaptureIdRef/);
+  assert.match(source, /captureId !== latestCaptureIdRef\.current/);
+  assert.match(source, /onLoad=\{handleFrameLoad\}/);
+  assert.match(source, /setPendingNavigationUrl\(normalizedAddress \|\| null\)/);
+  assert.match(source, /setFrameUrl\(resolvedUrl\)/);
+  assert.match(source, /setFrameVersion\(\(current\) => current \+ 1\)/);
+  assert.doesNotMatch(source, /setFrameUrl\(normalizedAddress\)/);
+}
+
+function testBrowserPanelShowsCodexStyleLoadingAndEmptyState() {
+  const html = renderToStaticMarkup(
+    <I18nProvider initialPreference="en-US">
+      <BrowserPanel onBrowserContextChange={noop} />
+    </I18nProvider>
+  );
+  const source = readFileSync(new URL("./BrowserPanel.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /data-ripple-browser-loading-bar/);
+  assert.match(source, /browser\.emptyTitle/);
+  assert.match(html, /Start browsing/);
+}
+
 testBrowserPanelRendersBrowserControls();
 testBrowserPanelBuildsAgentReadableContext();
+testBrowserPanelExplainsBlockedEmbeddedPreview();
+testBrowserPanelUsesSandboxedPreviewHtml();
+testBrowserPanelUsesNativeTauriBrowserWhenAvailable();
+testBrowserPanelDirectlyFramesHttpWebSites();
+testBrowserPanelAvoidsStalePreviewAndSlowFetchJank();
+testBrowserPanelShowsCodexStyleLoadingAndEmptyState();
 
 console.log("browser panel tests passed");

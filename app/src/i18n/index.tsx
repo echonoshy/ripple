@@ -673,7 +673,12 @@ const zhMessages = {
     loading: "正在读取",
     loaded: "已读取",
     failed: "读取失败",
+    nativeMode: "真实浏览器",
     empty: "输入网址打开网页",
+    emptyTitle: "开始浏览",
+    emptySubtitle: "输入 URL 以打开页面",
+    previewBlocked: "该网站禁止嵌入预览",
+    previewBlockedDetail: "页面文本已读取，agent 可以使用这些内容；需要查看原网页时请在外部打开。",
   },
   files: {
     title: "文件",
@@ -1573,7 +1578,13 @@ const enMessages = {
     loading: "Loading",
     loaded: "Loaded",
     failed: "Failed",
+    nativeMode: "Native browser",
     empty: "Enter a URL to open a page",
+    emptyTitle: "Start browsing",
+    emptySubtitle: "Enter a URL to open a page",
+    previewBlocked: "This site blocks embedded preview",
+    previewBlockedDetail:
+      "Page text has been read and is available to the agent. Open externally to view the original page.",
   },
   files: {
     title: "Files",

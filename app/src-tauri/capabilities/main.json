@@ -10,6 +10,8 @@
     "ripple-browser:allow-open",
     "ripple-browser:allow-resize",
     "ripple-browser:allow-navigate",
+    "ripple-browser:allow-go-back",
+    "ripple-browser:allow-go-forward",
     "ripple-browser:allow-reload",
     "ripple-browser:allow-close",
     "ripple-browser:allow-show",

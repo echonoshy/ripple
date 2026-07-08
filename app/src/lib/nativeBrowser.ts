@@ -7,14 +7,27 @@ export interface NativeBrowserBounds {
   height: number;
 }
 
-export interface NativeBrowserPageLoadEvent {
+export interface NativeBrowserStateEvent {
   label: string;
   url: string;
-  phase: "started" | "finished";
+  phase:
+    | "started"
+    | "finished"
+    | "title-changed"
+    | "new-window"
+    | "download-requested"
+    | "download-finished";
+  title: string | null;
+  canGoBack: boolean;
+  canGoForward: boolean;
+  downloadPath?: string | null;
+  downloadSuccess?: boolean | null;
 }
 
 export interface NativeBrowserSurface {
   navigate: (url: string) => Promise<void>;
+  goBack: () => Promise<void>;
+  goForward: () => Promise<void>;
   reload: () => Promise<void>;
   syncBounds: () => Promise<void>;
   close: () => Promise<void>;
@@ -24,7 +37,7 @@ interface NativeBrowserSurfaceOptions {
   label: string;
   element: HTMLElement;
   initialUrl: string;
-  onPageLoad?: (event: NativeBrowserPageLoadEvent) => void;
+  onStateChange?: (event: NativeBrowserStateEvent) => void;
 }
 
 type UnlistenFn = () => void;
@@ -41,13 +54,13 @@ export async function createNativeBrowserSurface(
     throw new Error("Native browser is only available in the Tauri client");
   }
 
-  const { label, element, initialUrl, onPageLoad } = options;
+  const { label, element, initialUrl, onStateChange } = options;
   let currentUrl = initialUrl;
   let closed = false;
   let lastVisible = false;
   let latestIntersectionRatio = 1;
   let syncScheduled = false;
-  let unlistenPageLoad: UnlistenFn | null = null;
+  let unlistenBrowserState: UnlistenFn | null = null;
 
   const syncBounds = async () => {
     if (closed) return;
@@ -91,14 +104,13 @@ export async function createNativeBrowserSurface(
   document.addEventListener("visibilitychange", handleWindowChange);
 
   const { listen } = await import("@tauri-apps/api/event");
-  unlistenPageLoad = await listen<NativeBrowserPageLoadEvent>(
-    "ripple-browser-page-load",
-    (event) => {
-      if (event.payload.label !== label) return;
+  unlistenBrowserState = await listen<NativeBrowserStateEvent>("ripple-browser-state", (event) => {
+    if (event.payload.label !== label) return;
+    if (event.payload.url) {
       currentUrl = event.payload.url;
-      onPageLoad?.(event.payload);
     }
-  );
+    onStateChange?.(event.payload);
+  });
 
   await openNativeBrowser({
     label,
@@ -111,6 +123,14 @@ export async function createNativeBrowserSurface(
     async navigate(url: string) {
       currentUrl = url;
       await navigateNativeBrowser({ label, url });
+      await syncBounds();
+    },
+    async goBack() {
+      await goBackNativeBrowser({ label });
+      await syncBounds();
+    },
+    async goForward() {
+      await goForwardNativeBrowser({ label });
       await syncBounds();
     },
     async reload() {
@@ -126,8 +146,8 @@ export async function createNativeBrowserSurface(
       window.removeEventListener("resize", handleWindowChange);
       window.removeEventListener("scroll", handleWindowChange, true);
       document.removeEventListener("visibilitychange", handleWindowChange);
-      unlistenPageLoad?.();
-      unlistenPageLoad = null;
+      unlistenBrowserState?.();
+      unlistenBrowserState = null;
       await closeNativeBrowser({ label });
     },
   };
@@ -164,6 +184,16 @@ async function resizeNativeBrowser(request: NativeBrowserResizeRequest): Promise
 async function navigateNativeBrowser(request: NativeBrowserNavigateRequest): Promise<void> {
   const { invoke } = await import("@tauri-apps/api/core");
   await invoke("plugin:ripple-browser|navigate", { request });
+}
+
+async function goBackNativeBrowser(request: NativeBrowserLabelRequest): Promise<void> {
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("plugin:ripple-browser|go_back", { request });
+}
+
+async function goForwardNativeBrowser(request: NativeBrowserLabelRequest): Promise<void> {
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("plugin:ripple-browser|go_forward", { request });
 }
 
 async function reloadNativeBrowser(request: NativeBrowserLabelRequest): Promise<void> {

@@ -19,7 +19,7 @@ import { isDirectBrowserIframeUrl } from "@/lib/browserDirectIframe";
 import {
   createNativeBrowserSurface,
   isNativeBrowserAvailable,
-  type NativeBrowserPageLoadEvent,
+  type NativeBrowserStateEvent,
   type NativeBrowserSurface,
 } from "@/lib/nativeBrowser";
 import { openExternalUrl } from "@/lib/platform";
@@ -80,10 +80,20 @@ export default function BrowserPanel({
     entries: initialUrl ? [initialUrl] : [],
     index: initialUrl ? 0 : -1,
   }));
+  const [nativePageTitle, setNativePageTitle] = useState<string | null>(null);
+  const [nativeHistory, setNativeHistory] = useState<BrowserHistoryState>(() => ({
+    entries: initialUrl ? [initialUrl] : [],
+    index: initialUrl ? 0 : -1,
+  }));
 
-  const canGoBack = history.index > 0;
-  const canGoForward = history.index >= 0 && history.index < history.entries.length - 1;
   const nativeBrowserAvailable = isNativeBrowserAvailable();
+  const fallbackCanGoBack = history.index > 0;
+  const fallbackCanGoForward = history.index >= 0 && history.index < history.entries.length - 1;
+  const nativeCanGoBack = nativeHistory.index > 0;
+  const nativeCanGoForward =
+    nativeHistory.index >= 0 && nativeHistory.index < nativeHistory.entries.length - 1;
+  const canGoBack = nativeBrowserAvailable ? nativeCanGoBack : fallbackCanGoBack;
+  const canGoForward = nativeBrowserAvailable ? nativeCanGoForward : fallbackCanGoForward;
   const activeUrl = pendingNavigationUrl || frameUrl || address;
   const isPreviewBlocked = page?.embeddable === false;
   const shouldUsePreviewHtml = Boolean(page?.preview_html);
@@ -119,21 +129,70 @@ export default function BrowserPanel({
     });
   }, []);
 
-  const handleNativePageLoad = useCallback(
-    (event: NativeBrowserPageLoadEvent) => {
+  const pushNativeHistory = useCallback((nextUrl: string) => {
+    setNativeHistory((current) => {
+      if (!nextUrl) return { entries: [], index: -1 };
+
+      const currentUrl = current.index >= 0 ? current.entries[current.index] : "";
+      if (currentUrl === nextUrl) return current;
+
+      const entries = current.entries.slice(0, current.index + 1);
+      entries.push(nextUrl);
+      return { entries, index: entries.length - 1 };
+    });
+  }, []);
+
+  const publishNativeBrowserState = useCallback(
+    (event: NativeBrowserStateEvent) => {
+      onBrowserContextChange(null);
+
+      if (event.title !== null) {
+        setNativePageTitle(event.title);
+      }
+
+      if (event.phase === "download-finished") {
+        if (event.downloadSuccess === false) {
+          setStatus("failed");
+          setError(t("browser.failed"));
+        }
+        return;
+      }
+
+      if (event.phase === "download-requested") {
+        return;
+      }
+
+      if (event.phase === "new-window") {
+        if (!isHttpBrowserUrl(event.url)) return;
+        setStatus("loading");
+        setPendingNavigationUrl(event.url);
+        void nativeBrowserRef.current?.navigate(event.url).catch((nativeError: unknown) => {
+          console.warn("Failed to open native browser new-window target:", nativeError);
+          setStatus("failed");
+          setError(t("browser.failed"));
+        });
+        return;
+      }
+
       if (!isHttpBrowserUrl(event.url)) return;
+
       setAddress(event.url);
       setFrameUrl(event.url);
       setPendingNavigationUrl(null);
-      publishContext(event.url, null);
+
       if (event.phase === "started") {
         setStatus("loading");
         return;
       }
+
+      if (event.phase === "title-changed") {
+        return;
+      }
+
       setStatus("loaded");
-      pushHistory(event.url);
+      pushNativeHistory(event.url);
     },
-    [publishContext, pushHistory]
+    [onBrowserContextChange, pushNativeHistory, t]
   );
 
   const capturePage = useCallback(
@@ -152,21 +211,21 @@ export default function BrowserPanel({
         setPendingNavigationUrl(null);
         setFrameUrl("");
         setPage(null);
+        setNativePageTitle(null);
+        setNativeHistory({ entries: [], index: -1 });
         setStatus("idle");
         publishContext("", null);
         return;
       }
 
       setStatus("loading");
-      publishContext(normalizedAddress, null);
 
       if (nativeBrowserAvailable) {
         const nativeUrl = normalizedAddress;
         setPage(null);
+        setNativePageTitle(null);
         setFrameUrl(nativeUrl);
-        if (shouldRecordHistory) {
-          pushHistory(nativeUrl);
-        }
+        onBrowserContextChange(null);
         try {
           const viewport = nativeBrowserViewportRef.current;
           if (!viewport) {
@@ -177,7 +236,7 @@ export default function BrowserPanel({
               label: nativeBrowserLabelRef.current,
               element: viewport,
               initialUrl: nativeUrl,
-              onPageLoad: handleNativePageLoad,
+              onStateChange: publishNativeBrowserState,
             });
           } else {
             await nativeBrowserRef.current.syncBounds();
@@ -189,6 +248,8 @@ export default function BrowserPanel({
           console.warn("Failed to open native browser surface:", nativeError);
         }
       }
+
+      publishContext(normalizedAddress, null);
 
       if (isDirectBrowserIframeUrl(normalizedAddress)) {
         const directUrl = normalizedAddress;
@@ -228,7 +289,14 @@ export default function BrowserPanel({
         setError(t("browser.failed"));
       }
     },
-    [handleNativePageLoad, nativeBrowserAvailable, publishContext, pushHistory, t]
+    [
+      nativeBrowserAvailable,
+      onBrowserContextChange,
+      publishContext,
+      publishNativeBrowserState,
+      pushHistory,
+      t,
+    ]
   );
 
   const handleFrameLoad = useCallback(() => {
@@ -246,6 +314,40 @@ export default function BrowserPanel({
     },
     [capturePage, history.entries]
   );
+
+  const handleGoBack = useCallback(() => {
+    if (nativeBrowserAvailable && nativeBrowserRef.current) {
+      setStatus("loading");
+      setNativeHistory((current) => {
+        if (current.index <= 0) return current;
+        return { ...current, index: current.index - 1 };
+      });
+      void nativeBrowserRef.current.goBack().catch((nativeError: unknown) => {
+        console.warn("Failed to go back in native browser surface:", nativeError);
+        setStatus("failed");
+        setError(t("browser.failed"));
+      });
+      return;
+    }
+    navigateHistory(history.index - 1);
+  }, [history.index, nativeBrowserAvailable, navigateHistory, t]);
+
+  const handleGoForward = useCallback(() => {
+    if (nativeBrowserAvailable && nativeBrowserRef.current) {
+      setStatus("loading");
+      setNativeHistory((current) => {
+        if (current.index < 0 || current.index >= current.entries.length - 1) return current;
+        return { ...current, index: current.index + 1 };
+      });
+      void nativeBrowserRef.current.goForward().catch((nativeError: unknown) => {
+        console.warn("Failed to go forward in native browser surface:", nativeError);
+        setStatus("failed");
+        setError(t("browser.failed"));
+      });
+      return;
+    }
+    navigateHistory(history.index + 1);
+  }, [history.index, nativeBrowserAvailable, navigateHistory, t]);
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
@@ -303,7 +405,7 @@ export default function BrowserPanel({
             aria-label={t("browser.goBack")}
             title={t("browser.goBack")}
             disabled={!canGoBack}
-            onClick={() => navigateHistory(history.index - 1)}
+            onClick={handleGoBack}
             className={WORKBENCH_ICON_BUTTON_CLASS}
           >
             <ArrowLeft aria-hidden="true" size={16} />
@@ -313,7 +415,7 @@ export default function BrowserPanel({
             aria-label={t("browser.goForward")}
             title={t("browser.goForward")}
             disabled={!canGoForward}
-            onClick={() => navigateHistory(history.index + 1)}
+            onClick={handleGoForward}
             className={WORKBENCH_ICON_BUTTON_CLASS}
           >
             <ArrowRight aria-hidden="true" size={16} />
@@ -374,7 +476,7 @@ export default function BrowserPanel({
       >
         <div
           className={`h-full rounded-r-full bg-[#1456F0] transition-all duration-500 ${
-            status === "loading" ? "w-2/3 opacity-100 animate-pulse" : "w-0 opacity-0"
+            status === "loading" ? "w-2/3 animate-pulse opacity-100" : "w-0 opacity-0"
           }`}
         />
       </div>
@@ -382,7 +484,7 @@ export default function BrowserPanel({
       <div className="flex min-h-8 shrink-0 items-center justify-between border-b border-[#EFF0F1] px-3 py-1.5 text-xs leading-5 text-[#646A73]">
         <span className="min-w-0 truncate">
           {nativeBrowserAvailable && frameUrl
-            ? `${t("browser.nativeMode")} · ${activeUrl}`
+            ? `${t("browser.nativeMode")} · ${nativePageTitle || activeUrl}`
             : page?.title || activeUrl || t("browser.empty")}
         </span>
         <span
@@ -427,7 +529,7 @@ export default function BrowserPanel({
                     size={56}
                     strokeWidth={1.8}
                   />
-                  <p className="text-base font-semibold leading-6 text-[#1F2329]">
+                  <p className="text-base leading-6 font-semibold text-[#1F2329]">
                     {t("browser.emptyTitle")}
                   </p>
                   <p className="mt-2 text-sm leading-5 text-[#8F959E]">
@@ -469,8 +571,8 @@ export default function BrowserPanel({
                 shouldUseDirectIframe
                   ? undefined
                   : shouldUsePreviewHtml
-                  ? "allow-forms allow-scripts"
-                  : "allow-forms allow-same-origin allow-scripts"
+                    ? "allow-forms allow-scripts"
+                    : "allow-forms allow-same-origin allow-scripts"
               }
               referrerPolicy="no-referrer-when-downgrade"
               onLoad={handleFrameLoad}
@@ -488,7 +590,7 @@ export default function BrowserPanel({
                 size={56}
                 strokeWidth={1.8}
               />
-              <p className="text-base font-semibold leading-6 text-[#1F2329]">
+              <p className="text-base leading-6 font-semibold text-[#1F2329]">
                 {t("browser.emptyTitle")}
               </p>
               <p className="mt-2 text-sm leading-5 text-[#8F959E]">{t("browser.emptySubtitle")}</p>

@@ -19,6 +19,10 @@ function testBrowserPanelRendersBrowserControls() {
   assert.match(html, /aria-label="Browser address"/);
   assert.match(html, /aria-label="Open page"/);
   assert.match(html, /aria-label="Refresh page"/);
+  assert.match(html, /aria-label="Zoom out"/);
+  assert.match(html, /aria-label="Zoom in"/);
+  assert.match(html, /aria-label="Print page"/);
+  assert.match(html, /aria-label="Clear browser data"/);
   assert.match(html, /aria-label="Open externally"/);
   assert.match(html, /data-ripple-browser-frame="true"/);
 }
@@ -26,9 +30,10 @@ function testBrowserPanelRendersBrowserControls() {
 function testBrowserPanelBuildsAgentReadableContext() {
   const source = readFileSync(new URL("./BrowserPanel.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /fetchBrowserPage/);
   assert.match(source, /buildBrowserContext/);
   assert.match(source, /onBrowserContextChange\(context\.active \? context : null\)/);
+  assert.match(source, /captureCurrentPage/);
+  assert.doesNotMatch(source, /fetchBrowserPage/);
 }
 
 function testBrowserPanelKeepsNativeBrowserOutOfAgentContext() {
@@ -40,20 +45,21 @@ function testBrowserPanelKeepsNativeBrowserOutOfAgentContext() {
   assert.doesNotMatch(source, /publishContext\(event\.url,\s*null\)/);
 }
 
-function testBrowserPanelExplainsBlockedEmbeddedPreview() {
+function testBrowserPanelShowsUnsupportedStateOutsideTauri() {
   const source = readFileSync(new URL("./BrowserPanel.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /page\?\.embeddable === false/);
-  assert.match(source, /browser\.previewBlocked/);
+  assert.match(source, /browser\.desktopOnlyTitle/);
+  assert.match(source, /browser\.desktopOnlySubtitle/);
+  assert.doesNotMatch(source, /browser\.previewBlocked/);
 }
 
-function testBrowserPanelUsesSandboxedPreviewHtml() {
+function testBrowserPanelDoesNotRenderServerPreviewHtml() {
   const source = readFileSync(new URL("./BrowserPanel.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /shouldUsePreviewHtml = Boolean\(page\?\.preview_html\)/);
-  assert.match(source, /srcDoc=\{shouldUsePreviewHtml \? \(page\?\.preview_html/);
-  assert.match(source, /ripple-browser-navigate/);
-  assert.match(source, /window\.addEventListener\("message"/);
+  assert.doesNotMatch(source, /shouldUsePreviewHtml/);
+  assert.doesNotMatch(source, /srcDoc=/);
+  assert.doesNotMatch(source, /ripple-browser-navigate/);
+  assert.doesNotMatch(source, /window\.addEventListener\("message"/);
   assert.doesNotMatch(source, /allow-popups/);
   assert.doesNotMatch(source, /allow-popups-to-escape-sandbox/);
 }
@@ -87,16 +93,15 @@ function testBrowserPanelKeepsNavigationInsideApp() {
   assert.doesNotMatch(source, /openInSystemBrowser/);
   assert.doesNotMatch(source, /openExternalUrl\(normalizedAddress,\s*"ripple-browser"\)/);
   assert.match(source, /void capturePage\(address\)/);
-  assert.match(source, /void capturePage\(event\.data\.url\)/);
+  assert.match(source, /nativeBrowserRef\.current\?\.navigate\(event\.url\)/);
 }
 
-function testBrowserPanelDirectlyFramesHttpWebSites() {
+function testBrowserPanelDoesNotDirectlyFrameHttpWebSites() {
   const source = readFileSync(new URL("./BrowserPanel.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /isDirectBrowserIframeUrl/);
-  assert.match(source, /shouldUseDirectIframe/);
-  assert.match(source, /isDirectBrowserIframeUrl\(normalizedAddress\)/);
-  assert.match(source, /sandbox=\{[\s\S]*shouldUseDirectIframe\s*\?\s*undefined/);
+  assert.doesNotMatch(source, /isDirectBrowserIframeUrl/);
+  assert.doesNotMatch(source, /shouldUseDirectIframe/);
+  assert.doesNotMatch(source, /<iframe/);
 }
 
 function testBrowserPanelPreservesAgentReadableContextInNativeMode() {
@@ -122,12 +127,27 @@ function testBrowserPanelAvoidsStalePreviewAndSlowFetchJank() {
   const source = readFileSync(new URL("./BrowserPanel.tsx", import.meta.url), "utf8");
 
   assert.match(source, /latestCaptureIdRef/);
-  assert.match(source, /captureId !== latestCaptureIdRef\.current/);
-  assert.match(source, /onLoad=\{handleFrameLoad\}/);
   assert.match(source, /setPendingNavigationUrl\(normalizedAddress \|\| null\)/);
-  assert.match(source, /setFrameUrl\(resolvedUrl\)/);
-  assert.match(source, /setFrameVersion\(\(current\) => current \+ 1\)/);
-  assert.doesNotMatch(source, /setFrameUrl\(normalizedAddress\)/);
+  assert.doesNotMatch(source, /captureId !== latestCaptureIdRef\.current/);
+  assert.doesNotMatch(source, /onLoad=\{handleFrameLoad\}/);
+  assert.doesNotMatch(source, /setFrameVersion\(\(current\) => current \+ 1\)/);
+}
+
+function testBrowserPanelKeepsTypedAddressAsDraftUntilNavigation() {
+  const source = readFileSync(new URL("./BrowserPanel.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /const activeUrl = pendingNavigationUrl \|\| frameUrl;/);
+  assert.doesNotMatch(source, /pendingNavigationUrl \|\| frameUrl \|\| address/);
+}
+
+function testBrowserPanelOpensFromEnterAndSearchButton() {
+  const source = readFileSync(new URL("./BrowserPanel.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /handleAddressKeyDown/);
+  assert.match(source, /event\.key !== "Enter"/);
+  assert.match(source, /void capturePage\(event\.currentTarget\.value\)/);
+  assert.match(source, /onKeyDown=\{handleAddressKeyDown\}/);
+  assert.match(source, /onClick=\{\(\) => void capturePage\(address\)\}/);
 }
 
 function testBrowserPanelShowsCodexStyleLoadingAndEmptyState() {
@@ -140,7 +160,7 @@ function testBrowserPanelShowsCodexStyleLoadingAndEmptyState() {
 
   assert.match(source, /data-ripple-browser-loading-bar/);
   assert.match(source, /browser\.emptyTitle/);
-  assert.match(html, /Start browsing/);
+  assert.match(html, /Built-in browser is not supported on the web/);
 }
 
 function testBrowserPanelRequiresExplicitPageAttachment() {
@@ -152,19 +172,45 @@ function testBrowserPanelRequiresExplicitPageAttachment() {
   assert.doesNotMatch(source, /handleNativePageLoad[\s\S]*publishContext\(event\.url,\s*null\)/);
 }
 
+function testBrowserPanelShowsDownloadStatusFromNativeEvents() {
+  const source = readFileSync(new URL("./BrowserPanel.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /lastDownload/);
+  assert.match(source, /download-requested/);
+  assert.match(source, /download-finished/);
+  assert.match(source, /browser\.downloadStarted/);
+  assert.match(source, /browser\.downloadFinished/);
+}
+
+function testBrowserPanelExposesCodexStyleBasicPageTools() {
+  const source = readFileSync(new URL("./BrowserPanel.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /handleZoomOut/);
+  assert.match(source, /handleZoomIn/);
+  assert.match(source, /handlePrintPage/);
+  assert.match(source, /handleClearBrowserData/);
+  assert.match(source, /nativeBrowserRef\.current\.setZoom/);
+  assert.match(source, /nativeBrowserRef\.current\.printPage/);
+  assert.match(source, /nativeBrowserRef\.current\.clearData/);
+}
+
 testBrowserPanelRendersBrowserControls();
 testBrowserPanelBuildsAgentReadableContext();
 testBrowserPanelKeepsNativeBrowserOutOfAgentContext();
-testBrowserPanelExplainsBlockedEmbeddedPreview();
-testBrowserPanelUsesSandboxedPreviewHtml();
+testBrowserPanelShowsUnsupportedStateOutsideTauri();
+testBrowserPanelDoesNotRenderServerPreviewHtml();
 testBrowserPanelUsesNativeTauriBrowserWhenAvailable();
 testBrowserPanelUsesNativeHistoryControls();
 testBrowserPanelKeepsNavigationInsideApp();
-testBrowserPanelDirectlyFramesHttpWebSites();
+testBrowserPanelDoesNotDirectlyFrameHttpWebSites();
 testBrowserPanelPreservesAgentReadableContextInNativeMode();
 testBrowserPanelDoesNotFallBackToServerPreviewInNativeMode();
 testBrowserPanelAvoidsStalePreviewAndSlowFetchJank();
+testBrowserPanelKeepsTypedAddressAsDraftUntilNavigation();
+testBrowserPanelOpensFromEnterAndSearchButton();
 testBrowserPanelShowsCodexStyleLoadingAndEmptyState();
 testBrowserPanelRequiresExplicitPageAttachment();
+testBrowserPanelShowsDownloadStatusFromNativeEvents();
+testBrowserPanelExposesCodexStyleBasicPageTools();
 
 console.log("browser panel tests passed");

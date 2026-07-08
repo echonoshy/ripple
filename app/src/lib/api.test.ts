@@ -28,7 +28,6 @@ import {
   fetchTaskTriggers,
   fetchTasks,
   fetchSessionTasks,
-  fetchBrowserPage,
   fetchSessions,
   fetchSessionDetails,
   fetchAgentDelegations,
@@ -2432,43 +2431,12 @@ async function testSendChatMessagePassesBrowserContextOption() {
   );
 }
 
-async function testFetchBrowserPageUsesBrowserEndpoint() {
-  const requests: Array<{ url: string; method: string }> = [];
+function testApiDoesNotExposeBrowserPageFallback() {
+  const source = readFileSync(new URL("./api.ts", import.meta.url), "utf8");
 
-  await withFetch(
-    async (input, init) => {
-      requests.push({
-        url: String(input),
-        method: init?.method || "GET",
-      });
-      return new Response(
-        JSON.stringify({
-          url: "https://example.com/article",
-          title: "Example article",
-          text: "Important article body",
-          truncated: false,
-          captured_at: "2026-07-07T00:00:00Z",
-        }),
-        {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        }
-      );
-    },
-    async () => {
-      const page = await fetchBrowserPage("https://example.com/article?x=1");
-
-      assert.equal(page.title, "Example article");
-      assert.equal(page.text, "Important article body");
-    }
-  );
-
-  assert.equal(requests.length, 1);
-  assert.equal(requests[0].method, "GET");
-  assert.equal(
-    requests[0].url,
-    "http://140.143.229.103:8810/v1/browser/page?url=https%3A%2F%2Fexample.com%2Farticle%3Fx%3D1"
-  );
+  assert.doesNotMatch(source, /fetchBrowserPage/);
+  assert.doesNotMatch(source, /\/browser\/page/);
+  assert.doesNotMatch(source, /preview_html/);
 }
 
 async function testSendChatMessageDoesNotSendPreferredSkillIds() {
@@ -2697,7 +2665,7 @@ test("api client behavior", async () => {
   await testSendChatMessagePassesRequiredSkillsAndScreenContext();
   await testSendChatMessagePassesClientContextOption();
   await testSendChatMessagePassesBrowserContextOption();
-  await testFetchBrowserPageUsesBrowserEndpoint();
+  testApiDoesNotExposeBrowserPageFallback();
   await testSendChatMessageDoesNotSendPreferredSkillIds();
   await testSessionControlActionUsesStructuredResponsesInput();
 });

@@ -29,6 +29,10 @@ export interface NativeBrowserCapturedPage {
   title?: string | null;
   text: string;
   selected_text?: string | null;
+  headings?: Array<{ level: number; text: string }>;
+  links?: Array<{ text: string; href: string }>;
+  images?: Array<{ alt: string; src: string }>;
+  form_fields?: Array<{ label: string; name: string; type: string; placeholder: string }>;
   truncated: boolean;
   captured_at: string;
 }
@@ -39,6 +43,9 @@ export interface NativeBrowserSurface {
   goForward: () => Promise<void>;
   reload: () => Promise<void>;
   captureCurrentPage: () => Promise<NativeBrowserCapturedPage>;
+  printPage: () => Promise<void>;
+  setZoom: (scale: number) => Promise<void>;
+  clearData: () => Promise<void>;
   syncBounds: () => Promise<void>;
   close: () => Promise<void>;
 }
@@ -150,6 +157,15 @@ export async function createNativeBrowserSurface(
     async captureCurrentPage() {
       return captureNativeBrowser({ label });
     },
+    async printPage() {
+      await printNativeBrowser({ label });
+    },
+    async setZoom(scale: number) {
+      await setZoomNativeBrowser({ label, scale });
+    },
+    async clearData() {
+      await clearDataNativeBrowser({ label });
+    },
     syncBounds,
     async close() {
       if (closed) return;
@@ -182,6 +198,10 @@ interface NativeBrowserNavigateRequest extends NativeBrowserLabelRequest {
 
 interface NativeBrowserResizeRequest extends NativeBrowserLabelRequest {
   bounds: NativeBrowserBounds;
+}
+
+interface NativeBrowserZoomRequest extends NativeBrowserLabelRequest {
+  scale: number;
 }
 
 async function openNativeBrowser(request: NativeBrowserOpenRequest): Promise<void> {
@@ -219,6 +239,21 @@ async function captureNativeBrowser(
 ): Promise<NativeBrowserCapturedPage> {
   const { invoke } = await import("@tauri-apps/api/core");
   return (await invoke("plugin:ripple-browser|capture", { request })) as NativeBrowserCapturedPage;
+}
+
+async function printNativeBrowser(request: NativeBrowserLabelRequest): Promise<void> {
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("plugin:ripple-browser|print_page", { request });
+}
+
+async function setZoomNativeBrowser(request: NativeBrowserZoomRequest): Promise<void> {
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("plugin:ripple-browser|set_zoom", { request });
+}
+
+async function clearDataNativeBrowser(request: NativeBrowserLabelRequest): Promise<void> {
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("plugin:ripple-browser|clear_data", { request });
 }
 
 async function closeNativeBrowser(request: NativeBrowserLabelRequest): Promise<void> {

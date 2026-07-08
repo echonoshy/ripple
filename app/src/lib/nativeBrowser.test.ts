@@ -17,6 +17,9 @@ function testNativeBrowserUsesTauriInvokeBridge() {
   assert.match(source, /invoke\("plugin:ripple-browser\|back"/);
   assert.match(source, /invoke\("plugin:ripple-browser\|forward"/);
   assert.match(source, /invoke\("plugin:ripple-browser\|capture"/);
+  assert.match(source, /invoke\("plugin:ripple-browser\|print_page"/);
+  assert.match(source, /invoke\("plugin:ripple-browser\|set_zoom"/);
+  assert.match(source, /invoke\("plugin:ripple-browser\|clear_data"/);
   assert.match(source, /invoke\("plugin:ripple-browser\|close"/);
 }
 
@@ -37,8 +40,8 @@ function testNativeBrowserTracksViewportRectAndVisibility() {
 }
 
 function testNativeBrowserOnlyRunsInTauriRuntime() {
-  assert.doesNotMatch(source, /ENABLE_NATIVE_BROWSER_SURFACE/);
-  assert.doesNotMatch(source, /inline child WebView disabled/);
+  assert.doesNotMatch(source, /VITE_RIPPLE_NATIVE_BROWSER/);
+  assert.doesNotMatch(source, /isNativeBrowserOptInEnabled/);
   assert.match(source, /return isTauriRuntime\(\)/);
   assert.match(source, /typeof window === "undefined"/);
   assert.match(source, /return false/);
@@ -57,6 +60,11 @@ function testTauriBrowserUsesPersistentExternalWebviewStorage() {
   assert.doesNotMatch(tauriBrowserSource, /\.incognito\(true\)/);
 }
 
+function testTauriBrowserCreatesWebviewFromAsyncCommand() {
+  assert.match(tauriBrowserSource, /async fn open/);
+  assert.match(tauriBrowserSource, /add_child/);
+}
+
 function testTauriBrowserHandlesNormalBrowserEvents() {
   assert.match(tauriBrowserSource, /on_document_title_changed/);
   assert.match(tauriBrowserSource, /on_new_window/);
@@ -66,12 +74,26 @@ function testTauriBrowserHandlesNormalBrowserEvents() {
   assert.match(tauriBrowserSource, /window\.history\.forward\(\)/);
 }
 
+function testTauriBrowserExposesCodexStyleBasicPageTools() {
+  assert.match(source, /printPage: \(\) => Promise<void>/);
+  assert.match(source, /setZoom: \(scale: number\) => Promise<void>/);
+  assert.match(source, /clearData: \(\) => Promise<void>/);
+  assert.match(tauriBrowserSource, /fn print_page/);
+  assert.match(tauriBrowserSource, /webview\.print\(\)/);
+  assert.match(tauriBrowserSource, /fn set_zoom/);
+  assert.match(tauriBrowserSource, /webview\.set_zoom/);
+  assert.match(tauriBrowserSource, /fn clear_data/);
+  assert.match(tauriBrowserSource, /webview\s*\.\s*clear_all_browsing_data/);
+}
+
 testNativeBrowserUsesTauriInvokeBridge();
 testNativeBrowserReportsPageState();
 testNativeBrowserTracksViewportRectAndVisibility();
 testNativeBrowserOnlyRunsInTauriRuntime();
 testNativeBrowserSurfaceExposesHistoryControls();
 testTauriBrowserUsesPersistentExternalWebviewStorage();
+testTauriBrowserCreatesWebviewFromAsyncCommand();
 testTauriBrowserHandlesNormalBrowserEvents();
+testTauriBrowserExposesCodexStyleBasicPageTools();
 
 console.log("native browser tests passed");

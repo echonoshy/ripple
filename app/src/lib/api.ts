@@ -1077,19 +1077,6 @@ export async function fetchModels(): Promise<{ id: string; owned_by: string }[]>
   return data.data || [];
 }
 
-export async function fetchBrowserPage(url: string): Promise<BrowserPageResponse> {
-  const qs = new URLSearchParams({ url });
-  const res = await fetch(`${API_URL}/browser/page?${qs.toString()}`, {
-    headers: { ...authHeaders() },
-  });
-  if (res.status === 401) throw new AuthError();
-  if (!res.ok) {
-    const detail = await responseDetail(res);
-    throw new Error(detail || `Failed to fetch browser page (${res.status})`);
-  }
-  return (await res.json()) as BrowserPageResponse;
-}
-
 function urlWithCursor(url: string, cursor: string | null): string {
   if (!cursor) return url;
   const separator = url.includes("?") ? "&" : "?";
@@ -2232,18 +2219,6 @@ export interface ChatBrowserContext {
   active?: boolean;
   page?: Record<string, unknown>;
   [key: string]: unknown;
-}
-
-export interface BrowserPageResponse {
-  url: string;
-  title?: string | null;
-  text: string;
-  selected_text?: string | null;
-  truncated: boolean;
-  embeddable?: boolean;
-  preview_blocked_reason?: string | null;
-  preview_html?: string | null;
-  captured_at: string;
 }
 
 interface SendChatMessageOptions {

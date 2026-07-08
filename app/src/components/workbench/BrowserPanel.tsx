@@ -1,6 +1,6 @@
 "use client";
 
-import type { FormEvent } from "react";
+import type { FormEvent, KeyboardEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
@@ -10,14 +10,21 @@ import {
   Globe2,
   Loader2,
   Paperclip,
+  Printer,
   RefreshCw,
   Search,
+  Trash2,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 
 import { useI18n } from "@/i18n";
-import { fetchBrowserPage, type BrowserPageResponse, type ChatBrowserContext } from "@/lib/api";
-import { buildBrowserContext, normalizeBrowserUrlInput } from "@/lib/browserContext";
-import { isDirectBrowserIframeUrl } from "@/lib/browserDirectIframe";
+import type { ChatBrowserContext } from "@/lib/api";
+import {
+  buildBrowserContext,
+  normalizeBrowserUrlInput,
+  type BrowserCapturedPage,
+} from "@/lib/browserContext";
 import {
   createNativeBrowserSurface,
   isNativeBrowserAvailable,
@@ -33,10 +40,12 @@ interface BrowserPanelProps {
 }
 
 type BrowserStatus = "idle" | "loading" | "loaded" | "failed";
+type DownloadStatus = "downloading" | "finished" | "failed";
 
-interface BrowserHistoryState {
-  entries: string[];
-  index: number;
+interface BrowserDownloadState {
+  status: DownloadStatus;
+  url: string;
+  path: string | null;
 }
 
 function isHttpBrowserUrl(value: string): boolean {
@@ -48,15 +57,10 @@ function isHttpBrowserUrl(value: string): boolean {
   }
 }
 
-function isBrowserNavigateMessage(data: unknown): data is { type: string; url: string } {
-  return (
-    typeof data === "object" &&
-    data !== null &&
-    "type" in data &&
-    "url" in data &&
-    (data as { type?: unknown }).type === "ripple-browser-navigate" &&
-    typeof (data as { url?: unknown }).url === "string"
-  );
+function basename(value: string): string {
+  const cleaned = value.split(/[?#]/, 1)[0] || value;
+  const parts = cleaned.split(/[\\/]/).filter(Boolean);
+  return parts.at(-1) || value;
 }
 
 export default function BrowserPanel({
@@ -64,43 +68,33 @@ export default function BrowserPanel({
   onBrowserContextChange,
 }: BrowserPanelProps) {
   const { t } = useI18n();
-  const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const nativeBrowserViewportRef = useRef<HTMLDivElement | null>(null);
   const nativeBrowserRef = useRef<NativeBrowserSurface | null>(null);
   const nativeBrowserLabelRef = useRef("ripple-browser-main");
   const latestCaptureIdRef = useRef(0);
-  const frameLoadedRef = useRef(false);
   const nativeLoadTimeoutRef = useRef<number | null>(null);
+  const initialNavigationStartedRef = useRef(false);
+
   const initialUrl = normalizeBrowserUrlInput(initialAddress);
   const [address, setAddress] = useState(initialUrl);
   const [frameUrl, setFrameUrl] = useState(initialUrl);
-  const [page, setPage] = useState<BrowserPageResponse | null>(null);
   const [status, setStatus] = useState<BrowserStatus>("idle");
   const [error, setError] = useState<string | null>(null);
-  const [frameVersion, setFrameVersion] = useState(0);
   const [pendingNavigationUrl, setPendingNavigationUrl] = useState<string | null>(null);
   const [isAttachingPage, setIsAttachingPage] = useState(false);
   const [attachedPageUrl, setAttachedPageUrl] = useState<string | null>(null);
   const [attachedPageCapturedAt, setAttachedPageCapturedAt] = useState<string | null>(null);
-  const [history, setHistory] = useState<BrowserHistoryState>(() => ({
-    entries: initialUrl ? [initialUrl] : [],
-    index: initialUrl ? 0 : -1,
-  }));
   const [nativePageTitle, setNativePageTitle] = useState<string | null>(null);
   const [nativeCanGoBack, setNativeCanGoBack] = useState(false);
   const [nativeCanGoForward, setNativeCanGoForward] = useState(false);
+  const [nativeSurfaceReady, setNativeSurfaceReady] = useState(false);
+  const [nativeZoomLevel, setNativeZoomLevel] = useState(1);
+  const [lastDownload, setLastDownload] = useState<BrowserDownloadState | null>(null);
 
   const nativeBrowserAvailable = isNativeBrowserAvailable();
-  const fallbackCanGoBack = history.index > 0;
-  const fallbackCanGoForward = history.index >= 0 && history.index < history.entries.length - 1;
-  const canGoBack = nativeBrowserAvailable ? nativeCanGoBack : fallbackCanGoBack;
-  const canGoForward = nativeBrowserAvailable ? nativeCanGoForward : fallbackCanGoForward;
-  const activeUrl = pendingNavigationUrl || frameUrl || address;
-  const isPreviewBlocked = page?.embeddable === false;
-  const shouldUsePreviewHtml = Boolean(page?.preview_html);
-  const shouldUseDirectIframe = !shouldUsePreviewHtml && isDirectBrowserIframeUrl(frameUrl);
-  const showPreviewBlocked = isPreviewBlocked && !shouldUsePreviewHtml;
-  const previewBlockedReason = page?.preview_blocked_reason?.trim();
+  const activeUrl = pendingNavigationUrl || frameUrl;
+  const canGoBack = nativeBrowserAvailable && nativeCanGoBack;
+  const canGoForward = nativeBrowserAvailable && nativeCanGoForward;
   const attachedToActivePage = Boolean(attachedPageUrl && activeUrl && attachedPageUrl === activeUrl);
 
   const statusLabel = useMemo(() => {
@@ -110,8 +104,16 @@ export default function BrowserPanel({
     return t("browser.ready");
   }, [status, t]);
 
+  const downloadLabel = useMemo(() => {
+    if (!lastDownload) return null;
+    const name = basename(lastDownload.path || lastDownload.url);
+    if (lastDownload.status === "downloading") return t("browser.downloadStarted", { name });
+    if (lastDownload.status === "failed") return t("browser.downloadFailed", { name });
+    return t("browser.downloadFinished", { name });
+  }, [lastDownload, t]);
+
   const publishContext = useCallback(
-    (nextAddress: string, nextPage: BrowserPageResponse | null) => {
+    (nextAddress: string, nextPage: BrowserCapturedPage | null) => {
       const context = buildBrowserContext({ address: nextAddress, page: nextPage });
       onBrowserContextChange(context.active ? context : null);
     },
@@ -139,22 +141,18 @@ export default function BrowserPanel({
     }, 8000);
   }, [clearNativeLoadFallback]);
 
-  const pushHistory = useCallback((nextUrl: string) => {
-    setHistory((current) => {
-      if (!nextUrl) return { entries: [], index: -1 };
-
-      const currentUrl = current.index >= 0 ? current.entries[current.index] : "";
-      if (currentUrl === nextUrl) return current;
-
-      const entries = current.entries.slice(0, current.index + 1);
-      entries.push(nextUrl);
-      return { entries, index: entries.length - 1 };
+  const releaseNativeBrowser = useCallback(() => {
+    const nativeBrowser = nativeBrowserRef.current;
+    nativeBrowserRef.current = null;
+    setNativeSurfaceReady(false);
+    if (!nativeBrowser) return;
+    void nativeBrowser.close().catch((closeError: unknown) => {
+      console.warn("Failed to close native browser surface:", closeError);
     });
   }, []);
 
   const publishNativeBrowserState = useCallback(
     (event: NativeBrowserStateEvent) => {
-      onBrowserContextChange(null);
       setNativeCanGoBack(event.canGoBack);
       setNativeCanGoForward(event.canGoForward);
 
@@ -163,6 +161,11 @@ export default function BrowserPanel({
       }
 
       if (event.phase === "download-finished") {
+        setLastDownload({
+          status: event.downloadSuccess === false ? "failed" : "finished",
+          url: event.url,
+          path: event.downloadPath || null,
+        });
         if (event.downloadSuccess === false) {
           setStatus("failed");
           setError(t("browser.failed"));
@@ -171,15 +174,27 @@ export default function BrowserPanel({
       }
 
       if (event.phase === "download-requested") {
+        setLastDownload({
+          status: "downloading",
+          url: event.url,
+          path: event.downloadPath || null,
+        });
         return;
       }
 
       if (event.phase === "new-window") {
         if (!isHttpBrowserUrl(event.url)) return;
-        setStatus("loading");
+        clearAttachedContext();
+        setAddress(event.url);
+        setFrameUrl(event.url);
         setPendingNavigationUrl(event.url);
+        setStatus("loading");
+        setError(null);
+        scheduleNativeLoadFallback();
         void nativeBrowserRef.current?.navigate(event.url).catch((nativeError: unknown) => {
           console.warn("Failed to open native browser new-window target:", nativeError);
+          clearNativeLoadFallback();
+          setPendingNavigationUrl(null);
           setStatus("failed");
           setError(t("browser.failed"));
         });
@@ -188,37 +203,35 @@ export default function BrowserPanel({
 
       if (!isHttpBrowserUrl(event.url)) return;
 
-      setAddress(event.url);
-      setFrameUrl(event.url);
-      setPendingNavigationUrl(null);
       if (event.phase === "started") {
-        setStatus("loading");
         clearAttachedContext();
+        setAddress(event.url);
+        setFrameUrl(event.url);
+        setPendingNavigationUrl(event.url);
+        setStatus("loading");
+        setError(null);
         scheduleNativeLoadFallback();
         return;
       }
-      clearNativeLoadFallback();
 
       if (event.phase === "title-changed") {
+        setAddress(event.url);
+        setFrameUrl(event.url);
         return;
       }
 
+      clearNativeLoadFallback();
+      setAddress(event.url);
+      setFrameUrl(event.url);
+      setPendingNavigationUrl(null);
       setStatus("loaded");
     },
-    [
-      clearAttachedContext,
-      clearNativeLoadFallback,
-      onBrowserContextChange,
-      scheduleNativeLoadFallback,
-      t,
-    ]
+    [clearAttachedContext, clearNativeLoadFallback, scheduleNativeLoadFallback, t]
   );
 
   const capturePage = useCallback(
-    async (value: string, options: { recordHistory?: boolean } = {}) => {
-      const captureId = latestCaptureIdRef.current + 1;
-      latestCaptureIdRef.current = captureId;
-      const shouldRecordHistory = options.recordHistory ?? true;
+    async (value: string) => {
+      latestCaptureIdRef.current += 1;
       const normalizedAddress = normalizeBrowserUrlInput(value);
 
       clearNativeLoadFallback();
@@ -227,155 +240,112 @@ export default function BrowserPanel({
       setError(null);
 
       if (!normalizedAddress) {
-        frameLoadedRef.current = false;
+        releaseNativeBrowser();
         setPendingNavigationUrl(null);
         setFrameUrl("");
-        setPage(null);
         setNativePageTitle(null);
         setNativeCanGoBack(false);
         setNativeCanGoForward(false);
+        setNativeZoomLevel(1);
+        setLastDownload(null);
         setStatus("idle");
         clearAttachedContext();
         return;
       }
 
-      setStatus("loading");
-      if (nativeBrowserAvailable) {
-        clearAttachedContext();
-      } else {
-        publishContext(normalizedAddress, null);
-      }
-
-      let nativePreviewActive = false;
-
-      if (nativeBrowserAvailable) {
-        const nativeUrl = normalizedAddress;
-        setPage(null);
-        setNativePageTitle(null);
-        setNativeCanGoBack(false);
-        setNativeCanGoForward(false);
-        setFrameUrl(nativeUrl);
-        try {
-          const viewport = nativeBrowserViewportRef.current;
-          if (!viewport) {
-            throw new Error("Native browser viewport is not mounted");
-          }
-          if (!nativeBrowserRef.current) {
-            nativeBrowserRef.current = await createNativeBrowserSurface({
-              label: nativeBrowserLabelRef.current,
-              element: viewport,
-              initialUrl: nativeUrl,
-              onStateChange: publishNativeBrowserState,
-            });
-          } else {
-            await nativeBrowserRef.current.syncBounds();
-            await nativeBrowserRef.current.navigate(nativeUrl);
-          }
-          setPendingNavigationUrl(null);
-          scheduleNativeLoadFallback();
-          nativePreviewActive = true;
-        } catch (nativeError) {
-          console.warn("Failed to open native browser surface:", nativeError);
-          setPendingNavigationUrl(null);
-          setStatus("failed");
-          setError(t("browser.failed"));
-          return;
-        }
-      }
-
-      if (nativePreviewActive) return;
-
-      if (!nativePreviewActive && isDirectBrowserIframeUrl(normalizedAddress)) {
-        const directUrl = normalizedAddress;
-        setPage(null);
-        setFrameUrl(directUrl);
+      if (!nativeBrowserAvailable) {
+        releaseNativeBrowser();
+        setFrameUrl(normalizedAddress);
         setPendingNavigationUrl(null);
-        setFrameVersion((current) => current + 1);
-        frameLoadedRef.current = false;
-        if (shouldRecordHistory) {
-          pushHistory(directUrl);
-        }
-        publishContext(directUrl, null);
+        setStatus("idle");
+        clearAttachedContext();
         return;
       }
 
-      try {
-        const nextPage = await fetchBrowserPage(normalizedAddress);
-        if (captureId !== latestCaptureIdRef.current) return;
-        const resolvedUrl = nextPage.url || normalizedAddress;
+      clearAttachedContext();
+      setNativePageTitle(null);
+      setNativeCanGoBack(false);
+      setNativeCanGoForward(false);
+      setNativeZoomLevel(1);
+      setLastDownload(null);
+      setFrameUrl(normalizedAddress);
+      setStatus("loading");
 
-        setPage(nextPage);
-        setAddress(resolvedUrl);
-        setFrameUrl(resolvedUrl);
+      try {
+        const viewport = nativeBrowserViewportRef.current;
+        if (!viewport) {
+          throw new Error("Native browser viewport is not mounted");
+        }
+
+        if (!nativeBrowserRef.current) {
+          nativeBrowserRef.current = await createNativeBrowserSurface({
+            label: nativeBrowserLabelRef.current,
+            element: viewport,
+            initialUrl: normalizedAddress,
+            onStateChange: publishNativeBrowserState,
+          });
+        } else {
+          await nativeBrowserRef.current.syncBounds();
+          await nativeBrowserRef.current.navigate(normalizedAddress);
+        }
+
+        setNativeSurfaceReady(true);
         setPendingNavigationUrl(null);
-        if (!nativePreviewActive) {
-          setFrameVersion((current) => current + 1);
-          frameLoadedRef.current = false;
-          setStatus("loading");
-        }
-        if (shouldRecordHistory && !nativePreviewActive) {
-          pushHistory(resolvedUrl);
-        }
-        publishContext(resolvedUrl, nextPage);
-      } catch {
-        if (captureId !== latestCaptureIdRef.current) return;
+        scheduleNativeLoadFallback();
+      } catch (nativeError) {
+        console.warn("Failed to open native browser surface:", nativeError);
+        setNativeSurfaceReady(false);
         setPendingNavigationUrl(null);
-        publishContext(normalizedAddress, null);
-        if (!nativePreviewActive) {
-          setStatus("failed");
-          setError(t("browser.failed"));
-        }
+        setStatus("failed");
+        setError(t("browser.failed"));
+        return;
       }
     },
     [
       clearAttachedContext,
       clearNativeLoadFallback,
       nativeBrowserAvailable,
-      publishContext,
       publishNativeBrowserState,
-      pushHistory,
+      releaseNativeBrowser,
       scheduleNativeLoadFallback,
       t,
     ]
   );
 
   const handleAttachCurrentPage = useCallback(() => {
-    if (!activeUrl || isAttachingPage) return;
+    if (
+      !activeUrl ||
+      isAttachingPage ||
+      status === "loading" ||
+      !nativeBrowserAvailable ||
+      !nativeBrowserRef.current
+    ) {
+      return;
+    }
 
     setIsAttachingPage(true);
     setError(null);
 
     void (async () => {
       try {
-        let capturedPage: BrowserPageResponse;
-
-        if (nativeBrowserAvailable && nativeBrowserRef.current) {
-          const nextPage = await nativeBrowserRef.current.captureCurrentPage();
-          capturedPage = {
-            url: nextPage.url || activeUrl,
-            title: nextPage.title ?? null,
-            text: nextPage.text || "",
-            selected_text: nextPage.selected_text ?? null,
-            truncated: Boolean(nextPage.truncated),
-            captured_at: nextPage.captured_at || new Date().toISOString(),
-          };
-        } else {
-          const nextPage = page?.url === activeUrl ? page : await fetchBrowserPage(activeUrl);
-          capturedPage = {
-            url: nextPage.url || activeUrl,
-            title: nextPage.title ?? null,
-            text: nextPage.text || "",
-            selected_text: nextPage.selected_text ?? null,
-            truncated: Boolean(nextPage.truncated),
-            embeddable: nextPage.embeddable,
-            preview_blocked_reason: nextPage.preview_blocked_reason,
-            preview_html: nextPage.preview_html,
-            captured_at: nextPage.captured_at || new Date().toISOString(),
-          };
+        const nextPage = await nativeBrowserRef.current?.captureCurrentPage();
+        if (!nextPage) {
+          throw new Error("Native browser surface is not ready");
         }
+        const capturedPage: BrowserCapturedPage = {
+          url: nextPage.url || activeUrl,
+          title: nextPage.title ?? null,
+          text: nextPage.text || "",
+          selected_text: nextPage.selected_text ?? null,
+          headings: nextPage.headings || [],
+          links: nextPage.links || [],
+          images: nextPage.images || [],
+          form_fields: nextPage.form_fields || [],
+          truncated: Boolean(nextPage.truncated),
+          captured_at: nextPage.captured_at || new Date().toISOString(),
+        };
 
         const resolvedUrl = capturedPage.url || activeUrl;
-        setPage(capturedPage);
         setAddress(resolvedUrl);
         setFrameUrl(resolvedUrl);
         setAttachedPageUrl(resolvedUrl);
@@ -389,60 +359,7 @@ export default function BrowserPanel({
         setIsAttachingPage(false);
       }
     })();
-  }, [activeUrl, isAttachingPage, nativeBrowserAvailable, page, publishContext, t]);
-
-  const handleFrameLoad = useCallback(() => {
-    frameLoadedRef.current = true;
-    setStatus((current) => (current === "loading" ? "loaded" : current));
-  }, []);
-
-  const navigateHistory = useCallback(
-    (nextIndex: number) => {
-      const nextUrl = history.entries[nextIndex];
-      if (!nextUrl) return;
-
-      if (nativeBrowserAvailable && nativeBrowserRef.current) {
-        const goBack = nextIndex < history.index;
-        setHistory((current) => ({ ...current, index: nextIndex }));
-        setAddress(nextUrl);
-        setFrameUrl(nextUrl);
-        setPendingNavigationUrl(nextUrl);
-        setStatus("loading");
-        setError(null);
-        clearAttachedContext();
-        scheduleNativeLoadFallback();
-        void (async () => {
-          try {
-            if (goBack) {
-              await nativeBrowserRef.current?.goBack();
-            } else {
-              await nativeBrowserRef.current?.goForward();
-            }
-          } catch (historyError) {
-            console.warn("Failed to navigate native browser history:", historyError);
-            clearNativeLoadFallback();
-            setPendingNavigationUrl(null);
-            setStatus("failed");
-            setError(t("browser.failed"));
-          }
-        })();
-        return;
-      }
-
-      setHistory((current) => ({ ...current, index: nextIndex }));
-      void capturePage(nextUrl, { recordHistory: false });
-    },
-    [
-      capturePage,
-      clearAttachedContext,
-      clearNativeLoadFallback,
-      history.entries,
-      history.index,
-      nativeBrowserAvailable,
-      scheduleNativeLoadFallback,
-      t,
-    ]
-  );
+  }, [activeUrl, isAttachingPage, nativeBrowserAvailable, publishContext, status, t]);
 
   const handleGoBack = useCallback(() => {
     if (nativeBrowserAvailable && nativeBrowserRef.current) {
@@ -453,18 +370,15 @@ export default function BrowserPanel({
       void nativeBrowserRef.current.goBack().catch((nativeError: unknown) => {
         console.warn("Failed to go back in native browser surface:", nativeError);
         clearNativeLoadFallback();
+        setPendingNavigationUrl(null);
         setStatus("failed");
         setError(t("browser.failed"));
       });
-      return;
     }
-    navigateHistory(history.index - 1);
   }, [
     clearAttachedContext,
     clearNativeLoadFallback,
-    history.index,
     nativeBrowserAvailable,
-    navigateHistory,
     scheduleNativeLoadFallback,
     t,
   ]);
@@ -478,33 +392,101 @@ export default function BrowserPanel({
       void nativeBrowserRef.current.goForward().catch((nativeError: unknown) => {
         console.warn("Failed to go forward in native browser surface:", nativeError);
         clearNativeLoadFallback();
+        setPendingNavigationUrl(null);
         setStatus("failed");
         setError(t("browser.failed"));
       });
-      return;
     }
-    navigateHistory(history.index + 1);
   }, [
     clearAttachedContext,
     clearNativeLoadFallback,
-    history.index,
     nativeBrowserAvailable,
-    navigateHistory,
     scheduleNativeLoadFallback,
     t,
   ]);
 
-  useEffect(() => {
-    const handleMessage = (event: MessageEvent) => {
-      if (event.source !== iframeRef.current?.contentWindow) return;
-      if (!isBrowserNavigateMessage(event.data)) return;
-      if (!isHttpBrowserUrl(event.data.url)) return;
-      void capturePage(event.data.url);
-    };
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    void capturePage(address);
+  };
 
-    window.addEventListener("message", handleMessage);
-    return () => window.removeEventListener("message", handleMessage);
-  }, [capturePage]);
+  const handleAddressKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    void capturePage(event.currentTarget.value);
+  };
+
+  const handleRefresh = () => {
+    if (!nativeBrowserAvailable || !nativeBrowserRef.current) return;
+    setStatus("loading");
+    setError(null);
+    clearAttachedContext();
+    scheduleNativeLoadFallback();
+    void nativeBrowserRef.current.reload().catch((refreshError: unknown) => {
+      console.warn("Failed to refresh native browser surface:", refreshError);
+      clearNativeLoadFallback();
+      setPendingNavigationUrl(null);
+      setStatus("failed");
+      setError(t("browser.failed"));
+    });
+  };
+
+  const handleZoomOut = () => {
+    if (!nativeBrowserAvailable || !nativeBrowserRef.current) return;
+    const nextZoom = Math.max(0.5, Math.round((nativeZoomLevel - 0.1) * 10) / 10);
+    void nativeBrowserRef.current.setZoom(nextZoom)
+      .then(() => setNativeZoomLevel(nextZoom))
+      .catch((zoomError: unknown) => {
+        console.warn("Failed to zoom out native browser surface:", zoomError);
+        setError(t("browser.failed"));
+      });
+  };
+
+  const handleZoomIn = () => {
+    if (!nativeBrowserAvailable || !nativeBrowserRef.current) return;
+    const nextZoom = Math.min(2, Math.round((nativeZoomLevel + 0.1) * 10) / 10);
+    void nativeBrowserRef.current.setZoom(nextZoom)
+      .then(() => setNativeZoomLevel(nextZoom))
+      .catch((zoomError: unknown) => {
+        console.warn("Failed to zoom in native browser surface:", zoomError);
+        setError(t("browser.failed"));
+      });
+  };
+
+  const handlePrintPage = () => {
+    if (!nativeBrowserAvailable || !nativeBrowserRef.current) return;
+    void nativeBrowserRef.current.printPage().catch((printError: unknown) => {
+      console.warn("Failed to print native browser page:", printError);
+      setError(t("browser.failed"));
+    });
+  };
+
+  const handleClearBrowserData = () => {
+    if (!nativeBrowserAvailable || !nativeBrowserRef.current) return;
+    if (!window.confirm(t("browser.clearDataConfirm"))) return;
+    void nativeBrowserRef.current.clearData()
+      .then(() => {
+        clearAttachedContext();
+        setLastDownload(null);
+        setNativeZoomLevel(1);
+        return nativeBrowserRef.current?.reload();
+      })
+      .catch((clearError: unknown) => {
+        console.warn("Failed to clear native browser data:", clearError);
+        setError(t("browser.failed"));
+      });
+  };
+
+  const handleOpenExternal = () => {
+    if (!activeUrl) return;
+    void openExternalUrl(activeUrl, "ripple-browser");
+  };
+
+  useEffect(() => {
+    if (initialNavigationStartedRef.current || !initialUrl) return;
+    initialNavigationStartedRef.current = true;
+    void capturePage(initialUrl);
+  }, [capturePage, initialUrl]);
 
   useEffect(() => {
     return () => {
@@ -512,36 +494,9 @@ export default function BrowserPanel({
         window.clearTimeout(nativeLoadTimeoutRef.current);
         nativeLoadTimeoutRef.current = null;
       }
-      const nativeBrowser = nativeBrowserRef.current;
-      nativeBrowserRef.current = null;
-      void nativeBrowser?.close();
+      releaseNativeBrowser();
     };
-  }, []);
-
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    void capturePage(address);
-  };
-
-  const handleRefresh = () => {
-    if (nativeBrowserAvailable && nativeBrowserRef.current) {
-      setStatus("loading");
-      scheduleNativeLoadFallback();
-      void nativeBrowserRef.current.reload().catch((refreshError: unknown) => {
-        console.warn("Failed to refresh native browser surface:", refreshError);
-        clearNativeLoadFallback();
-        setStatus("failed");
-        setError(t("browser.failed"));
-      });
-      return;
-    }
-    void capturePage(activeUrl, { recordHistory: false });
-  };
-
-  const handleOpenExternal = () => {
-    if (!activeUrl) return;
-    void openExternalUrl(activeUrl, "ripple-browser");
-  };
+  }, [releaseNativeBrowser]);
 
   return (
     <section
@@ -581,14 +536,16 @@ export default function BrowserPanel({
               placeholder={t("browser.placeholder")}
               value={address}
               onChange={(event) => setAddress(event.currentTarget.value)}
+              onKeyDown={handleAddressKeyDown}
             />
           </div>
 
           <button
-            type="submit"
+            type="button"
             aria-label={t("browser.openPage")}
             title={t("browser.openPage")}
             disabled={status === "loading" || !address.trim()}
+            onClick={() => void capturePage(address)}
             className={`${WORKBENCH_ICON_BUTTON_CLASS} text-[#1456F0]`}
           >
             {status === "loading" ? (
@@ -601,11 +558,51 @@ export default function BrowserPanel({
             type="button"
             aria-label={t("browser.refreshPage")}
             title={t("browser.refreshPage")}
-            disabled={status === "loading" || !activeUrl}
+            disabled={!nativeBrowserAvailable || !nativeSurfaceReady || status === "loading" || !activeUrl}
             onClick={handleRefresh}
             className={WORKBENCH_ICON_BUTTON_CLASS}
           >
             <RefreshCw aria-hidden="true" size={16} />
+          </button>
+          <button
+            type="button"
+            aria-label={t("browser.zoomOut")}
+            title={t("browser.zoomOut")}
+            disabled={!nativeBrowserAvailable || !nativeSurfaceReady || nativeZoomLevel <= 0.5}
+            onClick={handleZoomOut}
+            className={WORKBENCH_ICON_BUTTON_CLASS}
+          >
+            <ZoomOut aria-hidden="true" size={16} />
+          </button>
+          <button
+            type="button"
+            aria-label={t("browser.zoomIn")}
+            title={t("browser.zoomIn")}
+            disabled={!nativeBrowserAvailable || !nativeSurfaceReady || nativeZoomLevel >= 2}
+            onClick={handleZoomIn}
+            className={WORKBENCH_ICON_BUTTON_CLASS}
+          >
+            <ZoomIn aria-hidden="true" size={16} />
+          </button>
+          <button
+            type="button"
+            aria-label={t("browser.printPage")}
+            title={t("browser.printPage")}
+            disabled={!nativeBrowserAvailable || !nativeSurfaceReady || !activeUrl}
+            onClick={handlePrintPage}
+            className={WORKBENCH_ICON_BUTTON_CLASS}
+          >
+            <Printer aria-hidden="true" size={16} />
+          </button>
+          <button
+            type="button"
+            aria-label={t("browser.clearData")}
+            title={t("browser.clearData")}
+            disabled={!nativeBrowserAvailable || !nativeSurfaceReady}
+            onClick={handleClearBrowserData}
+            className={WORKBENCH_ICON_BUTTON_CLASS}
+          >
+            <Trash2 aria-hidden="true" size={16} />
           </button>
           <button
             type="button"
@@ -633,11 +630,26 @@ export default function BrowserPanel({
       </div>
 
       <div className="flex min-h-8 shrink-0 items-center justify-between gap-3 border-b border-[#EFF0F1] px-3 py-1.5 text-xs leading-5 text-[#646A73]">
-        <span className="min-w-0 truncate">
-          {nativeBrowserAvailable && frameUrl
-            ? `${t("browser.nativeMode")} · ${nativePageTitle || activeUrl}`
-            : page?.title || activeUrl || t("browser.empty")}
-        </span>
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="min-w-0 truncate">
+            {nativeBrowserAvailable && frameUrl
+              ? `${t("browser.nativeMode")} · ${nativePageTitle || activeUrl}`
+              : activeUrl || t("browser.empty")}
+          </span>
+          {downloadLabel ? (
+            <span
+              className={`hidden max-w-56 shrink-0 truncate md:inline ${
+                lastDownload?.status === "failed"
+                  ? "text-[#B42318]"
+                  : lastDownload?.status === "finished"
+                    ? "text-[#16845B]"
+                    : "text-[#646A73]"
+              }`}
+            >
+              {downloadLabel}
+            </span>
+          ) : null}
+        </div>
         <div className="flex shrink-0 items-center gap-2">
           {attachedPageCapturedAt && attachedToActivePage ? (
             <span className="hidden max-w-40 truncate text-[#16845B] md:inline">
@@ -648,7 +660,13 @@ export default function BrowserPanel({
             type="button"
             aria-label={t("browser.attachCurrentPage")}
             title={t("browser.attachCurrentPage")}
-            disabled={!activeUrl || status === "loading" || isAttachingPage}
+            disabled={
+              !nativeBrowserAvailable ||
+              !nativeSurfaceReady ||
+              !activeUrl ||
+              status === "loading" ||
+              isAttachingPage
+            }
             onClick={handleAttachCurrentPage}
             className="inline-flex h-7 items-center justify-center gap-1.5 rounded-md border border-[#DEE0E3] bg-white px-2 text-xs font-medium text-[#2B2F36] transition-colors hover:bg-[#F8F9FA] disabled:cursor-not-allowed disabled:opacity-50"
           >
@@ -716,61 +734,22 @@ export default function BrowserPanel({
               </div>
             ) : null}
           </div>
-        ) : showPreviewBlocked ? (
+        ) : (
           <div className="flex h-full items-center justify-center px-6 text-center text-sm leading-6 text-[#646A73]">
             <div className="max-w-sm">
               <ExternalLink aria-hidden="true" className="mx-auto mb-4 text-[#8F959E]" size={40} />
-              <p className="font-medium text-[#1F2329]">{t("browser.previewBlocked")}</p>
-              <p className="mt-2">
-                {previewBlockedReason ? `${previewBlockedReason}. ` : ""}
-                {t("browser.previewBlockedDetail")}
-              </p>
-              <button
-                type="button"
-                className="mt-4 inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-[#DEE0E3] bg-white px-3 text-sm font-medium text-[#2B2F36] transition-colors hover:bg-[#F8F9FA]"
-                onClick={handleOpenExternal}
-              >
-                <ExternalLink aria-hidden="true" size={16} />
-                {t("browser.openExternally")}
-              </button>
-            </div>
-          </div>
-        ) : frameUrl ? (
-          <>
-            <iframe
-              ref={iframeRef}
-              key={`${frameUrl}:${frameVersion}`}
-              title={page?.title || t("browser.title")}
-              src={shouldUsePreviewHtml ? undefined : frameUrl}
-              srcDoc={shouldUsePreviewHtml ? (page?.preview_html ?? undefined) : undefined}
-              className="h-full w-full border-0 bg-white"
-              sandbox={
-                shouldUseDirectIframe
-                  ? undefined
-                  : shouldUsePreviewHtml
-                    ? "allow-forms allow-scripts"
-                    : "allow-forms allow-same-origin allow-scripts"
-              }
-              referrerPolicy="no-referrer-when-downgrade"
-              onLoad={handleFrameLoad}
-            />
-            {status === "loading" ? (
-              <div className="absolute inset-0 cursor-progress bg-white/10" aria-hidden="true" />
-            ) : null}
-          </>
-        ) : (
-          <div className="flex h-full items-center justify-center px-6 text-center text-sm leading-6 text-[#8F959E]">
-            <div>
-              <Globe2
-                aria-hidden="true"
-                className="mx-auto mb-5 text-[#8F959E]"
-                size={56}
-                strokeWidth={1.8}
-              />
-              <p className="text-base leading-6 font-semibold text-[#1F2329]">
-                {t("browser.emptyTitle")}
-              </p>
-              <p className="mt-2 text-sm leading-5 text-[#8F959E]">{t("browser.emptySubtitle")}</p>
+              <p className="font-medium text-[#1F2329]">{t("browser.desktopOnlyTitle")}</p>
+              <p className="mt-2">{t("browser.desktopOnlySubtitle")}</p>
+              {activeUrl ? (
+                <button
+                  type="button"
+                  className="mt-4 inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-[#DEE0E3] bg-white px-3 text-sm font-medium text-[#2B2F36] transition-colors hover:bg-[#F8F9FA]"
+                  onClick={handleOpenExternal}
+                >
+                  <ExternalLink aria-hidden="true" size={16} />
+                  {t("browser.openExternally")}
+                </button>
+              ) : null}
             </div>
           </div>
         )}

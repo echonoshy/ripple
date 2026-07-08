@@ -51,6 +51,12 @@ pub struct BrowserResizeRequest {
     pub bounds: BrowserBounds,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct BrowserZoomRequest {
+    pub label: String,
+    pub scale: f64,
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct BrowserStateEvent {
@@ -70,8 +76,39 @@ pub struct BrowserCaptureResponse {
     pub title: Option<String>,
     pub text: String,
     pub selected_text: Option<String>,
+    pub headings: Vec<BrowserCapturedHeading>,
+    pub links: Vec<BrowserCapturedLink>,
+    pub images: Vec<BrowserCapturedImage>,
+    pub form_fields: Vec<BrowserCapturedFormField>,
     pub truncated: bool,
     pub captured_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BrowserCapturedHeading {
+    pub level: u8,
+    pub text: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BrowserCapturedLink {
+    pub text: String,
+    pub href: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BrowserCapturedImage {
+    pub alt: String,
+    pub src: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BrowserCapturedFormField {
+    pub label: String,
+    pub name: String,
+    #[serde(rename = "type")]
+    pub field_type: String,
+    pub placeholder: String,
 }
 
 #[derive(Debug, Default)]
@@ -84,7 +121,7 @@ static BROWSER_NAVIGATION: OnceLock<Mutex<HashMap<String, BrowserNavigationState
     OnceLock::new();
 
 #[tauri::command]
-fn open<R: Runtime>(app: AppHandle<R>, request: BrowserOpenRequest) -> Result<(), String> {
+async fn open<R: Runtime>(app: AppHandle<R>, request: BrowserOpenRequest) -> Result<(), String> {
     let url = parse_browser_url(&request.url)?;
     validate_browser_label(&request.label)?;
 
@@ -216,6 +253,36 @@ fn reload<R: Runtime>(app: AppHandle<R>, request: BrowserLabelRequest) -> Result
 }
 
 #[tauri::command]
+fn print_page<R: Runtime>(app: AppHandle<R>, request: BrowserLabelRequest) -> Result<(), String> {
+    validate_browser_label(&request.label)?;
+    let webview = app
+        .get_webview(&request.label)
+        .ok_or_else(|| "Browser webview is not available".to_string())?;
+    webview.print().map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn set_zoom<R: Runtime>(app: AppHandle<R>, request: BrowserZoomRequest) -> Result<(), String> {
+    validate_browser_label(&request.label)?;
+    let webview = app
+        .get_webview(&request.label)
+        .ok_or_else(|| "Browser webview is not available".to_string())?;
+    let scale = request.scale.clamp(0.5, 2.0);
+    webview.set_zoom(scale).map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn clear_data<R: Runtime>(app: AppHandle<R>, request: BrowserLabelRequest) -> Result<(), String> {
+    validate_browser_label(&request.label)?;
+    let webview = app
+        .get_webview(&request.label)
+        .ok_or_else(|| "Browser webview is not available".to_string())?;
+    webview
+        .clear_all_browsing_data()
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
 fn back<R: Runtime>(app: AppHandle<R>, request: BrowserLabelRequest) -> Result<(), String> {
     validate_browser_label(&request.label)?;
     let webview = app
@@ -303,7 +370,8 @@ fn hide<R: Runtime>(app: AppHandle<R>, request: BrowserLabelRequest) -> Result<(
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
     PluginBuilder::new("ripple-browser")
         .invoke_handler(tauri::generate_handler![
-            open, resize, navigate, reload, back, forward, capture, close, show, hide
+            open, resize, navigate, reload, print_page, set_zoom, clear_data, back, forward,
+            capture, close, show, hide
         ])
         .build()
 }
@@ -469,15 +537,81 @@ fn browser_capture_script() -> String {
         r#"
 (() => {{
   const maxChars = {max_chars};
+  const maxItems = 80;
   const normalizeText = (value) => String(value || "").replace(/\u0000/g, "").trim();
+  const collect = (selector, mapper) => Array.from(document.querySelectorAll(selector))
+    .map(mapper)
+    .filter(Boolean)
+    .slice(0, maxItems);
+  const absoluteUrl = (value) => {{
+    try {{
+      return value ? new URL(value, window.location.href).href : "";
+    }} catch {{
+      return "";
+    }}
+  }};
+  const escapeCssIdent = (value) => {{
+    if (globalThis.CSS && typeof globalThis.CSS.escape === "function") {{
+      return globalThis.CSS.escape(value);
+    }}
+    return String(value).replace(/["\\]/g, "\\$&");
+  }};
   const rawText = normalizeText(document.body ? document.body.innerText : "");
   const selectedText = normalizeText(window.getSelection ? window.getSelection().toString() : "");
   const truncated = rawText.length > maxChars;
+  const headings = collect("h1,h2,h3,h4,h5,h6", (node) => {{
+    const text = normalizeText(node.innerText || node.textContent);
+    if (!text) return null;
+    const level = Number(String(node.tagName || "").replace(/[^0-9]/g, "")) || 0;
+    if (level < 1 || level > 6) return null;
+    return {{ level, text: text.slice(0, 240) }};
+  }});
+  const links = collect("a[href]", (node) => {{
+    const href = absoluteUrl(node.getAttribute("href"));
+    const text = normalizeText(node.innerText || node.textContent || node.getAttribute("aria-label"));
+    if (!href || !text) return null;
+    return {{ text: text.slice(0, 240), href }};
+  }});
+  const images = collect("img[src]", (node) => {{
+    const src = absoluteUrl(node.getAttribute("src"));
+    if (!src) return null;
+    const alt = normalizeText(node.getAttribute("alt") || node.getAttribute("aria-label"));
+    return {{ alt: alt.slice(0, 240), src }};
+  }});
+  const labelFor = (node) => {{
+    const id = node.getAttribute("id");
+    if (id) {{
+      const label = document.querySelector(`label[for="${{escapeCssIdent(id)}}"]`);
+      if (label) return normalizeText(label.innerText || label.textContent);
+    }}
+    const wrapper = node.closest("label");
+    if (wrapper) return normalizeText(wrapper.innerText || wrapper.textContent);
+    return normalizeText(node.getAttribute("aria-label") || node.getAttribute("name"));
+  }};
+  const formFields = collect("input,textarea,select", (node) => {{
+    const disabled = node.disabled || node.getAttribute("type") === "hidden";
+    if (disabled) return null;
+    const label = labelFor(node);
+    const name = normalizeText(node.getAttribute("name") || node.getAttribute("id"));
+    const type = normalizeText(node.getAttribute("type") || node.tagName || "text").toLowerCase();
+    const placeholder = normalizeText(node.getAttribute("placeholder"));
+    if (!label && !name && !placeholder) return null;
+    return {{
+      label: label.slice(0, 240),
+      name: name.slice(0, 160),
+      type: type.slice(0, 80),
+      placeholder: placeholder.slice(0, 240)
+    }};
+  }});
   return {{
     url: String(window.location.href || document.URL || ""),
     title: document.title ? String(document.title) : null,
     text: truncated ? rawText.slice(0, maxChars).trimEnd() : rawText,
     selected_text: selectedText ? selectedText.slice(0, maxChars).trimEnd() : null,
+    headings,
+    links,
+    images,
+    form_fields: formFields,
     truncated,
     captured_at: new Date().toISOString()
   }};

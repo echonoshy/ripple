@@ -1,7 +1,6 @@
 pub mod agent_delegations;
 pub mod auth;
 pub mod bilibili;
-pub mod browser;
 pub mod capabilities;
 pub mod chat;
 pub mod connectors;
@@ -168,7 +167,6 @@ pub fn router(state: AppState) -> Router {
         .routes(utoipa_axum::routes!(auth::change_password));
 
     let protected_v1: OpenApiRouter<AppState> = OpenApiRouter::new()
-        .routes(utoipa_axum::routes!(browser::fetch_browser_page))
         .routes(utoipa_axum::routes!(
             agent_delegations::list_agent_delegations,
             agent_delegations::create_agent_delegation
@@ -2651,6 +2649,24 @@ mod tests {
                 "messages": [{"role": "user", "content": "hello"}],
                 "stream": false
             })),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn browser_page_route_is_not_registered() {
+        let state = test_state(vec!["service-key".to_string()]);
+        let legacy_path = format!("{}{}", "/v1/browser", "/page?url=https%3A%2F%2Fexample.com");
+
+        let (status, _body) = request_json(
+            state,
+            Method::GET,
+            &legacy_path,
+            "service-key",
+            Some("browser-user"),
+            None,
         )
         .await;
 

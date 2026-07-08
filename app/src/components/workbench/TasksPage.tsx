@@ -1,52 +1,40 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { animate, motion, useMotionValue, useReducedMotion } from "framer-motion";
+import React, { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   Check,
   CheckCircle2,
-  ChevronDown,
-  ChevronRight,
-  ChevronUp,
-  CircleDot,
   Clock3,
-  GripVertical,
+  FileText,
   Loader2,
-  Pause,
-  Pencil,
-  Pin,
+  MessageSquare,
   Play,
   Plus,
   RefreshCw,
-  Trash2,
-  X,
+  RotateCcw,
+  XCircle,
 } from "lucide-react";
 import {
   AuthError,
-  cancelTask,
-  confirmTask,
-  createTaskAction,
-  createTaskActionTrigger,
-  deleteTaskTrigger,
-  deleteTask,
-  fetchAllTaskTriggers,
-  fetchTask,
-  fetchTaskEvents,
-  fetchTasks,
-  runTaskNow,
-  runTaskTriggerNow,
-  updateTask,
-  updateTaskAction,
-  updateTaskTrigger,
+  cancelTaskRun,
+  confirmTaskSpec,
+  createTaskConfirmation,
+  createTaskSession,
+  createTaskSpec,
+  fetchTaskSession,
+  fetchTaskSessions,
+  respondTaskConfirmation,
+  startTaskRun,
+  updateTaskRun,
 } from "@/lib/api";
 import type {
-  TaskActionCreateInput,
-  TaskTriggerCreateInput,
-  TaskTriggerUpdateInput,
-} from "@/lib/api";
-import type { TaskActionInfo, TaskEventInfo, TaskInfo, TaskTriggerInfo } from "@/types";
-import { useI18n } from "@/i18n";
+  TaskConfirmationInfo,
+  TaskRunInfo,
+  TaskSessionDetail,
+  TaskSessionInfo,
+  TaskSpecInfo,
+} from "@/types";
 import {
   LUCIDE_NAV_STROKE_WIDTH,
   MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS,
@@ -70,2703 +58,1130 @@ import {
   WORKBENCH_STATUS_SUCCESS_CLASS,
   WORKBENCH_STATUS_WARNING_CLASS,
 } from "./stylePrimitives";
-import {
-  mobileStackCommitTransition,
-  mobileStackReturnTransition,
-  mobileSwipeBackConfig,
-  resolveMobileSwipeBackRelease,
-  shouldCancelMobileSwipeBack,
-  shouldClaimMobileSwipeBack,
-  shouldGuardMobileSwipeBackScroll,
-  shouldReleaseMobileSwipeBackScrollGuard,
-} from "./motionPrimitives";
-import {
-  currentMobileSwipeBackTimeMs,
-  ensureMobileSwipeBackScrollLock,
-  isInteractiveMobileSwipeBackTarget,
-  mobileSwipeBackViewportWidth,
-  releaseMobileSwipeBackScrollLock,
-  type MobileSwipeBackDragState,
-  type MobileSwipeBackScrollLockState,
-  type MobileSwipeBackTouchGuardState,
-} from "./mobileSwipeBack";
-import MobilePageHeader from "./MobilePageHeader";
-import SwipeActionRow from "./SwipeActionRow";
 
 interface TasksPageProps {
   userId: string;
-  selectedTaskId?: string | null;
-  tasks?: TaskInfo[];
-  actions?: TaskActionInfo[];
-  events?: TaskEventInfo[];
-  triggers?: TaskTriggerInfo[];
-  isLoading?: boolean;
-  error?: string | null;
   onAuthExpired?: (message: string) => void;
-  onRefresh?: () => void;
-  onSelectTask?: (taskId: string) => void;
   onOpenSession?: (sessionId: string) => void;
-  onConfirmTask?: (taskId: string) => void;
-  onRunTaskNow?: (taskId: string) => void;
-  onCancelTask?: (taskId: string) => void;
-  onDeleteTask?: (taskId: string) => void;
+  initialSessions?: TaskSessionInfo[];
+  initialDetail?: TaskSessionDetail | null;
 }
 
-interface TaskDetailBackSwipeIntentInput {
-  startX?: number;
-  deltaX: number;
-  deltaY: number;
-  viewportWidth: number;
-}
+type SubmitAction =
+  | "create-session"
+  | "create-spec"
+  | "confirm-spec"
+  | "confirm-run"
+  | "start-run"
+  | "complete-run"
+  | "fail-run"
+  | "cancel-run"
+  | "create-confirmation"
+  | "accept-confirmation"
+  | "reject-confirmation";
 
-interface TaskDetailBackSwipeReleaseInput {
-  x: number;
-  velocityX: number;
-  viewportWidth: number;
-}
-
-interface TaskDetailBackSwipeReleaseResolution {
-  shouldCloseTask: boolean;
-  commitDistance: number;
-}
-
-const editableActionStatuses: TaskActionInfo["status"][] = [
-  "confirmed",
-  "in_progress",
-  "waiting_user",
-  "blocked",
-  "completed",
-  "cancelled",
+const taskTypeOptions = [
+  { value: "todo", label: "待办" },
+  { value: "research", label: "检索/研究" },
+  { value: "content", label: "内容生成" },
+  { value: "connector_action", label: "外部服务动作" },
+  { value: "other", label: "其他" },
 ];
-const TASK_DETAIL_BACK_SWIPE_INTERACTIVE_SELECTOR = "[data-ripple-ignore-task-swipe]";
 
-function isInteractiveTaskDetailBackSwipeTarget(target: EventTarget | null): boolean {
-  return isInteractiveMobileSwipeBackTarget(target, TASK_DETAIL_BACK_SWIPE_INTERACTIVE_SELECTOR);
+const statusLabels: Record<string, string> = {
+  pending_confirm: "待确认",
+  in_progress: "进行中",
+  waiting_user: "需要你确认",
+  completed: "已完成",
+  cancelled: "已取消",
+  failed: "失败",
+  confirmed: "已确认",
+  requested: "待响应",
+  accepted: "已接受",
+  rejected: "已拒绝",
+};
+
+export function taskSessionEmptyStateMessageKey(totalCount: number, visibleCount: number): string {
+  if (totalCount > 0 && visibleCount === 0) return "tasks.noTaskSessionsForFilter";
+  return "tasks.noTaskSessions";
 }
 
-export function shouldGuardTaskDetailBackSwipeScroll({
-  startX,
-  deltaX,
-  deltaY,
-  viewportWidth,
-}: TaskDetailBackSwipeIntentInput): boolean {
-  return shouldGuardMobileSwipeBackScroll({ startX, deltaX, deltaY, viewportWidth });
+function statusLabel(status: string | null | undefined): string {
+  if (!status) return "未知";
+  return statusLabels[status] || status;
 }
 
-export function shouldClaimTaskDetailBackSwipe({
-  startX,
-  deltaX,
-  deltaY,
-  viewportWidth,
-}: TaskDetailBackSwipeIntentInput): boolean {
-  return shouldClaimMobileSwipeBack({ startX, deltaX, deltaY, viewportWidth });
-}
-
-export function shouldCancelTaskDetailBackSwipe({
-  startX,
-  deltaX,
-  deltaY,
-  viewportWidth,
-}: TaskDetailBackSwipeIntentInput): boolean {
-  return shouldCancelMobileSwipeBack({ startX, deltaX, deltaY, viewportWidth });
-}
-
-export function shouldReleaseTaskDetailBackSwipeScrollGuard({
-  startX,
-  deltaX,
-  deltaY,
-  viewportWidth,
-}: TaskDetailBackSwipeIntentInput): boolean {
-  return shouldReleaseMobileSwipeBackScrollGuard({ startX, deltaX, deltaY, viewportWidth });
-}
-
-export function resolveTaskDetailBackSwipeRelease({
-  x,
-  velocityX,
-  viewportWidth,
-}: TaskDetailBackSwipeReleaseInput): TaskDetailBackSwipeReleaseResolution {
-  const release = resolveMobileSwipeBackRelease({ x, velocityX, viewportWidth });
-  return { shouldCloseTask: release.shouldCommit, commitDistance: release.commitDistance };
-}
-
-function statusLabel(status: string, t: ReturnType<typeof useI18n>["t"]): string {
-  switch (status) {
-    case "candidate":
-      return t("tasks.status.candidate");
-    case "needs_confirmation":
-      return t("tasks.status.candidate");
-    case "active":
-      return t("tasks.status.active");
-    case "confirmed":
-      return t("tasks.status.confirmed");
-    case "in_progress":
-      return t("tasks.status.inProgress");
-    case "waiting_user":
-      return t("tasks.status.waitingUser");
-    case "blocked":
-      return t("tasks.status.blocked");
-    case "completed":
-      return t("tasks.status.completed");
-    case "cancelled":
-      return t("tasks.status.cancelled");
-    case "archived":
-      return t("tasks.status.archived");
-    default:
-      return status || t("tasks.unknown");
+function statusClass(status: string | null | undefined): string {
+  if (status === "completed" || status === "accepted" || status === "confirmed") {
+    return WORKBENCH_STATUS_SUCCESS_CLASS;
   }
-}
-
-function statusClass(status: string): string {
-  if (status === "completed") return WORKBENCH_STATUS_SUCCESS_CLASS;
-  if (status === "blocked" || status === "cancelled") return WORKBENCH_STATUS_DANGER_CLASS;
-  if (status === "waiting_user" || status === "candidate") return WORKBENCH_STATUS_WARNING_CLASS;
+  if (status === "failed" || status === "cancelled" || status === "rejected") {
+    return WORKBENCH_STATUS_DANGER_CLASS;
+  }
+  if (status === "pending_confirm" || status === "waiting_user" || status === "requested") {
+    return WORKBENCH_STATUS_WARNING_CLASS;
+  }
   return WORKBENCH_STATUS_NEUTRAL_CLASS;
 }
 
-export function taskEmptyStateMessageKey(
-  totalTaskCount: number,
-  visibleTaskCount: number
-): "tasks.noTasks" {
-  void totalTaskCount;
-  void visibleTaskCount;
-  return "tasks.noTasks";
-}
-
-function orderTasksForDisplay(tasks: TaskInfo[]): TaskInfo[] {
-  return tasks
-    .map((task, index) => ({ task, index }))
-    .sort((left, right) => {
-      if (left.task.pinned !== right.task.pinned) return left.task.pinned ? -1 : 1;
-      return left.index - right.index;
-    })
-    .map((item) => item.task);
-}
-
-function formatDate(value: string | null | undefined, locale: string, fallback: string): string {
-  if (!value) return fallback;
+function formatDate(value: string | null | undefined): string {
+  if (!value) return "未记录";
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return fallback;
-  return new Intl.DateTimeFormat(locale, {
-    month: "short",
-    day: "numeric",
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
 }
 
-function progressText(task: TaskInfo): string {
-  const progress = task.progress;
-  if (!progress) return "0/0";
-  return `${progress.completed}/${progress.total}`;
+function formatLongDate(value: string | null | undefined): string {
+  if (!value) return "未记录";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).format(date);
 }
 
-function currentActionSummaryText(task: TaskInfo, t: ReturnType<typeof useI18n>["t"]): string {
-  if (task.progress?.currentActionTitle) return task.progress.currentActionTitle;
-  if (
-    task.status === "completed" ||
-    ((task.progress?.total ?? 0) > 0 &&
-      (task.progress?.completed ?? 0) >= (task.progress?.total ?? 0))
-  ) {
-    return t("tasks.allActionsCompleted");
-  }
-  if ((task.progress?.total ?? 0) === 0) return t("tasks.noActions");
-  return t("tasks.unknown");
-}
-
-function triggerRunProgressText(
-  trigger: TaskTriggerInfo,
-  t: ReturnType<typeof useI18n>["t"]
-): string {
-  const maxRuns = trigger.kind === "once" ? (trigger.max_runs ?? 1) : trigger.max_runs;
-  if (typeof maxRuns === "number" && maxRuns > 0) {
-    return t("tasks.triggerRuns", { count: trigger.run_count, max: maxRuns });
-  }
-  return t("tasks.triggerRunsUnlimited", { count: trigger.run_count });
-}
-
-function isTriggerCompleted(trigger: TaskTriggerInfo): boolean {
-  if (trigger.status === "completed") return true;
-  const maxRuns = trigger.kind === "once" ? (trigger.max_runs ?? 1) : trigger.max_runs;
+function detailLatestSpec(detail: TaskSessionDetail | null): TaskSpecInfo | null {
+  if (!detail || detail.taskSpecs.length === 0) return null;
+  const currentId = detail.taskSession.currentTaskSpecId;
   return (
-    trigger.last_run_status === "completed" &&
-    typeof maxRuns === "number" &&
-    maxRuns > 0 &&
-    trigger.run_count >= maxRuns
+    detail.taskSpecs.find((spec) => spec.taskSpecId === currentId) ||
+    detail.taskSpecs[detail.taskSpecs.length - 1] ||
+    null
   );
 }
 
-function triggerStatusLabel(trigger: TaskTriggerInfo, t: ReturnType<typeof useI18n>["t"]): string {
-  if (
-    trigger.status === "error" ||
-    trigger.last_run_status === "failed" ||
-    trigger.last_run_status === "cancelled"
-  ) {
-    return t("tasks.triggerError");
-  }
-  if (isTriggerCompleted(trigger)) return t("tasks.triggerCompleted");
-  if (trigger.status === "pending_confirmation") return t("tasks.triggerPendingConfirmation");
-  if (trigger.status === "paused" || !trigger.enabled) return t("tasks.triggerPaused");
-  return t("tasks.triggerActive");
+function detailLatestRun(detail: TaskSessionDetail | null): TaskRunInfo | null {
+  if (!detail || detail.runs.length === 0) return null;
+  const currentId = detail.taskSession.currentRunId || detail.taskSession.latestRunId;
+  return (
+    detail.runs.find((run) => run.runId === currentId) ||
+    detail.runs[detail.runs.length - 1] ||
+    null
+  );
 }
 
-function triggerStatusClass(trigger: TaskTriggerInfo): string {
-  if (
-    trigger.status === "error" ||
-    trigger.last_run_status === "failed" ||
-    trigger.last_run_status === "cancelled"
-  ) {
-    return WORKBENCH_STATUS_DANGER_CLASS;
-  }
-  if (isTriggerCompleted(trigger)) return WORKBENCH_STATUS_SUCCESS_CLASS;
-  if (trigger.status === "pending_confirmation") return WORKBENCH_STATUS_WARNING_CLASS;
-  if (trigger.status === "paused" || !trigger.enabled) return WORKBENCH_STATUS_WARNING_CLASS;
-  return WORKBENCH_STATUS_NEUTRAL_CLASS;
+function detailPendingConfirmation(detail: TaskSessionDetail | null): TaskConfirmationInfo | null {
+  if (!detail) return null;
+  return detail.confirmations.find((confirmation) => confirmation.status === "requested") || null;
 }
 
-function formatIntervalText(
-  seconds: number | null | undefined,
-  t: ReturnType<typeof useI18n>["t"]
-): string {
-  const safeSeconds = Math.max(1, Math.round(seconds || 0));
-  if (safeSeconds % 86_400 === 0) {
-    return t("tasks.triggerEveryDays", { count: safeSeconds / 86_400 });
-  }
-  if (safeSeconds % 3_600 === 0) {
-    return t("tasks.triggerEveryHours", { count: safeSeconds / 3_600 });
-  }
-  if (safeSeconds % 60 === 0) {
-    return t("tasks.triggerEveryMinutes", { count: safeSeconds / 60 });
-  }
-  return t("tasks.triggerEverySeconds", { count: safeSeconds });
+function upsertSession(
+  sessions: TaskSessionInfo[],
+  nextSession: TaskSessionInfo
+): TaskSessionInfo[] {
+  const withoutCurrent = sessions.filter((session) => session.sessionId !== nextSession.sessionId);
+  return [nextSession, ...withoutCurrent].sort((left, right) => {
+    const leftTime = Date.parse(left.updatedAt || left.createdAt || "");
+    const rightTime = Date.parse(right.updatedAt || right.createdAt || "");
+    return (Number.isNaN(rightTime) ? 0 : rightTime) - (Number.isNaN(leftTime) ? 0 : leftTime);
+  });
 }
 
-function triggerScheduleText(
-  trigger: TaskTriggerInfo,
-  locale: string,
-  t: ReturnType<typeof useI18n>["t"]
-): string {
-  if (trigger.kind === "interval") {
-    return formatIntervalText(trigger.interval_seconds, t);
-  }
-  const runAt = trigger.run_at || trigger.next_run_at;
-  if (!runAt) return t("tasks.triggerOnce");
-  return `${t("tasks.triggerOnce")} · ${formatDate(runAt, locale, t("tasks.unknown"))}`;
-}
-
-function triggerNextText(
-  trigger: TaskTriggerInfo,
-  locale: string,
-  t: ReturnType<typeof useI18n>["t"]
-): string {
-  if (isTriggerCompleted(trigger)) return t("tasks.triggerNoNextRun");
-  if (trigger.status === "pending_confirmation") return t("tasks.triggerPendingConfirmation");
-  if (trigger.status === "paused" || !trigger.enabled) return t("tasks.triggerPaused");
-  if (!trigger.next_run_at) return t("tasks.triggerNoNextRun");
-  return formatDate(trigger.next_run_at, locale, t("tasks.triggerNoNextRun"));
-}
-
-function toDateTimeLocalValue(value: string | null | undefined): string {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
-  return local.toISOString().slice(0, 16);
-}
-
-function earliestIso(values: Array<string | null | undefined>): string | null {
-  let bestValue: string | null = null;
-  let bestTime = Number.POSITIVE_INFINITY;
-  for (const value of values) {
-    if (!value) continue;
-    const time = new Date(value).getTime();
-    if (Number.isNaN(time) || time >= bestTime) continue;
-    bestTime = time;
-    bestValue = value;
-  }
-  return bestValue;
-}
-
-function currentTimezone(): string {
+function compactJson(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return value;
   try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+    return JSON.stringify(value);
   } catch {
-    return "UTC";
+    return String(value);
   }
 }
 
-function canConfirm(task: TaskInfo): boolean {
-  return task.status === "candidate" || task.requiresConfirmation;
+function errorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message.trim()) return error.message;
+  return fallback;
 }
 
-function canRun(task: TaskInfo): boolean {
-  return !["candidate", "completed", "cancelled", "archived"].includes(task.status);
+function StatusBadge({ status }: { status: string | null | undefined }) {
+  return (
+    <span className={`${statusClass(status)} ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}>
+      {statusLabel(status)}
+    </span>
+  );
 }
 
-function canCancel(task: TaskInfo): boolean {
-  return !["completed", "cancelled", "archived"].includes(task.status);
-}
-
-function eventTimestamp(value: string | null | undefined): number {
-  if (!value) return 0;
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? 0 : date.getTime();
-}
-
-function eventLabel(eventType: string, t: ReturnType<typeof useI18n>["t"]): string {
-  switch (eventType) {
-    case "task_created":
-      return t("tasks.event.taskCreated");
-    case "task_updated":
-      return t("tasks.event.taskUpdated");
-    case "task_confirmed":
-      return t("tasks.event.taskConfirmed");
-    case "task_cancelled":
-      return t("tasks.event.taskCancelled");
-    case "task_run_started":
-      return t("tasks.event.taskRunStarted");
-    case "task_plan_updated":
-      return t("tasks.event.taskPlanUpdated");
-    case "task_action_created":
-      return t("tasks.event.taskActionCreated");
-    case "task_action_started":
-      return t("tasks.event.taskActionStarted");
-    case "task_action_due_triggered":
-      return t("tasks.event.taskActionDueTriggered");
-    case "task_action_completed":
-      return t("tasks.event.taskActionCompleted");
-    case "task_action_blocked":
-      return t("tasks.event.taskActionBlocked");
-    case "task_action_waiting_user":
-      return t("tasks.event.taskActionWaitingUser");
-    case "task_action_cancelled":
-      return t("tasks.event.taskActionCancelled");
-    case "task_trigger_run_started":
-      return t("tasks.event.taskTriggerRunStarted");
-    case "task_trigger_run_completed":
-      return t("tasks.event.taskTriggerRunCompleted");
-    case "task_trigger_run_failed":
-      return t("tasks.event.taskTriggerRunFailed");
-    case "task_completed":
-      return t("tasks.event.taskCompleted");
-    default:
-      return eventType || t("tasks.unknown");
-  }
-}
-
-function payloadString(payload: Record<string, unknown> | null | undefined, key: string) {
-  const value = payload?.[key];
-  return typeof value === "string" && value.trim() ? value : null;
-}
-
-function payloadRecord(
-  payload: Record<string, unknown> | null | undefined,
-  key: string
-): Record<string, unknown> | null {
-  const value = payload?.[key];
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
-function eventDetailText(
-  event: TaskEventInfo,
-  actions: TaskActionInfo[],
-  t: ReturnType<typeof useI18n>["t"]
-): string | null {
-  const parts: string[] = [];
-  const actionId = payloadString(event.payload, "action_id");
-  const actionTitle = actionId
-    ? actions.find((action) => action.actionId === actionId)?.title || actionId
-    : null;
-  if (actionTitle) parts.push(t("tasks.eventAction", { title: actionTitle }));
-
-  const runId = payloadString(event.payload, "run_id");
-  if (runId) parts.push(t("tasks.eventRunId", { id: runId }));
-
-  const plan = payloadRecord(event.payload, "plan");
-  const progress = payloadRecord(plan, "progress");
-  const currentTask =
-    (typeof progress?.currentTask === "string" && progress.currentTask) ||
-    (typeof progress?.current_task === "string" && progress.current_task) ||
-    null;
-  if (currentTask) parts.push(t("tasks.eventCurrentTask", { title: currentTask }));
-
-  return parts.length > 0 ? parts.join(" · ") : null;
-}
-
-function actionFollowUpText(
-  action: TaskActionInfo,
-  t: ReturnType<typeof useI18n>["t"]
-): string | null {
-  if (action.lastError) return `${t("tasks.lastError")}: ${action.lastError}`;
-  if (action.waitingReason) return `${t("tasks.waitingReason")}: ${action.waitingReason}`;
-  return action.resultSummary || action.objective || null;
-}
-
-function actionFollowUpClass(action: TaskActionInfo): string {
-  if (action.lastError) return "text-[#B42318]";
-  if (action.waitingReason) return "text-[#8B5E00]";
-  return "text-[#646A73]";
-}
-
-const taskPanelClass =
-  "rounded-xl border border-[#DEE0E3] bg-white shadow-[0_1px_2px_rgba(31,35,41,0.04)]";
-
-const taskSoftPanelClass = "rounded-xl border border-[#EFF0F1] bg-[#F8F9FA]";
-
-const taskTimelineItemClass =
-  "relative grid min-w-0 gap-1.5 border-l border-[#DEE0E3] pb-3 pl-3 last:pb-0 before:absolute before:top-1.5 before:-left-[4.5px] before:h-2 before:w-2 before:rounded-full before:bg-[#1456F0] before:ring-4 before:ring-white";
-
-function isDesktopTaskViewport(): boolean {
-  return typeof window !== "undefined" && window.matchMedia("(min-width: 1024px)").matches;
+function Metric({
+  label,
+  value,
+  tone = "neutral",
+}: {
+  label: string;
+  value: string;
+  tone?: "neutral" | "warning" | "success";
+}) {
+  const toneClass =
+    tone === "success"
+      ? "text-[#16845B]"
+      : tone === "warning"
+        ? "text-[#8B5E00]"
+        : "text-[#1F2329]";
+  return (
+    <div className="rounded-lg border border-[#DEE0E3] bg-white px-3 py-2">
+      <div className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>{label}</div>
+      <div className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} ${toneClass}`}>{value}</div>
+    </div>
+  );
 }
 
 export default function TasksPage({
   userId,
-  selectedTaskId,
-  tasks,
-  actions,
-  events,
-  triggers,
-  isLoading,
-  error,
   onAuthExpired,
-  onRefresh,
-  onSelectTask,
   onOpenSession,
-  onConfirmTask,
-  onRunTaskNow,
-  onCancelTask,
-  onDeleteTask,
+  initialSessions = [],
+  initialDetail = null,
 }: TasksPageProps) {
-  const { locale, t } = useI18n();
-  const reduceMotion = useReducedMotion();
-  const taskDetailSwipeX = useMotionValue(0);
-  const isControlled = tasks !== undefined;
-  const [taskList, setTaskList] = useState<TaskInfo[]>(() => tasks || []);
-  const [selectedId, setSelectedId] = useState<string | null>(
-    selectedTaskId || tasks?.[0]?.taskId || null
+  const initialSelectedSessionId =
+    initialDetail?.taskSession.sessionId || initialSessions[0]?.sessionId || null;
+  const [sessions, setSessions] = useState<TaskSessionInfo[]>(initialSessions);
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(
+    initialSelectedSessionId
   );
-  const [selectedMobileTaskId, setSelectedMobileTaskId] = useState<string | null>(null);
-  const selectedIdRef = useRef<string | null>(selectedId);
-  const [detailActions, setDetailActions] = useState<TaskActionInfo[]>(() => actions || []);
-  const [taskEvents, setTaskEvents] = useState<TaskEventInfo[]>(() => events || []);
-  const [triggerList, setTriggerList] = useState<TaskTriggerInfo[]>(() => triggers || []);
-  const [internalLoading, setInternalLoading] = useState(false);
+  const [detail, setDetail] = useState<TaskSessionDetail | null>(initialDetail);
+  const [loading, setLoading] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
-  const [internalError, setInternalError] = useState<string | null>(null);
-  const [pendingAction, setPendingAction] = useState<string | null>(null);
-  const [isDesktopTaskLayout, setIsDesktopTaskLayout] = useState(isDesktopTaskViewport);
-  const [isTaskDetailSwipeActive, setIsTaskDetailSwipeActive] = useState(false);
-  const [confirmingTaskAction, setConfirmingTaskAction] = useState<string | null>(null);
-  const [isActionFormOpen, setIsActionFormOpen] = useState(false);
-  const [isActionSortMode, setIsActionSortMode] = useState(false);
-  const [newActionTitle, setNewActionTitle] = useState("");
-  const [newActionObjective, setNewActionObjective] = useState("");
-  const [editingActionId, setEditingActionId] = useState<string | null>(null);
-  const [editingActionTitle, setEditingActionTitle] = useState("");
-  const [editingActionObjective, setEditingActionObjective] = useState("");
-  const [editingActionStatus, setEditingActionStatus] =
-    useState<TaskActionInfo["status"]>("confirmed");
-  const [draftActionOrderIds, setDraftActionOrderIds] = useState<string[]>([]);
-  const [draggingActionId, setDraggingActionId] = useState<string | null>(null);
-  const [triggerActionId, setTriggerActionId] = useState<string | null>(null);
-  const [newTriggerRunAt, setNewTriggerRunAt] = useState("");
-  const [editingTriggerId, setEditingTriggerId] = useState<string | null>(null);
-  const [editingTriggerKind, setEditingTriggerKind] = useState<"once" | "interval">("once");
-  const [editingTriggerRunAt, setEditingTriggerRunAt] = useState("");
-  const [editingTriggerIntervalMinutes, setEditingTriggerIntervalMinutes] = useState("60");
-  const [editingTriggerMaxRuns, setEditingTriggerMaxRuns] = useState("");
-  const [confirmingTriggerDeleteId, setConfirmingTriggerDeleteId] = useState<string | null>(null);
-  const taskDetailSwipeDragStateRef = useRef<MobileSwipeBackDragState | null>(null);
-  const taskDetailSwipeTouchGuardStateRef = useRef<MobileSwipeBackTouchGuardState | null>(null);
-  const taskDetailSwipeScrollLockRef = useRef<MobileSwipeBackScrollLockState | null>(null);
-  const taskDetailSwipeAnimationRef = useRef<ReturnType<typeof animate> | null>(null);
-  const suppressNextTaskDetailSwipeClickRef = useRef(false);
+  const [submittingAction, setSubmittingAction] = useState<SubmitAction | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [newTitle, setNewTitle] = useState("");
+  const [newTaskType, setNewTaskType] = useState("todo");
+  const [newGoal, setNewGoal] = useState("");
+  const [specTaskType, setSpecTaskType] = useState("todo");
+  const [specGoal, setSpecGoal] = useState("");
+  const [specImpact, setSpecImpact] = useState("");
+  const [runSummary, setRunSummary] = useState("");
+  const [failureReason, setFailureReason] = useState("");
+  const [confirmationTitle, setConfirmationTitle] = useState("");
 
-  useEffect(() => {
-    selectedIdRef.current = selectedId;
-  }, [selectedId]);
+  const selectedSession = useMemo(() => {
+    if (detail?.taskSession.sessionId === selectedSessionId) return detail.taskSession;
+    return sessions.find((session) => session.sessionId === selectedSessionId) || null;
+  }, [detail, selectedSessionId, sessions]);
 
-  useEffect(() => {
-    if (tasks) setTaskList(tasks);
-  }, [tasks]);
-
-  useEffect(() => {
-    if (actions) setDetailActions(actions);
-  }, [actions]);
-
-  useEffect(() => {
-    if (events) setTaskEvents(events);
-  }, [events]);
-
-  useEffect(() => {
-    if (triggers) setTriggerList(triggers);
-  }, [triggers]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const media = window.matchMedia("(min-width: 1024px)");
-    const handleChange = () => setIsDesktopTaskLayout(media.matches);
-    handleChange();
-    if (typeof media.addEventListener === "function") {
-      media.addEventListener("change", handleChange);
-      return () => media.removeEventListener("change", handleChange);
-    }
-    media.addListener(handleChange);
-    return () => media.removeListener(handleChange);
-  }, []);
+  const latestSpec = useMemo(() => detailLatestSpec(detail), [detail]);
+  const latestRun = useMemo(() => detailLatestRun(detail), [detail]);
+  const pendingConfirmation = useMemo(() => detailPendingConfirmation(detail), [detail]);
 
   const handleError = useCallback(
-    (caught: unknown, fallback: string) => {
-      if (caught instanceof AuthError) {
-        onAuthExpired?.(t("auth.sessionExpired"));
+    (err: unknown, fallback: string) => {
+      if (err instanceof AuthError) {
+        onAuthExpired?.("登录已过期，请重新登录。");
         return;
       }
-      setInternalError(caught instanceof Error ? caught.message : fallback);
+      setError(errorMessage(err, fallback));
     },
-    [onAuthExpired, t]
+    [onAuthExpired]
   );
 
-  const loadTaskDetail = useCallback(
-    async (taskId: string) => {
-      if (isControlled) return;
+  const loadDetail = useCallback(
+    async (sessionId: string) => {
       setDetailLoading(true);
+      setError(null);
       try {
-        const [detail, nextEvents] = await Promise.all([
-          fetchTask(taskId),
-          fetchTaskEvents(taskId),
-        ]);
-        setDetailActions(detail.actions);
-        setTaskEvents(nextEvents);
-        setTaskList((current) =>
-          current.map((task) => (task.taskId === detail.task.taskId ? detail.task : task))
-        );
-        setInternalError(null);
-      } catch (caught) {
-        handleError(caught, t("tasks.failedToLoad"));
+        const nextDetail = await fetchTaskSession(sessionId);
+        setDetail(nextDetail);
+        setSessions((current) => upsertSession(current, nextDetail.taskSession));
+      } catch (err) {
+        handleError(err, "加载任务会话详情失败");
       } finally {
         setDetailLoading(false);
       }
     },
-    [handleError, isControlled, t]
+    [handleError]
   );
 
-  const loadTasks = useCallback(
-    async (preferredSelectedId?: string | null) => {
-      if (isControlled) return;
-      const requestedSelectedId =
-        preferredSelectedId === undefined ? selectedIdRef.current : preferredSelectedId;
-      setInternalLoading(true);
+  const loadSessions = useCallback(
+    async (preferredSessionId?: string | null) => {
+      setLoading(true);
+      setError(null);
       try {
-        const [nextTasks, nextTriggers] = await Promise.all([fetchTasks(), fetchAllTaskTriggers()]);
-        setTaskList(nextTasks);
-        setTriggerList(nextTriggers);
+        const nextSessions = await fetchTaskSessions();
+        setSessions(nextSessions);
         const nextSelectedId =
-          requestedSelectedId && nextTasks.some((task) => task.taskId === requestedSelectedId)
-            ? requestedSelectedId
-            : nextTasks[0]?.taskId || null;
-        setSelectedId(nextSelectedId);
-        setInternalError(null);
+          preferredSessionId ||
+          selectedSessionId ||
+          nextSessions[0]?.sessionId ||
+          initialSelectedSessionId;
         if (nextSelectedId) {
-          await loadTaskDetail(nextSelectedId);
+          setSelectedSessionId(nextSelectedId);
+          await loadDetail(nextSelectedId);
         } else {
-          setDetailActions([]);
-          setTaskEvents([]);
+          setSelectedSessionId(null);
+          setDetail(null);
         }
-      } catch (caught) {
-        handleError(caught, t("tasks.failedToLoad"));
+      } catch (err) {
+        handleError(err, "加载任务会话列表失败");
       } finally {
-        setInternalLoading(false);
+        setLoading(false);
       }
     },
-    [handleError, isControlled, loadTaskDetail, t]
+    [handleError, initialSelectedSessionId, loadDetail, selectedSessionId]
   );
 
   useEffect(() => {
-    if (!isControlled) void loadTasks();
-  }, [isControlled, loadTasks, userId]);
+    void loadSessions(initialSelectedSessionId);
+    // userId 是隔离维度，切换用户时必须重新拉取当前用户的任务会话。
+  }, [initialSelectedSessionId, loadSessions, userId]);
 
-  useEffect(() => {
-    if (selectedTaskId) setSelectedId(selectedTaskId);
-  }, [selectedTaskId]);
-
-  const orderedTasks = useMemo(() => orderTasksForDisplay(taskList), [taskList]);
-
-  const selectedTask = useMemo(
-    () => orderedTasks.find((task) => task.taskId === selectedId) || orderedTasks[0] || null,
-    [orderedTasks, selectedId]
-  );
-  const mobileDetailTask = useMemo(
-    () =>
-      selectedMobileTaskId
-        ? taskList.find((task) => task.taskId === selectedMobileTaskId) || null
-        : null,
-    [selectedMobileTaskId, taskList]
-  );
-
-  useEffect(() => {
-    setIsActionSortMode(false);
-    setDraftActionOrderIds([]);
-    setDraggingActionId(null);
-    setEditingActionId(null);
-    setTriggerActionId(null);
-    setEditingTriggerId(null);
-    setConfirmingTriggerDeleteId(null);
-  }, [selectedTask?.taskId]);
-
-  useEffect(() => {
-    if (selectedMobileTaskId && !mobileDetailTask) {
-      setSelectedMobileTaskId(null);
-    }
-  }, [mobileDetailTask, selectedMobileTaskId]);
-
-  useEffect(() => {
-    if (orderedTasks.length === 0) {
-      if (selectedId !== null) setSelectedId(null);
-      return;
-    }
-    if (selectedId && orderedTasks.some((task) => task.taskId === selectedId)) return;
-    const nextSelectedId = orderedTasks[0].taskId;
-    setSelectedId(nextSelectedId);
-    onSelectTask?.(nextSelectedId);
-    void loadTaskDetail(nextSelectedId);
-  }, [orderedTasks, loadTaskDetail, onSelectTask, selectedId]);
-
-  const visibleActions = useMemo(() => {
-    const actionsForTask = selectedTask
-      ? detailActions.filter((action) => action.taskId === selectedTask.taskId)
-      : [];
-    if (!isActionSortMode || draftActionOrderIds.length === 0) return actionsForTask;
-    const byId = new Map(actionsForTask.map((action) => [action.actionId, action]));
-    const ordered = draftActionOrderIds.flatMap((actionId) => {
-      const action = byId.get(actionId);
-      return action ? [action] : [];
-    });
-    const orderedIds = new Set(ordered.map((action) => action.actionId));
-    const rest = actionsForTask.filter((action) => !orderedIds.has(action.actionId));
-    return [...ordered, ...rest];
-  }, [detailActions, draftActionOrderIds, isActionSortMode, selectedTask]);
-  const visibleEvents = useMemo(
-    () =>
-      selectedTask
-        ? taskEvents
-            .filter((event) => event.taskId === selectedTask.taskId)
-            .slice()
-            .sort((left, right) => eventTimestamp(right.createdAt) - eventTimestamp(left.createdAt))
-        : [],
-    [selectedTask, taskEvents]
-  );
-  const selectedTaskTriggers = useMemo(() => {
-    if (!selectedTask) return [];
-    const actionIds = new Set(visibleActions.map((action) => action.actionId));
-    return triggerList.filter(
-      (trigger) =>
-        trigger.task_id === selectedTask.taskId ||
-        (trigger.task_action_id ? actionIds.has(trigger.task_action_id) : false)
-    );
-  }, [triggerList, selectedTask, visibleActions]);
-  const selectedTaskActionTriggers = useMemo(
-    () => visibleActions.filter((action) => Boolean(action.nextWakeupAt)),
-    [visibleActions]
-  );
-  const selectedTaskNextRunAt = useMemo(
-    () =>
-      earliestIso([
-        ...selectedTaskActionTriggers.map((action) => action.nextWakeupAt),
-        ...selectedTaskTriggers
-          .filter((trigger) => trigger.enabled && !isTriggerCompleted(trigger))
-          .map((trigger) => trigger.next_run_at),
-      ]),
-    [selectedTaskActionTriggers, selectedTaskTriggers]
-  );
-  const loading = isLoading ?? internalLoading;
-  const errorMessage = error ?? internalError;
-  const emptyTaskMessage = t(taskEmptyStateMessageKey(taskList.length, orderedTasks.length));
-
-  const selectTask = useCallback(
-    (taskId: string) => {
-      setSelectedId(taskId);
-      onSelectTask?.(taskId);
-      void loadTaskDetail(taskId);
+  const selectSession = useCallback(
+    (sessionId: string) => {
+      setSelectedSessionId(sessionId);
+      void loadDetail(sessionId);
     },
-    [loadTaskDetail, onSelectTask]
+    [loadDetail]
   );
 
-  const stopTaskDetailSwipeAnimation = useCallback(() => {
-    taskDetailSwipeAnimationRef.current?.stop();
-    taskDetailSwipeAnimationRef.current = null;
+  const applyDetail = useCallback((nextDetail: TaskSessionDetail) => {
+    setDetail(nextDetail);
+    setSelectedSessionId(nextDetail.taskSession.sessionId);
+    setSessions((current) => upsertSession(current, nextDetail.taskSession));
   }, []);
 
-  const releaseTaskDetailSwipeScrollLock = useCallback(() => {
-    releaseMobileSwipeBackScrollLock(taskDetailSwipeScrollLockRef.current);
-    taskDetailSwipeScrollLockRef.current = null;
-  }, []);
-
-  const animateTaskDetailSwipeTo = useCallback(
-    (target: number, onComplete?: () => void, transition = mobileStackReturnTransition) => {
-      stopTaskDetailSwipeAnimation();
-      if (reduceMotion) {
-        taskDetailSwipeX.set(target);
-        onComplete?.();
-        return;
-      }
-
-      const animation = animate(taskDetailSwipeX, target, transition);
-      taskDetailSwipeAnimationRef.current = animation;
-      void animation.then(() => {
-        if (taskDetailSwipeAnimationRef.current === animation) {
-          taskDetailSwipeAnimationRef.current = null;
-        }
-        onComplete?.();
-      });
-    },
-    [reduceMotion, stopTaskDetailSwipeAnimation, taskDetailSwipeX]
-  );
-
-  const resetTaskDetailSwipeState = useCallback(() => {
-    stopTaskDetailSwipeAnimation();
-    taskDetailSwipeDragStateRef.current = null;
-    taskDetailSwipeTouchGuardStateRef.current = null;
-    releaseTaskDetailSwipeScrollLock();
-    setIsTaskDetailSwipeActive(false);
-    taskDetailSwipeX.set(0);
-  }, [releaseTaskDetailSwipeScrollLock, stopTaskDetailSwipeAnimation, taskDetailSwipeX]);
-
-  const openMobileTaskDetail = useCallback(
-    (taskId: string) => {
-      resetTaskDetailSwipeState();
-      setSelectedMobileTaskId(taskId);
-      selectTask(taskId);
-    },
-    [resetTaskDetailSwipeState, selectTask]
-  );
-
-  const closeMobileTaskDetail = useCallback(() => {
-    resetTaskDetailSwipeState();
-    setSelectedMobileTaskId(null);
-  }, [resetTaskDetailSwipeState]);
-
-  const closeMobileTaskDetailWithSwipeCommit = useCallback(() => {
-    taskDetailSwipeDragStateRef.current = null;
-    taskDetailSwipeTouchGuardStateRef.current = null;
-    releaseTaskDetailSwipeScrollLock();
-    setIsTaskDetailSwipeActive(false);
-    setSelectedMobileTaskId(null);
-    const resetSwipeX = () => taskDetailSwipeX.set(0);
-    if (typeof window === "undefined") {
-      resetSwipeX();
-    } else {
-      window.requestAnimationFrame(resetSwipeX);
-    }
-  }, [releaseTaskDetailSwipeScrollLock, taskDetailSwipeX]);
-
-  useEffect(
-    () => () => {
-      stopTaskDetailSwipeAnimation();
-      releaseMobileSwipeBackScrollLock(taskDetailSwipeScrollLockRef.current);
-      taskDetailSwipeScrollLockRef.current = null;
-    },
-    [stopTaskDetailSwipeAnimation]
-  );
-
-  const handleTaskDetailSwipePointerDown = useCallback(
-    (event: React.PointerEvent<HTMLElement>) => {
-      if (!mobileDetailTask) return;
-      if (!event.isPrimary || event.pointerType !== "touch") return;
-      const viewportWidth = mobileSwipeBackViewportWidth();
-      if (viewportWidth >= mobileSwipeBackConfig.desktopMinWidth) return;
-      suppressNextTaskDetailSwipeClickRef.current = false;
-      if (isInteractiveTaskDetailBackSwipeTarget(event.target)) return;
-      stopTaskDetailSwipeAnimation();
-      const scrollElement = event.currentTarget;
-
-      taskDetailSwipeDragStateRef.current = {
-        pointerId: event.pointerId,
-        startX: event.clientX,
-        startY: event.clientY,
-        viewportWidth,
-        claimed: false,
-        lastX: event.clientX,
-        lastTime: currentMobileSwipeBackTimeMs(),
-        velocityX: 0,
-        scrollElement,
-        startScrollTop: scrollElement.scrollTop,
-      };
-    },
-    [mobileDetailTask, stopTaskDetailSwipeAnimation]
-  );
-
-  const handleTaskDetailSwipePointerMove = useCallback(
-    (event: React.PointerEvent<HTMLElement>) => {
-      const dragState = taskDetailSwipeDragStateRef.current;
-      if (!dragState || dragState.pointerId !== event.pointerId) return;
-
-      const deltaX = event.clientX - dragState.startX;
-      const deltaY = event.clientY - dragState.startY;
-
-      if (
-        !dragState.claimed &&
-        shouldCancelTaskDetailBackSwipe({
-          startX: dragState.startX,
-          deltaX,
-          deltaY,
-          viewportWidth: dragState.viewportWidth,
-        })
-      ) {
-        taskDetailSwipeDragStateRef.current = null;
-        releaseTaskDetailSwipeScrollLock();
-        return;
-      }
-
-      if (
-        !dragState.claimed &&
-        shouldClaimTaskDetailBackSwipe({
-          startX: dragState.startX,
-          deltaX,
-          deltaY,
-          viewportWidth: dragState.viewportWidth,
-        })
-      ) {
-        dragState.claimed = true;
-        suppressNextTaskDetailSwipeClickRef.current = true;
-        setIsTaskDetailSwipeActive(true);
-        taskDetailSwipeScrollLockRef.current = ensureMobileSwipeBackScrollLock(
-          taskDetailSwipeScrollLockRef.current,
-          dragState.scrollElement,
-          dragState.startScrollTop
-        );
-        try {
-          event.currentTarget.setPointerCapture(event.pointerId);
-        } catch {
-          // Pointer capture can fail when the platform has already ended the gesture.
-        }
-      }
-
-      if (!dragState.claimed) return;
-
-      event.preventDefault();
-      const currentTime = currentMobileSwipeBackTimeMs();
-      const elapsed = Math.max(1, currentTime - dragState.lastTime);
-      dragState.velocityX = ((event.clientX - dragState.lastX) / elapsed) * 1000;
-      dragState.lastX = event.clientX;
-      dragState.lastTime = currentTime;
-      taskDetailSwipeX.set(Math.max(0, deltaX));
-    },
-    [releaseTaskDetailSwipeScrollLock, taskDetailSwipeX]
-  );
-
-  const handleTaskDetailSwipePointerUp = useCallback(
-    (event: React.PointerEvent<HTMLElement>) => {
-      const dragState = taskDetailSwipeDragStateRef.current;
-      if (!dragState || dragState.pointerId !== event.pointerId) return;
-
-      taskDetailSwipeDragStateRef.current = null;
-      releaseTaskDetailSwipeScrollLock();
+  const runAction = useCallback(
+    async (
+      action: SubmitAction,
+      task: () => Promise<TaskSessionDetail>,
+      successMessage: string
+    ) => {
+      if (submittingAction) return;
+      setSubmittingAction(action);
+      setError(null);
+      setNotice(null);
       try {
-        event.currentTarget.releasePointerCapture(event.pointerId);
-      } catch {
-        // Matching setPointerCapture may not have succeeded on every platform.
-      }
-
-      if (!dragState.claimed) return;
-      event.preventDefault();
-
-      const release = resolveTaskDetailBackSwipeRelease({
-        x: taskDetailSwipeX.get(),
-        velocityX: dragState.velocityX,
-        viewportWidth: dragState.viewportWidth,
-      });
-
-      if (!release.shouldCloseTask) {
-        animateTaskDetailSwipeTo(0, () => {
-          setIsTaskDetailSwipeActive(false);
-        });
-        return;
-      }
-
-      setIsTaskDetailSwipeActive(true);
-      animateTaskDetailSwipeTo(
-        dragState.viewportWidth,
-        closeMobileTaskDetailWithSwipeCommit,
-        mobileStackCommitTransition
-      );
-    },
-    [
-      animateTaskDetailSwipeTo,
-      closeMobileTaskDetailWithSwipeCommit,
-      releaseTaskDetailSwipeScrollLock,
-      taskDetailSwipeX,
-    ]
-  );
-
-  const handleTaskDetailSwipePointerCancel = useCallback(
-    (event: React.PointerEvent<HTMLElement>) => {
-      const dragState = taskDetailSwipeDragStateRef.current;
-      if (dragState && dragState.pointerId === event.pointerId) {
-        taskDetailSwipeDragStateRef.current = null;
-        releaseTaskDetailSwipeScrollLock();
-        animateTaskDetailSwipeTo(0, () => {
-          setIsTaskDetailSwipeActive(false);
-        });
+        const nextDetail = await task();
+        applyDetail(nextDetail);
+        setNotice(successMessage);
+      } catch (err) {
+        handleError(err, "操作失败");
+      } finally {
+        setSubmittingAction(null);
       }
     },
-    [animateTaskDetailSwipeTo, releaseTaskDetailSwipeScrollLock]
+    [applyDetail, handleError, submittingAction]
   );
 
-  const handleTaskDetailSwipeTouchStartCapture = useCallback(
-    (event: React.TouchEvent<HTMLElement>) => {
-      if (!mobileDetailTask) return;
-      if (event.touches.length !== 1) return;
-      const viewportWidth = mobileSwipeBackViewportWidth();
-      if (viewportWidth >= mobileSwipeBackConfig.desktopMinWidth) return;
-      if (isInteractiveTaskDetailBackSwipeTarget(event.target)) return;
-      const touch = event.touches[0];
-      if (!touch) return;
-      stopTaskDetailSwipeAnimation();
-      const scrollElement = event.currentTarget;
-
-      taskDetailSwipeTouchGuardStateRef.current = {
-        startX: touch.clientX,
-        startY: touch.clientY,
-        viewportWidth,
-        isGuarding: false,
-        scrollElement,
-        startScrollTop: scrollElement.scrollTop,
-      };
-    },
-    [mobileDetailTask, stopTaskDetailSwipeAnimation]
-  );
-
-  const handleTaskDetailSwipeTouchMoveCapture = useCallback(
-    (event: React.TouchEvent<HTMLElement>) => {
-      const guardState = taskDetailSwipeTouchGuardStateRef.current;
-      const touch = event.touches[0];
-      if (!guardState || !touch) return;
-
-      const deltaX = touch.clientX - guardState.startX;
-      const deltaY = touch.clientY - guardState.startY;
-
-      if (
-        guardState.isGuarding &&
-        shouldReleaseTaskDetailBackSwipeScrollGuard({
-          startX: guardState.startX,
-          deltaX,
-          deltaY,
-          viewportWidth: guardState.viewportWidth,
-        })
-      ) {
-        taskDetailSwipeTouchGuardStateRef.current = null;
-        releaseTaskDetailSwipeScrollLock();
-        return;
-      }
-
-      if (
-        !guardState.isGuarding &&
-        shouldCancelTaskDetailBackSwipe({
-          startX: guardState.startX,
-          deltaX,
-          deltaY,
-          viewportWidth: guardState.viewportWidth,
-        })
-      ) {
-        taskDetailSwipeTouchGuardStateRef.current = null;
-        releaseTaskDetailSwipeScrollLock();
-        return;
-      }
-
-      if (
-        guardState.isGuarding ||
-        shouldGuardTaskDetailBackSwipeScroll({
-          startX: guardState.startX,
-          deltaX,
-          deltaY,
-          viewportWidth: guardState.viewportWidth,
-        })
-      ) {
-        guardState.isGuarding = true;
-        event.preventDefault();
-        taskDetailSwipeScrollLockRef.current = ensureMobileSwipeBackScrollLock(
-          taskDetailSwipeScrollLockRef.current,
-          guardState.scrollElement,
-          guardState.startScrollTop
-        );
-      }
-    },
-    [releaseTaskDetailSwipeScrollLock]
-  );
-
-  const clearTaskDetailSwipeTouchGuard = useCallback(() => {
-    taskDetailSwipeTouchGuardStateRef.current = null;
-    if (!taskDetailSwipeDragStateRef.current?.claimed) releaseTaskDetailSwipeScrollLock();
-  }, [releaseTaskDetailSwipeScrollLock]);
-
-  const handleTaskDetailSwipeClickCapture = useCallback((event: React.MouseEvent<HTMLElement>) => {
-    if (!suppressNextTaskDetailSwipeClickRef.current) return;
-    suppressNextTaskDetailSwipeClickRef.current = false;
+  const submitCreateSession = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    event.stopPropagation();
-  }, []);
-
-  const selectTaskFromList = useCallback(
-    (taskId: string) => {
-      if (isDesktopTaskLayout) {
-        selectTask(taskId);
-        return;
-      }
-      openMobileTaskDetail(taskId);
-    },
-    [isDesktopTaskLayout, openMobileTaskDetail, selectTask]
-  );
-
-  const refresh = useCallback(() => {
-    onRefresh?.();
-    void loadTasks();
-  }, [loadTasks, onRefresh]);
-
-  const toggleTaskPinned = useCallback(
-    async (task: TaskInfo) => {
-      const nextPinned = !task.pinned;
-      setPendingAction(`pin:${task.taskId}`);
-      setInternalError(null);
-      setTaskList((current) =>
-        current.map((item) =>
-          item.taskId === task.taskId ? { ...item, pinned: nextPinned } : item
-        )
-      );
-      try {
-        if (!isControlled) {
-          const detail = await updateTask(task.taskId, { pinned: nextPinned });
-          setTaskList((current) =>
-            current.map((item) => (item.taskId === detail.task.taskId ? detail.task : item))
-          );
-        }
-      } catch (caught) {
-        setTaskList((current) =>
-          current.map((item) =>
-            item.taskId === task.taskId ? { ...item, pinned: task.pinned } : item
-          )
-        );
-        handleError(caught, t("tasks.actionFailed"));
-      } finally {
-        setPendingAction(null);
-      }
-    },
-    [handleError, isControlled, t]
-  );
-
-  const quickDeleteTask = useCallback(
-    async (taskId: string) => {
-      setPendingAction(`delete:${taskId}`);
-      setInternalError(null);
-      const previousTasks = taskList;
-      const nextSelectedId =
-        selectedId === taskId
-          ? orderedTasks.find((task) => task.taskId !== taskId)?.taskId || null
-          : selectedId;
-      setTaskList((current) => current.filter((task) => task.taskId !== taskId));
-      if (selectedMobileTaskId === taskId) setSelectedMobileTaskId(null);
-      if (selectedId === taskId) setSelectedId(nextSelectedId);
-      try {
-        onDeleteTask?.(taskId);
-        if (!isControlled) {
-          await deleteTask(taskId);
-          await loadTasks(nextSelectedId);
-        }
-      } catch (caught) {
-        setTaskList(previousTasks);
-        handleError(caught, t("tasks.actionFailed"));
-      } finally {
-        setPendingAction(null);
-      }
-    },
-    [
-      handleError,
-      isControlled,
-      loadTasks,
-      onDeleteTask,
-      orderedTasks,
-      selectedId,
-      selectedMobileTaskId,
-      t,
-      taskList,
-    ]
-  );
-
-  const runTaskOperation = useCallback(
-    async (taskId: string, operation: "confirm" | "run" | "cancel" | "delete") => {
-      const actionKey = `${operation}:${taskId}`;
-      if (
-        (operation === "cancel" || operation === "delete") &&
-        confirmingTaskAction !== actionKey
-      ) {
-        setConfirmingTaskAction(actionKey);
-        return;
-      }
-      setConfirmingTaskAction(null);
-      setPendingAction(`${operation}:${taskId}`);
-      try {
-        if (operation === "confirm") {
-          onConfirmTask?.(taskId);
-          if (!isControlled) await confirmTask(taskId);
-        } else if (operation === "run") {
-          onRunTaskNow?.(taskId);
-          if (!isControlled) await runTaskNow(taskId);
-        } else if (operation === "delete") {
-          onDeleteTask?.(taskId);
-          if (!isControlled) await deleteTask(taskId);
-        } else {
-          onCancelTask?.(taskId);
-          if (!isControlled) await cancelTask(taskId);
-        }
-        await loadTasks(operation === "delete" && selectedId === taskId ? null : selectedId);
-      } catch (caught) {
-        handleError(caught, t("tasks.actionFailed"));
-      } finally {
-        setPendingAction(null);
-      }
-    },
-    [
-      confirmingTaskAction,
-      handleError,
-      isControlled,
-      loadTasks,
-      onCancelTask,
-      onConfirmTask,
-      onDeleteTask,
-      onRunTaskNow,
-      selectedId,
-      t,
-    ]
-  );
-
-  const submitNewAction = useCallback(
-    async (event: React.FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-      if (!selectedTask) return;
-      const title = newActionTitle.trim();
-      if (!title) {
-        setInternalError(t("tasks.actionTitleRequired"));
-        return;
-      }
-      setPendingAction(`create-action:${selectedTask.taskId}`);
-      setInternalError(null);
-      try {
-        const input: TaskActionCreateInput = {
-          title,
-          kind: "next_step",
-          objective: newActionObjective.trim() || null,
-          status: "confirmed",
-        };
-        await createTaskAction(selectedTask.taskId, input);
-        setNewActionTitle("");
-        setNewActionObjective("");
-        setIsActionFormOpen(false);
-        await loadTasks(selectedTask.taskId);
-      } catch (caught) {
-        handleError(caught, t("tasks.actionFailed"));
-      } finally {
-        setPendingAction(null);
-      }
-    },
-    [handleError, loadTasks, newActionObjective, newActionTitle, selectedTask, t]
-  );
-
-  const closeActionEditForm = useCallback(() => {
-    setEditingActionId(null);
-    setEditingActionTitle("");
-    setEditingActionObjective("");
-    setEditingActionStatus("confirmed");
-  }, []);
-
-  const openActionEditForm = useCallback((action: TaskActionInfo) => {
-    setIsActionFormOpen(false);
-    setIsActionSortMode(false);
-    setDraftActionOrderIds([]);
-    setDraggingActionId(null);
-    setTriggerActionId(null);
-    setEditingTriggerId(null);
-    setConfirmingTriggerDeleteId(null);
-    setEditingActionId(action.actionId);
-    setEditingActionTitle(action.title);
-    setEditingActionObjective(action.objective || "");
-    setEditingActionStatus(action.status || "confirmed");
-  }, []);
-
-  const submitActionEdit = useCallback(
-    async (event: React.FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-      if (!selectedTask || !editingActionId) return;
-      const title = editingActionTitle.trim();
-      if (!title) {
-        setInternalError(t("tasks.actionTitleRequired"));
-        return;
-      }
-      setPendingAction(`edit-action:${editingActionId}`);
-      setInternalError(null);
-      try {
-        const detail = await updateTaskAction(selectedTask.taskId, editingActionId, {
-          title,
-          objective: editingActionObjective.trim() || null,
-          status: editingActionStatus,
-        });
-        setDetailActions(detail.actions);
-        setTaskList((current) =>
-          current.map((task) => (task.taskId === detail.task.taskId ? detail.task : task))
-        );
-        closeActionEditForm();
-        await loadTasks(selectedTask.taskId);
-      } catch (caught) {
-        handleError(caught, t("tasks.actionFailed"));
-      } finally {
-        setPendingAction(null);
-      }
-    },
-    [
-      closeActionEditForm,
-      editingActionId,
-      editingActionObjective,
-      editingActionStatus,
-      editingActionTitle,
-      handleError,
-      loadTasks,
-      selectedTask,
-      t,
-    ]
-  );
-
-  const startActionSortMode = useCallback(() => {
-    setIsActionFormOpen(false);
-    closeActionEditForm();
-    setTriggerActionId(null);
-    setDraftActionOrderIds(visibleActions.map((action) => action.actionId));
-    setDraggingActionId(null);
-    setIsActionSortMode(true);
-  }, [closeActionEditForm, visibleActions]);
-
-  const cancelActionSortMode = useCallback(() => {
-    setIsActionSortMode(false);
-    setDraftActionOrderIds([]);
-    setDraggingActionId(null);
-  }, []);
-
-  const moveDraftAction = useCallback(
-    (actionId: string, direction: -1 | 1) => {
-      const fallbackOrder = visibleActions.map((action) => action.actionId);
-      setDraftActionOrderIds((current) => {
-        const order = current.length > 0 ? current.slice() : fallbackOrder.slice();
-        const currentIndex = order.indexOf(actionId);
-        const targetIndex = currentIndex + direction;
-        if (currentIndex < 0 || targetIndex < 0 || targetIndex >= order.length) return current;
-        const [moved] = order.splice(currentIndex, 1);
-        order.splice(targetIndex, 0, moved);
-        return order;
-      });
-    },
-    [visibleActions]
-  );
-
-  const moveDraftActionToIndex = useCallback(
-    (actionId: string, targetIndex: number) => {
-      const fallbackOrder = visibleActions.map((action) => action.actionId);
-      setDraftActionOrderIds((current) => {
-        const order = current.length > 0 ? current.slice() : fallbackOrder.slice();
-        const currentIndex = order.indexOf(actionId);
-        const boundedTargetIndex = Math.max(0, Math.min(targetIndex, order.length - 1));
-        if (currentIndex < 0 || currentIndex === boundedTargetIndex) return current;
-        const [moved] = order.splice(currentIndex, 1);
-        order.splice(boundedTargetIndex, 0, moved);
-        return order;
-      });
-    },
-    [visibleActions]
-  );
-
-  const submitActionSortOrder = useCallback(async () => {
-    if (!selectedTask) return;
-    const orderIds =
-      draftActionOrderIds.length > 0
-        ? draftActionOrderIds
-        : visibleActions.map((action) => action.actionId);
-    const byId = new Map(visibleActions.map((action) => [action.actionId, action]));
-    const nextActions = orderIds.flatMap((actionId) => {
-      const action = byId.get(actionId);
-      return action ? [action] : [];
-    });
-    if (nextActions.length <= 1) {
-      cancelActionSortMode();
+    const goal = newGoal.trim();
+    const title = newTitle.trim() || goal || "任务会话";
+    if (!goal) {
+      setError("请先填写任务目标。");
       return;
     }
-    setPendingAction(`sort-actions:${selectedTask.taskId}`);
-    setInternalError(null);
-    try {
-      await Promise.all(
-        nextActions.map((action, index) =>
-          updateTaskAction(selectedTask.taskId, action.actionId, { sequenceIndex: index + 1 })
-        )
-      );
-      setDetailActions((current) => {
-        const reorderedIds = new Set(nextActions.map((action) => action.actionId));
-        const reordered = nextActions.map((action, index) => ({
-          ...action,
-          sequenceIndex: index + 1,
-        }));
-        const rest = current.filter((action) => !reorderedIds.has(action.actionId));
-        return [...reordered, ...rest];
-      });
-      cancelActionSortMode();
-      await loadTasks(selectedTask.taskId);
-    } catch (caught) {
-      handleError(caught, t("tasks.actionFailed"));
-    } finally {
-      setPendingAction(null);
-    }
-  }, [
-    cancelActionSortMode,
-    draftActionOrderIds,
-    handleError,
-    loadTasks,
-    selectedTask,
-    t,
-    visibleActions,
-  ]);
-
-  const handleActionDragStart = useCallback(
-    (event: React.DragEvent<HTMLDivElement>, actionId: string) => {
-      if (!isActionSortMode) return;
-      setDraggingActionId(actionId);
-      event.dataTransfer.effectAllowed = "move";
-      event.dataTransfer.setData("text/plain", actionId);
-    },
-    [isActionSortMode]
-  );
-
-  const handleActionDragOver = useCallback(
-    (event: React.DragEvent<HTMLDivElement>) => {
-      if (!isActionSortMode) return;
-      event.preventDefault();
-      event.dataTransfer.dropEffect = "move";
-    },
-    [isActionSortMode]
-  );
-
-  const handleActionDrop = useCallback(
-    (event: React.DragEvent<HTMLDivElement>, targetIndex: number) => {
-      if (!isActionSortMode) return;
-      event.preventDefault();
-      const actionId = event.dataTransfer.getData("text/plain") || draggingActionId;
-      if (actionId) moveDraftActionToIndex(actionId, targetIndex);
-      setDraggingActionId(null);
-    },
-    [draggingActionId, isActionSortMode, moveDraftActionToIndex]
-  );
-
-  const openTriggerForm = useCallback(
-    (action?: TaskActionInfo) => {
-      const targetAction = action || visibleActions[0] || null;
-      closeActionEditForm();
-      setEditingTriggerId(null);
-      setTriggerActionId(targetAction?.actionId || null);
-      setNewTriggerRunAt("");
-    },
-    [closeActionEditForm, visibleActions]
-  );
-
-  const submitNewTrigger = useCallback(
-    async (event: React.FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-      if (!selectedTask || !triggerActionId) return;
-      const action = visibleActions.find((item) => item.actionId === triggerActionId) || null;
-      const title = action?.title || selectedTask.title;
-      const prompt =
-        action?.objective || action?.title || selectedTask.objective || selectedTask.title;
-      if (!newTriggerRunAt) {
-        setInternalError(t("tasks.triggerRunAtRequired"));
-        return;
-      }
-      setPendingAction(`create-trigger:${triggerActionId}`);
-      setInternalError(null);
-      try {
-        const input: TaskTriggerCreateInput = {
+    await runAction(
+      "create-session",
+      () =>
+        createTaskSession({
           title,
-          prompt,
-          kind: "once",
-          timezone: currentTimezone(),
-          run_at: newTriggerRunAt,
-          enabled: true,
-          max_runtime_seconds: 600,
-        };
-        await createTaskActionTrigger(selectedTask.taskId, triggerActionId, input);
-        setTriggerActionId(null);
-        setNewTriggerRunAt("");
-        await loadTasks(selectedTask.taskId);
-      } catch (caught) {
-        handleError(caught, t("tasks.actionFailed"));
-      } finally {
-        setPendingAction(null);
-      }
-    },
-    [handleError, loadTasks, newTriggerRunAt, selectedTask, t, triggerActionId, visibleActions]
-  );
+          sourceSurface: "web_task_tab",
+          taskType: newTaskType,
+          goal,
+          executor: "vitana",
+          initialMessage: goal,
+        }),
+      "已创建任务会话"
+    );
+    setNewTitle("");
+    setNewGoal("");
+    setSpecGoal(goal);
+    setSpecTaskType(newTaskType);
+  };
 
-  const openTriggerEditForm = useCallback(
-    (trigger: TaskTriggerInfo) => {
-      closeActionEditForm();
-      setTriggerActionId(null);
-      setEditingTriggerId(trigger.trigger_id);
-      setEditingTriggerKind(trigger.kind);
-      setEditingTriggerRunAt(toDateTimeLocalValue(trigger.run_at || trigger.next_run_at));
-      setEditingTriggerIntervalMinutes(
-        String(Math.max(1, Math.round((trigger.interval_seconds || 3_600) / 60)))
-      );
-      setEditingTriggerMaxRuns(trigger.max_runs ? String(trigger.max_runs) : "");
-      setConfirmingTriggerDeleteId(null);
-    },
-    [closeActionEditForm]
-  );
+  const submitCreateSpec = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!selectedSession) return;
+    const goal = specGoal.trim() || selectedSession.goal || "";
+    if (!goal) {
+      setError("请先填写 TaskSpec 目标。");
+      return;
+    }
+    await runAction(
+      "create-spec",
+      () =>
+        createTaskSpec(selectedSession.sessionId, {
+          taskType: specTaskType,
+          goal,
+          riskLevel: "low",
+          impactSummary: specImpact.trim() || `准备执行：${goal}`,
+        }),
+      "已生成 TaskSpec"
+    );
+    setSpecImpact("");
+  };
 
-  const submitTriggerEdit = useCallback(
-    async (event: React.FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-      if (!editingTriggerId) return;
-      const trigger =
-        selectedTaskTriggers.find((item) => item.trigger_id === editingTriggerId) || null;
-      const taskId = trigger?.task_id || selectedTask?.taskId;
-      if (!trigger || !taskId) return;
-      const input: TaskTriggerUpdateInput = {
-        kind: editingTriggerKind,
-        timezone: currentTimezone(),
-        enabled: trigger.enabled,
-      };
-      if (editingTriggerKind === "once") {
-        if (!editingTriggerRunAt) {
-          setInternalError(t("tasks.triggerRunAtRequired"));
-          return;
-        }
-        input.run_at = editingTriggerRunAt;
-        input.interval_seconds = null;
-        input.max_runs = null;
-      } else {
-        const intervalMinutes = Number(editingTriggerIntervalMinutes);
-        if (!Number.isFinite(intervalMinutes) || intervalMinutes <= 0) {
-          setInternalError(t("tasks.triggerIntervalRequired"));
-          return;
-        }
-        const maxRunsText = editingTriggerMaxRuns.trim();
-        if (maxRunsText) {
-          const maxRuns = Number(maxRunsText);
-          if (!Number.isInteger(maxRuns) || maxRuns <= 0) {
-            setInternalError(t("tasks.triggerMaxRunsInvalid"));
-            return;
-          }
-          input.max_runs = maxRuns;
-        } else {
-          input.max_runs = null;
-        }
-        input.run_at = null;
-        input.interval_seconds = Math.max(1, Math.round(intervalMinutes * 60));
-      }
-      setPendingAction(`edit-trigger:${editingTriggerId}`);
-      setInternalError(null);
-      try {
-        await updateTaskTrigger(taskId, editingTriggerId, input);
-        setEditingTriggerId(null);
-        await loadTasks(selectedTask?.taskId || selectedId);
-      } catch (caught) {
-        handleError(caught, t("tasks.actionFailed"));
-      } finally {
-        setPendingAction(null);
-      }
-    },
-    [
-      editingTriggerId,
-      editingTriggerIntervalMinutes,
-      editingTriggerKind,
-      editingTriggerMaxRuns,
-      editingTriggerRunAt,
-      handleError,
-      loadTasks,
-      selectedId,
-      selectedTask?.taskId,
-      selectedTaskTriggers,
-      t,
-    ]
-  );
+  const confirmLatestSpec = (startRunAfterConfirm: boolean) => {
+    if (!selectedSession || !latestSpec) return;
+    void runAction(
+      startRunAfterConfirm ? "confirm-run" : "confirm-spec",
+      () =>
+        confirmTaskSpec(selectedSession.sessionId, latestSpec.taskSpecId, {
+          startRun: startRunAfterConfirm,
+        }),
+      startRunAfterConfirm ? "已确认并启动运行" : "已确认 TaskSpec"
+    );
+  };
 
-  const toggleTriggerEnabledOperation = useCallback(
-    async (trigger: TaskTriggerInfo) => {
-      const taskId = trigger.task_id || selectedTask?.taskId;
-      if (!taskId) return;
-      setPendingAction(`toggle-trigger:${trigger.trigger_id}`);
-      setInternalError(null);
-      try {
-        await updateTaskTrigger(taskId, trigger.trigger_id, { enabled: !trigger.enabled });
-        await loadTasks(selectedTask?.taskId || selectedId);
-      } catch (caught) {
-        handleError(caught, t("tasks.actionFailed"));
-      } finally {
-        setPendingAction(null);
-      }
-    },
-    [handleError, loadTasks, selectedId, selectedTask?.taskId, t]
-  );
+  const startLatestRun = () => {
+    if (!selectedSession || !latestSpec) return;
+    void runAction(
+      "start-run",
+      () =>
+        startTaskRun(selectedSession.sessionId, latestSpec.taskSpecId, {
+          confirm: latestSpec.status === "pending_confirm",
+        }),
+      "已启动 TaskRun"
+    );
+  };
 
-  const deleteTriggerOperation = useCallback(
-    async (trigger: TaskTriggerInfo) => {
-      const taskId = trigger.task_id || selectedTask?.taskId;
-      if (!taskId) return;
-      if (confirmingTriggerDeleteId !== trigger.trigger_id) {
-        setConfirmingTriggerDeleteId(trigger.trigger_id);
-        return;
-      }
-      setPendingAction(`delete-trigger:${trigger.trigger_id}`);
-      setInternalError(null);
-      try {
-        await deleteTaskTrigger(taskId, trigger.trigger_id);
-        setConfirmingTriggerDeleteId(null);
-        setEditingTriggerId(null);
-        await loadTasks(selectedTask?.taskId || selectedId);
-      } catch (caught) {
-        handleError(caught, t("tasks.actionFailed"));
-      } finally {
-        setPendingAction(null);
-      }
-    },
-    [confirmingTriggerDeleteId, handleError, loadTasks, selectedId, selectedTask?.taskId, t]
-  );
+  const completeLatestRun = () => {
+    if (!selectedSession || !latestRun) return;
+    const summary = runSummary.trim() || "任务运行已完成。";
+    void runAction(
+      "complete-run",
+      () =>
+        updateTaskRun(selectedSession.sessionId, latestRun.runId, {
+          status: "completed",
+          resultSummary: summary,
+        }),
+      "已标记运行完成"
+    );
+    setRunSummary("");
+  };
 
-  const runTriggerOperation = useCallback(
-    async (trigger: TaskTriggerInfo) => {
-      const taskId = trigger.task_id || selectedTask?.taskId;
-      if (!taskId) return;
-      setPendingAction(`trigger:${trigger.trigger_id}`);
-      setInternalError(null);
-      try {
-        await runTaskTriggerNow(taskId, trigger.trigger_id);
-        await loadTasks(selectedId);
-      } catch (caught) {
-        handleError(caught, t("tasks.actionFailed"));
-      } finally {
-        setPendingAction(null);
-      }
-    },
-    [handleError, loadTasks, selectedId, selectedTask?.taskId, t]
+  const failLatestRun = () => {
+    if (!selectedSession || !latestRun) return;
+    const reason = failureReason.trim() || "运行失败。";
+    void runAction(
+      "fail-run",
+      () =>
+        updateTaskRun(selectedSession.sessionId, latestRun.runId, {
+          status: "failed",
+          failureReason: reason,
+        }),
+      "已标记运行失败"
+    );
+    setFailureReason("");
+  };
+
+  const cancelLatestRun = () => {
+    if (!selectedSession || !latestRun) return;
+    void runAction(
+      "cancel-run",
+      () => cancelTaskRun(selectedSession.sessionId, latestRun.runId),
+      "已取消当前运行"
+    );
+  };
+
+  const requestConfirmation = () => {
+    if (!selectedSession) return;
+    const title = confirmationTitle.trim() || "请确认是否继续执行";
+    void runAction(
+      "create-confirmation",
+      () =>
+        createTaskConfirmation(selectedSession.sessionId, {
+          title,
+          confirmationType: "allow_deny",
+          critical: true,
+        }),
+      "已创建确认卡"
+    );
+    setConfirmationTitle("");
+  };
+
+  const respondConfirmation = (confirmation: TaskConfirmationInfo, allow: boolean) => {
+    if (!selectedSession) return;
+    void runAction(
+      allow ? "accept-confirmation" : "reject-confirmation",
+      () =>
+        respondTaskConfirmation(selectedSession.sessionId, confirmation.confirmationId, {
+          decision: allow ? "allow" : "deny",
+        }),
+      allow ? "已通过确认" : "已拒绝确认"
+    );
+  };
+
+  const isBusy = Boolean(submittingAction);
+  const canStartRun = Boolean(selectedSession && latestSpec && !latestRun);
+  const canCompleteRun = Boolean(
+    latestRun && !["completed", "cancelled", "failed"].includes(latestRun.status)
   );
+  const sourceSessionId =
+    selectedSession?.sourceSurface === "session"
+      ? selectedSession.sourceId
+      : selectedSession?.sourceId;
 
   return (
     <div
       data-ripple-task-page="true"
-      className={`flex h-full min-h-0 flex-col overflow-hidden ${WORKBENCH_PAGE_BACKGROUND_CLASS} text-[#1F2329]`}
+      className={`${WORKBENCH_PAGE_BACKGROUND_CLASS} ${MOBILE_PAGE_TOP_SAFE_AREA_CLASS} ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS} h-full min-h-0 overflow-y-auto text-[#1F2329] lg:pt-0 lg:pb-6`}
     >
-      {mobileDetailTask ? (
-        <MobilePageHeader
-          title={mobileDetailTask.title}
-          subtitle={`${statusLabel(mobileDetailTask.status, t)} · ${progressText(
-            mobileDetailTask
-          )}`}
-          backLabel={t("tasks.backToTasks")}
-          onBack={closeMobileTaskDetail}
-        />
-      ) : (
-        <MobilePageHeader
-          title={t("tasks.title")}
-          subtitle={t("tasks.total", { count: taskList.length })}
-          actions={
+      <div className={`${WORKBENCH_PAGE_CONTENT_CLASS} space-y-4 p-4 lg:p-6`}>
+        <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <div className={`${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#646A73]`}>
+              Vitana Task Center
+            </div>
+            <h1 className={`${TYPOGRAPHY_PAGE_TITLE_CLASS} text-[#1F2329]`}>Task Sessions</h1>
+            <p className={`${TYPOGRAPHY_BODY_CLASS} mt-1 max-w-3xl text-[#646A73]`}>
+              当前 Task tab 已切到 `/v1/task-sessions`。这里用于验证任务会话、TaskSpec、确认卡和
+              TaskRun 投影，不再调用旧 `/v1/tasks`。
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span
+              className={`${TYPOGRAPHY_META_CLASS} rounded-lg bg-white px-2.5 py-1 text-[#646A73]`}
+            >
+              User: {userId}
+            </span>
             <button
               type="button"
-              onClick={refresh}
-              aria-label={t("tasks.refresh")}
-              title={t("tasks.refresh")}
-              className={WORKBENCH_ICON_BUTTON_CLASS}
-              disabled={loading}
+              className={`${WORKBENCH_ICON_BUTTON_CLASS} h-9 w-9`}
+              onClick={() => void loadSessions(selectedSessionId)}
+              disabled={loading || isBusy}
+              aria-label="刷新任务会话"
+              title="刷新任务会话"
             >
-              {loading ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+              {loading ? (
+                <Loader2 className="h-4 w-4 animate-spin" strokeWidth={LUCIDE_NAV_STROKE_WIDTH} />
+              ) : (
+                <RefreshCw className="h-4 w-4" strokeWidth={LUCIDE_NAV_STROKE_WIDTH} />
+              )}
             </button>
-          }
-        />
-      )}
+          </div>
+        </header>
 
-      <div
-        className={`min-h-0 flex-1 overflow-y-auto px-3 ${MOBILE_PAGE_TOP_SAFE_AREA_CLASS} ${MOBILE_PAGE_NAV_BOTTOM_PADDING_CLASS} md:px-6 lg:pt-5 lg:pb-5`}
-      >
-        <div className={`${WORKBENCH_PAGE_CONTENT_CLASS} flex min-h-full flex-col gap-3`}>
-          <header className="hidden items-center justify-between gap-3 lg:flex">
-            <div className="min-w-0">
-              <h1 className={`${TYPOGRAPHY_PAGE_TITLE_CLASS} text-[#1F2329]`}>
-                {t("tasks.title")}
-              </h1>
-              <p className={`${TYPOGRAPHY_META_CLASS} mt-0.5 text-[#646A73]`}>
-                {t("tasks.total", { count: taskList.length })}
-              </p>
-            </div>
+        {error ? (
+          <div className="flex items-start gap-2 rounded-lg border border-[#FAD4D4] bg-[#FFF1F0] px-3 py-2 text-[#B42318]">
+            <AlertTriangle
+              className="mt-0.5 h-4 w-4 shrink-0"
+              strokeWidth={LUCIDE_NAV_STROKE_WIDTH}
+            />
+            <span className={TYPOGRAPHY_BODY_CLASS}>{error}</span>
+          </div>
+        ) : null}
+        {notice ? (
+          <div className="flex items-start gap-2 rounded-lg border border-[#BFEAD6] bg-[#E4F8EE] px-3 py-2 text-[#16845B]">
+            <CheckCircle2
+              className="mt-0.5 h-4 w-4 shrink-0"
+              strokeWidth={LUCIDE_NAV_STROKE_WIDTH}
+            />
+            <span className={TYPOGRAPHY_BODY_CLASS}>{notice}</span>
+          </div>
+        ) : null}
+
+        <form
+          className="rounded-lg border border-[#DEE0E3] bg-white p-4 shadow-[0_1px_2px_rgba(31,35,41,0.04)]"
+          onSubmit={submitCreateSession}
+        >
+          <div className="flex flex-col gap-3 lg:grid lg:grid-cols-[minmax(0,1fr)_180px_minmax(0,1.5fr)_auto] lg:items-end">
+            <label className="flex flex-col gap-1">
+              <span className={`${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#646A73]`}>标题</span>
+              <input
+                className={`${WORKBENCH_FIELD_CLASS} h-9 px-3 ${TYPOGRAPHY_BODY_CLASS}`}
+                value={newTitle}
+                onChange={(event) => setNewTitle(event.target.value)}
+                placeholder="可选，默认取任务目标"
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className={`${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#646A73]`}>类型</span>
+              <select
+                className={`${WORKBENCH_FIELD_CLASS} h-9 px-3 ${TYPOGRAPHY_BODY_CLASS}`}
+                value={newTaskType}
+                onChange={(event) => setNewTaskType(event.target.value)}
+              >
+                {taskTypeOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className={`${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#646A73]`}>目标</span>
+              <input
+                className={`${WORKBENCH_FIELD_CLASS} h-9 px-3 ${TYPOGRAPHY_BODY_CLASS}`}
+                value={newGoal}
+                onChange={(event) => setNewGoal(event.target.value)}
+                placeholder="例如：明天上午整理客户会议纪要"
+              />
+            </label>
             <button
-              type="button"
-              onClick={refresh}
-              className={`${WORKBENCH_SECONDARY_BUTTON_CLASS} h-9 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
-              disabled={loading}
+              type="submit"
+              className={`${WORKBENCH_PRIMARY_BUTTON_CLASS} h-9 px-3 ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
+              disabled={isBusy}
             >
-              {loading ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
-              <span>{t("tasks.refresh")}</span>
+              {submittingAction === "create-session" ? (
+                <Loader2 className="h-4 w-4 animate-spin" strokeWidth={LUCIDE_NAV_STROKE_WIDTH} />
+              ) : (
+                <Plus className="h-4 w-4" strokeWidth={LUCIDE_NAV_STROKE_WIDTH} />
+              )}
+              <span>新建会话</span>
             </button>
-          </header>
+          </div>
+        </form>
 
-          {errorMessage ? (
-            <div
-              className={`flex items-start gap-2 rounded-lg border border-[#B42318]/25 bg-[#FFF1F0] px-3 py-2 ${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#B42318]`}
-            >
-              <AlertTriangle size={15} className="mt-0.5 shrink-0" />
-              <span className="min-w-0 break-words">{errorMessage}</span>
-            </div>
-          ) : null}
-
-          <div
-            data-ripple-task-focus-split="true"
-            className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(286px,0.78fr)_minmax(0,1.5fr)] xl:grid-cols-[320px_minmax(0,1fr)]"
+        <div className="grid min-h-[520px] gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
+          <aside
+            data-ripple-task-list="true"
+            className="min-h-0 rounded-lg border border-[#DEE0E3] bg-white shadow-[0_1px_2px_rgba(31,35,41,0.04)]"
           >
-            <section
-              data-ripple-task-list="true"
-              data-ripple-task-inbox="true"
-              data-ripple-task-mobile-index-page="true"
-              className={`${taskPanelClass} min-h-0 overflow-hidden ${
-                mobileDetailTask ? "hidden lg:block" : ""
-              }`}
-            >
-              <div className="hidden items-center justify-between gap-2 border-b border-[#EFF0F1] px-3 py-2.5 lg:flex">
-                <div className="min-w-0">
-                  <h2 className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} truncate text-[#1F2329]`}>
-                    {t("tasks.title")}
-                  </h2>
-                  <p className={`${TYPOGRAPHY_META_CLASS} mt-0.5 text-[#646A73]`}>
-                    {t("tasks.total", { count: orderedTasks.length })}
-                  </p>
+            <div className="flex items-center justify-between border-b border-[#EFF0F1] px-4 py-3">
+              <div>
+                <div className={`${TYPOGRAPHY_SECTION_TITLE_CLASS} text-[#1F2329]`}>任务会话</div>
+                <div className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
+                  {sessions.length} 条记录
                 </div>
-                {loading ? (
-                  <Loader2 size={15} className="shrink-0 animate-spin text-[#646A73]" />
-                ) : null}
               </div>
-              <div className="grid content-start gap-2 p-2.5">
-                {orderedTasks.length === 0 && !loading ? (
-                  <div
-                    className={`rounded-lg border border-dashed border-[#D0D3D6] bg-[#F8F9FA] px-4 py-8 text-center ${TYPOGRAPHY_BODY_CLASS} text-[#646A73]`}
-                  >
-                    {emptyTaskMessage}
+              {loading ? (
+                <Loader2
+                  className="h-4 w-4 animate-spin text-[#646A73]"
+                  strokeWidth={LUCIDE_NAV_STROKE_WIDTH}
+                />
+              ) : null}
+            </div>
+            <div className="max-h-[calc(100vh-360px)] min-h-[320px] overflow-y-auto p-2">
+              {sessions.length === 0 ? (
+                <div className="flex h-64 flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-[#DEE0E3] text-center">
+                  <MessageSquare
+                    className="h-6 w-6 text-[#8F959E]"
+                    strokeWidth={LUCIDE_NAV_STROKE_WIDTH}
+                  />
+                  <div className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#1F2329]`}>
+                    {taskSessionEmptyStateMessageKey(0, 0) === "tasks.noTaskSessions"
+                      ? "还没有任务会话"
+                      : "没有匹配的任务会话"}
                   </div>
-                ) : null}
-                {orderedTasks.map((task) => {
-                  const selected = isDesktopTaskLayout && selectedTask?.taskId === task.taskId;
-                  const pinLabel = task.pinned ? t("tasks.unpin") : t("tasks.pin");
-                  const deletePending = pendingAction === `delete:${task.taskId}`;
-                  const pinPending = pendingAction === `pin:${task.taskId}`;
-                  return (
-                    <SwipeActionRow
-                      key={task.taskId}
-                      data-ripple-mobile-task-swipe
-                      leadingActions={[
-                        {
-                          key: "pin",
-                          label: pinLabel,
-                          icon: <Pin size={14} />,
-                          tone: "accent",
-                          onClick: () => {
-                            void toggleTaskPinned(task);
-                          },
-                        },
-                      ]}
-                      trailingActions={[
-                        {
-                          key: "delete",
-                          label: t("tasks.delete"),
-                          icon: <Trash2 size={14} />,
-                          tone: "danger",
-                          onClick: () => {
-                            void quickDeleteTask(task.taskId);
-                          },
-                        },
-                      ]}
-                      disabled={isDesktopTaskLayout || Boolean(pendingAction)}
-                      className="rounded-xl"
-                    >
-                      <div
-                        data-ripple-task-card="true"
-                        className={`group flex min-w-0 rounded-xl border text-left transition-colors active:bg-[#EFF0F1] ${
-                          selected
-                            ? "border-[#BACEFD] bg-[#F0F5FF] shadow-[inset_3px_0_0_#1456F0]"
-                            : "border-[#DEE0E3] bg-white shadow-[0_1px_2px_rgba(31,35,41,0.04)] hover:border-[#BACEFD] hover:bg-[#F8F9FA]"
-                        }`}
-                      >
-                        <button
-                          type="button"
-                          onClick={() => selectTaskFromList(task.taskId)}
-                          className="min-w-0 flex-1 px-3.5 py-3 text-left"
-                        >
-                          <div className="flex min-w-0 items-start justify-between gap-2">
-                            <div className="min-w-0">
-                              <div className="flex min-w-0 items-center gap-1.5">
-                                <span className={`truncate ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}>
-                                  {task.title}
-                                </span>
-                                {task.pinned ? (
-                                  <Pin size={12} className="shrink-0 text-[#646A73]" />
-                                ) : null}
-                              </div>
-                              <div
-                                className={`mt-0.5 truncate ${TYPOGRAPHY_META_CLASS} text-[#646A73]`}
-                              >
-                                {task.progress?.currentActionTitle || task.objective || task.taskId}
-                              </div>
-                            </div>
-                            <span
-                              className={`${statusClass(task.status)} shrink-0 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}
-                            >
-                              {statusLabel(task.status, t)}
-                            </span>
-                            <ChevronRight
-                              size={16}
-                              className="hidden shrink-0 text-[#8F959E] group-hover:text-[#646A73] sm:block lg:hidden"
-                            />
-                          </div>
-                          <div className="mt-2 flex items-center justify-between gap-2">
-                            <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-[#EFF0F1]">
-                              <div
-                                className="h-full rounded-full bg-[#1456F0]"
-                                style={{ width: `${task.progress?.percent ?? 0}%` }}
-                              />
-                            </div>
-                            <span
-                              className={`${TYPOGRAPHY_META_MEDIUM_CLASS} shrink-0 text-[#646A73]`}
-                            >
-                              {progressText(task)}
-                            </span>
-                          </div>
-                        </button>
-                        <div className="hidden w-10 shrink-0 flex-col border-l border-[#EFF0F1] lg:flex">
-                          <button
-                            type="button"
-                            data-ripple-task-card-action="pin"
-                            aria-label={pinLabel}
-                            title={pinLabel}
-                            disabled={pinPending || deletePending}
-                            onClick={() => void toggleTaskPinned(task)}
-                            className="flex h-1/2 min-h-[38px] items-center justify-center text-[#646A73] transition-colors hover:bg-[#F0F5FF] hover:text-[#1456F0] disabled:opacity-50"
-                          >
-                            {pinPending ? (
-                              <Loader2 size={14} className="animate-spin" />
-                            ) : (
-                              <Pin size={14} />
-                            )}
-                            <span className="sr-only">{pinLabel}</span>
-                          </button>
-                          <button
-                            type="button"
-                            data-ripple-task-card-action="delete"
-                            aria-label={t("tasks.delete")}
-                            title={t("tasks.delete")}
-                            disabled={pinPending || deletePending}
-                            onClick={() => void quickDeleteTask(task.taskId)}
-                            className="flex h-1/2 min-h-[38px] items-center justify-center border-t border-[#EFF0F1] text-[#B42318] transition-colors hover:bg-[#FFF1F0] disabled:opacity-50"
-                          >
-                            {deletePending ? (
-                              <Loader2 size={14} className="animate-spin" />
-                            ) : (
-                              <Trash2 size={14} />
-                            )}
-                            <span className="sr-only">{t("tasks.delete")}</span>
-                          </button>
-                        </div>
-                      </div>
-                    </SwipeActionRow>
-                  );
-                })}
-              </div>
-            </section>
-
-            <motion.section
-              data-ripple-task-detail="true"
-              data-ripple-task-mobile-detail-page="true"
-              data-ripple-task-detail-swipe-sheet="true"
-              data-ripple-task-detail-swiping={isTaskDetailSwipeActive ? "true" : "false"}
-              style={{ x: taskDetailSwipeX }}
-              className={`min-h-0 ${
-                mobileDetailTask ? "block" : "hidden lg:block"
-              } ${mobileDetailTask ? "touch-pan-y overflow-y-auto" : ""} ${
-                isTaskDetailSwipeActive ? "will-change-transform" : "will-change-auto"
-              } lg:will-change-auto`}
-              onPointerDownCapture={handleTaskDetailSwipePointerDown}
-              onPointerMoveCapture={handleTaskDetailSwipePointerMove}
-              onPointerUpCapture={handleTaskDetailSwipePointerUp}
-              onPointerCancelCapture={handleTaskDetailSwipePointerCancel}
-              onClickCapture={handleTaskDetailSwipeClickCapture}
-              onTouchStartCapture={handleTaskDetailSwipeTouchStartCapture}
-              onTouchMoveCapture={handleTaskDetailSwipeTouchMoveCapture}
-              onTouchEndCapture={clearTaskDetailSwipeTouchGuard}
-              onTouchCancelCapture={clearTaskDetailSwipeTouchGuard}
-            >
-              {selectedTask ? (
-                <div className="grid min-h-full gap-3">
-                  <div
-                    data-ripple-task-summary="true"
-                    className={`${taskPanelClass} overflow-hidden`}
-                  >
-                    <div className="grid gap-3 p-3 sm:p-4">
-                      <div className="flex min-w-0 flex-col items-start gap-3 sm:flex-row sm:justify-between">
-                        <div className="min-w-0 sm:flex-1">
-                          <div className="flex min-w-0 flex-wrap items-center gap-2">
-                            <h2
-                              className={`${TYPOGRAPHY_SECTION_TITLE_CLASS} min-w-0 truncate text-[#1F2329]`}
-                            >
-                              {selectedTask.title}
-                            </h2>
-                            <span
-                              className={`${statusClass(selectedTask.status)} ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}
-                            >
-                              {statusLabel(selectedTask.status, t)}
-                            </span>
-                          </div>
-                          <p className={`${TYPOGRAPHY_BODY_CLASS} mt-1 text-[#646A73]`}>
-                            {selectedTask.objective || t("tasks.objective")}
-                          </p>
-                        </div>
-                        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:shrink-0 sm:justify-end">
-                          {canConfirm(selectedTask) ? (
-                            <button
-                              type="button"
-                              onClick={() => void runTaskOperation(selectedTask.taskId, "confirm")}
-                              className={`${WORKBENCH_PRIMARY_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
-                              disabled={pendingAction !== null}
-                            >
-                              <Check size={14} />
-                              <span>{t("tasks.confirm")}</span>
-                            </button>
-                          ) : null}
-                          {canRun(selectedTask) ? (
-                            <button
-                              type="button"
-                              onClick={() => void runTaskOperation(selectedTask.taskId, "run")}
-                              className={`${WORKBENCH_PRIMARY_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
-                              disabled={pendingAction !== null}
-                            >
-                              {pendingAction === `run:${selectedTask.taskId}` ? (
-                                <Loader2 size={14} className="animate-spin" />
-                              ) : (
-                                <Play size={14} />
-                              )}
-                              <span>
-                                {pendingAction === `run:${selectedTask.taskId}`
-                                  ? t("tasks.runningNow")
-                                  : t("tasks.runNow")}
-                              </span>
-                            </button>
-                          ) : null}
-                          {selectedTask.sourceSessionId ? (
-                            <button
-                              type="button"
-                              onClick={() => onOpenSession?.(selectedTask.sourceSessionId || "")}
-                              title={t("tasks.viewSourceSession")}
-                              className={`${WORKBENCH_SECONDARY_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
-                            >
-                              <CircleDot size={14} strokeWidth={LUCIDE_NAV_STROKE_WIDTH} />
-                              <span>{t("tasks.viewSourceSession")}</span>
-                            </button>
-                          ) : null}
-                        </div>
-                      </div>
-
-                      <div>
-                        <div className="flex items-center justify-between gap-3">
-                          <span className={`${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#646A73]`}>
-                            {t("tasks.progress")}
-                          </span>
-                          <span className={`${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#1F2329]`}>
-                            {progressText(selectedTask)} · {selectedTask.progress?.percent ?? 0}%
-                          </span>
-                        </div>
-                        <div className="mt-2 h-2 overflow-hidden rounded-full bg-[#EFF0F1]">
-                          <div
-                            className="h-full rounded-full bg-[#1456F0]"
-                            style={{ width: `${selectedTask.progress?.percent ?? 0}%` }}
-                          />
-                        </div>
-                      </div>
-
-                      <div className="grid gap-2 md:grid-cols-4">
-                        <div className={`${taskSoftPanelClass} px-3 py-2`}>
-                          <div className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
-                            {t("tasks.currentAction")}
-                          </div>
-                          <div
-                            className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} mt-0.5 truncate text-[#1F2329]`}
-                          >
-                            {currentActionSummaryText(selectedTask, t)}
-                          </div>
-                        </div>
-                        <div className={`${taskSoftPanelClass} px-3 py-2`}>
-                          <div className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
-                            {t("tasks.nextRun")}
-                          </div>
-                          <div
-                            className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} mt-0.5 truncate text-[#1F2329]`}
-                          >
-                            {formatDate(selectedTaskNextRunAt, locale, t("tasks.triggerNoNextRun"))}
-                          </div>
-                        </div>
-                        <div className={`${taskSoftPanelClass} px-3 py-2`}>
-                          <div className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
-                            {t("tasks.updated")}
-                          </div>
-                          <div
-                            className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} mt-0.5 truncate text-[#1F2329]`}
-                          >
-                            {formatDate(selectedTask.updatedAt, locale, t("tasks.unknown"))}
-                          </div>
-                        </div>
-                        <div className={`${taskSoftPanelClass} px-3 py-2`}>
-                          <div className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
-                            {t("tasks.triggers")}
-                          </div>
-                          <div
-                            className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} mt-0.5 truncate text-[#1F2329]`}
-                          >
-                            {selectedTaskActionTriggers.length + selectedTaskTriggers.length}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="flex flex-wrap items-center gap-2 border-t border-[#EFF0F1] pt-3">
-                        {canCancel(selectedTask) ? (
-                          <button
-                            type="button"
-                            onClick={() => void runTaskOperation(selectedTask.taskId, "cancel")}
-                            className={`${WORKBENCH_DANGER_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
-                            disabled={pendingAction !== null}
-                          >
-                            {pendingAction === `cancel:${selectedTask.taskId}` ? (
-                              <Loader2 size={14} className="animate-spin" />
-                            ) : (
-                              <X size={14} />
-                            )}
-                            <span>
-                              {confirmingTaskAction === `cancel:${selectedTask.taskId}`
-                                ? t("tasks.confirmCancel")
-                                : t("tasks.cancel")}
-                            </span>
-                          </button>
-                        ) : null}
-                        <button
-                          type="button"
-                          onClick={() => void runTaskOperation(selectedTask.taskId, "delete")}
-                          className={`${WORKBENCH_DANGER_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
-                          disabled={pendingAction !== null}
-                        >
-                          {pendingAction === `delete:${selectedTask.taskId}` ? (
-                            <Loader2 size={14} className="animate-spin" />
-                          ) : (
-                            <Trash2 size={14} />
-                          )}
-                          <span>
-                            {confirmingTaskAction === `delete:${selectedTask.taskId}`
-                              ? t("tasks.confirmDelete")
-                              : t("tasks.delete")}
-                          </span>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="grid min-h-0 gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(280px,0.86fr)]">
-                    <section
-                      data-ripple-task-actions-panel="true"
-                      className={`${taskPanelClass} min-h-0 p-3`}
-                    >
-                      <div className="mb-3 flex items-center justify-between gap-2">
-                        <h3 className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#1F2329]`}>
-                          {t("tasks.actions")}
-                        </h3>
-                        <div className="flex items-center gap-2">
-                          {detailLoading ? (
-                            <Loader2 size={14} className="shrink-0 animate-spin text-[#646A73]" />
-                          ) : null}
-                          {isActionSortMode ? (
-                            <>
-                              <button
-                                type="button"
-                                onClick={cancelActionSortMode}
-                                className={`${WORKBENCH_SECONDARY_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
-                                disabled={pendingAction !== null}
-                              >
-                                {t("tasks.cancelSortingActions")}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => void submitActionSortOrder()}
-                                className={`${WORKBENCH_PRIMARY_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
-                                disabled={pendingAction !== null}
-                              >
-                                {pendingAction === `sort-actions:${selectedTask.taskId}` ? (
-                                  <Loader2 size={14} className="animate-spin" />
-                                ) : (
-                                  <Check size={14} />
-                                )}
-                                <span>{t("tasks.finishSortingActions")}</span>
-                              </button>
-                            </>
-                          ) : (
-                            <>
-                              {visibleActions.length > 1 ? (
-                                <button
-                                  type="button"
-                                  onClick={startActionSortMode}
-                                  className={`${WORKBENCH_SECONDARY_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
-                                  disabled={pendingAction !== null || detailLoading}
-                                >
-                                  <GripVertical size={14} />
-                                  <span>{t("tasks.sortActions")}</span>
-                                </button>
-                              ) : null}
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  closeActionEditForm();
-                                  setTriggerActionId(null);
-                                  setEditingTriggerId(null);
-                                  setIsActionFormOpen((open) => !open);
-                                }}
-                                className={`${WORKBENCH_SECONDARY_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
-                                disabled={pendingAction !== null}
-                              >
-                                <Plus size={14} />
-                                <span>{t("tasks.addAction")}</span>
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                      {isActionFormOpen && !isActionSortMode ? (
-                        <form
-                          onSubmit={submitNewAction}
-                          className={`${taskSoftPanelClass} mb-3 grid gap-2 p-3`}
-                        >
-                          <input
-                            value={newActionTitle}
-                            onChange={(event) => setNewActionTitle(event.target.value)}
-                            placeholder={t("tasks.actionTitlePlaceholder")}
-                            className={`h-10 px-2.5 ${WORKBENCH_FIELD_CLASS} ${TYPOGRAPHY_BODY_CLASS}`}
-                          />
-                          <textarea
-                            value={newActionObjective}
-                            onChange={(event) => setNewActionObjective(event.target.value)}
-                            placeholder={t("tasks.actionObjectivePlaceholder")}
-                            rows={2}
-                            className={`min-h-20 px-2.5 py-2 ${WORKBENCH_FIELD_CLASS} ${TYPOGRAPHY_BODY_CLASS}`}
-                          />
-                          <div className="flex flex-wrap justify-end gap-2">
-                            <button
-                              type="button"
-                              onClick={() => setIsActionFormOpen(false)}
-                              className={`${WORKBENCH_SECONDARY_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
-                            >
-                              {t("tasks.cancel")}
-                            </button>
-                            <button
-                              type="submit"
-                              className={`${WORKBENCH_PRIMARY_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
-                              disabled={pendingAction !== null}
-                            >
-                              {pendingAction === `create-action:${selectedTask.taskId}` ? (
-                                <Loader2 size={14} className="animate-spin" />
-                              ) : (
-                                <Plus size={14} />
-                              )}
-                              <span>{t("tasks.addAction")}</span>
-                            </button>
-                          </div>
-                        </form>
-                      ) : null}
-                      {visibleActions.length === 0 && !detailLoading ? (
-                        <div
-                          className={`${TYPOGRAPHY_BODY_CLASS} rounded-lg border border-dashed border-[#D0D3D6] bg-[#F8F9FA] px-3 py-6 text-center text-[#646A73]`}
-                        >
-                          {t("tasks.noActions")}
-                        </div>
-                      ) : null}
-                      <div className="grid gap-0">
-                        {visibleActions.map((action, index) => (
-                          <div
-                            key={action.actionId}
-                            draggable={isActionSortMode}
-                            onDragStart={(event) => handleActionDragStart(event, action.actionId)}
-                            onDragOver={handleActionDragOver}
-                            onDrop={(event) => handleActionDrop(event, index)}
-                            onDragEnd={() => setDraggingActionId(null)}
-                            className={`${taskTimelineItemClass} ${
-                              isActionSortMode
-                                ? "rounded-lg border border-[#DEE0E3] bg-[#F8F9FA] py-2 pr-2 transition-colors"
-                                : ""
-                            } ${draggingActionId === action.actionId ? "opacity-60" : ""}`}
-                          >
-                            <div className="flex min-w-0 items-start justify-between gap-2">
-                              <div className="flex min-w-0 items-center gap-2">
-                                {isActionSortMode ? (
-                                  <span
-                                    aria-label={t("tasks.actionSortHandle")}
-                                    title={t("tasks.actionSortHandle")}
-                                    className="inline-flex h-7 w-7 shrink-0 cursor-grab items-center justify-center rounded-lg text-[#8F959E] active:cursor-grabbing"
-                                  >
-                                    <GripVertical size={15} />
-                                  </span>
-                                ) : null}
-                                <div className="flex min-w-0 items-center gap-2">
-                                  {action.status === "completed" ? (
-                                    <CheckCircle2 size={15} className="shrink-0 text-[#16845B]" />
-                                  ) : action.status === "waiting_user" ? (
-                                    <Clock3 size={15} className="shrink-0 text-[#8B5E00]" />
-                                  ) : action.status === "blocked" ? (
-                                    <AlertTriangle size={15} className="shrink-0 text-[#B42318]" />
-                                  ) : (
-                                    <CircleDot size={15} className="shrink-0 text-[#1456F0]" />
-                                  )}
-                                  <span className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} truncate`}>
-                                    {action.title}
-                                  </span>
-                                </div>
-                              </div>
-                              <div className="flex shrink-0 items-center gap-1.5">
-                                {isActionSortMode ? (
-                                  <>
-                                    <span
-                                      className={`${TYPOGRAPHY_MICRO_MEDIUM_CLASS} shrink-0 rounded-md border border-[#DEE0E3] bg-white px-1.5 py-0.5 text-[#646A73]`}
-                                    >
-                                      {t("tasks.actionSortPosition", {
-                                        current: index + 1,
-                                        total: visibleActions.length,
-                                      })}
-                                    </span>
-                                    <button
-                                      type="button"
-                                      aria-label={t("tasks.moveActionUp")}
-                                      title={t("tasks.moveActionUp")}
-                                      onClick={() => moveDraftAction(action.actionId, -1)}
-                                      className="inline-flex h-7 shrink-0 items-center justify-center gap-1 rounded-lg border border-[#DEE0E3] bg-white px-2 text-[#2B2F36] transition-colors hover:bg-[#F8F9FA] disabled:cursor-not-allowed disabled:opacity-40"
-                                      disabled={pendingAction !== null || index === 0}
-                                    >
-                                      <ChevronUp size={13} />
-                                      <span className={TYPOGRAPHY_MICRO_MEDIUM_CLASS}>
-                                        {t("tasks.moveActionUpShort")}
-                                      </span>
-                                    </button>
-                                    <button
-                                      type="button"
-                                      aria-label={t("tasks.moveActionDown")}
-                                      title={t("tasks.moveActionDown")}
-                                      onClick={() => moveDraftAction(action.actionId, 1)}
-                                      className="inline-flex h-7 shrink-0 items-center justify-center gap-1 rounded-lg border border-[#DEE0E3] bg-white px-2 text-[#2B2F36] transition-colors hover:bg-[#F8F9FA] disabled:cursor-not-allowed disabled:opacity-40"
-                                      disabled={
-                                        pendingAction !== null ||
-                                        index === visibleActions.length - 1
-                                      }
-                                    >
-                                      <ChevronDown size={13} />
-                                      <span className={TYPOGRAPHY_MICRO_MEDIUM_CLASS}>
-                                        {t("tasks.moveActionDownShort")}
-                                      </span>
-                                    </button>
-                                  </>
-                                ) : (
-                                  <>
-                                    <button
-                                      type="button"
-                                      onClick={() => openActionEditForm(action)}
-                                      className={`${WORKBENCH_SECONDARY_BUTTON_CLASS} h-7 px-2 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}
-                                      disabled={
-                                        pendingAction !== null ||
-                                        editingActionId === action.actionId
-                                      }
-                                    >
-                                      <Pencil size={12} />
-                                      <span>{t("tasks.edit")}</span>
-                                    </button>
-                                    <span
-                                      className={`${statusClass(action.status)} ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}
-                                    >
-                                      {statusLabel(action.status, t)}
-                                    </span>
-                                  </>
-                                )}
-                              </div>
-                            </div>
-                            {editingActionId === action.actionId ? (
-                              <form
-                                onSubmit={submitActionEdit}
-                                className="mt-2 grid gap-2 rounded-lg border border-[#DEE0E3] bg-white p-2"
-                              >
-                                <label
-                                  className={`grid gap-1 ${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#646A73]`}
-                                >
-                                  {t("tasks.action")}
-                                  <input
-                                    value={editingActionTitle}
-                                    onChange={(event) => setEditingActionTitle(event.target.value)}
-                                    placeholder={t("tasks.actionTitlePlaceholder")}
-                                    className={`h-9 px-2.5 ${WORKBENCH_FIELD_CLASS} ${TYPOGRAPHY_BODY_CLASS}`}
-                                  />
-                                </label>
-                                <label
-                                  className={`grid gap-1 ${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#646A73]`}
-                                >
-                                  {t("tasks.objective")}
-                                  <textarea
-                                    value={editingActionObjective}
-                                    onChange={(event) =>
-                                      setEditingActionObjective(event.target.value)
-                                    }
-                                    placeholder={t("tasks.actionObjectivePlaceholder")}
-                                    rows={2}
-                                    className={`min-h-16 px-2.5 py-2 ${WORKBENCH_FIELD_CLASS} ${TYPOGRAPHY_BODY_CLASS}`}
-                                  />
-                                </label>
-                                <label
-                                  className={`grid gap-1 ${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#646A73]`}
-                                >
-                                  {t("tasks.actionStatus")}
-                                  <select
-                                    value={editingActionStatus}
-                                    onChange={(event) => setEditingActionStatus(event.target.value)}
-                                    className={`h-9 px-2.5 ${WORKBENCH_FIELD_CLASS} ${TYPOGRAPHY_BODY_CLASS}`}
-                                  >
-                                    {editableActionStatuses.map((status) => (
-                                      <option key={status} value={status}>
-                                        {statusLabel(status, t)}
-                                      </option>
-                                    ))}
-                                  </select>
-                                </label>
-                                <div className="flex flex-wrap justify-end gap-2">
-                                  <button
-                                    type="button"
-                                    onClick={closeActionEditForm}
-                                    className={`${WORKBENCH_SECONDARY_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
-                                  >
-                                    {t("tasks.cancel")}
-                                  </button>
-                                  <button
-                                    type="submit"
-                                    className={`${WORKBENCH_PRIMARY_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
-                                    disabled={pendingAction !== null}
-                                  >
-                                    {pendingAction === `edit-action:${action.actionId}` ? (
-                                      <Loader2 size={14} className="animate-spin" />
-                                    ) : (
-                                      <Check size={14} />
-                                    )}
-                                    <span>{t("tasks.saveAction")}</span>
-                                  </button>
-                                </div>
-                              </form>
-                            ) : null}
-                            {actionFollowUpText(action, t) || action.lastRunId ? (
-                              <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-                                {actionFollowUpText(action, t) ? (
-                                  <p
-                                    className={`${TYPOGRAPHY_META_CLASS} min-w-0 break-words ${actionFollowUpClass(
-                                      action
-                                    )}`}
-                                  >
-                                    {actionFollowUpText(action, t)}
-                                  </p>
-                                ) : null}
-                                {action.lastRunId ? (
-                                  <span
-                                    className={`shrink-0 rounded-md border border-[#DEE0E3] bg-white px-1.5 py-0.5 font-[family-name:var(--font-mono)] ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} text-[#646A73]`}
-                                  >
-                                    {t("tasks.lastRun")}: {action.lastRunId}
-                                  </span>
-                                ) : null}
-                              </div>
-                            ) : null}
-                          </div>
-                        ))}
-                      </div>
-                    </section>
-
-                    <div className="grid content-start gap-3">
-                      <section className={`${taskPanelClass} p-3`}>
-                        <div className="mb-3 flex items-center justify-between gap-2">
-                          <h3 className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#1F2329]`}>
-                            {t("tasks.triggers")}
-                          </h3>
-                          {visibleActions.length > 0 ? (
-                            <button
-                              type="button"
-                              onClick={() => openTriggerForm()}
-                              className={`${WORKBENCH_SECONDARY_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
-                              disabled={pendingAction !== null}
-                            >
-                              <Plus size={14} />
-                              <span>{t("tasks.addTrigger")}</span>
-                            </button>
-                          ) : null}
-                        </div>
-                        {triggerActionId ? (
-                          <form
-                            onSubmit={submitNewTrigger}
-                            className={`${taskSoftPanelClass} mb-3 grid gap-2 p-3`}
-                          >
-                            <label
-                              className={`grid gap-1 ${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#646A73]`}
-                            >
-                              {t("tasks.action")}
-                              <select
-                                value={triggerActionId}
-                                onChange={(event) => setTriggerActionId(event.target.value)}
-                                className={`h-10 px-2.5 ${WORKBENCH_FIELD_CLASS} ${TYPOGRAPHY_BODY_CLASS}`}
-                              >
-                                {visibleActions.map((action) => (
-                                  <option key={action.actionId} value={action.actionId}>
-                                    {action.title}
-                                  </option>
-                                ))}
-                              </select>
-                            </label>
-                            <label
-                              className={`grid gap-1 ${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#646A73]`}
-                            >
-                              {t("tasks.runAt")}
-                              <input
-                                type="datetime-local"
-                                value={newTriggerRunAt}
-                                onChange={(event) => setNewTriggerRunAt(event.target.value)}
-                                className={`h-10 px-2.5 ${WORKBENCH_FIELD_CLASS} ${TYPOGRAPHY_BODY_CLASS}`}
-                              />
-                            </label>
-                            <div className="flex flex-wrap justify-end gap-2">
-                              <button
-                                type="button"
-                                onClick={() => setTriggerActionId(null)}
-                                className={`${WORKBENCH_SECONDARY_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
-                              >
-                                {t("tasks.cancel")}
-                              </button>
-                              <button
-                                type="submit"
-                                className={`${WORKBENCH_PRIMARY_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
-                                disabled={pendingAction !== null}
-                              >
-                                {pendingAction === `create-trigger:${triggerActionId}` ? (
-                                  <Loader2 size={14} className="animate-spin" />
-                                ) : (
-                                  <Plus size={14} />
-                                )}
-                                <span>{t("tasks.addTrigger")}</span>
-                              </button>
-                            </div>
-                          </form>
-                        ) : null}
-                        {selectedTaskActionTriggers.length === 0 &&
-                        selectedTaskTriggers.length === 0 ? (
-                          <div
-                            className={`${TYPOGRAPHY_BODY_CLASS} rounded-lg border border-dashed border-[#D0D3D6] bg-[#F8F9FA] px-3 py-5 text-center text-[#646A73]`}
-                          >
-                            {t("tasks.noTriggers")}
-                          </div>
-                        ) : null}
-                        <div className="grid gap-2">
-                          {selectedTaskActionTriggers.map((action) => (
-                            <div
-                              key={`task-action-trigger-${action.actionId}`}
-                              className={`${taskSoftPanelClass} grid gap-1.5 px-3 py-2`}
-                            >
-                              <div className="flex min-w-0 items-center justify-between gap-2">
-                                <div className="flex min-w-0 items-center gap-2">
-                                  <Clock3 size={15} className="shrink-0 text-[#1456F0]" />
-                                  <span className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} truncate`}>
-                                    {action.title}
-                                  </span>
-                                </div>
-                                <span
-                                  className={`${WORKBENCH_STATUS_NEUTRAL_CLASS} shrink-0 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}
-                                >
-                                  {t("tasks.actionTrigger")}
-                                </span>
-                              </div>
-                              <div className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
-                                {t("tasks.triggerNext")}:{" "}
-                                {formatDate(action.nextWakeupAt, locale, t("tasks.unknown"))}
-                              </div>
-                              {action.lastRunId ? (
-                                <span
-                                  className={`w-fit rounded-md border border-[#DEE0E3] bg-white px-1.5 py-0.5 font-[family-name:var(--font-mono)] ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} text-[#646A73]`}
-                                >
-                                  {t("tasks.lastRun")}: {action.lastRunId}
-                                </span>
-                              ) : null}
-                            </div>
-                          ))}
-                          {selectedTaskTriggers.map((trigger) => (
-                            <div
-                              key={trigger.trigger_id}
-                              className={`${taskSoftPanelClass} grid gap-1.5 px-3 py-2`}
-                            >
-                              <div className="flex min-w-0 items-center justify-between gap-2">
-                                <div className="flex min-w-0 items-center gap-2">
-                                  <Clock3 size={15} className="shrink-0 text-[#1456F0]" />
-                                  <span className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} truncate`}>
-                                    {trigger.title}
-                                  </span>
-                                </div>
-                                <span
-                                  className={`${triggerStatusClass(
-                                    trigger
-                                  )} shrink-0 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS}`}
-                                >
-                                  {triggerStatusLabel(trigger, t)}
-                                </span>
-                              </div>
-                              <div className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
-                                {triggerScheduleText(trigger, locale, t)}
-                              </div>
-                              <div className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
-                                {t("tasks.triggerNext")}: {triggerNextText(trigger, locale, t)}
-                              </div>
-                              <div className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
-                                {triggerRunProgressText(trigger, t)}
-                              </div>
-                              {trigger.last_error ? (
-                                <div className={`${TYPOGRAPHY_META_CLASS} text-[#B42318]`}>
-                                  {t("tasks.lastError")}: {trigger.last_error}
-                                </div>
-                              ) : null}
-                              {editingTriggerId === trigger.trigger_id ? (
-                                <form
-                                  onSubmit={submitTriggerEdit}
-                                  className="mt-1 grid gap-2 border-t border-[#DEE0E3] pt-2"
-                                >
-                                  <label
-                                    className={`grid gap-1 ${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#646A73]`}
-                                  >
-                                    {t("tasks.triggerMode")}
-                                    <select
-                                      value={editingTriggerKind}
-                                      onChange={(event) =>
-                                        setEditingTriggerKind(
-                                          event.target.value === "interval" ? "interval" : "once"
-                                        )
-                                      }
-                                      className={`h-9 px-2.5 ${WORKBENCH_FIELD_CLASS} ${TYPOGRAPHY_BODY_CLASS}`}
-                                    >
-                                      <option value="once">{t("tasks.triggerOnce")}</option>
-                                      <option value="interval">{t("tasks.triggerInterval")}</option>
-                                    </select>
-                                  </label>
-                                  {editingTriggerKind === "once" ? (
-                                    <label
-                                      className={`grid gap-1 ${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#646A73]`}
-                                    >
-                                      {t("tasks.runAt")}
-                                      <input
-                                        type="datetime-local"
-                                        value={editingTriggerRunAt}
-                                        onChange={(event) =>
-                                          setEditingTriggerRunAt(event.target.value)
-                                        }
-                                        className={`h-9 px-2.5 ${WORKBENCH_FIELD_CLASS} ${TYPOGRAPHY_BODY_CLASS}`}
-                                      />
-                                    </label>
-                                  ) : (
-                                    <div className="grid gap-2 sm:grid-cols-2">
-                                      <label
-                                        className={`grid gap-1 ${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#646A73]`}
-                                      >
-                                        {t("tasks.triggerEveryMinutesLabel")}
-                                        <input
-                                          type="number"
-                                          min="1"
-                                          step="1"
-                                          value={editingTriggerIntervalMinutes}
-                                          onChange={(event) =>
-                                            setEditingTriggerIntervalMinutes(event.target.value)
-                                          }
-                                          className={`h-9 px-2.5 ${WORKBENCH_FIELD_CLASS} ${TYPOGRAPHY_BODY_CLASS}`}
-                                        />
-                                      </label>
-                                      <label
-                                        className={`grid gap-1 ${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#646A73]`}
-                                      >
-                                        {t("tasks.maxRuns")}
-                                        <input
-                                          type="number"
-                                          min="1"
-                                          step="1"
-                                          placeholder={t("tasks.noLimit")}
-                                          value={editingTriggerMaxRuns}
-                                          onChange={(event) =>
-                                            setEditingTriggerMaxRuns(event.target.value)
-                                          }
-                                          className={`h-9 px-2.5 ${WORKBENCH_FIELD_CLASS} ${TYPOGRAPHY_BODY_CLASS}`}
-                                        />
-                                      </label>
-                                    </div>
-                                  )}
-                                  <div className="flex flex-wrap justify-end gap-2">
-                                    <button
-                                      type="button"
-                                      onClick={() => setEditingTriggerId(null)}
-                                      className={`${WORKBENCH_SECONDARY_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
-                                    >
-                                      {t("tasks.cancel")}
-                                    </button>
-                                    <button
-                                      type="submit"
-                                      className={`${WORKBENCH_PRIMARY_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
-                                      disabled={pendingAction !== null}
-                                    >
-                                      {pendingAction === `edit-trigger:${trigger.trigger_id}` ? (
-                                        <Loader2 size={14} className="animate-spin" />
-                                      ) : (
-                                        <Check size={14} />
-                                      )}
-                                      <span>{t("tasks.saveTrigger")}</span>
-                                    </button>
-                                  </div>
-                                </form>
-                              ) : null}
-                              <div className="flex min-w-0 flex-wrap items-center gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() => openTriggerEditForm(trigger)}
-                                  className={`${WORKBENCH_SECONDARY_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
-                                  disabled={pendingAction !== null}
-                                >
-                                  <Pencil size={14} />
-                                  <span>{t("tasks.edit")}</span>
-                                </button>
-                                {!isTriggerCompleted(trigger) &&
-                                trigger.status !== "pending_confirmation" ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => void toggleTriggerEnabledOperation(trigger)}
-                                    className={`${WORKBENCH_SECONDARY_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
-                                    disabled={pendingAction !== null}
-                                  >
-                                    {pendingAction === `toggle-trigger:${trigger.trigger_id}` ? (
-                                      <Loader2 size={14} className="animate-spin" />
-                                    ) : trigger.enabled ? (
-                                      <Pause size={14} />
-                                    ) : (
-                                      <Play size={14} />
-                                    )}
-                                    <span>
-                                      {trigger.enabled ? t("tasks.pause") : t("tasks.resume")}
-                                    </span>
-                                  </button>
-                                ) : null}
-                                {!isTriggerCompleted(trigger) &&
-                                trigger.status !== "pending_confirmation" ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => void runTriggerOperation(trigger)}
-                                    className={`${WORKBENCH_SECONDARY_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
-                                    disabled={pendingAction !== null}
-                                  >
-                                    {pendingAction === `trigger:${trigger.trigger_id}` ? (
-                                      <Loader2 size={14} className="animate-spin" />
-                                    ) : (
-                                      <Play size={14} />
-                                    )}
-                                    <span>{t("tasks.runNow")}</span>
-                                  </button>
-                                ) : null}
-                                <button
-                                  type="button"
-                                  onClick={() => void deleteTriggerOperation(trigger)}
-                                  className={`${WORKBENCH_DANGER_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
-                                  disabled={pendingAction !== null}
-                                >
-                                  {pendingAction === `delete-trigger:${trigger.trigger_id}` ? (
-                                    <Loader2 size={14} className="animate-spin" />
-                                  ) : (
-                                    <Trash2 size={14} />
-                                  )}
-                                  <span>
-                                    {confirmingTriggerDeleteId === trigger.trigger_id
-                                      ? t("tasks.confirmDelete")
-                                      : t("tasks.delete")}
-                                  </span>
-                                </button>
-                              </div>
-                              {trigger.last_run_id || trigger.last_run_status ? (
-                                <div className="flex min-w-0 flex-wrap items-center gap-2">
-                                  {trigger.last_run_id ? (
-                                    <span
-                                      className={`shrink-0 rounded-md border border-[#DEE0E3] bg-white px-1.5 py-0.5 font-[family-name:var(--font-mono)] ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} text-[#646A73]`}
-                                    >
-                                      {t("tasks.lastRun")}: {trigger.last_run_id}
-                                    </span>
-                                  ) : null}
-                                  {trigger.last_run_status ? (
-                                    <span className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
-                                      {trigger.last_run_status}
-                                    </span>
-                                  ) : null}
-                                </div>
-                              ) : null}
-                            </div>
-                          ))}
-                        </div>
-                      </section>
-
-                      <section
-                        data-ripple-task-activity-panel="true"
-                        className={`${taskPanelClass} p-3`}
-                      >
-                        <h3 className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} mb-3 text-[#1F2329]`}>
-                          {t("tasks.activity")}
-                        </h3>
-                        {visibleEvents.length === 0 ? (
-                          <div
-                            className={`${TYPOGRAPHY_BODY_CLASS} rounded-lg border border-dashed border-[#D0D3D6] bg-[#F8F9FA] px-3 py-5 text-center text-[#646A73]`}
-                          >
-                            {t("tasks.noEvents")}
-                          </div>
-                        ) : null}
-                        <div className="grid gap-2">
-                          {visibleEvents.slice(0, 6).map((event) => {
-                            const detail = eventDetailText(event, visibleActions, t);
-                            return (
-                              <div key={event.eventId} className="grid min-w-0 gap-0.5">
-                                <div className="flex min-w-0 items-center justify-between gap-3">
-                                  <span
-                                    className={`${TYPOGRAPHY_META_MEDIUM_CLASS} truncate text-[#2B2F36]`}
-                                  >
-                                    {eventLabel(event.eventType, t)}
-                                  </span>
-                                  <span
-                                    className={`${TYPOGRAPHY_META_CLASS} shrink-0 text-[#646A73]`}
-                                  >
-                                    {formatDate(event.createdAt, locale, t("tasks.unknown"))}
-                                  </span>
-                                </div>
-                                {detail ? (
-                                  <div
-                                    className={`${TYPOGRAPHY_META_CLASS} truncate text-[#646A73]`}
-                                  >
-                                    {detail}
-                                  </div>
-                                ) : null}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </section>
-                    </div>
+                  <div className={`${TYPOGRAPHY_META_CLASS} max-w-[240px] text-[#646A73]`}>
+                    用上面的表单创建一个会话，就能测试 TaskSpec、确认卡和 TaskRun。
                   </div>
                 </div>
               ) : (
-                <div className={`px-4 py-10 text-center ${TYPOGRAPHY_BODY_CLASS} text-[#646A73]`}>
-                  {loading ? <Loader2 size={18} className="mx-auto mb-2 animate-spin" /> : null}
-                  {loading ? t("tasks.loading") : emptyTaskMessage}
+                <div className="space-y-2">
+                  {sessions.map((session) => {
+                    const selected = session.sessionId === selectedSessionId;
+                    return (
+                      <button
+                        key={session.sessionId}
+                        type="button"
+                        className={`w-full rounded-lg border px-3 py-3 text-left transition-colors ${
+                          selected
+                            ? "border-[#1456F0] bg-[#F0F5FF]"
+                            : "border-[#DEE0E3] bg-white hover:bg-[#F8F9FA]"
+                        }`}
+                        onClick={() => selectSession(session.sessionId)}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <div
+                              className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} truncate text-[#1F2329]`}
+                            >
+                              {session.title}
+                            </div>
+                            <div
+                              className={`${TYPOGRAPHY_META_CLASS} mt-0.5 truncate text-[#646A73]`}
+                            >
+                              {session.goal || session.latestMessage || session.sessionId}
+                            </div>
+                          </div>
+                          <StatusBadge status={session.status} />
+                        </div>
+                        <div className="mt-2 flex flex-wrap items-center gap-2 text-[#646A73]">
+                          <span
+                            className={`${TYPOGRAPHY_META_CLASS} inline-flex items-center gap-1`}
+                          >
+                            <Clock3 className="h-3.5 w-3.5" strokeWidth={LUCIDE_NAV_STROKE_WIDTH} />
+                            {formatDate(session.updatedAt || session.createdAt)}
+                          </span>
+                          {session.needsUserAction ? (
+                            <span className={`${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#8B5E00]`}>
+                              需要处理
+                            </span>
+                          ) : null}
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
               )}
-            </motion.section>
-          </div>
+            </div>
+          </aside>
+
+          <main
+            data-ripple-task-detail="true"
+            className="min-h-0 rounded-lg border border-[#DEE0E3] bg-white shadow-[0_1px_2px_rgba(31,35,41,0.04)]"
+          >
+            {!selectedSession ? (
+              <div className="flex min-h-[520px] flex-col items-center justify-center gap-2 text-center">
+                <FileText
+                  className="h-8 w-8 text-[#8F959E]"
+                  strokeWidth={LUCIDE_NAV_STROKE_WIDTH}
+                />
+                <div className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#1F2329]`}>
+                  选择一个任务会话
+                </div>
+                <div className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
+                  或创建新会话开始测试。
+                </div>
+              </div>
+            ) : (
+              <div className="min-h-[520px]">
+                <div className="border-b border-[#EFF0F1] px-4 py-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h2 className={`${TYPOGRAPHY_SECTION_TITLE_CLASS} truncate text-[#1F2329]`}>
+                          {selectedSession.title}
+                        </h2>
+                        <StatusBadge status={selectedSession.status} />
+                      </div>
+                      <div className={`${TYPOGRAPHY_META_CLASS} mt-1 break-all text-[#646A73]`}>
+                        {selectedSession.sessionId}
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {sourceSessionId && onOpenSession ? (
+                        <button
+                          type="button"
+                          className={`${WORKBENCH_SECONDARY_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                          onClick={() => onOpenSession(sourceSessionId)}
+                        >
+                          打开来源会话
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        className={`${WORKBENCH_ICON_BUTTON_CLASS} h-8 w-8`}
+                        onClick={() => void loadDetail(selectedSession.sessionId)}
+                        disabled={detailLoading || isBusy}
+                        aria-label="刷新详情"
+                        title="刷新详情"
+                      >
+                        {detailLoading ? (
+                          <Loader2
+                            className="h-4 w-4 animate-spin"
+                            strokeWidth={LUCIDE_NAV_STROKE_WIDTH}
+                          />
+                        ) : (
+                          <RotateCcw className="h-4 w-4" strokeWidth={LUCIDE_NAV_STROKE_WIDTH} />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                    <Metric label="TaskSpec" value={`${detail?.taskSpecs.length || 0}`} />
+                    <Metric label="TaskRun" value={`${detail?.runs.length || 0}`} />
+                    <Metric
+                      label="用户动作"
+                      value={selectedSession.needsUserAction ? "需要" : "不需要"}
+                      tone={selectedSession.needsUserAction ? "warning" : "success"}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid gap-4 p-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+                  <section className="space-y-4">
+                    <div className="rounded-lg border border-[#DEE0E3] p-4">
+                      <div className={`${TYPOGRAPHY_SECTION_TITLE_CLASS} text-[#1F2329]`}>
+                        会话摘要
+                      </div>
+                      <dl className="mt-3 grid gap-3 sm:grid-cols-2">
+                        <div>
+                          <dt className={`${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#646A73]`}>
+                            任务类型
+                          </dt>
+                          <dd className={`${TYPOGRAPHY_BODY_CLASS} text-[#1F2329]`}>
+                            {selectedSession.taskType || "未设置"}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className={`${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#646A73]`}>
+                            执行方
+                          </dt>
+                          <dd className={`${TYPOGRAPHY_BODY_CLASS} text-[#1F2329]`}>
+                            {selectedSession.executor || "vitana"}
+                          </dd>
+                        </div>
+                        <div className="sm:col-span-2">
+                          <dt className={`${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#646A73]`}>目标</dt>
+                          <dd
+                            className={`${TYPOGRAPHY_BODY_CLASS} whitespace-pre-wrap text-[#1F2329]`}
+                          >
+                            {selectedSession.goal || "未设置"}
+                          </dd>
+                        </div>
+                        <div className="sm:col-span-2">
+                          <dt className={`${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#646A73]`}>
+                            最新消息
+                          </dt>
+                          <dd
+                            className={`${TYPOGRAPHY_BODY_CLASS} whitespace-pre-wrap text-[#646A73]`}
+                          >
+                            {selectedSession.latestMessage || "暂无"}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className={`${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#646A73]`}>创建</dt>
+                          <dd className={`${TYPOGRAPHY_BODY_CLASS} text-[#1F2329]`}>
+                            {formatLongDate(selectedSession.createdAt)}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className={`${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#646A73]`}>更新</dt>
+                          <dd className={`${TYPOGRAPHY_BODY_CLASS} text-[#1F2329]`}>
+                            {formatLongDate(selectedSession.updatedAt)}
+                          </dd>
+                        </div>
+                      </dl>
+                    </div>
+
+                    <div className="rounded-lg border border-[#DEE0E3] p-4">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <div className={`${TYPOGRAPHY_SECTION_TITLE_CLASS} text-[#1F2329]`}>
+                            TaskSpec
+                          </div>
+                          <p className={`${TYPOGRAPHY_META_CLASS} mt-1 text-[#646A73]`}>
+                            任务执行前的结构化规格。确认后才能启动 TaskRun。
+                          </p>
+                        </div>
+                        {latestSpec ? <StatusBadge status={latestSpec.status} /> : null}
+                      </div>
+
+                      {latestSpec ? (
+                        <div className="mt-3 rounded-lg bg-[#F8F9FA] p-3">
+                          <div className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#1F2329]`}>
+                            {latestSpec.goal || "未设置目标"}
+                          </div>
+                          <div className={`${TYPOGRAPHY_META_CLASS} mt-1 text-[#646A73]`}>
+                            {latestSpec.taskType} · {latestSpec.taskSpecId}
+                          </div>
+                          {latestSpec.impactSummary ? (
+                            <p
+                              className={`${TYPOGRAPHY_BODY_CLASS} mt-2 whitespace-pre-wrap text-[#646A73]`}
+                            >
+                              {latestSpec.impactSummary}
+                            </p>
+                          ) : null}
+                        </div>
+                      ) : (
+                        <div
+                          className={`${TYPOGRAPHY_BODY_CLASS} mt-3 rounded-lg bg-[#F8F9FA] p-3 text-[#646A73]`}
+                        >
+                          当前会话还没有 TaskSpec。
+                        </div>
+                      )}
+
+                      <form className="mt-4 space-y-3" onSubmit={submitCreateSpec}>
+                        <div className="grid gap-3 sm:grid-cols-[180px_minmax(0,1fr)]">
+                          <label className="flex flex-col gap-1">
+                            <span className={`${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#646A73]`}>
+                              类型
+                            </span>
+                            <select
+                              className={`${WORKBENCH_FIELD_CLASS} h-9 px-3 ${TYPOGRAPHY_BODY_CLASS}`}
+                              value={specTaskType}
+                              onChange={(event) => setSpecTaskType(event.target.value)}
+                            >
+                              {taskTypeOptions.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="flex flex-col gap-1">
+                            <span className={`${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#646A73]`}>
+                              目标
+                            </span>
+                            <input
+                              className={`${WORKBENCH_FIELD_CLASS} h-9 px-3 ${TYPOGRAPHY_BODY_CLASS}`}
+                              value={specGoal}
+                              onChange={(event) => setSpecGoal(event.target.value)}
+                              placeholder={selectedSession.goal || "TaskSpec 目标"}
+                            />
+                          </label>
+                        </div>
+                        <label className="flex flex-col gap-1">
+                          <span className={`${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#646A73]`}>
+                            影响说明
+                          </span>
+                          <textarea
+                            className={`${WORKBENCH_FIELD_CLASS} min-h-[76px] resize-y px-3 py-2 ${TYPOGRAPHY_BODY_CLASS}`}
+                            value={specImpact}
+                            onChange={(event) => setSpecImpact(event.target.value)}
+                            placeholder="可选：执行会影响哪些文件、外部服务或用户状态"
+                          />
+                        </label>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="submit"
+                            className={`${WORKBENCH_SECONDARY_BUTTON_CLASS} h-9 ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
+                            disabled={isBusy}
+                          >
+                            {submittingAction === "create-spec" ? (
+                              <Loader2
+                                className="h-4 w-4 animate-spin"
+                                strokeWidth={LUCIDE_NAV_STROKE_WIDTH}
+                              />
+                            ) : (
+                              <FileText className="h-4 w-4" strokeWidth={LUCIDE_NAV_STROKE_WIDTH} />
+                            )}
+                            <span>生成 TaskSpec</span>
+                          </button>
+                          <button
+                            type="button"
+                            className={`${WORKBENCH_PRIMARY_BUTTON_CLASS} h-9 ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
+                            onClick={() => confirmLatestSpec(false)}
+                            disabled={
+                              isBusy || !latestSpec || latestSpec.status !== "pending_confirm"
+                            }
+                          >
+                            <Check className="h-4 w-4" strokeWidth={LUCIDE_NAV_STROKE_WIDTH} />
+                            <span>确认 Spec</span>
+                          </button>
+                          <button
+                            type="button"
+                            className={`${WORKBENCH_PRIMARY_BUTTON_CLASS} h-9 ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
+                            onClick={() => confirmLatestSpec(true)}
+                            disabled={
+                              isBusy || !latestSpec || latestSpec.status !== "pending_confirm"
+                            }
+                          >
+                            <Play className="h-4 w-4" strokeWidth={LUCIDE_NAV_STROKE_WIDTH} />
+                            <span>确认并启动</span>
+                          </button>
+                        </div>
+                      </form>
+                    </div>
+
+                    <div className="rounded-lg border border-[#DEE0E3] p-4">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <div className={`${TYPOGRAPHY_SECTION_TITLE_CLASS} text-[#1F2329]`}>
+                            TaskRun
+                          </div>
+                          <p className={`${TYPOGRAPHY_META_CLASS} mt-1 text-[#646A73]`}>
+                            当前是运行投影 API，用于对接真实执行 run 或业务侧执行器。
+                          </p>
+                        </div>
+                        {latestRun ? <StatusBadge status={latestRun.status} /> : null}
+                      </div>
+
+                      {latestRun ? (
+                        <div className="mt-3 rounded-lg bg-[#F8F9FA] p-3">
+                          <div
+                            className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} break-all text-[#1F2329]`}
+                          >
+                            {latestRun.runId}
+                          </div>
+                          <div className={`${TYPOGRAPHY_META_CLASS} mt-1 text-[#646A73]`}>
+                            Spec: {latestRun.taskSpecId} · started {formatDate(latestRun.startedAt)}
+                          </div>
+                          {latestRun.resultSummary ? (
+                            <p
+                              className={`${TYPOGRAPHY_BODY_CLASS} mt-2 whitespace-pre-wrap text-[#16845B]`}
+                            >
+                              {latestRun.resultSummary}
+                            </p>
+                          ) : null}
+                          {latestRun.failureReason || latestRun.cancellationReason ? (
+                            <p
+                              className={`${TYPOGRAPHY_BODY_CLASS} mt-2 whitespace-pre-wrap text-[#B42318]`}
+                            >
+                              {latestRun.failureReason || latestRun.cancellationReason}
+                            </p>
+                          ) : null}
+                        </div>
+                      ) : (
+                        <div
+                          className={`${TYPOGRAPHY_BODY_CLASS} mt-3 rounded-lg bg-[#F8F9FA] p-3 text-[#646A73]`}
+                        >
+                          当前还没有 TaskRun。
+                        </div>
+                      )}
+
+                      <div className="mt-4 space-y-3">
+                        <label className="flex flex-col gap-1">
+                          <span className={`${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#646A73]`}>
+                            完成摘要
+                          </span>
+                          <input
+                            className={`${WORKBENCH_FIELD_CLASS} h-9 px-3 ${TYPOGRAPHY_BODY_CLASS}`}
+                            value={runSummary}
+                            onChange={(event) => setRunSummary(event.target.value)}
+                            placeholder="例如：已生成任务结果并写入会话"
+                          />
+                        </label>
+                        <label className="flex flex-col gap-1">
+                          <span className={`${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#646A73]`}>
+                            失败原因
+                          </span>
+                          <input
+                            className={`${WORKBENCH_FIELD_CLASS} h-9 px-3 ${TYPOGRAPHY_BODY_CLASS}`}
+                            value={failureReason}
+                            onChange={(event) => setFailureReason(event.target.value)}
+                            placeholder="可选，用于失败状态"
+                          />
+                        </label>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            className={`${WORKBENCH_PRIMARY_BUTTON_CLASS} h-9 ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
+                            onClick={startLatestRun}
+                            disabled={isBusy || !canStartRun}
+                          >
+                            <Play className="h-4 w-4" strokeWidth={LUCIDE_NAV_STROKE_WIDTH} />
+                            <span>启动 Run</span>
+                          </button>
+                          <button
+                            type="button"
+                            className={`${WORKBENCH_SECONDARY_BUTTON_CLASS} h-9 ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
+                            onClick={completeLatestRun}
+                            disabled={isBusy || !canCompleteRun}
+                          >
+                            <CheckCircle2
+                              className="h-4 w-4"
+                              strokeWidth={LUCIDE_NAV_STROKE_WIDTH}
+                            />
+                            <span>标记完成</span>
+                          </button>
+                          <button
+                            type="button"
+                            className={`${WORKBENCH_DANGER_BUTTON_CLASS} h-9 ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
+                            onClick={failLatestRun}
+                            disabled={isBusy || !canCompleteRun}
+                          >
+                            <AlertTriangle
+                              className="h-4 w-4"
+                              strokeWidth={LUCIDE_NAV_STROKE_WIDTH}
+                            />
+                            <span>标记失败</span>
+                          </button>
+                          <button
+                            type="button"
+                            className={`${WORKBENCH_DANGER_BUTTON_CLASS} h-9 ${TYPOGRAPHY_BODY_MEDIUM_CLASS}`}
+                            onClick={cancelLatestRun}
+                            disabled={isBusy || !canCompleteRun}
+                          >
+                            <XCircle className="h-4 w-4" strokeWidth={LUCIDE_NAV_STROKE_WIDTH} />
+                            <span>取消 Run</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </section>
+
+                  <aside className="space-y-4">
+                    <div className="rounded-lg border border-[#DEE0E3] p-4">
+                      <div className={`${TYPOGRAPHY_SECTION_TITLE_CLASS} text-[#1F2329]`}>
+                        确认卡
+                      </div>
+                      <p className={`${TYPOGRAPHY_META_CLASS} mt-1 text-[#646A73]`}>
+                        用于测试 `waiting_user` 状态和用户确认响应。
+                      </p>
+                      {pendingConfirmation ? (
+                        <div className="mt-3 rounded-lg border border-[#FAD355]/45 bg-[#FFF8DB] p-3">
+                          <div className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#1F2329]`}>
+                            {pendingConfirmation.title}
+                          </div>
+                          <div className={`${TYPOGRAPHY_META_CLASS} mt-1 text-[#646A73]`}>
+                            {pendingConfirmation.confirmationId}
+                          </div>
+                          <div className="mt-3 flex gap-2">
+                            <button
+                              type="button"
+                              className={`${WORKBENCH_PRIMARY_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                              onClick={() => respondConfirmation(pendingConfirmation, true)}
+                              disabled={isBusy}
+                            >
+                              通过
+                            </button>
+                            <button
+                              type="button"
+                              className={`${WORKBENCH_DANGER_BUTTON_CLASS} h-8 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                              onClick={() => respondConfirmation(pendingConfirmation, false)}
+                              disabled={isBusy}
+                            >
+                              拒绝
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div
+                          className={`${TYPOGRAPHY_BODY_CLASS} mt-3 rounded-lg bg-[#F8F9FA] p-3 text-[#646A73]`}
+                        >
+                          当前没有待响应确认卡。
+                        </div>
+                      )}
+                      <div className="mt-3 flex gap-2">
+                        <input
+                          className={`${WORKBENCH_FIELD_CLASS} h-9 min-w-0 flex-1 px-3 ${TYPOGRAPHY_BODY_CLASS}`}
+                          value={confirmationTitle}
+                          onChange={(event) => setConfirmationTitle(event.target.value)}
+                          placeholder="确认卡标题"
+                        />
+                        <button
+                          type="button"
+                          className={`${WORKBENCH_SECONDARY_BUTTON_CLASS} h-9 ${TYPOGRAPHY_META_MEDIUM_CLASS}`}
+                          onClick={requestConfirmation}
+                          disabled={isBusy}
+                        >
+                          创建
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg border border-[#DEE0E3] p-4">
+                      <div className={`${TYPOGRAPHY_SECTION_TITLE_CLASS} text-[#1F2329]`}>
+                        事件流
+                      </div>
+                      <div className="mt-3 max-h-[420px] space-y-2 overflow-y-auto">
+                        {detail?.events.length ? (
+                          [...detail.events].reverse().map((event) => (
+                            <div key={event.eventId} className="rounded-lg bg-[#F8F9FA] p-3">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className={`${TYPOGRAPHY_BODY_MEDIUM_CLASS} text-[#1F2329]`}>
+                                  {event.eventType}
+                                </span>
+                                <span
+                                  className={`${TYPOGRAPHY_META_CLASS} shrink-0 text-[#646A73]`}
+                                >
+                                  {formatDate(event.createdAt)}
+                                </span>
+                              </div>
+                              {event.payload ? (
+                                <pre
+                                  className={`${TYPOGRAPHY_META_CLASS} mt-2 overflow-x-auto break-words whitespace-pre-wrap text-[#646A73]`}
+                                >
+                                  {compactJson(event.payload)}
+                                </pre>
+                              ) : null}
+                            </div>
+                          ))
+                        ) : (
+                          <div
+                            className={`${TYPOGRAPHY_BODY_CLASS} rounded-lg bg-[#F8F9FA] p-3 text-[#646A73]`}
+                          >
+                            暂无事件。
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </aside>
+                </div>
+              </div>
+            )}
+          </main>
         </div>
       </div>
     </div>

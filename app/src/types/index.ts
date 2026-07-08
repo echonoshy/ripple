@@ -497,6 +497,122 @@ export interface TaskEventInfo {
   createdAt?: string | null;
 }
 
+export type TaskSessionStatus =
+  | "pending_confirm"
+  | "in_progress"
+  | "waiting_user"
+  | "completed"
+  | "cancelled"
+  | "failed"
+  | string;
+
+export type TaskSpecStatus =
+  | "pending_confirm"
+  | "confirmed"
+  | "in_progress"
+  | "waiting_user"
+  | "completed"
+  | "cancelled"
+  | "failed"
+  | string;
+
+export type TaskRunStatus =
+  | "in_progress"
+  | "waiting_user"
+  | "completed"
+  | "cancelled"
+  | "failed"
+  | string;
+
+export type TaskConfirmationStatus = "requested" | "accepted" | "rejected" | "cancelled" | string;
+
+export interface TaskSessionInfo {
+  sessionId: string;
+  userId: string;
+  title: string;
+  status: TaskSessionStatus;
+  sourceSurface?: string | null;
+  sourceId?: string | null;
+  taskType?: string | null;
+  goal?: string | null;
+  executor?: string | null;
+  latestMessage?: string | null;
+  needsUserAction: boolean;
+  currentTaskSpecId?: string | null;
+  currentRunId?: string | null;
+  latestRunId?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
+
+export interface TaskSpecInfo {
+  taskSpecId: string;
+  sessionId: string;
+  userId: string;
+  taskType: string;
+  goal?: string | null;
+  status: TaskSpecStatus;
+  requiredFields?: Record<string, unknown> | null;
+  sourceRefs?: unknown[] | null;
+  riskLevel?: string | null;
+  impactSummary?: string | null;
+  confirmedAt?: string | null;
+  completedAt?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
+
+export interface TaskRunInfo {
+  runId: string;
+  sessionId: string;
+  taskSpecId: string;
+  userId: string;
+  status: TaskRunStatus;
+  executor?: string | null;
+  externalRunId?: string | null;
+  resultSummary?: string | null;
+  failureReason?: string | null;
+  cancellationReason?: string | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  failedAt?: string | null;
+  cancelledAt?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
+
+export interface TaskSessionEventInfo {
+  eventId: string;
+  sessionId: string;
+  userId: string;
+  eventType: string;
+  payload?: Record<string, unknown> | null;
+  createdAt?: string | null;
+}
+
+export interface TaskConfirmationInfo {
+  confirmationId: string;
+  sessionId: string;
+  userId: string;
+  title: string;
+  status: TaskConfirmationStatus;
+  confirmationType?: string | null;
+  critical: boolean;
+  decision?: string | null;
+  response?: unknown;
+  createdAt?: string | null;
+  respondedAt?: string | null;
+  updatedAt?: string | null;
+}
+
+export interface TaskSessionDetail {
+  taskSession: TaskSessionInfo;
+  taskSpecs: TaskSpecInfo[];
+  runs: TaskRunInfo[];
+  events: TaskSessionEventInfo[];
+  confirmations: TaskConfirmationInfo[];
+}
+
 export interface SessionSummary {
   sessionId: string;
   title: string;

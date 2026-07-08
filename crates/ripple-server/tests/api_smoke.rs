@@ -1352,11 +1352,100 @@ async fn router_serves_core_control_plane_routes() {
     let search_json = response_json(search).await;
     assert_eq!(search_json.get("count").and_then(Value::as_u64), Some(1));
 
-    let tasks = app
+    let task_sessions = app
+        .clone()
+        .oneshot(request(Method::GET, "/v1/task-sessions", Value::Null, true))
+        .await
+        .unwrap();
+    assert_eq!(task_sessions.status(), StatusCode::OK);
+
+    let legacy_tasks = app
+        .clone()
         .oneshot(request(Method::GET, "/v1/tasks", Value::Null, true))
         .await
         .unwrap();
-    assert_eq!(tasks.status(), StatusCode::OK);
+    assert_eq!(legacy_tasks.status(), StatusCode::NOT_FOUND);
+
+    let legacy_task_triggers = app
+        .oneshot(request(Method::GET, "/v1/task-triggers", Value::Null, true))
+        .await
+        .unwrap();
+    assert_eq!(legacy_task_triggers.status(), StatusCode::NOT_FOUND);
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn task_session_sse_stream_replays_task_status_events() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let (_state, app) = test_state_and_app(&root);
+
+    let (status, created) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/task-sessions",
+        json!({
+            "session_id": "ts-sse",
+            "title": "发送客户跟进",
+            "goal": "把客户跟进消息发给销售",
+            "task_spec": {
+                "task_spec_id": "spec-sse",
+                "task_type": "send_message",
+                "goal": "发送客户跟进消息"
+            }
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+
+    let (status, confirmed) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/task-sessions/ts-sse/task-specs/spec-sse/confirm",
+        json!({"start_run": true, "run_id": "run-sse"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{confirmed}");
+
+    let (status, completed) = call(
+        app.clone(),
+        Method::PATCH,
+        "/v1/task-sessions/ts-sse/runs/run-sse",
+        json!({"status": "completed", "result_summary": "客户跟进消息已发送"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{completed}");
+
+    let response = app
+        .oneshot(request(
+            Method::GET,
+            "/v1/task-sessions/ts-sse/events/stream?from_start=true&follow=false",
+            Value::Null,
+            true,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok()),
+        Some("text/event-stream")
+    );
+    let stream = response_text(response).await;
+    assert!(stream.contains("event: task.status"), "{stream}");
+    assert!(stream.contains("id: "), "{stream}");
+    assert!(stream.contains("\"type\":\"task_status\""), "{stream}");
+    assert!(stream.contains("\"event_version\":1"), "{stream}");
+    assert!(
+        stream.contains("\"task_session_id\":\"ts-sse\""),
+        "{stream}"
+    );
+    assert!(stream.contains("\"task_status\":\"completed\""), "{stream}");
+    assert!(stream.contains("\"run_status\":\"completed\""), "{stream}");
+    assert!(stream.contains("\"needs_user_action\":false"), "{stream}");
+    assert!(stream.contains("data: [DONE]"), "{stream}");
 
     let _ = std::fs::remove_dir_all(root);
 }
@@ -4313,25 +4402,36 @@ async fn openapi_docs_are_public_and_keep_v1_auth_unchanged() {
         ("/v1/sessions/{session_id}/connector-auth/poll", "post"),
         ("/v1/sessions/{session_id}/connector-auth/cancel", "post"),
         ("/v1/sessions/{session_id}/usage", "get"),
-        ("/v1/tasks", "get"),
-        ("/v1/tasks", "post"),
-        ("/v1/tasks/{task_id}", "get"),
-        ("/v1/tasks/{task_id}", "patch"),
-        ("/v1/tasks/{task_id}", "delete"),
-        ("/v1/tasks/{task_id}/delete", "post"),
-        ("/v1/tasks/{task_id}/confirm", "post"),
-        ("/v1/tasks/{task_id}/run-now", "post"),
-        ("/v1/task-triggers", "get"),
-        ("/v1/tasks/{task_id}/actions", "get"),
-        ("/v1/tasks/{task_id}/actions", "post"),
-        ("/v1/tasks/{task_id}/actions/{action_id}", "patch"),
-        ("/v1/tasks/{task_id}/actions/{action_id}/triggers", "post"),
-        ("/v1/tasks/{task_id}/triggers", "get"),
-        ("/v1/tasks/{task_id}/triggers", "post"),
-        ("/v1/tasks/{task_id}/triggers/{trigger_id}", "patch"),
-        ("/v1/tasks/{task_id}/triggers/{trigger_id}", "delete"),
-        ("/v1/tasks/{task_id}/triggers/{trigger_id}/run-now", "post"),
-        ("/v1/tasks/{task_id}/events", "get"),
+        ("/v1/task-sessions", "get"),
+        ("/v1/task-sessions", "post"),
+        ("/v1/task-sessions/{session_id}", "get"),
+        ("/v1/task-sessions/{session_id}", "patch"),
+        ("/v1/task-sessions/{session_id}/messages", "post"),
+        ("/v1/task-sessions/{session_id}/task-specs", "post"),
+        (
+            "/v1/task-sessions/{session_id}/task-specs/{task_spec_id}",
+            "patch",
+        ),
+        (
+            "/v1/task-sessions/{session_id}/task-specs/{task_spec_id}/confirm",
+            "post",
+        ),
+        (
+            "/v1/task-sessions/{session_id}/task-specs/{task_spec_id}/runs",
+            "post",
+        ),
+        ("/v1/task-sessions/{session_id}/runs/{run_id}", "patch"),
+        (
+            "/v1/task-sessions/{session_id}/runs/{run_id}/cancel",
+            "post",
+        ),
+        ("/v1/task-sessions/{session_id}/events", "get"),
+        ("/v1/task-sessions/{session_id}/events/stream", "get"),
+        ("/v1/task-sessions/{session_id}/confirmations", "post"),
+        (
+            "/v1/task-sessions/{session_id}/confirmations/{confirmation_id}/respond",
+            "post",
+        ),
         ("/v1/sandboxes", "get"),
         ("/v1/sandboxes", "post"),
         ("/v1/sandboxes", "delete"),
@@ -4386,6 +4486,9 @@ async fn openapi_docs_are_public_and_keep_v1_auth_unchanged() {
     assert!(spec
         .pointer("/paths/~1v1~1chat~1completions/post")
         .is_none());
+    assert!(spec.pointer("/paths/~1v1~1tasks/get").is_none());
+    assert!(spec.pointer("/paths/~1v1~1tasks/post").is_none());
+    assert!(spec.pointer("/paths/~1v1~1task-triggers/get").is_none());
     assert!(spec.pointer("/paths/~1v1~1runs/get").is_some());
     assert!(spec.pointer("/paths/~1v1~1runs/post").is_some());
     assert!(spec

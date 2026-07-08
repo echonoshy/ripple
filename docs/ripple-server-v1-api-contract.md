@@ -26,7 +26,7 @@
 - `server.api_docs.enabled` 可关闭文档入口；`server.api_docs.try_it_out_enabled` 控制 Swagger UI 是否默认展开 Try it out。
 - 文档入口不包含 API key，受保护 `/v1` API 的鉴权行为不变。
 - `/docs` 随当前 Rust 路由和 `#[utoipa::path]` annotation 在构建时生成；服务启动后会展示最新 `/openapi.json`，不维护手写静态 Swagger 文件。
-- 当前 `/docs` 覆盖 `api/mod.rs` 注册的公开和受保护接口，包括 auth、health、models/info、chat、sessions、tasks/task triggers、runs、users、sandboxes、workspace、documents、capabilities、skills 和 connector 管理接口。仍返回 `Json<Value>` 的响应会先以宽松 JSON schema 表达，后续类型化 response struct 后 schema 会进一步自动同步。
+- 当前 `/docs` 覆盖 `api/mod.rs` 注册的公开和受保护接口，包括 auth、health、models/info、chat、sessions、task-sessions、runs、users、sandboxes、workspace、documents、capabilities、skills 和 connector 管理接口。仍返回 `Json<Value>` 的响应会先以宽松 JSON schema 表达，后续类型化 response struct 后 schema 会进一步自动同步。
 - 新增后端接口时，应使用 `utoipa_axum::routes!(...)` 注册并补 `#[utoipa::path]` annotation；普通 `.route(...)` 只会注册服务路由，不会自动进入 OpenAPI。`api_smoke` 中的 OpenAPI 覆盖测试会校验当前主接口清单是否出现在 `/openapi.json`。
 
 ## Errors
@@ -49,12 +49,11 @@
 
 ## Pagination
 
-列表接口开始支持 `limit` 和 `cursor`。Sessions、runs 和 task triggers 返回 `count`、`total`、`next_cursor`；tasks 为兼容当前客户端 response shape，返回 `count` 和 `next_cursor`，其中 `count` 是分页前当前 user 匹配的 task 数量：
+列表接口开始支持 `limit` 和 `cursor`。Sessions、runs 和 task sessions 返回 `count`、`total` 或 `next_cursor`：
 
 - `GET /v1/sessions?limit=50&cursor=50`
 - `GET /v1/runs?limit=50&cursor=50`
-- `GET /v1/tasks/:task_id/triggers?limit=50&cursor=50`
-- `GET /v1/tasks?limit=50&cursor=50`
+- `GET /v1/task-sessions?limit=50&cursor=50`
 
 `cursor` 当前是稳定的 offset 字符串，客户端应只把它当 opaque token 传回。
 
@@ -86,27 +85,53 @@
 - 服务重启时遗留 `queued/running` run 会标记为 `failed`，`failure_reason=interrupted_by_restart`。
 - `/v1/runs` 的 `cwd` 同样作为该 run 的 permission root；未传时默认为 `/workspace`。调用方传入 `/workspace/...` 时必须保持在当前 user workspace 内。
 
+## Task Sessions
+
+Task Sessions 是 Vitana/Ripple 任务中心的产品层主 API。它把任务中心建模为可持续对话的任务会话，而不是静态任务表单或旧 task/action 管理台。
+
+面向客户端、上游业务系统和外部执行器的完整接入流程见 [TASK_CENTER_API.md](TASK_CENTER_API.md)。
+
+- `GET /v1/task-sessions` 列出当前 user 的任务会话历史，按 `updated_at` 倒序返回 `task_sessions`、`count` 和 `next_cursor`。
+- `POST /v1/task-sessions` 创建任务会话。可带 `source_surface`、`source_id`、`task_type`、`goal`、`executor`、`initial_message` 和可选 `task_spec`。
+- `GET /v1/task-sessions/:session_id` 返回会话详情，包括 `task_session`、`task_specs`、`runs`、`events` 和 `confirmations`。
+- `PATCH /v1/task-sessions/:session_id` 更新会话摘要字段，例如 `title`、`status`、`latest_message`、`needs_user_action`、`current_task_spec_id` 和 `current_run_id`。
+- `POST /v1/task-sessions/:session_id/messages` 向会话流写入用户或 Agent 消息，并更新会话摘要。
+- `POST /v1/task-sessions/:session_id/task-specs` 在会话中创建 TaskSpec 草稿。TaskSpec 支持 `task_type`、`goal`、`required_fields`、`source_refs`、`risk_level`、`impact_summary` 和扩展字段。
+- `PATCH /v1/task-sessions/:session_id/task-specs/:task_spec_id` 更新 TaskSpec。
+- `POST /v1/task-sessions/:session_id/task-specs/:task_spec_id/confirm` 确认 TaskSpec，可带 `start_run: true` 同步创建一次 TaskRun 投影。
+- `POST /v1/task-sessions/:session_id/task-specs/:task_spec_id/runs` 基于已确认 TaskSpec 创建一次 TaskRun。未确认 TaskSpec 默认返回 `409 task_spec_confirmation_required`，除非 body 带 `confirm: true`。
+- `PATCH /v1/task-sessions/:session_id/runs/:run_id` 更新 TaskRun 状态、结果摘要或失败原因，并同步投影到 TaskSession/TaskSpec 状态。
+- `POST /v1/task-sessions/:session_id/runs/:run_id/cancel` 取消当前 TaskRun；取消的是本次执行，不物理关闭 TaskSession。
+- `GET /v1/task-sessions/:session_id/events` 返回会话时间线。
+- `GET /v1/task-sessions/:session_id/events/stream` 返回任务状态 SSE。事件名为 `task.status`，`data.type` 固定为 `task_status`，并区分 `task_status`、`run_status`、`task_spec_status` 和 `confirmation_status`。支持 `from_start`、`follow`、`close_on_terminal`、`heartbeat_seconds`、`after_seq` 和 `Last-Event-ID` 续传。
+- `POST /v1/task-sessions/:session_id/confirmations` 创建统一确认卡，适用于授权、手动输入、单选/多选、内容审核和异常恢复。
+- `POST /v1/task-sessions/:session_id/confirmations/:confirmation_id/respond` 记录确认卡响应。拒绝关键确认会把会话状态投影为 `cancelled`，非关键确认可回到 `in_progress`。
+
+TaskSession 对外状态只暴露产品层六态：
+
+```text
+pending_confirm
+in_progress
+waiting_user
+completed
+cancelled
+failed
+```
+
+前端任务中心只消费 `/v1/task-sessions`。旧 `/v1/tasks`、task actions 和 task triggers 不再注册为公开 `/v1` HTTP API。
+
 ## Tasks
 
-Tasks 是当前持久 follow-up 和多步工作状态的主 API，不是旧兼容占位接口。
+Tasks 是当前持久 follow-up、多步执行和 time trigger 的内部执行层。它仍保留给 Codex `task_update`、TaskAction 执行链路和后台 due trigger 使用，但不再暴露为公开 HTTP surface。
 
-- `GET /v1/tasks` 列出当前 user 的 tasks；`POST /v1/tasks` 创建 task 和可选 actions。
-- `GET /v1/tasks/:task_id` 返回 task、actions 和 progress；`PATCH /v1/tasks/:task_id` 更新 task。
-- `DELETE /v1/tasks/:task_id` 将 task 标记为 cancelled；`POST /v1/tasks/:task_id/delete` 物理删除 task、actions 和 events。
-- `POST /v1/tasks/:task_id/confirm` 将 candidate task/action 确认为可执行状态。
-- `POST /v1/tasks/:task_id/run-now` 从 task 的 `source_session_id` 构建一次 Codex run，并把进展写回 task events/actions。
-- `GET /v1/tasks/:task_id/actions`、`POST /v1/tasks/:task_id/actions`、`PATCH /v1/tasks/:task_id/actions/:action_id` 管理 task actions。
-- `GET /v1/tasks/:task_id/triggers` 返回 task-scoped triggers。TaskTrigger 通过 `trigger_type` 区分 driver；当前唯一已启用 driver 是 `time`，使用 `task_triggers` 存储，并在 response 中提供 `trigger_id` / `trigger_type`。
-- `POST /v1/tasks/:task_id/actions/:action_id/triggers` 为指定 action 创建 future/recurring trigger。
-- `PATCH /v1/tasks/:task_id/triggers/:trigger_id` 更新 time trigger 配置，包括 `kind`、`run_at`、`interval_seconds`、`max_runs`、`enabled`、policy、model 和 cwd 等字段。暂停会清空 `next_run_at`；恢复或修改时间配置会重新计算下一次执行时间。
-- `DELETE /v1/tasks/:task_id/triggers/:trigger_id` 删除指定 task-linked trigger。
-- `POST /v1/tasks/:task_id/triggers/:trigger_id/run-now` 立即触发 task-linked trigger。
-- `GET /v1/tasks/:task_id/events` 返回 task timeline。
-- `GET /v1/sessions/:session_id/tasks` 返回与 session 关联的 tasks。
+- `/v1/tasks`、`/v1/tasks/:task_id/*` 和 `/v1/task-triggers` 已从路由注册中移除。
+- `/v1/sessions` 原有 session 生命周期接口不依赖旧 task HTTP API，保持原 response shape。
+- `GET /v1/sessions/:session_id/tasks` 作为 session 只读兼容投影保留，避免影响原 session API；新任务中心不要使用它构建主体验。
+- 需要面向产品任务中心的客户端能力时，使用 `/v1/task-sessions`。
 
 Chat 主链路会向 Codex 暴露 `codex_app.task_update` 动态工具。它只写 Ripple 控制面 task/action 状态，不要求 Codex 反向调用 Ripple HTTP API。支持 `propose`、`create`、`update_task`、`create_action`、`update_action`、`start_action`、`complete_action`、`block_action`、`wait_user` 和 `complete_task` 等模式。`wait_user` 会把 `reason`、`clarification_question` 和 `missing_fields` 持久化到 action，并产生 `task_action_waiting_user` event；`complete_task` 会写入 `result_summary` 和 `completed_at`。
 
-Task 是唯一任务语义。旧 standalone schedule API 和 `schedules` 表已移除；time trigger 统一作为 Task Trigger 的一种 driver 存在。Task-linked trigger 到期时会走 TaskAction 执行链路，复用原 session/Codex thread，并把结果写回 task events/actions 和 source session。后续 hook/event/webhook 类触发器也应挂在同一 task trigger 模型下。
+旧 standalone schedule API 和 `schedules` 表已移除；time trigger 统一作为 Task Trigger 的一种 driver 存在。Task-linked trigger 到期时会走 TaskAction 执行链路，复用原 session/Codex thread，并把结果写回 task events/actions 和 source session。后续 hook/event/webhook 类触发器也应挂在同一 task trigger 模型下。产品层任务会话、TaskSpec、确认卡和 TaskRun 投影走 `/v1/task-sessions`。
 
 ## Risk Confirmation
 

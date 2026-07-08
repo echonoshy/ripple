@@ -13,6 +13,7 @@ pub mod sandboxes;
 pub mod sessions;
 pub mod skill_chat;
 pub mod skills;
+pub mod task_sessions;
 pub mod task_trigger_chat;
 pub mod task_triggers;
 pub mod tasks;
@@ -165,34 +166,31 @@ pub fn router(state: AppState) -> Router {
         .routes(utoipa_axum::routes!(models::list_models))
         .routes(utoipa_axum::routes!(models::codex_runtime_info))
         .routes(utoipa_axum::routes!(models::system_info))
-        .routes(utoipa_axum::routes!(tasks::list_tasks, tasks::create_task))
         .routes(utoipa_axum::routes!(
-            tasks::get_task,
-            tasks::update_task,
-            tasks::cancel_task
-        ))
-        .routes(utoipa_axum::routes!(tasks::delete_task))
-        .routes(utoipa_axum::routes!(tasks::confirm_task))
-        .routes(utoipa_axum::routes!(tasks::run_task_now))
-        .routes(utoipa_axum::routes!(task_triggers::list_all_task_triggers))
-        .routes(utoipa_axum::routes!(
-            tasks::list_task_actions,
-            tasks::create_task_action
-        ))
-        .routes(utoipa_axum::routes!(tasks::update_task_action))
-        .routes(utoipa_axum::routes!(
-            task_triggers::create_task_action_trigger
+            task_sessions::list_task_sessions,
+            task_sessions::create_task_session
         ))
         .routes(utoipa_axum::routes!(
-            task_triggers::list_task_triggers,
-            task_triggers::create_task_trigger
+            task_sessions::get_task_session,
+            task_sessions::update_task_session
         ))
         .routes(utoipa_axum::routes!(
-            task_triggers::update_task_trigger,
-            task_triggers::delete_task_trigger
+            task_sessions::append_task_session_message
         ))
-        .routes(utoipa_axum::routes!(task_triggers::run_task_trigger_now))
-        .routes(utoipa_axum::routes!(tasks::list_task_events))
+        .routes(utoipa_axum::routes!(task_sessions::create_task_spec))
+        .routes(utoipa_axum::routes!(task_sessions::update_task_spec))
+        .routes(utoipa_axum::routes!(task_sessions::confirm_task_spec))
+        .routes(utoipa_axum::routes!(task_sessions::start_task_run))
+        .routes(utoipa_axum::routes!(task_sessions::update_task_run))
+        .routes(utoipa_axum::routes!(task_sessions::cancel_task_run))
+        .routes(utoipa_axum::routes!(
+            task_sessions::list_task_session_events
+        ))
+        .routes(utoipa_axum::routes!(
+            task_sessions::stream_task_session_events
+        ))
+        .routes(utoipa_axum::routes!(task_sessions::create_confirmation))
+        .routes(utoipa_axum::routes!(task_sessions::respond_confirmation))
         .routes(utoipa_axum::routes!(chat::create_response))
         .routes(utoipa_axum::routes!(health::ready))
         .routes(utoipa_axum::routes!(health::doctor))

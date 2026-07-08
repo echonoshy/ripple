@@ -1,7 +1,7 @@
 use serde_json::Value;
 use sqlx::{Row, SqlitePool};
 
-pub const CURRENT_SCHEMA_VERSION: i64 = 10;
+pub const CURRENT_SCHEMA_VERSION: i64 = 12;
 
 const SCHEMA_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS sessions (
@@ -98,6 +98,60 @@ CREATE TABLE IF NOT EXISTS task_events (
     created_at TEXT NOT NULL,
     record_json TEXT NOT NULL,
     PRIMARY KEY (user_id, task_id, event_id)
+);
+
+CREATE TABLE IF NOT EXISTS task_sessions (
+    user_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    source_surface TEXT,
+    source_id TEXT,
+    needs_user_action INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL,
+    record_json TEXT NOT NULL,
+    PRIMARY KEY (user_id, session_id)
+);
+
+CREATE TABLE IF NOT EXISTS task_session_specs (
+    user_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    task_spec_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    task_type TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    record_json TEXT NOT NULL,
+    PRIMARY KEY (user_id, session_id, task_spec_id)
+);
+
+CREATE TABLE IF NOT EXISTS task_session_runs (
+    user_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    run_id TEXT NOT NULL,
+    task_spec_id TEXT,
+    status TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    record_json TEXT NOT NULL,
+    PRIMARY KEY (user_id, session_id, run_id)
+);
+
+CREATE TABLE IF NOT EXISTS task_session_events (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    event_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    record_json TEXT NOT NULL,
+    UNIQUE (user_id, session_id, event_id)
+);
+
+CREATE TABLE IF NOT EXISTS task_session_confirmations (
+    user_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    confirmation_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    record_json TEXT NOT NULL,
+    PRIMARY KEY (user_id, session_id, confirmation_id)
 );
 
 CREATE TABLE IF NOT EXISTS documents (
@@ -210,6 +264,18 @@ CREATE INDEX IF NOT EXISTS idx_tasks_user_session_status
     ON tasks(user_id, source_session_id, status);
 CREATE INDEX IF NOT EXISTS idx_task_actions_user_task_status_next
     ON task_actions(user_id, task_id, status, next_wakeup_at);
+CREATE INDEX IF NOT EXISTS idx_task_sessions_user_status_updated
+    ON task_sessions(user_id, status, updated_at);
+CREATE INDEX IF NOT EXISTS idx_task_sessions_user_source
+    ON task_sessions(user_id, source_surface, source_id);
+CREATE INDEX IF NOT EXISTS idx_task_session_specs_user_session_status
+    ON task_session_specs(user_id, session_id, status);
+CREATE INDEX IF NOT EXISTS idx_task_session_runs_user_session_status
+    ON task_session_runs(user_id, session_id, status);
+CREATE INDEX IF NOT EXISTS idx_task_session_events_user_session_created
+    ON task_session_events(user_id, session_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_task_session_confirmations_user_session_status
+    ON task_session_confirmations(user_id, session_id, status);
 CREATE INDEX IF NOT EXISTS idx_documents_user_updated
     ON documents(user_id, updated_at);
 CREATE INDEX IF NOT EXISTS idx_file_refs_user_workspace_path
@@ -239,6 +305,7 @@ pub(super) async fn initialize_schema(pool: &SqlitePool) -> anyhow::Result<()> {
         sqlx::query(statement).execute(pool).await?;
     }
     ensure_schema_columns(pool).await?;
+    ensure_task_session_event_sequence(pool).await?;
     ensure_legacy_project_schema_removed(pool).await?;
     ensure_legacy_schedule_schema_removed(pool).await?;
     ensure_legacy_auth_schema_removed(pool).await?;
@@ -309,6 +376,59 @@ async fn ensure_schema_columns(pool: &SqlitePool) -> anyhow::Result<()> {
     ] {
         sqlx::query(statement).execute(pool).await?;
     }
+    Ok(())
+}
+
+async fn ensure_task_session_event_sequence(pool: &SqlitePool) -> anyhow::Result<()> {
+    let rows = sqlx::query("PRAGMA table_info(task_session_events)")
+        .fetch_all(pool)
+        .await?;
+    if rows.iter().any(|row| row.get::<String, _>("name") == "seq") {
+        return Ok(());
+    }
+
+    sqlx::query("DROP INDEX IF EXISTS idx_task_session_events_user_session_created")
+        .execute(pool)
+        .await?;
+    sqlx::query("DROP TABLE IF EXISTS task_session_events_seq_rebuild")
+        .execute(pool)
+        .await?;
+    sqlx::query("ALTER TABLE task_session_events RENAME TO task_session_events_seq_rebuild")
+        .execute(pool)
+        .await?;
+    sqlx::query(
+        r#"
+        CREATE TABLE task_session_events (
+            seq INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL,
+            session_id TEXT NOT NULL,
+            event_id TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            record_json TEXT NOT NULL,
+            UNIQUE (user_id, session_id, event_id)
+        )
+        "#,
+    )
+    .execute(pool)
+    .await?;
+    sqlx::query(
+        r#"
+        INSERT INTO task_session_events (user_id, session_id, event_id, created_at, record_json)
+        SELECT user_id, session_id, event_id, created_at, record_json
+        FROM task_session_events_seq_rebuild
+        ORDER BY created_at ASC, event_id ASC
+        "#,
+    )
+    .execute(pool)
+    .await?;
+    sqlx::query("DROP TABLE IF EXISTS task_session_events_seq_rebuild")
+        .execute(pool)
+        .await?;
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_task_session_events_user_session_created ON task_session_events(user_id, session_id, created_at)",
+    )
+    .execute(pool)
+    .await?;
     Ok(())
 }
 
@@ -469,6 +589,8 @@ async fn ensure_schema_migrations(pool: &SqlitePool) -> anyhow::Result<()> {
         (8_i64, "task_system_v1"),
         (9_i64, "task_triggers_replace_schedules"),
         (10_i64, "token_usage_events_v1"),
+        (11_i64, "task_sessions_v1"),
+        (12_i64, "task_session_event_stream_ids"),
     ] {
         sqlx::query("INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (?, ?)")
             .bind(version)

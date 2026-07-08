@@ -16,6 +16,7 @@ use crate::sessions::SessionRecord;
 mod auth;
 mod jobs;
 mod schema;
+mod task_sessions;
 mod task_triggers;
 mod tasks;
 
@@ -556,6 +557,11 @@ impl Storage {
             "sessions",
             "jobs",
             "task_triggers",
+            "task_session_confirmations",
+            "task_session_events",
+            "task_session_runs",
+            "task_session_specs",
+            "task_sessions",
             "task_events",
             "task_actions",
             "tasks",
@@ -1297,6 +1303,55 @@ mod tests {
         let storage = Storage::open(root.join(".ripple/ripple.sqlite"))?;
 
         assert_eq!(storage.schema_version().await?, CURRENT_SCHEMA_VERSION);
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn migrates_task_session_events_to_sequence_ids() -> anyhow::Result<()> {
+        let root =
+            std::env::temp_dir().join(format!("ripple-storage-test-{}", uuid::Uuid::new_v4()));
+        let db_path = root.join(".ripple/ripple.sqlite");
+        if let Some(parent) = db_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        {
+            let options = SqliteConnectOptions::new()
+                .filename(&db_path)
+                .create_if_missing(true);
+            let pool = SqlitePoolOptions::new()
+                .max_connections(1)
+                .connect_lazy_with(options);
+            sqlx::query(
+                r#"
+                CREATE TABLE task_session_events (
+                    user_id TEXT NOT NULL,
+                    session_id TEXT NOT NULL,
+                    event_id TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    record_json TEXT NOT NULL,
+                    PRIMARY KEY (user_id, session_id, event_id)
+                )
+                "#,
+            )
+            .execute(&pool)
+            .await?;
+            sqlx::query(
+                r#"
+                INSERT INTO task_session_events (user_id, session_id, event_id, created_at, record_json)
+                VALUES ('alice', 'ts-old', 'evt-old', '2026-07-08T00:00:00Z', '{"event_id":"evt-old","session_id":"ts-old","event_type":"task_session_created","payload":{},"created_at":"2026-07-08T00:00:00Z"}')
+                "#,
+            )
+            .execute(&pool)
+            .await?;
+            pool.close().await;
+        }
+
+        let storage = Storage::open(&db_path)?;
+        let events = storage.list_task_session_events("alice", "ts-old").await?;
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].get("seq").and_then(Value::as_i64), Some(1));
 
         let _ = std::fs::remove_dir_all(root);
         Ok(())

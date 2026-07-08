@@ -7,6 +7,7 @@ pub mod chat;
 pub mod connectors;
 pub mod contact_requests;
 pub mod contacts;
+pub mod conversations;
 pub mod documents;
 pub mod health;
 pub mod memory;
@@ -203,6 +204,20 @@ pub fn router(state: AppState) -> Router {
         .routes(utoipa_axum::routes!(
             contact_requests::reject_contact_request
         ))
+        .routes(utoipa_axum::routes!(
+            conversations::list_conversations,
+            conversations::create_direct_conversation
+        ))
+        .routes(utoipa_axum::routes!(
+            conversations::list_conversation_messages,
+            conversations::create_conversation_message
+        ))
+        .routes(utoipa_axum::routes!(conversations::mark_conversation_read))
+        .routes(utoipa_axum::routes!(conversations::create_agent_invocation))
+        .routes(utoipa_axum::routes!(
+            conversations::approve_agent_invocation
+        ))
+        .routes(utoipa_axum::routes!(conversations::reject_agent_invocation))
         .routes(utoipa_axum::routes!(models::list_models))
         .routes(utoipa_axum::routes!(models::codex_runtime_info))
         .routes(utoipa_axum::routes!(models::system_info))
@@ -988,6 +1003,462 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn conversations_create_direct_messages_and_enforce_participants() {
+        let state = test_state(vec!["service-key".to_string()]);
+
+        let (status, created) = request_json(
+            state.clone(),
+            Method::POST,
+            "/v1/conversations/direct",
+            "service-key",
+            Some("alice"),
+            Some(json!({ "contact_user_id": "bob" })),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(created.get("kind").and_then(Value::as_str), Some("direct"));
+        let conversation_id = created
+            .get("conversation_id")
+            .and_then(Value::as_str)
+            .expect("conversation id");
+
+        let (status, listed_for_bob) = request_json(
+            state.clone(),
+            Method::GET,
+            "/v1/conversations",
+            "service-key",
+            Some("bob"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            listed_for_bob
+                .pointer("/conversations/0/conversation_id")
+                .and_then(Value::as_str),
+            Some(conversation_id)
+        );
+
+        let (status, created_message) = request_json(
+            state.clone(),
+            Method::POST,
+            format!("/v1/conversations/{conversation_id}/messages").as_str(),
+            "service-key",
+            Some("alice"),
+            Some(json!({ "text": "先一起看这个方案" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(created_message.get("seq").and_then(Value::as_u64), Some(1));
+        assert_eq!(
+            created_message
+                .pointer("/body/text")
+                .and_then(Value::as_str),
+            Some("先一起看这个方案")
+        );
+
+        let (status, messages_for_bob) = request_json(
+            state.clone(),
+            Method::GET,
+            format!("/v1/conversations/{conversation_id}/messages").as_str(),
+            "service-key",
+            Some("bob"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            messages_for_bob.get("count").and_then(Value::as_u64),
+            Some(1)
+        );
+        assert_eq!(
+            messages_for_bob
+                .pointer("/messages/0/body/text")
+                .and_then(Value::as_str),
+            Some("先一起看这个方案")
+        );
+
+        let (status, _) = request_json(
+            state,
+            Method::GET,
+            format!("/v1/conversations/{conversation_id}/messages").as_str(),
+            "service-key",
+            Some("mallory"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn conversation_messages_support_incremental_fetch_and_read_marker() {
+        let state = test_state(vec!["service-key".to_string()]);
+
+        let (status, created) = request_json(
+            state.clone(),
+            Method::POST,
+            "/v1/conversations/direct",
+            "service-key",
+            Some("alice"),
+            Some(json!({ "contact_user_id": "bob" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let conversation_id = created
+            .get("conversation_id")
+            .and_then(Value::as_str)
+            .expect("conversation id");
+
+        for text in ["第一条消息", "第二条消息"] {
+            let (status, _) = request_json(
+                state.clone(),
+                Method::POST,
+                format!("/v1/conversations/{conversation_id}/messages").as_str(),
+                "service-key",
+                Some("alice"),
+                Some(json!({ "text": text })),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK);
+        }
+
+        let (status, incremental) = request_json(
+            state.clone(),
+            Method::GET,
+            format!("/v1/conversations/{conversation_id}/messages?after_seq=1").as_str(),
+            "service-key",
+            Some("bob"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(incremental.get("count").and_then(Value::as_u64), Some(1));
+        assert_eq!(
+            incremental.get("latest_seq").and_then(Value::as_u64),
+            Some(2)
+        );
+        assert_eq!(
+            incremental
+                .pointer("/messages/0/body/text")
+                .and_then(Value::as_str),
+            Some("第二条消息")
+        );
+
+        let (status, read_response) = request_json(
+            state.clone(),
+            Method::POST,
+            format!("/v1/conversations/{conversation_id}/read").as_str(),
+            "service-key",
+            Some("bob"),
+            Some(json!({ "last_read_message_seq": 2 })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            read_response
+                .pointer("/participant/last_read_message_seq")
+                .and_then(Value::as_u64),
+            Some(2)
+        );
+
+        let (status, listed_for_bob) = request_json(
+            state,
+            Method::GET,
+            "/v1/conversations",
+            "service-key",
+            Some("bob"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            listed_for_bob
+                .pointer("/conversations/0/participants/1/last_read_message_seq")
+                .and_then(Value::as_u64),
+            Some(2)
+        );
+    }
+
+    #[tokio::test]
+    async fn conversations_create_agent_invocation_messages_with_manual_authorization() {
+        let state = test_state(vec!["service-key".to_string()]);
+
+        let (status, created) = request_json(
+            state.clone(),
+            Method::POST,
+            "/v1/conversations/direct",
+            "service-key",
+            Some("alice"),
+            Some(json!({ "contact_user_id": "bob" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let conversation_id = created
+            .get("conversation_id")
+            .and_then(Value::as_str)
+            .expect("conversation id");
+
+        let (status, _) = request_json(
+            state.clone(),
+            Method::POST,
+            format!("/v1/conversations/{conversation_id}/messages").as_str(),
+            "service-key",
+            Some("alice"),
+            Some(json!({ "text": "我们要把这个方案整理成文档" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+
+        let (status, invocation) = request_json(
+            state.clone(),
+            Method::POST,
+            format!("/v1/conversations/{conversation_id}/agent-invocations").as_str(),
+            "service-key",
+            Some("alice"),
+            Some(json!({
+                "target_user_id": "bob",
+                "prompt": "@bob-agent 帮我们整理上面的方案",
+                "context_message_count": 10
+            })),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            invocation.get("conversation_id").and_then(Value::as_str),
+            Some(conversation_id)
+        );
+        assert_eq!(
+            invocation.get("requester_user_id").and_then(Value::as_str),
+            Some("alice")
+        );
+        assert_eq!(
+            invocation.get("target_user_id").and_then(Value::as_str),
+            Some("bob")
+        );
+        assert_eq!(
+            invocation.get("status").and_then(Value::as_str),
+            Some("pending_approval")
+        );
+        assert_eq!(
+            invocation
+                .get("requires_target_approval")
+                .and_then(Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            invocation
+                .pointer("/context_snapshot/messages/0/body/text")
+                .and_then(Value::as_str),
+            Some("我们要把这个方案整理成文档")
+        );
+
+        let (status, messages_for_bob) = request_json(
+            state,
+            Method::GET,
+            format!("/v1/conversations/{conversation_id}/messages").as_str(),
+            "service-key",
+            Some("bob"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            messages_for_bob.get("count").and_then(Value::as_u64),
+            Some(2)
+        );
+        assert_eq!(
+            messages_for_bob
+                .pointer("/messages/1/kind")
+                .and_then(Value::as_str),
+            Some("agent_invocation")
+        );
+        assert_eq!(
+            messages_for_bob
+                .pointer("/messages/1/body/invocation/status")
+                .and_then(Value::as_str),
+            Some("pending_approval")
+        );
+    }
+
+    #[tokio::test]
+    async fn agent_invocations_can_be_approved_by_target_user() {
+        let state = test_state(vec!["service-key".to_string()]);
+
+        let (status, created) = request_json(
+            state.clone(),
+            Method::POST,
+            "/v1/conversations/direct",
+            "service-key",
+            Some("alice"),
+            Some(json!({ "contact_user_id": "bob" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let conversation_id = created
+            .get("conversation_id")
+            .and_then(Value::as_str)
+            .expect("conversation id");
+
+        let (status, invocation) = request_json(
+            state.clone(),
+            Method::POST,
+            format!("/v1/conversations/{conversation_id}/agent-invocations").as_str(),
+            "service-key",
+            Some("alice"),
+            Some(json!({
+                "target_user_id": "bob",
+                "prompt": "@bob-agent 帮我们整理上面的方案"
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let invocation_id = invocation
+            .get("invocation_id")
+            .and_then(Value::as_str)
+            .expect("invocation id");
+
+        let (status, approved) = request_json(
+            state.clone(),
+            Method::POST,
+            format!("/v1/agent-invocations/{invocation_id}/approve").as_str(),
+            "service-key",
+            Some("bob"),
+            Some(json!({ "note": "可以执行" })),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        let expected_job_id = format!("test-job-{invocation_id}");
+        assert_eq!(
+            approved.get("status").and_then(Value::as_str),
+            Some("running")
+        );
+        assert_eq!(
+            approved.get("approved_by_user_id").and_then(Value::as_str),
+            Some("bob")
+        );
+        assert_eq!(
+            approved.get("target_job_id").and_then(Value::as_str),
+            Some(expected_job_id.as_str())
+        );
+
+        let (status, messages) = request_json(
+            state,
+            Method::GET,
+            format!("/v1/conversations/{conversation_id}/messages").as_str(),
+            "service-key",
+            Some("alice"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(messages.get("count").and_then(Value::as_u64), Some(3));
+        assert_eq!(
+            messages.pointer("/messages/1/kind").and_then(Value::as_str),
+            Some("agent_invocation_event")
+        );
+        assert_eq!(
+            messages
+                .pointer("/messages/1/body/event_type")
+                .and_then(Value::as_str),
+            Some("approved")
+        );
+        assert_eq!(
+            messages
+                .pointer("/messages/2/body/event_type")
+                .and_then(Value::as_str),
+            Some("running")
+        );
+    }
+
+    #[tokio::test]
+    async fn own_agent_invocation_is_visible_and_pre_authorized_in_conversation() {
+        let state = test_state(vec!["service-key".to_string()]);
+
+        let (status, created) = request_json(
+            state.clone(),
+            Method::POST,
+            "/v1/conversations/direct",
+            "service-key",
+            Some("alice"),
+            Some(json!({ "contact_user_id": "bob" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let conversation_id = created
+            .get("conversation_id")
+            .and_then(Value::as_str)
+            .expect("conversation id");
+
+        let (status, invocation) = request_json(
+            state.clone(),
+            Method::POST,
+            format!("/v1/conversations/{conversation_id}/agent-invocations").as_str(),
+            "service-key",
+            Some("alice"),
+            Some(json!({
+                "target_user_id": "alice",
+                "prompt": "@alice-agent 帮我们整理上面的方案"
+            })),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        let invocation_id = invocation
+            .get("invocation_id")
+            .and_then(Value::as_str)
+            .expect("invocation id");
+        let expected_job_id = format!("test-job-{invocation_id}");
+        assert_eq!(
+            invocation.get("status").and_then(Value::as_str),
+            Some("running")
+        );
+        assert_eq!(
+            invocation
+                .get("requires_target_approval")
+                .and_then(Value::as_bool),
+            Some(false)
+        );
+
+        let (status, messages_for_bob) = request_json(
+            state,
+            Method::GET,
+            format!("/v1/conversations/{conversation_id}/messages").as_str(),
+            "service-key",
+            Some("bob"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            messages_for_bob
+                .pointer("/messages/0/body/invocation/target_agent_id")
+                .and_then(Value::as_str),
+            Some("alice-agent")
+        );
+        assert_eq!(
+            messages_for_bob
+                .pointer("/messages/0/body/invocation/status")
+                .and_then(Value::as_str),
+            Some("running")
+        );
+        assert_eq!(
+            messages_for_bob
+                .pointer("/messages/0/body/invocation/target_job_id")
+                .and_then(Value::as_str),
+            Some(expected_job_id.as_str())
+        );
+        assert_eq!(
+            messages_for_bob
+                .pointer("/messages/1/body/event_type")
+                .and_then(Value::as_str),
+            Some("running")
+        );
     }
 
     #[tokio::test]

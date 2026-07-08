@@ -14,9 +14,11 @@ use crate::config::AppConfig;
 use crate::sessions::SessionRecord;
 
 mod agent_delegations;
+mod agent_invocations;
 mod auth;
 mod contact_requests;
 mod contacts;
+mod conversations;
 mod jobs;
 mod schema;
 mod task_triggers;
@@ -1135,6 +1137,71 @@ mod tests {
             .any(
                 |contact| contact.get("contact_user_id").and_then(Value::as_str) == Some("alice")
             ));
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn stores_direct_conversations_and_messages_for_participants() -> anyhow::Result<()> {
+        let root =
+            std::env::temp_dir().join(format!("ripple-storage-test-{}", uuid::Uuid::new_v4()));
+        let storage = Storage::open(root.join(".ripple/ripple.sqlite"))?;
+
+        let conversation = storage.create_direct_conversation("alice", "bob").await?;
+        let conversation_id = conversation
+            .get("conversation_id")
+            .and_then(Value::as_str)
+            .expect("conversation id")
+            .to_string();
+
+        let reused = storage.create_direct_conversation("bob", "alice").await?;
+        assert_eq!(
+            reused.get("conversation_id").and_then(Value::as_str),
+            Some(conversation_id.as_str())
+        );
+
+        let first = storage
+            .append_conversation_message(
+                &conversation_id,
+                "alice",
+                "user",
+                "alice",
+                "text",
+                &serde_json::json!({ "text": "先一起看这个方案" }),
+            )
+            .await?;
+        let second = storage
+            .append_conversation_message(
+                &conversation_id,
+                "bob",
+                "user",
+                "bob",
+                "text",
+                &serde_json::json!({ "text": "可以，@alice-agent 也可以参与" }),
+            )
+            .await?;
+
+        assert_eq!(first.get("seq").and_then(Value::as_i64), Some(1));
+        assert_eq!(second.get("seq").and_then(Value::as_i64), Some(2));
+
+        let alice_conversations = storage.list_conversations_for_user("alice").await?;
+        let bob_messages = storage
+            .list_conversation_messages_for_user("bob", &conversation_id)
+            .await?;
+        let mallory_messages = storage
+            .list_conversation_messages_for_user("mallory", &conversation_id)
+            .await?;
+
+        assert_eq!(alice_conversations.len(), 1);
+        assert_eq!(bob_messages.len(), 2);
+        assert_eq!(
+            bob_messages[1]
+                .pointer("/body/text")
+                .and_then(Value::as_str),
+            Some("可以，@alice-agent 也可以参与")
+        );
+        assert!(mallory_messages.is_empty());
 
         let _ = std::fs::remove_dir_all(root);
         Ok(())

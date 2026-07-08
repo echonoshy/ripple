@@ -1,7 +1,7 @@
 use serde_json::Value;
 use sqlx::{Row, SqlitePool};
 
-pub const CURRENT_SCHEMA_VERSION: i64 = 14;
+pub const CURRENT_SCHEMA_VERSION: i64 = 15;
 
 const SCHEMA_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS sessions (
@@ -191,6 +191,70 @@ CREATE TABLE IF NOT EXISTS contact_requests (
     record_json TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS conversations (
+    conversation_id TEXT PRIMARY KEY NOT NULL,
+    kind TEXT NOT NULL,
+    direct_key TEXT UNIQUE,
+    title TEXT,
+    created_by_user_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    last_message_at TEXT,
+    record_json TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS conversation_participants (
+    conversation_id TEXT NOT NULL,
+    actor_type TEXT NOT NULL,
+    actor_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    role TEXT NOT NULL,
+    status TEXT NOT NULL,
+    last_read_message_seq INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    record_json TEXT NOT NULL,
+    PRIMARY KEY (conversation_id, actor_type, actor_id),
+    FOREIGN KEY (conversation_id)
+        REFERENCES conversations(conversation_id)
+        ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS conversation_messages (
+    conversation_id TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    message_id TEXT NOT NULL UNIQUE,
+    sender_user_id TEXT NOT NULL,
+    sender_actor_type TEXT NOT NULL,
+    sender_actor_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    record_json TEXT NOT NULL,
+    PRIMARY KEY (conversation_id, seq),
+    FOREIGN KEY (conversation_id)
+        REFERENCES conversations(conversation_id)
+        ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS agent_invocations (
+    invocation_id TEXT PRIMARY KEY NOT NULL,
+    conversation_id TEXT NOT NULL,
+    request_message_id TEXT,
+    requester_user_id TEXT NOT NULL,
+    target_user_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    approved_at TEXT,
+    completed_at TEXT,
+    target_session_id TEXT,
+    target_job_id TEXT,
+    record_json TEXT NOT NULL,
+    FOREIGN KEY (conversation_id)
+        REFERENCES conversations(conversation_id)
+        ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS user_profiles (
     user_id TEXT PRIMARY KEY NOT NULL,
     avatar_uri TEXT,
@@ -283,6 +347,14 @@ CREATE INDEX IF NOT EXISTS idx_contact_requests_requester_updated
     ON contact_requests(requester_user_id, updated_at);
 CREATE INDEX IF NOT EXISTS idx_contact_requests_target_status_updated
     ON contact_requests(target_user_id, status, updated_at);
+CREATE INDEX IF NOT EXISTS idx_conversation_participants_user_updated
+    ON conversation_participants(user_id, updated_at);
+CREATE INDEX IF NOT EXISTS idx_conversation_messages_conversation_seq
+    ON conversation_messages(conversation_id, seq);
+CREATE INDEX IF NOT EXISTS idx_agent_invocations_conversation_updated
+    ON agent_invocations(conversation_id, updated_at);
+CREATE INDEX IF NOT EXISTS idx_agent_invocations_target_status_updated
+    ON agent_invocations(target_user_id, status, updated_at);
 CREATE INDEX IF NOT EXISTS idx_auth_users_status
     ON auth_users(status);
 CREATE INDEX IF NOT EXISTS idx_auth_sessions_user
@@ -544,6 +616,7 @@ async fn ensure_schema_migrations(pool: &SqlitePool) -> anyhow::Result<()> {
         (12_i64, "agent_delegations_v1"),
         (13_i64, "contacts_v1"),
         (14_i64, "contact_requests_v1"),
+        (15_i64, "conversations_v1"),
     ] {
         sqlx::query("INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (?, ?)")
             .bind(version)

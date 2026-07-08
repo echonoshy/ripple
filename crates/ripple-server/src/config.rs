@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
+use serde_json::{json, Value as JsonValue};
 
 pub const DEFAULT_CODEX_MAX_WORKERS_PER_POOL: usize = 8;
 pub const DEFAULT_CODEX_MAX_TOTAL_POOL_WORKERS: usize = 256;
@@ -142,7 +143,7 @@ pub struct CodexConfig {
     pub codex_executable: String,
     pub app_server_args: Vec<String>,
     pub codex_home: Option<PathBuf>,
-    pub approval_policy: String,
+    pub approval_policy: JsonValue,
     pub sandbox_type: String,
     pub network_access: bool,
     pub idle_timeout_seconds: u64,
@@ -321,7 +322,7 @@ struct RawCodex {
     codex_executable: Option<String>,
     app_server_args: Option<Vec<String>>,
     codex_home: Option<String>,
-    approval_policy: Option<String>,
+    approval_policy: Option<serde_yaml::Value>,
     sandbox_type: Option<String>,
     network_access: Option<bool>,
     idle_timeout_seconds: Option<u64>,
@@ -540,9 +541,7 @@ impl AppConfig {
                         .map(|value| resolve_path(&repo_root, &value))
                         .unwrap_or_else(|| repo_root.join(".ripple/codex-service-home")),
                 ),
-                approval_policy: codex_raw
-                    .approval_policy
-                    .unwrap_or_else(|| "never".to_string()),
+                approval_policy: parse_codex_approval_policy(codex_raw.approval_policy)?,
                 sandbox_type: codex_raw
                     .sandbox_type
                     .unwrap_or_else(|| "workspace-write".to_string()),
@@ -646,6 +645,27 @@ fn validate_runtime_config(config: &AppConfig) -> anyhow::Result<()> {
         );
     }
     Ok(())
+}
+
+pub fn default_codex_approval_policy() -> JsonValue {
+    json!({
+        "granular": {
+            "sandbox_approval": true,
+            "rules": false,
+            "skill_approval": false,
+            "request_permissions": true,
+            "mcp_elicitations": false
+        }
+    })
+}
+
+fn parse_codex_approval_policy(raw: Option<serde_yaml::Value>) -> anyhow::Result<JsonValue> {
+    match raw {
+        None | Some(serde_yaml::Value::Null) => Ok(default_codex_approval_policy()),
+        Some(serde_yaml::Value::String(value)) => Ok(JsonValue::String(value)),
+        Some(value) => serde_json::to_value(value)
+            .map_err(|err| anyhow::anyhow!("external_agents.codex.approval_policy: {err}")),
+    }
 }
 
 fn is_wildcard_host(host: &str) -> bool {
@@ -833,7 +853,8 @@ fn find_on_path(binary: &str) -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::AppConfig;
+    use super::{default_codex_approval_policy, AppConfig};
+    use serde_json::json;
     use std::sync::{Mutex, OnceLock};
 
     fn config_env_lock() -> &'static Mutex<()> {
@@ -1199,6 +1220,69 @@ external_agents:
 
         assert_eq!(config.codex.max_workers_per_pool, 50);
         assert_eq!(config.codex.max_total_pool_workers, 256);
+    }
+
+    #[test]
+    fn defaults_codex_approval_policy_to_granular_permissions() {
+        let config = with_temp_config(
+            "codex-approval-default",
+            r#"
+server:
+  api_keys: ["test-key"]
+"#,
+            AppConfig::load,
+        )
+        .expect("load config");
+
+        assert_eq!(
+            config.codex.approval_policy,
+            default_codex_approval_policy()
+        );
+    }
+
+    #[test]
+    fn parses_legacy_string_codex_approval_policy() {
+        let config = with_temp_config(
+            "codex-approval-string",
+            r#"
+server:
+  api_keys: ["test-key"]
+external_agents:
+  codex:
+    approval_policy: "never"
+"#,
+            AppConfig::load,
+        )
+        .expect("load config");
+
+        assert_eq!(config.codex.approval_policy, json!("never"));
+    }
+
+    #[test]
+    fn parses_granular_codex_approval_policy() {
+        let config = with_temp_config(
+            "codex-approval-granular",
+            r#"
+server:
+  api_keys: ["test-key"]
+external_agents:
+  codex:
+    approval_policy:
+      granular:
+        sandbox_approval: true
+        rules: false
+        skill_approval: false
+        request_permissions: true
+        mcp_elicitations: false
+"#,
+            AppConfig::load,
+        )
+        .expect("load config");
+
+        assert_eq!(
+            config.codex.approval_policy,
+            default_codex_approval_policy()
+        );
     }
 
     #[test]

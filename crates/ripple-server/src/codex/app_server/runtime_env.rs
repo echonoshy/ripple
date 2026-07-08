@@ -31,6 +31,9 @@ const CODEX_NATIVE_HARDENING_CONFIG_OVERRIDES: &[&str] = &[
     "skills.bundled.enabled=false",
 ];
 
+const CODEX_NATIVE_ENABLED_FEATURES: &[&str] =
+    &["request_permissions_tool", "exec_permission_approvals"];
+
 pub(super) struct NodeRuntimePaths {
     pub(super) bin: PathBuf,
     pub(super) prefix: PathBuf,
@@ -124,6 +127,10 @@ pub(super) fn hardened_app_server_args(configured: &[String]) -> Vec<String> {
     for config_override in CODEX_NATIVE_HARDENING_CONFIG_OVERRIDES {
         args.push("-c".to_string());
         args.push((*config_override).to_string());
+    }
+    for feature in CODEX_NATIVE_ENABLED_FEATURES {
+        args.push("--enable".to_string());
+        args.push((*feature).to_string());
     }
     args
 }

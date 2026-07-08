@@ -497,7 +497,7 @@ INSERT INTO logs (
                     "stdio://".to_string(),
                 ],
                 codex_home: Some(root.join(".ripple/codex-service-home")),
-                approval_policy: "never".to_string(),
+                approval_policy: serde_json::json!("never"),
                 sandbox_type: "workspace-write".to_string(),
                 network_access: true,
                 idle_timeout_seconds: 1800,

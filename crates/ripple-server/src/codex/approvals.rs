@@ -75,3 +75,68 @@ pub fn approval_response_for_action(approval: &CodexApproval, action: &str) -> V
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::{approval_response_for_action, CodexApproval};
+
+    fn permissions_approval() -> CodexApproval {
+        CodexApproval {
+            source: "codex_app_server".to_string(),
+            job_id: "job-1".to_string(),
+            user_id: Some("alice".to_string()),
+            session_id: Some("session-1".to_string()),
+            request_id: json!("request-1"),
+            method: "item/permissions/requestApproval".to_string(),
+            action: "permissions".to_string(),
+            description: "Needs folder access".to_string(),
+            metadata: json!({
+                "reason": "Read sibling folder",
+                "cwd": "/workspace/spaces/a/records/r1",
+                "permissions": {
+                    "filesystem": {
+                        "read": ["/workspace/spaces/a/records/r2"],
+                        "write": ["/workspace/spaces/a/records/r2/out.md"]
+                    }
+                }
+            }),
+        }
+    }
+
+    #[test]
+    fn permission_allow_returns_requested_permissions_only() {
+        let approval = permissions_approval();
+        let response = approval_response_for_action(&approval, "allow");
+
+        assert_eq!(
+            response.get("permissions"),
+            approval.metadata.get("permissions")
+        );
+        assert_eq!(response.get("scope"), Some(&json!("turn")));
+        assert_eq!(response.get("strictAutoReview"), Some(&json!(false)));
+    }
+
+    #[test]
+    fn permission_always_maps_to_session_scope() {
+        let approval = permissions_approval();
+        let response = approval_response_for_action(&approval, "always");
+
+        assert_eq!(
+            response.get("permissions"),
+            approval.metadata.get("permissions")
+        );
+        assert_eq!(response.get("scope"), Some(&json!("session")));
+    }
+
+    #[test]
+    fn permission_deny_returns_empty_permissions() {
+        let approval = permissions_approval();
+        let response = approval_response_for_action(&approval, "deny");
+
+        assert_eq!(response.get("permissions"), Some(&json!({})));
+        assert_eq!(response.get("scope"), Some(&json!("turn")));
+        assert_eq!(response.get("strictAutoReview"), Some(&json!(true)));
+    }
+}

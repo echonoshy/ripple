@@ -166,6 +166,7 @@ impl JobManager {
             "signals": [],
             "sandbox_cwd": sandbox_cwd_for_host_path(&cwd, &workspace_root),
             "workspace_root": workspace_root,
+            "permission_root": cwd,
             "image_generation_enabled": image_generation_enabled
         });
         if let Some(object) = metadata.as_object_mut() {
@@ -329,6 +330,7 @@ impl JobManager {
             "signals": [],
             "sandbox_cwd": sandbox_cwd_for_host_path(&cwd, &workspace_root),
             "workspace_root": workspace_root,
+            "permission_root": cwd,
             "image_generation_enabled": image_generation_enabled
         });
         if let Some(object) = metadata.as_object_mut() {

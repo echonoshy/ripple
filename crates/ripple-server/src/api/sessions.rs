@@ -636,6 +636,24 @@ pub async fn update_session(
         })
         .transpose()?;
 
+    if input.context_folder_path.is_some() {
+        recover_session_run_state(&state, &user_id, &session_id).await?;
+        let Some(existing) = state.sessions.load(&user_id, &session_id).await? else {
+            return Err(ApiError::not_found("Session not found"));
+        };
+        if existing.status_kind().is_busy()
+            || existing.status_kind().is_awaiting_approval()
+            || state
+                .jobs
+                .has_active_session_run(&user_id, &session_id)
+                .await
+        {
+            return Err(ApiError::conflict(
+                "Cannot change context folder while session has work in progress",
+            ));
+        }
+    }
+
     let Some(info) = state
         .sessions
         .update_session_metadata(

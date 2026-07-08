@@ -376,7 +376,7 @@ fn codex_app_server_runtime_config_check(config: &AppConfig) -> DoctorCheck {
         "app_server_args": args,
         "listen": listen,
         "sandbox_type": config.codex.sandbox_type,
-        "approval_policy": config.codex.approval_policy,
+        "approval_policy": config.codex.approval_policy.clone(),
         "managed_permissions_profile": permission_profile_metadata(config)
             .get("id")
             .cloned()
@@ -766,7 +766,7 @@ mod tests {
                     "stdio://".to_string(),
                 ],
                 codex_home: Some(root.join(".ripple/codex-service-home")),
-                approval_policy: "never".to_string(),
+                approval_policy: serde_json::json!("never"),
                 sandbox_type: "workspace-write".to_string(),
                 network_access: true,
                 idle_timeout_seconds: 1800,

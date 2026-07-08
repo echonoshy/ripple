@@ -22,7 +22,7 @@ import { useI18n, type MessageKey } from "@/i18n";
 import { downloadWorkspaceFile } from "@/lib/api";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { getWorkspaceImagePreviewUrl } from "@/lib/workspaceImageCache";
-import type { Message, WorkbenchTimelineEvent } from "@/types";
+import type { Message, PermissionRequestData, WorkbenchTimelineEvent } from "@/types";
 import {
   TYPOGRAPHY_BODY_CLASS,
   TYPOGRAPHY_BODY_MEDIUM_CLASS,
@@ -175,6 +175,118 @@ const EVENT_TITLE_KEYS_BY_TYPE = {
   image_generation: "timeline.eventTitles.generatedImage",
   image_view: "timeline.eventTitles.image",
 } as const satisfies Partial<Record<WorkbenchTimelineEvent["type"], MessageKey>>;
+
+interface StructuredPermissionDetails {
+  reason?: string;
+  cwd?: string;
+  readPaths: string[];
+  writePaths: string[];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function stringFromRecord(record: Record<string, unknown>, keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return undefined;
+}
+
+function collectPathStrings(value: unknown): string[] {
+  if (typeof value === "string") return value.trim() ? [value.trim()] : [];
+  if (Array.isArray(value)) return value.flatMap(collectPathStrings);
+  if (!isRecord(value)) return [];
+
+  const direct = stringFromRecord(value, ["path", "root", "cwd", "pattern", "glob"]);
+  if (direct) return [direct];
+
+  return Object.entries(value).flatMap(([key, entry]) => {
+    if (key.startsWith("/") || key.startsWith("./") || key.startsWith("../")) return [key];
+    return collectPathStrings(entry);
+  });
+}
+
+function permissionEntryMode(entry: Record<string, unknown>): "read" | "write" | undefined {
+  const mode = stringFromRecord(entry, ["mode", "access", "permission", "kind"])?.toLowerCase();
+  if (!mode) return undefined;
+  if (mode.includes("write") || mode.includes("writable")) return "write";
+  if (mode.includes("read") || mode.includes("readonly")) return "read";
+  return undefined;
+}
+
+function uniquePaths(paths: string[]): string[] {
+  return Array.from(new Set(paths.map((path) => path.trim()).filter(Boolean)));
+}
+
+function structuredPermissionDetails(
+  request: PermissionRequestData
+): StructuredPermissionDetails | null {
+  if (request.tool !== "permissions" || !isRecord(request.params)) return null;
+
+  const params = request.params;
+  const permissions = isRecord(params.permissions) ? params.permissions : {};
+  const fileSystem =
+    (isRecord(permissions.file_system) && permissions.file_system) ||
+    (isRecord(permissions.fileSystem) && permissions.fileSystem) ||
+    (isRecord(permissions.filesystem) && permissions.filesystem) ||
+    (isRecord(params.file_system) && params.file_system) ||
+    (isRecord(params.fileSystem) && params.fileSystem) ||
+    (isRecord(params.filesystem) && params.filesystem) ||
+    permissions;
+
+  let readPaths = [
+    ...collectPathStrings(fileSystem.read),
+    ...collectPathStrings(fileSystem.read_only),
+    ...collectPathStrings(fileSystem.readOnly),
+  ];
+  let writePaths = [
+    ...collectPathStrings(fileSystem.write),
+    ...collectPathStrings(fileSystem.writable),
+  ];
+
+  const entries = Array.isArray(fileSystem.entries) ? fileSystem.entries : [];
+  for (const entry of entries) {
+    if (!isRecord(entry)) continue;
+    const paths = collectPathStrings(entry);
+    const mode = permissionEntryMode(entry);
+    if (mode === "write") writePaths = [...writePaths, ...paths];
+    if (mode === "read") readPaths = [...readPaths, ...paths];
+  }
+
+  return {
+    reason: stringFromRecord(params, ["reason", "description", "message"]),
+    cwd: stringFromRecord(params, ["cwd", "workingDirectory", "working_directory"]),
+    readPaths: uniquePaths(readPaths),
+    writePaths: uniquePaths(writePaths),
+  };
+}
+
+function PermissionPathList({ label, paths }: { label: string; paths: string[] }) {
+  if (!paths.length) return null;
+  const visible = paths.slice(0, 6);
+  const hiddenCount = paths.length - visible.length;
+  return (
+    <div className="mt-2">
+      <div className={`${TYPOGRAPHY_MICRO_CLASS} mb-1 font-medium text-[#8B5E00]`}>{label}</div>
+      <div className="space-y-1">
+        {visible.map((path) => (
+          <div
+            key={path}
+            className={`break-all rounded-md bg-white/70 px-2 py-1 font-[family-name:var(--font-mono)] ${TYPOGRAPHY_META_CLASS} text-[#334155]`}
+          >
+            {path}
+          </div>
+        ))}
+        {hiddenCount > 0 && (
+          <div className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>+{hiddenCount}</div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 const STATUS_KEYS_BY_VALUE = {
   running: "timeline.status.running",
@@ -387,6 +499,9 @@ export default function SessionTimeline({
   const lastAssistant = [...messages].reverse().find((message) => message.role === "assistant");
   const pendingAskUser = !isGenerating ? lastAssistant?.askUser : undefined;
   const pendingPermission = !isGenerating ? lastAssistant?.permissionRequest : undefined;
+  const pendingPermissionDetails = pendingPermission
+    ? structuredPermissionDetails(pendingPermission)
+    : null;
   const [copiedEventId, setCopiedEventId] = React.useState<string | null>(null);
   const [activeCopyEventId, setActiveCopyEventId] = React.useState<string | null>(null);
   const copyResetTimerRef = React.useRef<number | null>(null);
@@ -621,13 +736,50 @@ export default function SessionTimeline({
             <ShieldAlert size={14} />
             {t("timeline.permissionRequired", { tool: pendingPermission.tool })}
           </div>
-          <pre
-            className={`mb-3 max-h-48 overflow-auto p-3 font-[family-name:var(--font-mono)] ${TYPOGRAPHY_META_CLASS} whitespace-pre-wrap text-[#334155] ${WORKBENCH_SECTION_CLASS}`}
-          >
-            {typeof pendingPermission.params === "string"
-              ? pendingPermission.params
-              : JSON.stringify(pendingPermission.params, null, 2)}
-          </pre>
+          {pendingPermissionDetails ? (
+            <div className={`mb-3 ${TYPOGRAPHY_META_CLASS} text-[#334155]`}>
+              {pendingPermissionDetails.reason && (
+                <div className="mb-2">
+                  <span className="font-medium text-[#8B5E00]">
+                    {t("timeline.permissionReason")}:
+                  </span>{" "}
+                  {pendingPermissionDetails.reason}
+                </div>
+              )}
+              {pendingPermissionDetails.cwd && (
+                <div className="mb-2 break-all">
+                  <span className="font-medium text-[#8B5E00]">
+                    {t("timeline.permissionCwd")}:
+                  </span>{" "}
+                  <span className="font-[family-name:var(--font-mono)]">
+                    {pendingPermissionDetails.cwd}
+                  </span>
+                </div>
+              )}
+              <PermissionPathList
+                label={t("timeline.permissionReadPaths")}
+                paths={pendingPermissionDetails.readPaths}
+              />
+              <PermissionPathList
+                label={t("timeline.permissionWritePaths")}
+                paths={pendingPermissionDetails.writePaths}
+              />
+              {!pendingPermissionDetails.readPaths.length &&
+                !pendingPermissionDetails.writePaths.length && (
+                  <div className={`${TYPOGRAPHY_META_CLASS} text-[#646A73]`}>
+                    {t("timeline.permissionNoPaths")}
+                  </div>
+                )}
+            </div>
+          ) : (
+            <pre
+              className={`mb-3 max-h-48 overflow-auto p-3 font-[family-name:var(--font-mono)] ${TYPOGRAPHY_META_CLASS} whitespace-pre-wrap text-[#334155] ${WORKBENCH_SECTION_CLASS}`}
+            >
+              {typeof pendingPermission.params === "string"
+                ? pendingPermission.params
+                : JSON.stringify(pendingPermission.params, null, 2)}
+            </pre>
+          )}
           <div className="flex flex-wrap gap-2">
             <button
               type="button"

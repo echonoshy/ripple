@@ -7,7 +7,7 @@
 - `ripple-server` 是独立 Linux 后端服务，Web、Tauri、Mobile 都只是 `/v1` API 客户端。
 - 后端保持多用户模型。生产由可信上游注入 `X-Ripple-User-Id`，并用服务级 API key 调用 Ripple。
 - `server.user_auth` 只用于开发/内测阶段的轻量邀请登录，不是生产部署主线。
-- sandbox 以 `user_id` 为单位，一个 user 拥有长期 workspace，多个 session 和 `/v1/runs` 共享该 workspace。
+- sandbox 以 `user_id` 为单位，一个 user 拥有长期 workspace，多个 session 和 `/v1/runs` 共享该 workspace。session 可以再绑定更小的 `context_folder_path` 作为本次 Codex 项目根和默认权限根。
 - SQLite 是控制面状态存储；workspace 文件、附件二进制、Codex runtime、connector credentials 仍保存在文件系统。
 - Codex app-server 是执行面。Rust 后端维护按 `user_id + workspace_root + generation` 隔离的 app-server worker pool，job 运行时借用 worker，完成后释放为 idle worker。
 - Skills 继续使用 Markdown/YAML frontmatter；Python 只允许作为 `skills` 下的 helper。
@@ -27,13 +27,13 @@ crates/ripple-server/
 - 配置加载、服务级 API key middleware、轻量 user auth、`X-Ripple-User-Id` 校验。
 - user sandbox、workspace root 分离配置、session metadata/messages、workspace 文件 API、documents、user profile/quota。
 - Notion、Google Workspace、Feishu/Lark、Bilibili connector 授权、状态、账号列表和断开。
-- Codex app-server JSON-RPC provider、worker pool、session 级 chat/compaction 互斥、`/v1/runs`、`/v1/responses`。
+- Codex app-server JSON-RPC provider、worker pool、session 级 chat/compaction 互斥、目录级 permission root、`/v1/runs`、`/v1/responses`。
 - Responses-style subset `/v1/responses` 非流式和 SSE 响应、Codex event 映射、token usage 持久化、workspace attachment 和 image 事件导入。
 - 模型厂商兼容不在 Ripple 内实现 OpenAI-compatible proxy 或厂商 adapter；该边界由 Codex app-server 的 `model_provider` / Responses API 支持负责。
 - Codex approval bridge、session stop/delete/context clear/suspend/resume、sandbox teardown cancellation。
 - Tasks / TaskActions CRUD、session task listing、task event/progress、run-now、Task Trigger API、due time trigger loop，以及 chat-side `codex_app.task_update` 动态工具。
 - Chat-side task-trigger proposal/confirmation 只创建 Task + Task Trigger；旧 standalone schedule API 和 `/v1/schedules` 已移除。
-- Codex managed permissions profile、服务端 Codex auth deny-read、skill manifest rendering、runtime capability catalog。
+- Codex managed permissions profile、目录级 `request_permissions` approval bridge、服务端 Codex auth deny-read、skill manifest rendering、runtime capability catalog。
 - OpenAPI/Swagger 文档入口、doctor/ready diagnostics、Codex app-server protocol/permission profile diagnostics、backup posture 检查。
 
 ## Storage Boundary
@@ -88,6 +88,17 @@ Ripple 是控制面，Codex app-server 是服务端受信执行面宿主进程�
 - 同一 user 的多个 session 和 `/v1/runs` 可以并行执行；worker pool 不能引入 user 级串行锁。
 
 不要把服务端 Codex auth 暴露给 user workspace，也不要把 `auth.json` 写入 `/nas/ripple-data/sandboxes/<user_id>/workspace/`。
+
+### Workspace 与 Permission Root
+
+- user workspace 是长期文件存储边界，例如 `/workspace` 映射到 `.ripple/sandboxes/<user_id>/workspace` 或配置的外部 workspace root。
+- session 的 `context_folder_path` 是当前 Codex 项目根和默认权限根。`null` 表示 `/workspace`；space/record 对话应传入对应 `/workspace/...` 目录。
+- 创建或更新 session 时，`context_folder_path` 必须是当前 user workspace 内已存在的目录。active run、pending approval 或 compaction 期间不允许切换 context folder。
+- chat、run 和 compaction 启动 Codex 时使用该目录作为 cwd，并把同一路径作为 permission root 生成 Codex managed permissions profile。
+- scoped session 下，workspace 根默认 `none`；permission root 为 `write`；同一 workspace 下的同级或其他目录读写必须由 Codex `request_permissions` 发起审批。
+- `/workspace/.tmp` 作为运行时 scratch 例外保留 `write`。提示词要求临时分析和转换产物优先写 `$TMPDIR`。
+- 从 `/workspace` 到 permission root 路径上的 `AGENTS.md` 会被精确授予 `read`，用于加载目录规则；`AGENTS.md` 只提供上下文约定，不是安全边界。
+- shared skills、connector CLI/runtime/cache 继续按最小必要读写开放；服务端 Codex auth、其他 user sandbox、`.agents/skills` 和 `.codex/skills` 继续 deny，避免绕过 Ripple skill manifest。
 
 ## Worker Pool
 

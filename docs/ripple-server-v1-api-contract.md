@@ -70,12 +70,21 @@
 - 调用方可通过 `metadata.req_id`、`metadata.client_req_id`、`metadata.external_req_id` 或 `metadata.request_id` 传入上游业务请求 ID。Ripple 会把该值写入 Codex job 的 `record_json.req_id` 和 `record_json.client_req_id`，便于后续从 SQLite 或 run 记录按业务请求反查 session/job/events。
 - `/v1/chat/completions` 不再注册；客户端和外部调用方必须使用 `/v1/responses`。
 
+### Session Context Folder 与目录权限
+
+- session 的 `context_folder_path` 是当前对话的 Codex cwd 和 permission root。`null` 表示 `/workspace`；space/record 入口应传入已存在的 `/workspace/...` 目录。
+- `POST /v1/sessions` 和 `PATCH /v1/sessions/:session_id` 会校验该路径必须在当前 user workspace 内且为目录。session 有 active run、pending approval 或 context compaction 时，切换 context folder 返回 `409`。
+- scoped session 下，Codex 默认只能读写 permission root；同一 user workspace 下其他目录读写需要 Codex app-server 通过 `item/permissions/requestApproval` 发起审批。
+- 审批状态通过 session 的 `pending_permission_request` 和 SSE `ripple.approval_required` 暴露；`action: "permissions"` 时，`metadata` 包含 Codex 原始请求，例如 `reason`、`cwd` 和 `permissions`。
+- 客户端继续调用 `POST /v1/sessions/:session_id/permissions/resolve`。`action=allow` 映射 Codex `scope=turn`，`action=always` 映射 `scope=session`，`action=deny` 返回空 permissions。
+
 ## Runs
 
 - `GET /v1/runs/:job_id/events` 返回 SSE，每个 JSON event 带 `event_version: 1`。
 - `GET /v1/runs/:job_id/output` 下载 run output，不要求客户端读取 host path。
 - `events_file` 和 `output_file` 仍保留给管理员调试，客户端不要依赖它们作为下载入口。
 - 服务重启时遗留 `queued/running` run 会标记为 `failed`，`failure_reason=interrupted_by_restart`。
+- `/v1/runs` 的 `cwd` 同样作为该 run 的 permission root；未传时默认为 `/workspace`。调用方传入 `/workspace/...` 时必须保持在当前 user workspace 内。
 
 ## Tasks
 
@@ -143,6 +152,6 @@ cargo run -p ripple-server -- doctor --config config/settings.yaml
 - Codex app-server：服务端受信宿主进程。
 - Codex shell commands：Codex Linux sandbox/bubblewrap + Ripple managed permissions profile，启动前 probe 失败则 fail closed。
 - Connector CLI：nsjail runtime，要求 new pid/ipc/uts/user namespace、fresh `/proc`、共享 network namespace。
-- Workspace isolation：`user_id` 级长期 workspace。
+- Workspace isolation：`user_id` 级长期 workspace；session/run 再用 context folder 或 cwd 收窄 Codex permission root。
 
 该接口不再使用笼统的 `mode: nsjail` 表述。

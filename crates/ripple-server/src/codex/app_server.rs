@@ -770,7 +770,14 @@ impl CodexAppServerProvider {
             .and_then(Value::as_str)
             .map(PathBuf::from)
             .unwrap_or_else(|| request.cwd.clone());
-        let permission_config = thread_config_for_request(&workspace_root, &self.config, request);
+        let permission_root = request
+            .metadata
+            .get("permission_root")
+            .and_then(Value::as_str)
+            .map(PathBuf::from)
+            .unwrap_or_else(|| request.cwd.clone());
+        let permission_config =
+            thread_config_for_request(&workspace_root, &permission_root, &self.config, request);
         let (thread_id, thread_resumed) = self
             .ensure_thread(request, session, &permission_config)
             .await?;
@@ -1087,7 +1094,7 @@ impl CodexAppServerProvider {
                 let mut resume_params = json!({
                     "threadId": thread_id,
                     "cwd": request.cwd,
-                    "approvalPolicy": self.config.codex.approval_policy,
+                    "approvalPolicy": self.config.codex.approval_policy.clone(),
                     "config": permission_config,
                     "permissions": RIPPLE_CODEX_PERMISSION_PROFILE,
                     "excludeTurns": true
@@ -1111,7 +1118,7 @@ impl CodexAppServerProvider {
 
         let mut start_params = json!({
             "cwd": request.cwd,
-            "approvalPolicy": self.config.codex.approval_policy,
+            "approvalPolicy": self.config.codex.approval_policy.clone(),
             "ephemeral": !persistent_thread,
             "serviceName": "ripple",
             "config": permission_config,
@@ -1551,14 +1558,14 @@ impl CodexAppServerProvider {
         session.ensure_started().await?;
         session.ensure_initialized().await?;
         let permission_config =
-            thread_permission_config_for_user(&session.user_key, &session.cwd, &self.config);
+            thread_permission_config_for_user(&session.user_key, &session.cwd, &cwd, &self.config);
         let thread_result = session
             .request(
                 "thread/resume",
                 json!({
                     "threadId": thread_id.clone(),
                     "cwd": cwd,
-                    "approvalPolicy": self.config.codex.approval_policy,
+                    "approvalPolicy": self.config.codex.approval_policy.clone(),
                     "config": permission_config,
                     "permissions": RIPPLE_CODEX_PERMISSION_PROFILE,
                     "excludeTurns": true
@@ -1784,7 +1791,7 @@ async fn collect_context_compaction(
 fn turn_start_params(
     thread_id: &str,
     request: &AgentRunnerRequest,
-    approval_policy: &str,
+    approval_policy: &Value,
 ) -> Value {
     let mut params = serde_json::Map::new();
     params.insert("threadId".to_string(), json!(thread_id));
@@ -1828,7 +1835,7 @@ fn turn_start_params(
         );
     }
     params.insert("cwd".to_string(), json!(request.cwd));
-    params.insert("approvalPolicy".to_string(), json!(approval_policy));
+    params.insert("approvalPolicy".to_string(), approval_policy.clone());
     if let Some(model) = &request.model {
         params.insert("model".to_string(), json!(model));
     }
@@ -1854,11 +1861,13 @@ fn persistent_thread(request: &AgentRunnerRequest) -> bool {
 
 fn thread_config_for_request(
     workspace_root: &Path,
+    permission_root: &Path,
     config: &AppConfig,
     request: &AgentRunnerRequest,
 ) -> Value {
     let user_id = request.user_id.as_deref().unwrap_or("default");
-    let mut thread_config = thread_permission_config_for_user(user_id, workspace_root, config);
+    let mut thread_config =
+        thread_permission_config_for_user(user_id, workspace_root, permission_root, config);
     if let Some(object) = thread_config.as_object_mut() {
         if image_generation_enabled_for_request(request) {
             object.insert("features.image_generation".to_string(), json!(true));
@@ -2074,7 +2083,7 @@ mod tests {
             metadata: json!({}),
         };
 
-        let params = turn_start_params("thread-1", &request, "never");
+        let params = turn_start_params("thread-1", &request, &json!("never"));
 
         assert_eq!(
             params.pointer("/input/0/text").and_then(Value::as_str),
@@ -2127,7 +2136,7 @@ mod tests {
             metadata: json!({}),
         };
 
-        let params = turn_start_params("thread-1", &request, "never");
+        let params = turn_start_params("thread-1", &request, &json!("never"));
 
         assert_eq!(
             params
@@ -2163,11 +2172,70 @@ mod tests {
                 "features.plugins=true",
             ]
         );
-        assert!(args.ends_with(&["-c".to_string(), "skills.bundled.enabled=false".to_string()]));
+        assert!(args
+            .windows(2)
+            .any(|pair| pair[0] == "--enable" && pair[1] == "request_permissions_tool"));
+        assert!(args
+            .windows(2)
+            .any(|pair| pair[0] == "--enable" && pair[1] == "exec_permission_approvals"));
+        assert!(args.contains(&"skills.bundled.enabled=false".to_string()));
         assert!(args.contains(&"include_apps_instructions=false".to_string()));
         assert!(args.contains(&"features.apps=false".to_string()));
         assert!(args.contains(&"features.plugins=false".to_string()));
         assert!(args.contains(&"skills.include_instructions=false".to_string()));
+    }
+
+    #[test]
+    fn turn_start_params_preserve_granular_approval_policy() {
+        let request = AgentRunnerRequest {
+            provider: "codex".to_string(),
+            prompt: "normal chat".to_string(),
+            base_instructions: None,
+            turn_context: None,
+            client_context: None,
+            cwd: PathBuf::from("/tmp/ripple-test"),
+            input_items: Vec::new(),
+            model: None,
+            effort: None,
+            summary: None,
+            output_schema: None,
+            max_runtime_seconds: 60,
+            user_id: Some("alice".to_string()),
+            session_id: Some("session-1".to_string()),
+            metadata: json!({}),
+        };
+        let approval_policy = json!({
+            "granular": {
+                "sandbox_approval": true,
+                "rules": false,
+                "skill_approval": false,
+                "request_permissions": true,
+                "mcp_elicitations": false
+            }
+        });
+
+        let params = turn_start_params("thread-1", &request, &approval_policy);
+
+        assert_eq!(params.get("approvalPolicy"), Some(&approval_policy));
+    }
+
+    #[test]
+    fn pool_generation_includes_serialized_approval_policy() {
+        let mut config = test_config();
+        config.codex.approval_policy = json!({
+            "granular": {
+                "sandbox_approval": true,
+                "rules": false,
+                "skill_approval": false,
+                "request_permissions": true,
+                "mcp_elicitations": false
+            }
+        });
+
+        let generation = pool_generation(&config);
+
+        assert!(generation.contains("\"granular\""));
+        assert!(generation.contains("\"request_permissions\":true"));
     }
 
     #[test]
@@ -2365,7 +2433,7 @@ mod tests {
             metadata: json!({}),
         };
 
-        let thread_config = thread_config_for_request(&workspace, &config, &request);
+        let thread_config = thread_config_for_request(&workspace, &workspace, &config, &request);
 
         assert!(thread_config.get("features.memories").is_none());
         assert!(thread_config.get("memories.use_memories").is_none());
@@ -2398,7 +2466,7 @@ mod tests {
             metadata: json!({"memory_disabled": true}),
         };
 
-        let thread_config = thread_config_for_request(&workspace, &config, &request);
+        let thread_config = thread_config_for_request(&workspace, &workspace, &config, &request);
 
         assert!(thread_config.get("features.memories").is_none());
         assert!(thread_config.get("memories.use_memories").is_none());
@@ -2492,7 +2560,7 @@ mod tests {
                     "stdio://".to_string(),
                 ],
                 codex_home: Some(root.join(".ripple/codex-service-home")),
-                approval_policy: "never".to_string(),
+                approval_policy: serde_json::json!("never"),
                 sandbox_type: "workspace-write".to_string(),
                 network_access: true,
                 idle_timeout_seconds: 1800,

@@ -619,7 +619,13 @@ external_agents:
       - "--listen"
       - "stdio://"
     codex_home: "/nas/ripple-data/codex-service-home"
-    approval_policy: "never"
+    approval_policy:
+      granular:
+        sandbox_approval: true
+        rules: false
+        skill_approval: false
+        request_permissions: true
+        mcp_elicitations: false
     sandbox_type: "workspace-write"
     network_access: true
     max_workers_per_pool: 50

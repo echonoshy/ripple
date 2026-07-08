@@ -2289,7 +2289,7 @@ mod tests {
                 codex_executable: "codex".to_string(),
                 app_server_args: Vec::new(),
                 codex_home: None,
-                approval_policy: "never".to_string(),
+                approval_policy: serde_json::json!("never"),
                 sandbox_type: "workspace-write".to_string(),
                 network_access: true,
                 idle_timeout_seconds: 1800,
@@ -2398,7 +2398,10 @@ mod tests {
         );
         assert!(prompt.contains("Do not create node_modules under /workspace or /workspace/.tmp"));
         assert!(prompt.contains(
-            "write temporary analysis, render, OCR, conversion, and inspection artifacts to $TMPDIR or /workspace/.tmp"
+            "write temporary analysis, render, OCR, conversion, and inspection artifacts to $TMPDIR first"
+        ));
+        assert!(prompt.contains(
+            "The selected context folder is the default work area and permission boundary"
         ));
         assert!(prompt.contains(
             "Do not write derived inspection files into /workspace root unless the user explicitly asks for those files as deliverables"

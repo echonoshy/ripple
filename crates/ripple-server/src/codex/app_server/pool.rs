@@ -30,10 +30,12 @@ pub(super) struct PoolState {
 }
 
 pub(super) fn pool_generation(config: &AppConfig) -> String {
+    let approval_policy = serde_json::to_string(&config.codex.approval_policy)
+        .unwrap_or_else(|_| config.codex.approval_policy.to_string());
     [
         config.codex.codex_executable.as_str(),
         &config.codex.app_server_args.join("\u{1f}"),
-        config.codex.approval_policy.as_str(),
+        approval_policy.as_str(),
         config.codex.sandbox_type.as_str(),
         if config.codex.network_access {
             "network"

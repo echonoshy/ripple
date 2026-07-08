@@ -1,5 +1,5 @@
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use serde_json::{json, Value};
 
@@ -8,20 +8,22 @@ use crate::config::{resolve_path, AppConfig};
 pub const RIPPLE_CODEX_PERMISSION_PROFILE: &str = "ripple_workspace";
 
 pub fn thread_permission_config(workspace: &Path, config: &AppConfig) -> Value {
-    thread_permission_config_with_user(None, workspace, config)
+    thread_permission_config_with_user(None, workspace, workspace, config)
 }
 
 pub fn thread_permission_config_for_user(
     user_id: &str,
-    workspace: &Path,
+    workspace_root: &Path,
+    permission_root: &Path,
     config: &AppConfig,
 ) -> Value {
-    thread_permission_config_with_user(Some(user_id), workspace, config)
+    thread_permission_config_with_user(Some(user_id), workspace_root, permission_root, config)
 }
 
 fn thread_permission_config_with_user(
     user_id: Option<&str>,
-    workspace: &Path,
+    workspace_root: &Path,
+    permission_root: &Path,
     config: &AppConfig,
 ) -> Value {
     let mut filesystem = serde_json::Map::new();
@@ -30,19 +32,30 @@ fn thread_permission_config_with_user(
         config.sandbox.sandboxes_root.to_string_lossy().to_string(),
         json!("none"),
     );
-    let mut workspace_rules = serde_json::Map::new();
-    workspace_rules.insert(".".to_string(), json!("write"));
-    workspace_rules.insert(".git".to_string(), json!("write"));
-    workspace_rules.insert(".agents".to_string(), json!("read"));
-    workspace_rules.insert(".codex".to_string(), json!("read"));
+    let permission_root = normalized_permission_root(workspace_root, permission_root);
+    if permission_root != normalize_path_for_permission(workspace_root) {
+        filesystem.insert(workspace_root.to_string_lossy().to_string(), json!("none"));
+    }
+    filesystem.insert(
+        workspace_root.join(".tmp").to_string_lossy().to_string(),
+        json!("write"),
+    );
+    for agents_file in ancestor_agent_files(workspace_root, &permission_root) {
+        filesystem.insert(agents_file.to_string_lossy().to_string(), json!("read"));
+    }
+    let mut permission_root_rules = serde_json::Map::new();
+    permission_root_rules.insert(".".to_string(), json!("write"));
+    permission_root_rules.insert(".git".to_string(), json!("write"));
+    permission_root_rules.insert(".agents".to_string(), json!("read"));
+    permission_root_rules.insert(".codex".to_string(), json!("read"));
     for native_skill_root in [".agents/skills", ".codex/skills"] {
-        if path_exists_for_permission_rule(&workspace.join(native_skill_root)) {
-            workspace_rules.insert(native_skill_root.to_string(), json!("none"));
+        if path_exists_for_permission_rule(&permission_root.join(native_skill_root)) {
+            permission_root_rules.insert(native_skill_root.to_string(), json!("none"));
         }
     }
     filesystem.insert(
-        workspace.to_string_lossy().to_string(),
-        Value::Object(workspace_rules),
+        permission_root.to_string_lossy().to_string(),
+        Value::Object(permission_root_rules),
     );
     for shared_skill_dir in shared_skill_permission_dirs(config) {
         if path_is_covered_by_parent(&shared_skill_dir, &config.sandbox.sandboxes_root) {
@@ -100,13 +113,15 @@ fn thread_permission_config_with_user(
             );
         }
     }
-    if let Some(user_runtime_home) = current_user_codex_runtime_home(user_id, workspace, config) {
+    if let Some(user_runtime_home) =
+        current_user_codex_runtime_home(user_id, workspace_root, config)
+    {
         filesystem.insert(
             user_runtime_home.to_string_lossy().to_string(),
             json!("write"),
         );
     }
-    if let Some(user_codex_home) = current_user_codex_home(user_id, workspace, config) {
+    if let Some(user_codex_home) = current_user_codex_home(user_id, workspace_root, config) {
         filesystem.insert(user_codex_home.to_string_lossy().to_string(), json!("read"));
         let user_auth_file = user_codex_home.join("auth.json");
         match std::fs::symlink_metadata(&user_auth_file) {
@@ -127,7 +142,7 @@ fn thread_permission_config_with_user(
         }
     }
     if let Some(bilibili_credential) =
-        current_user_bilibili_credential_file(user_id, workspace, config)
+        current_user_bilibili_credential_file(user_id, workspace_root, config)
     {
         filesystem.insert(
             bilibili_credential.to_string_lossy().to_string(),
@@ -196,6 +211,30 @@ fn current_user_sandbox_dir(
     Some(sandbox_dir.to_path_buf())
 }
 
+fn ancestor_agent_files(workspace_root: &Path, permission_root: &Path) -> Vec<PathBuf> {
+    let workspace_root = normalize_path_for_permission(workspace_root);
+    let permission_root = normalize_path_for_permission(permission_root);
+    let Ok(relative) = permission_root.strip_prefix(&workspace_root) else {
+        return Vec::new();
+    };
+    let mut dirs = vec![workspace_root.clone()];
+    let mut current = workspace_root;
+    for component in relative.components() {
+        match component {
+            Component::Normal(part) => {
+                current.push(part);
+                dirs.push(current.clone());
+            }
+            Component::CurDir => {}
+            _ => break,
+        }
+    }
+    dirs.into_iter()
+        .map(|dir| dir.join("AGENTS.md"))
+        .filter(|path| path_exists_for_permission_rule(path))
+        .collect()
+}
+
 fn current_user_id(user_id: Option<&str>, workspace: &Path, config: &AppConfig) -> Option<String> {
     if let Some(user_id) = user_id {
         return crate::user::validate_user_id(user_id)
@@ -206,6 +245,32 @@ fn current_user_id(user_id: Option<&str>, workspace: &Path, config: &AppConfig) 
         .file_name()?
         .to_str()
         .map(str::to_string)
+}
+
+fn normalized_permission_root(workspace_root: &Path, permission_root: &Path) -> PathBuf {
+    let workspace_root = normalize_path_for_permission(workspace_root);
+    let permission_root = normalize_path_for_permission(permission_root);
+    if permission_root.starts_with(&workspace_root) {
+        permission_root
+    } else {
+        workspace_root.join(".ripple-invalid-permission-root")
+    }
+}
+
+fn normalize_path_for_permission(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::Prefix(prefix) => normalized.push(prefix.as_os_str()),
+            Component::RootDir => normalized.push(component.as_os_str()),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                normalized.pop();
+            }
+            Component::Normal(part) => normalized.push(part),
+        }
+    }
+    normalized
 }
 
 fn path_exists_for_permission_rule(path: &Path) -> bool {
@@ -372,6 +437,58 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(workspace);
+    }
+
+    #[test]
+    fn profile_scopes_record_session_to_permission_root() {
+        let mut config = test_config();
+        config.codex.codex_home = Some(config.repo_root.join(".ripple/codex-service-home"));
+        let workspace = config.sandbox.sandboxes_root.join("alice/workspace");
+        let record = workspace.join("spaces/a/records/r1");
+        let sibling = workspace.join("spaces/a/records/r2");
+        std::fs::create_dir_all(&record).expect("create record");
+        std::fs::create_dir_all(&sibling).expect("create sibling");
+        std::fs::write(workspace.join("AGENTS.md"), "# workspace\n")
+            .expect("write workspace agents");
+        std::fs::create_dir_all(workspace.join("spaces/a")).expect("create space");
+        std::fs::write(workspace.join("spaces/a/AGENTS.md"), "# space\n")
+            .expect("write space agents");
+
+        let permissions = thread_permission_config_for_user("alice", &workspace, &record, &config);
+        let filesystem = permissions
+            .pointer("/permissions/ripple_workspace/filesystem")
+            .and_then(|filesystem| filesystem.as_object())
+            .expect("filesystem rules");
+        let record_rules = filesystem
+            .get(record.to_string_lossy().as_ref())
+            .and_then(|rules| rules.as_object())
+            .expect("record rules");
+
+        assert_eq!(
+            filesystem.get(workspace.to_string_lossy().as_ref()),
+            Some(&json!("none"))
+        );
+        assert_eq!(record_rules.get("."), Some(&json!("write")));
+        assert_eq!(
+            filesystem.get(workspace.join(".tmp").to_string_lossy().as_ref()),
+            Some(&json!("write"))
+        );
+        assert_eq!(
+            filesystem.get(workspace.join("AGENTS.md").to_string_lossy().as_ref()),
+            Some(&json!("read"))
+        );
+        assert_eq!(
+            filesystem.get(
+                workspace
+                    .join("spaces/a/AGENTS.md")
+                    .to_string_lossy()
+                    .as_ref()
+            ),
+            Some(&json!("read"))
+        );
+        assert!(!filesystem.contains_key(sibling.to_string_lossy().as_ref()));
+
+        let _ = std::fs::remove_dir_all(&config.repo_root);
     }
 
     #[test]
@@ -560,7 +677,8 @@ mod tests {
         std::fs::write(&bilibili_credential, r#"{"sessdata":"secret"}"#)
             .expect("write bilibili credential");
 
-        let permissions = thread_permission_config_for_user("alice", &workspace, &config);
+        let permissions =
+            thread_permission_config_for_user("alice", &workspace, &workspace, &config);
         let filesystem = permissions
             .pointer("/permissions/ripple_workspace/filesystem")
             .and_then(|filesystem| filesystem.as_object())
@@ -636,7 +754,7 @@ mod tests {
                     "stdio://".to_string(),
                 ],
                 codex_home: None,
-                approval_policy: "never".to_string(),
+                approval_policy: serde_json::json!("never"),
                 sandbox_type: "workspace-write".to_string(),
                 network_access: true,
                 idle_timeout_seconds: 1800,

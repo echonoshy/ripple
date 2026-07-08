@@ -189,9 +189,17 @@ function testBrowserPanelExposesCodexStyleBasicPageTools() {
   assert.match(source, /handleZoomIn/);
   assert.match(source, /handlePrintPage/);
   assert.match(source, /handleClearBrowserData/);
-  assert.match(source, /nativeBrowserRef\.current\.setZoom/);
+  assert.match(source, /nativeBrowserRef\.current\s*\.\s*setZoom/);
   assert.match(source, /nativeBrowserRef\.current\.printPage/);
-  assert.match(source, /nativeBrowserRef\.current\.clearData/);
+  assert.match(source, /nativeBrowserRef\.current\s*\.\s*clearData/);
+}
+
+function testBrowserPanelRegistersBrowserCommandExecutor() {
+  const source = readFileSync(new URL("./BrowserPanel.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /onBrowserCommandExecutorChange/);
+  assert.match(source, /executeBrowserCommand/);
+  assert.match(source, /onBrowserCommandExecutorChange\(null\)/);
 }
 
 testBrowserPanelRendersBrowserControls();
@@ -212,5 +220,6 @@ testBrowserPanelShowsCodexStyleLoadingAndEmptyState();
 testBrowserPanelRequiresExplicitPageAttachment();
 testBrowserPanelShowsDownloadStatusFromNativeEvents();
 testBrowserPanelExposesCodexStyleBasicPageTools();
+testBrowserPanelRegistersBrowserCommandExecutor();
 
 console.log("browser panel tests passed");

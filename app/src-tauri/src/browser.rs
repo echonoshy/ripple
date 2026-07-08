@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 use std::{
     collections::HashMap,
     fs,
@@ -13,11 +14,12 @@ use tauri::{
     WebviewUrl,
 };
 use tokio::sync::oneshot;
-use tokio::time::timeout;
+use tokio::time::{sleep, timeout};
 use url::Url;
 
 const MAX_CAPTURE_TEXT_CHARS: usize = 12_000;
 const CAPTURE_TIMEOUT_SECONDS: u64 = 5;
+const AUTOMATION_TIMEOUT_SECONDS: u64 = 8;
 
 #[derive(Debug, Deserialize)]
 pub struct BrowserBounds {
@@ -55,6 +57,14 @@ pub struct BrowserResizeRequest {
 pub struct BrowserZoomRequest {
     pub label: String,
     pub scale: f64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BrowserAutomationRequest {
+    pub label: String,
+    pub command: String,
+    #[serde(default)]
+    pub arguments: Value,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -340,6 +350,77 @@ async fn capture<R: Runtime>(
 }
 
 #[tauri::command]
+async fn run_automation<R: Runtime>(
+    app: AppHandle<R>,
+    request: BrowserAutomationRequest,
+) -> Result<Value, String> {
+    validate_browser_label(&request.label)?;
+    let webview = app
+        .get_webview(&request.label)
+        .ok_or_else(|| "Browser webview is not available".to_string())?;
+
+    if request.command == "browser_navigate" {
+        let url = request
+            .arguments
+            .get("url")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "browser_navigate requires url".to_string())?;
+        let url = parse_browser_url(url)?;
+        webview
+            .navigate(url.clone())
+            .map_err(|err| err.to_string())?;
+        return Ok(json!({
+            "ok": true,
+            "observation": format!("Navigating to {url}"),
+            "page": {
+                "url": url.to_string(),
+                "title": null,
+                "text": "",
+                "interactive_elements": []
+            }
+        }));
+    }
+
+    if request.command == "browser_wait" {
+        let milliseconds = request
+            .arguments
+            .get("milliseconds")
+            .or_else(|| request.arguments.get("ms"))
+            .and_then(Value::as_u64)
+            .unwrap_or(500)
+            .min(10_000);
+        if milliseconds > 0 {
+            sleep(Duration::from_millis(milliseconds)).await;
+        }
+    }
+
+    let (tx, rx) = oneshot::channel::<String>();
+    let tx = Arc::new(Mutex::new(Some(tx)));
+    let callback_tx = Arc::clone(&tx);
+
+    webview
+        .eval_with_callback(
+            browser_automation_script(&request.command, &request.arguments)?,
+            move |payload| {
+                let Ok(mut tx) = callback_tx.lock() else {
+                    return;
+                };
+                if let Some(tx) = tx.take() {
+                    let _ = tx.send(payload);
+                }
+            },
+        )
+        .map_err(|err| err.to_string())?;
+
+    let payload = timeout(Duration::from_secs(AUTOMATION_TIMEOUT_SECONDS), rx)
+        .await
+        .map_err(|_| "Browser automation timed out".to_string())?
+        .map_err(|_| "Browser automation was cancelled".to_string())?;
+    serde_json::from_str(&payload)
+        .map_err(|err| format!("Invalid browser automation result: {err}"))
+}
+
+#[tauri::command]
 fn close<R: Runtime>(app: AppHandle<R>, request: BrowserLabelRequest) -> Result<(), String> {
     validate_browser_label(&request.label)?;
     if let Some(webview) = app.get_webview(&request.label) {
@@ -370,8 +451,20 @@ fn hide<R: Runtime>(app: AppHandle<R>, request: BrowserLabelRequest) -> Result<(
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
     PluginBuilder::new("ripple-browser")
         .invoke_handler(tauri::generate_handler![
-            open, resize, navigate, reload, print_page, set_zoom, clear_data, back, forward,
-            capture, close, show, hide
+            open,
+            resize,
+            navigate,
+            reload,
+            print_page,
+            set_zoom,
+            clear_data,
+            back,
+            forward,
+            capture,
+            run_automation,
+            close,
+            show,
+            hide
         ])
         .build()
 }
@@ -530,6 +623,214 @@ fn validate_browser_label(label: &str) -> Result<(), String> {
     } else {
         Err("Invalid browser label".to_string())
     }
+}
+
+fn browser_automation_script(command: &str, arguments: &Value) -> Result<String, String> {
+    let command = serde_json::to_string(command).map_err(|err| err.to_string())?;
+    let arguments = serde_json::to_string(arguments).map_err(|err| err.to_string())?;
+    Ok(format!(
+        r#"
+(() => {{
+  const command = {command};
+  const args = {arguments};
+  const maxChars = {max_chars};
+  const maxItems = 80;
+  const normalizeText = (value) => String(value || "").replace(/\u0000/g, "").replace(/\s+/g, " ").trim();
+  const absoluteUrl = (value) => {{
+    try {{
+      return value ? new URL(value, window.location.href).href : "";
+    }} catch {{
+      return "";
+    }}
+  }};
+  const cssEscape = (value) => {{
+    if (globalThis.CSS && typeof globalThis.CSS.escape === "function") {{
+      return globalThis.CSS.escape(value);
+    }}
+    return String(value).replace(/["\\]/g, "\\$&");
+  }};
+  const isVisible = (node) => {{
+    if (!node || !(node instanceof Element)) return false;
+    const style = window.getComputedStyle(node);
+    if (style.visibility === "hidden" || style.display === "none" || Number(style.opacity) === 0) {{
+      return false;
+    }}
+    const rect = node.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  }};
+  const roleFor = (node) => {{
+    const explicit = normalizeText(node.getAttribute("role"));
+    if (explicit) return explicit;
+    const tag = String(node.tagName || "").toLowerCase();
+    if (tag === "a") return "link";
+    if (tag === "button") return "button";
+    if (tag === "textarea") return "textbox";
+    if (tag === "select") return "combobox";
+    if (tag === "input") {{
+      const type = normalizeText(node.getAttribute("type")).toLowerCase();
+      if (type === "checkbox") return "checkbox";
+      if (type === "radio") return "radio";
+      if (type === "submit" || type === "button") return "button";
+      return "textbox";
+    }}
+    return tag || "element";
+  }};
+  const labelFor = (node) => {{
+    const aria = normalizeText(node.getAttribute("aria-label"));
+    if (aria) return aria;
+    const id = node.getAttribute("id");
+    if (id) {{
+      const label = document.querySelector(`label[for="${{cssEscape(id)}}"]`);
+      const text = label ? normalizeText(label.innerText || label.textContent) : "";
+      if (text) return text;
+    }}
+    const wrapper = node.closest("label");
+    if (wrapper) {{
+      const text = normalizeText(wrapper.innerText || wrapper.textContent);
+      if (text) return text;
+    }}
+    const placeholder = normalizeText(node.getAttribute("placeholder"));
+    if (placeholder) return placeholder;
+    const title = normalizeText(node.getAttribute("title"));
+    if (title) return title;
+    return normalizeText(node.innerText || node.textContent || node.getAttribute("name"));
+  }};
+  const interactiveNodes = () => Array.from(document.querySelectorAll([
+    "a[href]",
+    "button",
+    "input:not([type=hidden])",
+    "textarea",
+    "select",
+    "[role=button]",
+    "[role=link]",
+    "[contenteditable=true]",
+    "[tabindex]:not([tabindex='-1'])"
+  ].join(","))).filter(isVisible).slice(0, maxItems);
+  const nodeId = (node, index) => {{
+    let id = node.getAttribute("data-ripple-browser-node-id");
+    if (!id) {{
+      id = `b${{index + 1}}`;
+      node.setAttribute("data-ripple-browser-node-id", id);
+    }}
+    return id;
+  }};
+  const snapshot = () => {{
+    const rawText = normalizeText(document.body ? document.body.innerText : "");
+    const selectedText = normalizeText(window.getSelection ? window.getSelection().toString() : "");
+    const truncated = rawText.length > maxChars;
+    const elements = interactiveNodes().map((node, index) => {{
+      const href = node.matches("a[href]") ? absoluteUrl(node.getAttribute("href")) : "";
+      return {{
+        id: nodeId(node, index),
+        role: roleFor(node),
+        text: labelFor(node).slice(0, 240),
+        tag: String(node.tagName || "").toLowerCase(),
+        href,
+        placeholder: normalizeText(node.getAttribute("placeholder")).slice(0, 160),
+        input_type: normalizeText(node.getAttribute("type")).toLowerCase().slice(0, 80)
+      }};
+    }});
+    return {{
+      url: String(window.location.href || document.URL || ""),
+      title: document.title ? String(document.title) : null,
+      text: truncated ? rawText.slice(0, maxChars).trimEnd() : rawText,
+      selected_text: selectedText ? selectedText.slice(0, maxChars).trimEnd() : null,
+      interactive_elements: elements,
+      truncated,
+      captured_at: new Date().toISOString()
+    }};
+  }};
+  const targetText = (node) => normalizeText([
+    node.getAttribute("data-ripple-browser-node-id"),
+    node.getAttribute("aria-label"),
+    node.getAttribute("placeholder"),
+    node.getAttribute("title"),
+    node.innerText,
+    node.textContent,
+    node.getAttribute("name")
+  ].filter(Boolean).join(" "));
+  const findTarget = (target) => {{
+    const value = normalizeText(target);
+    if (!value) return null;
+    const byId = document.querySelector(`[data-ripple-browser-node-id="${{cssEscape(value)}}"]`);
+    if (byId) return byId;
+    try {{
+      const bySelector = document.querySelector(value);
+      if (bySelector) return bySelector;
+    }} catch {{}}
+    const lower = value.toLowerCase();
+    return interactiveNodes().find((node) => targetText(node).toLowerCase().includes(lower)) || null;
+  }};
+  const dispatchInput = (node) => {{
+    node.dispatchEvent(new Event("input", {{ bubbles: true }}));
+    node.dispatchEvent(new Event("change", {{ bubbles: true }}));
+  }};
+  const fail = (message) => ({{
+    ok: false,
+    error: message,
+    observation: message,
+    page: snapshot()
+  }});
+  let observation = "Captured browser snapshot.";
+  try {{
+    if (command === "browser_snapshot" || command === "browser_wait") {{
+      observation = "Captured browser snapshot.";
+    }} else if (command === "browser_click") {{
+      const node = findTarget(args.target);
+      if (!node) return fail(`Target not found: ${{args.target || ""}}`);
+      node.scrollIntoView({{ block: "center", inline: "center" }});
+      node.click();
+      observation = `Clicked ${{args.target}}.`;
+    }} else if (command === "browser_type") {{
+      const node = findTarget(args.target);
+      if (!node) return fail(`Target not found: ${{args.target || ""}}`);
+      node.scrollIntoView({{ block: "center", inline: "center" }});
+      node.focus();
+      const text = String(args.text ?? "");
+      if ("value" in node) {{
+        node.value = text;
+        dispatchInput(node);
+      }} else if (node.isContentEditable) {{
+        node.textContent = text;
+        dispatchInput(node);
+      }} else {{
+        return fail(`Target is not editable: ${{args.target || ""}}`);
+      }}
+      observation = `Typed into ${{args.target}}.`;
+    }} else if (command === "browser_scroll") {{
+      const delta = Number(args.delta_y ?? args.deltaY ?? 600);
+      const node = args.target ? findTarget(args.target) : null;
+      if (args.target && !node) return fail(`Target not found: ${{args.target || ""}}`);
+      if (node) {{
+        node.scrollBy({{ top: delta, behavior: "auto" }});
+      }} else {{
+        window.scrollBy({{ top: delta, behavior: "auto" }});
+      }}
+      observation = `Scrolled by ${{delta}} pixels.`;
+    }} else if (command === "browser_key") {{
+      const key = String(args.key || "");
+      if (!key) return fail("browser_key requires key.");
+      const target = document.activeElement || document.body;
+      target.dispatchEvent(new KeyboardEvent("keydown", {{ key, bubbles: true, cancelable: true }}));
+      target.dispatchEvent(new KeyboardEvent("keyup", {{ key, bubbles: true, cancelable: true }}));
+      observation = `Pressed key ${{key}}.`;
+    }} else {{
+      return fail(`Unsupported browser command: ${{command}}`);
+    }}
+    return {{
+      ok: true,
+      observation,
+      page: snapshot()
+    }};
+  }} catch (error) {{
+    return fail(error && error.message ? error.message : String(error));
+  }}
+}})()
+"#,
+        command = command,
+        arguments = arguments,
+        max_chars = MAX_CAPTURE_TEXT_CHARS
+    ))
 }
 
 fn browser_capture_script() -> String {

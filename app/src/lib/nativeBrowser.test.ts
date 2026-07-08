@@ -86,6 +86,17 @@ function testTauriBrowserExposesCodexStyleBasicPageTools() {
   assert.match(tauriBrowserSource, /webview\s*\.\s*clear_all_browsing_data/);
 }
 
+function testNativeBrowserSurfaceExposesAutomationCommand() {
+  assert.match(
+    source,
+    /executeBrowserCommand: \(command: NativeBrowserCommand\) => Promise<NativeBrowserCommandResult>/
+  );
+  assert.match(source, /async executeBrowserCommand\(command: NativeBrowserCommand\)/);
+  assert.match(source, /invoke\("plugin:ripple-browser\|run_automation"/);
+  assert.match(tauriBrowserSource, /async fn run_automation/);
+  assert.match(tauriBrowserSource, /browser_automation_script/);
+}
+
 testNativeBrowserUsesTauriInvokeBridge();
 testNativeBrowserReportsPageState();
 testNativeBrowserTracksViewportRectAndVisibility();
@@ -95,5 +106,6 @@ testTauriBrowserUsesPersistentExternalWebviewStorage();
 testTauriBrowserCreatesWebviewFromAsyncCommand();
 testTauriBrowserHandlesNormalBrowserEvents();
 testTauriBrowserExposesCodexStyleBasicPageTools();
+testNativeBrowserSurfaceExposesAutomationCommand();
 
 console.log("native browser tests passed");

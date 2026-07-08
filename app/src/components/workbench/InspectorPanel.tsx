@@ -6,6 +6,7 @@ import WorkspaceExplorer from "@/components/WorkspaceExplorer";
 import { useI18n } from "@/i18n";
 import type { WorkspaceFileOpenRequest } from "@/types";
 import type { ChatBrowserContext } from "@/lib/api";
+import type { BrowserCommandExecutor } from "@/lib/nativeBrowser";
 import BrowserPanel from "./BrowserPanel";
 import { WORKBENCH_ICON_BUTTON_CLASS, WORKBENCH_TOP_BAR_CLASS } from "./stylePrimitives";
 
@@ -18,6 +19,7 @@ interface InspectorPanelProps {
   openFileRequest?: WorkspaceFileOpenRequest | null;
   onOpenFileRequestConsumed?: (requestId: number) => void;
   onBrowserContextChange?: (context: ChatBrowserContext | null) => void;
+  onBrowserCommandExecutorChange?: (executor: BrowserCommandExecutor | null) => void;
 }
 
 export default function InspectorPanel({
@@ -27,6 +29,7 @@ export default function InspectorPanel({
   openFileRequest,
   onOpenFileRequestConsumed,
   onBrowserContextChange = () => undefined,
+  onBrowserCommandExecutorChange = () => undefined,
 }: InspectorPanelProps) {
   const { t } = useI18n();
   const [activeTab, setActiveTab] = useState<InspectorTab>("files");
@@ -84,7 +87,10 @@ export default function InspectorPanel({
             onOpenFileRequestConsumed={onOpenFileRequestConsumed}
           />
         ) : (
-          <BrowserPanel onBrowserContextChange={onBrowserContextChange} />
+          <BrowserPanel
+            onBrowserContextChange={onBrowserContextChange}
+            onBrowserCommandExecutorChange={onBrowserCommandExecutorChange}
+          />
         )}
       </div>
     </aside>

@@ -53,6 +53,7 @@ import {
   runTaskTriggerNow,
   runTaskNow,
   searchWorkspaceFiles,
+  sendBrowserCommandResult,
   sendChatMessage,
   sendSessionControlAction,
   stopSession,
@@ -1636,9 +1637,7 @@ async function testConversationAndAgentInvocationApisUseExpectedRoutesAndPayload
             last_read_message_seq: 1,
           },
         };
-      } else if (
-        url.pathname === "/v1/conversations/conv%2F1/agent-invocations"
-      ) {
+      } else if (url.pathname === "/v1/conversations/conv%2F1/agent-invocations") {
         payload = rawInvocation;
       } else if (url.pathname === "/v1/agent-invocations/ainv%2F1/approve") {
         payload = rawStartedInvocation;
@@ -2072,6 +2071,93 @@ async function testResponsesStreamDeltaFeedsChatCallbacks() {
   }
 
   assert.deepEqual(deltas, ["hello", " world"]);
+}
+
+async function testResponsesStreamDispatchesBrowserCommandRequests() {
+  const requests: unknown[] = [];
+  const globals = globalThis as unknown as {
+    document?: Pick<Document, "addEventListener" | "removeEventListener"> & { hidden: boolean };
+    window?: Pick<Window, "fetch" | "setTimeout" | "clearTimeout">;
+  };
+  const previousDocument = globals.document;
+  const previousWindow = globals.window;
+  globals.document = {
+    hidden: false,
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
+  };
+  globals.window = {
+    fetch: (...args) => globalThis.fetch(...args),
+    setTimeout: globalThis.setTimeout,
+    clearTimeout: globalThis.clearTimeout,
+  };
+
+  try {
+    await withFetch(
+      async () =>
+        new Response(
+          [
+            'event: response.created\ndata: {"type":"response.created","response":{"id":"resp_session-1"}}\n\n',
+            'event: browser_command_request\ndata: {"type":"browser_command_request","command_id":"browser-command-1","tool":"browser_navigate","arguments":{"url":"https://github.com/"}}\n\n',
+            "data: [DONE]\n\n",
+          ].join(""),
+          {
+            status: 200,
+            headers: { "Content-Type": "text/event-stream" },
+          }
+        ),
+      async () => {
+        await sendChatMessage("session-1", "hi", "codex-test", {
+          onMessageDelta: () => undefined,
+          onToolCall: () => undefined,
+          onToolResult: () => undefined,
+          onUsage: () => undefined,
+          onBrowserCommandRequest: (request) => requests.push(request),
+          onComplete: () => undefined,
+          onError: () => undefined,
+        });
+      }
+    );
+  } finally {
+    globals.document = previousDocument;
+    globals.window = previousWindow;
+  }
+
+  assert.deepEqual(requests, [
+    {
+      type: "browser_command_request",
+      command_id: "browser-command-1",
+      tool: "browser_navigate",
+      arguments: { url: "https://github.com/" },
+    },
+  ]);
+}
+
+async function testSendBrowserCommandResultPostsToBrowserCommandEndpoint() {
+  const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
+
+  await withFetch(
+    async (input, init) => {
+      requests.push({
+        url: String(input),
+        body: JSON.parse(String(init?.body || "{}")) as Record<string, unknown>,
+      });
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    },
+    async () => {
+      await sendBrowserCommandResult("browser-command-1", {
+        ok: true,
+        observation: "Clicked b1.",
+      });
+    }
+  );
+
+  assert.equal(requests.length, 1);
+  assert.match(requests[0].url, /\/browser\/commands\/browser-command-1\/result$/);
+  assert.deepEqual(requests[0].body, { ok: true, observation: "Clicked b1." });
 }
 
 async function testResponsesStreamCompletedDoesNotReportCodexTurnDiff() {
@@ -2660,6 +2746,8 @@ test("api client behavior", async () => {
   await testWorkspaceSearchDefaultsToNameScope();
   await testChatStreamUsesServerConflictDetail();
   await testResponsesStreamDeltaFeedsChatCallbacks();
+  await testResponsesStreamDispatchesBrowserCommandRequests();
+  await testSendBrowserCommandResultPostsToBrowserCommandEndpoint();
   await testResponsesStreamCompletedDoesNotReportCodexTurnDiff();
   await testResponsesStreamCompletedReportsChangedFilesWithoutPatch();
   await testSendChatMessagePassesRequiredSkillsAndScreenContext();

@@ -1,5 +1,6 @@
 pub mod api;
 pub mod auth;
+pub mod browser_commands;
 pub mod capabilities;
 pub mod codex;
 pub mod config;

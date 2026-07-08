@@ -28,6 +28,7 @@ import {
 import {
   createNativeBrowserSurface,
   isNativeBrowserAvailable,
+  type BrowserCommandExecutor,
   type NativeBrowserStateEvent,
   type NativeBrowserSurface,
 } from "@/lib/nativeBrowser";
@@ -37,6 +38,7 @@ import { WORKBENCH_ICON_BUTTON_CLASS } from "./stylePrimitives";
 interface BrowserPanelProps {
   initialAddress?: string;
   onBrowserContextChange: (context: ChatBrowserContext | null) => void;
+  onBrowserCommandExecutorChange?: (executor: BrowserCommandExecutor | null) => void;
 }
 
 type BrowserStatus = "idle" | "loading" | "loaded" | "failed";
@@ -66,6 +68,7 @@ function basename(value: string): string {
 export default function BrowserPanel({
   initialAddress = "",
   onBrowserContextChange,
+  onBrowserCommandExecutorChange,
 }: BrowserPanelProps) {
   const { t } = useI18n();
   const nativeBrowserViewportRef = useRef<HTMLDivElement | null>(null);
@@ -95,7 +98,9 @@ export default function BrowserPanel({
   const activeUrl = pendingNavigationUrl || frameUrl;
   const canGoBack = nativeBrowserAvailable && nativeCanGoBack;
   const canGoForward = nativeBrowserAvailable && nativeCanGoForward;
-  const attachedToActivePage = Boolean(attachedPageUrl && activeUrl && attachedPageUrl === activeUrl);
+  const attachedToActivePage = Boolean(
+    attachedPageUrl && activeUrl && attachedPageUrl === activeUrl
+  );
 
   const statusLabel = useMemo(() => {
     if (status === "loading") return t("browser.loading");
@@ -434,7 +439,8 @@ export default function BrowserPanel({
   const handleZoomOut = () => {
     if (!nativeBrowserAvailable || !nativeBrowserRef.current) return;
     const nextZoom = Math.max(0.5, Math.round((nativeZoomLevel - 0.1) * 10) / 10);
-    void nativeBrowserRef.current.setZoom(nextZoom)
+    void nativeBrowserRef.current
+      .setZoom(nextZoom)
       .then(() => setNativeZoomLevel(nextZoom))
       .catch((zoomError: unknown) => {
         console.warn("Failed to zoom out native browser surface:", zoomError);
@@ -445,7 +451,8 @@ export default function BrowserPanel({
   const handleZoomIn = () => {
     if (!nativeBrowserAvailable || !nativeBrowserRef.current) return;
     const nextZoom = Math.min(2, Math.round((nativeZoomLevel + 0.1) * 10) / 10);
-    void nativeBrowserRef.current.setZoom(nextZoom)
+    void nativeBrowserRef.current
+      .setZoom(nextZoom)
       .then(() => setNativeZoomLevel(nextZoom))
       .catch((zoomError: unknown) => {
         console.warn("Failed to zoom in native browser surface:", zoomError);
@@ -464,7 +471,8 @@ export default function BrowserPanel({
   const handleClearBrowserData = () => {
     if (!nativeBrowserAvailable || !nativeBrowserRef.current) return;
     if (!window.confirm(t("browser.clearDataConfirm"))) return;
-    void nativeBrowserRef.current.clearData()
+    void nativeBrowserRef.current
+      .clearData()
       .then(() => {
         clearAttachedContext();
         setLastDownload(null);
@@ -489,14 +497,33 @@ export default function BrowserPanel({
   }, [capturePage, initialUrl]);
 
   useEffect(() => {
+    if (!onBrowserCommandExecutorChange) return;
+    if (!nativeBrowserAvailable || !nativeSurfaceReady) {
+      onBrowserCommandExecutorChange(null);
+      return;
+    }
+
+    const executeBrowserCommand: BrowserCommandExecutor = async (request) => {
+      const nativeBrowser = nativeBrowserRef.current;
+      if (!nativeBrowser) {
+        return { ok: false, error: "Ripple browser surface is not ready." };
+      }
+      return nativeBrowser.executeBrowserCommand(request);
+    };
+    onBrowserCommandExecutorChange(executeBrowserCommand);
+    return () => onBrowserCommandExecutorChange(null);
+  }, [nativeBrowserAvailable, nativeSurfaceReady, onBrowserCommandExecutorChange]);
+
+  useEffect(() => {
     return () => {
+      onBrowserCommandExecutorChange?.(null);
       if (nativeLoadTimeoutRef.current !== null) {
         window.clearTimeout(nativeLoadTimeoutRef.current);
         nativeLoadTimeoutRef.current = null;
       }
       releaseNativeBrowser();
     };
-  }, [releaseNativeBrowser]);
+  }, [onBrowserCommandExecutorChange, releaseNativeBrowser]);
 
   return (
     <section
@@ -558,7 +585,9 @@ export default function BrowserPanel({
             type="button"
             aria-label={t("browser.refreshPage")}
             title={t("browser.refreshPage")}
-            disabled={!nativeBrowserAvailable || !nativeSurfaceReady || status === "loading" || !activeUrl}
+            disabled={
+              !nativeBrowserAvailable || !nativeSurfaceReady || status === "loading" || !activeUrl
+            }
             onClick={handleRefresh}
             className={WORKBENCH_ICON_BUTTON_CLASS}
           >
@@ -678,7 +707,9 @@ export default function BrowserPanel({
               <Paperclip aria-hidden="true" size={14} />
             )}
             <span className="hidden lg:inline">
-              {attachedToActivePage ? t("browser.attachedCurrentPage") : t("browser.attachCurrentPage")}
+              {attachedToActivePage
+                ? t("browser.attachedCurrentPage")
+                : t("browser.attachCurrentPage")}
             </span>
           </button>
           <span

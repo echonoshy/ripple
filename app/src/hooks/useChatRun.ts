@@ -14,6 +14,8 @@ import type {
 } from "@/types";
 import {
   AuthError,
+  type BrowserCommandRequest,
+  type BrowserCommandResult,
   cancelSessionConnectorAuth,
   type ChatBrowserContext,
   type ChatStreamCallbacks,
@@ -21,6 +23,7 @@ import {
   fetchSessionDetails,
   pollSessionConnectorAuth,
   resolveSessionPermissionRequest,
+  sendBrowserCommandResult,
   sendChatMessage,
   sendSessionControlAction,
   uploadWorkspaceAttachment,
@@ -92,6 +95,7 @@ interface UseChatRunOptions {
   onWorkspaceRefresh: () => void;
   getSessionActions: () => ChatRunSessionActions;
   getBrowserContext?: () => ChatBrowserContext | null;
+  browserCommandExecutor?: (request: BrowserCommandRequest) => Promise<BrowserCommandResult>;
   onSessionAttention?: (sessionId: string, attention: SessionAttention | null) => void;
 }
 
@@ -137,6 +141,7 @@ export function useChatRun({
   onWorkspaceRefresh,
   getSessionActions,
   getBrowserContext,
+  browserCommandExecutor,
   onSessionAttention,
 }: UseChatRunOptions) {
   const { t } = useI18n();
@@ -869,6 +874,35 @@ export function useChatRun({
             })
           );
         },
+        onBrowserCommandRequest: (request) => {
+          const submit = async () => {
+            let result: BrowserCommandResult;
+            if (isStaleRequest()) {
+              result = {
+                ok: false,
+                error: "Browser command ignored because the chat request is stale.",
+              };
+            } else if (!browserCommandExecutor) {
+              result = { ok: false, error: "Ripple browser is not available in this client." };
+            } else {
+              try {
+                result = await browserCommandExecutor(request);
+              } catch (error) {
+                result = {
+                  ok: false,
+                  error: error instanceof Error ? error.message : String(error),
+                };
+              }
+            }
+
+            try {
+              await sendBrowserCommandResult(request.command_id, result);
+            } catch (error) {
+              console.warn("Failed to submit browser command result:", error);
+            }
+          };
+          void submit();
+        },
         onChangedFiles: (files) => {
           if (isStaleRequest()) return;
           updateRunningMessages((prev) => {
@@ -1053,6 +1087,7 @@ export function useChatRun({
     [
       getSessionActions,
       getBrowserContext,
+      browserCommandExecutor,
       handleAuthExpired,
       handleClearContext,
       handleCompactContext,

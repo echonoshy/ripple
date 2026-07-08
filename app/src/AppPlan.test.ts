@@ -422,6 +422,12 @@ function testAppWiresBrowserContextIntoChatRun() {
   assert.match(appSource, /const browserContextRef = useRef<ChatBrowserContext \| null>\(null\)/);
   assert.match(appSource, /getBrowserContext:\s*\(\) => browserContextRef\.current/);
   assert.match(appSource, /onBrowserContextChange=\{setBrowserContext\}/);
+  assert.match(appSource, /browserCommandExecutorRef/);
+  assert.match(
+    appSource,
+    /browserCommandExecutor:\s*\(request\) =>[\s\S]*browserCommandExecutorRef\.current\?\.\(request\)/
+  );
+  assert.match(appSource, /onBrowserCommandExecutorChange=\{handleBrowserCommandExecutorChange\}/);
 }
 
 testChatCompletionClearsResidualPlan();

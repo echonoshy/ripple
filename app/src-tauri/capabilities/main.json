@@ -17,6 +17,7 @@
     "ripple-browser:allow-back",
     "ripple-browser:allow-forward",
     "ripple-browser:allow-capture",
+    "ripple-browser:allow-run-automation",
     "ripple-browser:allow-close",
     "ripple-browser:allow-show",
     "ripple-browser:allow-hide"

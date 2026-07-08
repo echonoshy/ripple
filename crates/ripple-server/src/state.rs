@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::browser_commands::BrowserCommandBroker;
 use crate::config::AppConfig;
 use crate::connector_runtime::ConnectorRuntime;
 use crate::jobs::JobManager;
@@ -17,6 +18,7 @@ pub struct AppState {
     pub jobs: JobManager,
     pub storage: Storage,
     pub connector_runtime: ConnectorRuntime,
+    pub browser_commands: BrowserCommandBroker,
     workspace_write_locks: Arc<std::sync::Mutex<HashMap<String, Arc<Mutex<()>>>>>,
 }
 
@@ -25,7 +27,12 @@ impl AppState {
         let config = Arc::new(config);
         let sandboxes = SandboxManager::new(config.clone());
         let storage = Storage::new(config.clone()).expect("failed to initialize Ripple storage");
-        let jobs = JobManager::new_with_storage(config.clone(), storage.clone());
+        let browser_commands = BrowserCommandBroker::default();
+        let jobs = JobManager::new_with_storage_and_browser_commands(
+            config.clone(),
+            storage.clone(),
+            browser_commands.clone(),
+        );
         let sessions =
             SessionManager::new_with_storage(config.clone(), sandboxes.clone(), storage.clone());
         let connector_runtime = ConnectorRuntime::default();
@@ -36,6 +43,7 @@ impl AppState {
             jobs,
             storage,
             connector_runtime,
+            browser_commands,
             workspace_write_locks: Arc::new(std::sync::Mutex::new(HashMap::new())),
         }
     }

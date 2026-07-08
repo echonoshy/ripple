@@ -991,7 +991,9 @@ function normalizeAgentContactRequest(raw: RawAgentContactRequest): AgentContact
   };
 }
 
-function normalizeConversationParticipant(raw: RawConversationParticipant): Conversation["participants"][number] {
+function normalizeConversationParticipant(
+  raw: RawConversationParticipant
+): Conversation["participants"][number] {
   return {
     conversationId: raw.conversation_id || "",
     actorType: raw.actor_type || "user",
@@ -1741,7 +1743,8 @@ export async function fetchConversationMessages(
     typeof options.afterSeq === "number" && Number.isFinite(options.afterSeq)
       ? Math.max(0, Math.floor(options.afterSeq))
       : null;
-  const query = afterSeq && afterSeq > 0 ? `?after_seq=${encodeURIComponent(String(afterSeq))}` : "";
+  const query =
+    afterSeq && afterSeq > 0 ? `?after_seq=${encodeURIComponent(String(afterSeq))}` : "";
   const res = await fetch(
     `${API_URL}/conversations/${encodeURIComponent(conversationId)}/messages${query}`,
     {
@@ -2162,6 +2165,7 @@ export interface ChatStreamCallbacks {
   onRuntimeEvent?: (event: CodexRuntimeEvent) => void;
   onChangedFiles?: (files: ChangedFile[]) => void;
   onConnectorAuth?: (event: ConnectorAuthChatEvent) => void;
+  onBrowserCommandRequest?: (request: BrowserCommandRequest) => void;
   onAgentStop?: (data: AgentStopData) => void;
   onPermissionRequest?: (request: {
     tool: string;
@@ -2171,6 +2175,27 @@ export interface ChatStreamCallbacks {
   onHeartbeat?: () => void;
   onComplete: () => void;
   onError: (error: Error) => void;
+}
+
+export interface BrowserCommandRequest {
+  type: "browser_command_request";
+  command_id: string;
+  namespace?: string;
+  tool: string;
+  arguments?: Record<string, unknown>;
+  job_id?: string;
+  session_id?: string;
+  created_at?: string;
+  [key: string]: unknown;
+}
+
+export interface BrowserCommandResult {
+  ok: boolean;
+  observation?: string;
+  error?: string;
+  page?: Record<string, unknown>;
+  data?: unknown;
+  [key: string]: unknown;
 }
 
 interface ChatStreamOptions {
@@ -2244,6 +2269,15 @@ function normalizeRippleStreamEvent(value: Record<string, unknown>): Record<stri
         ? value.ripple_event_type
         : type.slice("ripple.".length),
   };
+}
+
+function isBrowserCommandRequest(value: unknown): value is BrowserCommandRequest {
+  return (
+    isRecord(value) &&
+    value.type === "browser_command_request" &&
+    typeof value.command_id === "string" &&
+    typeof value.tool === "string"
+  );
 }
 
 function usageFromResponsesUsage(value: unknown): UsageInfo | null {
@@ -2410,6 +2444,11 @@ async function streamChatResponse(
 
           if (isConnectorAuthChatEvent(data)) {
             callbacks.onConnectorAuth?.(data);
+            return;
+          }
+
+          if (isBrowserCommandRequest(data)) {
+            callbacks.onBrowserCommandRequest?.(data);
             return;
           }
 
@@ -2608,6 +2647,26 @@ export async function sendChatMessage(
     callbacks,
     { signal: options?.signal }
   );
+}
+
+export async function sendBrowserCommandResult(
+  commandId: string,
+  result: BrowserCommandResult
+): Promise<boolean> {
+  const res = await fetch(`${API_URL}/browser/commands/${encodeURIComponent(commandId)}/result`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders(),
+    },
+    body: JSON.stringify(result),
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await responseDetail(res);
+    throw new Error(detail || `Failed to submit browser command result (${res.status})`);
+  }
+  return true;
 }
 
 export async function sendSessionControlAction(

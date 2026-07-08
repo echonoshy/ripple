@@ -21,6 +21,7 @@ mod runtime_env;
 mod types;
 
 use crate::api::tasks::persist_task_update;
+use crate::browser_commands::BrowserCommandBroker;
 use crate::codex::approvals::{approval_response_for_action, CodexApproval};
 use crate::codex::permissions::{
     thread_permission_config_for_user, RIPPLE_CODEX_PERMISSION_PROFILE,
@@ -47,6 +48,15 @@ pub use types::{AgentRunnerRequest, AgentRunnerResult, AgentRunnerStatus};
 const TAIL_CHARS: usize = 64_000;
 const CODEX_NATIVE_INPUT_TYPES: &[&str] = &["text", "image", "localImage"];
 const THREAD_NOTIFICATION_QUEUE: &str = "__thread__";
+const BROWSER_DYNAMIC_TOOLS: &[&str] = &[
+    "browser_navigate",
+    "browser_snapshot",
+    "browser_click",
+    "browser_type",
+    "browser_scroll",
+    "browser_key",
+    "browser_wait",
+];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ServiceAuthFingerprint {
@@ -545,10 +555,15 @@ pub struct CodexAppServerProvider {
     active_turns: Arc<Mutex<HashMap<String, ActiveTurn>>>,
     pending_approvals: Arc<Mutex<HashMap<String, Value>>>,
     pending_user_inputs: Arc<Mutex<HashMap<String, Value>>>,
+    browser_commands: BrowserCommandBroker,
 }
 
 impl CodexAppServerProvider {
-    pub fn new(config: Arc<AppConfig>, storage: Storage) -> Self {
+    pub fn new(
+        config: Arc<AppConfig>,
+        storage: Storage,
+        browser_commands: BrowserCommandBroker,
+    ) -> Self {
         Self {
             config,
             storage,
@@ -560,6 +575,7 @@ impl CodexAppServerProvider {
             active_turns: Arc::new(Mutex::new(HashMap::new())),
             pending_approvals: Arc::new(Mutex::new(HashMap::new())),
             pending_user_inputs: Arc::new(Mutex::new(HashMap::new())),
+            browser_commands,
         }
     }
 
@@ -860,7 +876,14 @@ impl CodexAppServerProvider {
                     continue;
                 }
                 if self
-                    .handle_dynamic_tool_call_request(request, session, &message)
+                    .handle_dynamic_tool_call_request(
+                        request,
+                        job_id,
+                        events_file,
+                        sequence,
+                        session,
+                        &message,
+                    )
                     .await?
                 {
                     continue;
@@ -915,6 +938,9 @@ impl CodexAppServerProvider {
     async fn handle_dynamic_tool_call_request(
         &self,
         request: &AgentRunnerRequest,
+        job_id: &str,
+        events_file: &Path,
+        sequence: &mut u64,
         session: &Arc<CodexAppServerSession>,
         message: &Value,
     ) -> anyhow::Result<bool> {
@@ -950,6 +976,50 @@ impl CodexAppServerProvider {
                         serde_json::to_string(&output)
                             .unwrap_or_else(|_| "{\"ok\":true}".to_string()),
                     ),
+                    Err(err) => (false, format!("{err:?}")),
+                }
+            }
+        } else if namespace == "codex_app" && is_browser_dynamic_tool(tool) {
+            let user_id = request.user_id.as_deref().unwrap_or("default");
+            let command = self.browser_commands.new_command(
+                user_id,
+                job_id,
+                request.session_id.as_deref(),
+                namespace,
+                tool,
+                arguments,
+            );
+            let waiter = self.browser_commands.register(user_id, &command).await;
+            if let Err(err) = append_event(
+                events_file,
+                sequence,
+                job_id,
+                &request.provider,
+                "browser.command_request",
+                Some(format!("{} {}", namespace, tool)),
+                json!({ "request": command }),
+            )
+            .await
+            {
+                self.browser_commands.cancel(&command.command_id).await;
+                (
+                    false,
+                    format!("failed to dispatch browser command: {err:?}"),
+                )
+            } else {
+                match self
+                    .browser_commands
+                    .wait(waiter, Duration::from_secs(45))
+                    .await
+                {
+                    Ok(result) => {
+                        let success = result.get("ok").and_then(Value::as_bool).unwrap_or(true);
+                        (
+                            success,
+                            serde_json::to_string(&result)
+                                .unwrap_or_else(|_| "{\"ok\":true}".to_string()),
+                        )
+                    }
                     Err(err) => (false, format!("{err:?}")),
                 }
             }
@@ -2079,19 +2149,145 @@ fn add_task_dynamic_tools(params: &mut Value, request: &AgentRunnerRequest) {
         return;
     }
     if let Some(object) = params.as_object_mut() {
-        object.insert(
-            "dynamicTools".to_string(),
-            json!([
-                {
-                    "namespace": "codex_app",
-                    "name": "task_update",
-                    "description": "Create or propose durable Ripple tasks and task actions from the current conversation.",
-                    "inputSchema": task_update_input_schema(),
-                    "deferLoading": true
-                }
-            ]),
-        );
+        let mut tools = vec![json!({
+            "namespace": "codex_app",
+            "name": "task_update",
+            "description": "Create or propose durable Ripple tasks and task actions from the current conversation.",
+            "inputSchema": task_update_input_schema(),
+            "deferLoading": true
+        })];
+        tools.extend(browser_dynamic_tools());
+        object.insert("dynamicTools".to_string(), Value::Array(tools));
     }
+}
+
+fn browser_dynamic_tools() -> Vec<Value> {
+    vec![
+        json!({
+            "namespace": "codex_app",
+            "name": "browser_navigate",
+            "description": "Navigate the visible Ripple browser to a URL.",
+            "inputSchema": browser_navigate_input_schema(),
+            "deferLoading": true
+        }),
+        json!({
+            "namespace": "codex_app",
+            "name": "browser_snapshot",
+            "description": "Capture the visible Ripple browser page text and interactive element ids.",
+            "inputSchema": json!({"type": "object", "properties": {}, "additionalProperties": false}),
+            "deferLoading": true
+        }),
+        json!({
+            "namespace": "codex_app",
+            "name": "browser_click",
+            "description": "Click an element in the visible Ripple browser by snapshot id, CSS selector, or visible text.",
+            "inputSchema": browser_target_input_schema(false),
+            "deferLoading": true
+        }),
+        json!({
+            "namespace": "codex_app",
+            "name": "browser_type",
+            "description": "Type text into an element in the visible Ripple browser by snapshot id, CSS selector, or visible text.",
+            "inputSchema": browser_type_input_schema(),
+            "deferLoading": true
+        }),
+        json!({
+            "namespace": "codex_app",
+            "name": "browser_scroll",
+            "description": "Scroll the visible Ripple browser page or a target element.",
+            "inputSchema": browser_scroll_input_schema(),
+            "deferLoading": true
+        }),
+        json!({
+            "namespace": "codex_app",
+            "name": "browser_key",
+            "description": "Send a keyboard key to the active element in the visible Ripple browser.",
+            "inputSchema": browser_key_input_schema(),
+            "deferLoading": true
+        }),
+        json!({
+            "namespace": "codex_app",
+            "name": "browser_wait",
+            "description": "Wait briefly for the visible Ripple browser page to settle or for text to appear.",
+            "inputSchema": browser_wait_input_schema(),
+            "deferLoading": true
+        }),
+    ]
+}
+
+fn is_browser_dynamic_tool(tool: &str) -> bool {
+    BROWSER_DYNAMIC_TOOLS.contains(&tool)
+}
+
+fn browser_navigate_input_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "url": { "type": "string" }
+        },
+        "required": ["url"],
+        "additionalProperties": false
+    })
+}
+
+fn browser_target_input_schema(allow_optional_target: bool) -> Value {
+    let mut schema = json!({
+        "type": "object",
+        "properties": {
+            "target": { "type": "string" }
+        },
+        "additionalProperties": false
+    });
+    if !allow_optional_target {
+        schema["required"] = json!(["target"]);
+    }
+    schema
+}
+
+fn browser_type_input_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "target": { "type": "string" },
+            "text": { "type": "string" }
+        },
+        "required": ["target", "text"],
+        "additionalProperties": false
+    })
+}
+
+fn browser_scroll_input_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "target": { "type": "string" },
+            "delta_y": { "type": "number" },
+            "deltaY": { "type": "number" }
+        },
+        "additionalProperties": false
+    })
+}
+
+fn browser_key_input_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "key": { "type": "string" }
+        },
+        "required": ["key"],
+        "additionalProperties": false
+    })
+}
+
+fn browser_wait_input_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "milliseconds": { "type": "number" },
+            "text": { "type": "string" }
+        },
+        "additionalProperties": false
+    })
 }
 
 fn task_update_input_schema() -> Value {
@@ -2459,8 +2655,10 @@ mod tests {
             .get("dynamicTools")
             .and_then(Value::as_array)
             .expect("dynamic task tools");
-        assert_eq!(tools.len(), 1);
-        let tool = &tools[0];
+        let tool = tools
+            .iter()
+            .find(|tool| tool.get("name").and_then(Value::as_str) == Some("task_update"))
+            .expect("task_update dynamic tool");
         assert_eq!(
             tool.get("namespace").and_then(Value::as_str),
             Some("codex_app")
@@ -2477,6 +2675,57 @@ mod tests {
             .is_some());
         assert!(tool.get("tools").is_none());
         assert!(tool.get("type").is_none());
+    }
+
+    #[test]
+    fn chat_dynamic_tools_include_browser_use_lite_tools() {
+        let request = AgentRunnerRequest {
+            provider: "codex".to_string(),
+            prompt: "打开 GitHub 然后总结页面".to_string(),
+            base_instructions: None,
+            turn_context: None,
+            client_context: None,
+            browser_context: None,
+            cwd: PathBuf::from("/tmp/ripple-test"),
+            input_items: Vec::new(),
+            model: None,
+            effort: None,
+            summary: None,
+            output_schema: None,
+            max_runtime_seconds: 60,
+            user_id: Some("alice".to_string()),
+            session_id: Some("session-1".to_string()),
+            metadata: json!({"chat_user_input": "打开 GitHub 然后总结页面"}),
+        };
+        let mut params = json!({});
+
+        add_task_dynamic_tools(&mut params, &request);
+
+        let tools = params
+            .get("dynamicTools")
+            .and_then(Value::as_array)
+            .expect("dynamic tools");
+        let tool_names = tools
+            .iter()
+            .filter_map(|tool| tool.get("name").and_then(Value::as_str))
+            .collect::<Vec<_>>();
+        assert!(tool_names.contains(&"task_update"));
+        assert!(tool_names.contains(&"browser_navigate"));
+        assert!(tool_names.contains(&"browser_snapshot"));
+        assert!(tool_names.contains(&"browser_click"));
+        assert!(tool_names.contains(&"browser_type"));
+        assert!(tool_names.contains(&"browser_scroll"));
+        assert!(tool_names.contains(&"browser_key"));
+        assert!(tool_names.contains(&"browser_wait"));
+        for tool in tools {
+            assert_eq!(
+                tool.get("namespace").and_then(Value::as_str),
+                Some("codex_app")
+            );
+            assert!(tool.get("inputSchema").is_some());
+            assert!(tool.get("tools").is_none());
+            assert!(tool.get("type").is_none());
+        }
     }
 
     #[test]

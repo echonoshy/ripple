@@ -40,6 +40,7 @@ import {
   AuthError,
   type ChatBrowserContext,
 } from "@/lib/api";
+import type { BrowserCommandExecutor } from "@/lib/nativeBrowser";
 import MobileSessionStack from "@/components/workbench/MobileSessionStack";
 import MobileSessionsPage from "@/components/workbench/MobileSessionsPage";
 import MobileTabBar from "@/components/workbench/MobileTabBar";
@@ -281,6 +282,7 @@ export default function Home() {
   const workspaceFileOpenRequestIdRef = useRef(0);
   const mobileSessionSelectionRequestRef = useRef(0);
   const browserContextRef = useRef<ChatBrowserContext | null>(null);
+  const browserCommandExecutorRef = useRef<BrowserCommandExecutor | null>(null);
   const displayWorkbenchSessionOrderRef = useRef<WorkbenchSessionSummary[]>([]);
   const conversationMessagesByIdRef = useRef<Record<string, ConversationMessage[] | undefined>>({});
   const refreshSessionForDelegationUpdatesRef = useRef<(delegations: AgentDelegation[]) => void>(
@@ -301,6 +303,13 @@ export default function Home() {
   useEffect(() => {
     browserContextRef.current = browserContext;
   }, [browserContext]);
+
+  const handleBrowserCommandExecutorChange = useCallback(
+    (executor: BrowserCommandExecutor | null) => {
+      browserCommandExecutorRef.current = executor;
+    },
+    []
+  );
 
   useEffect(() => {
     conversationMessagesByIdRef.current = conversationMessagesById;
@@ -440,32 +449,32 @@ export default function Home() {
     }
   }, [authState, handleAuthExpired, t, userId]);
 
-  const refreshConversationMessages = useCallback(async (
-    conversationId: string,
-    options: { incremental?: boolean; markRead?: boolean } = {}
-  ) => {
-    const currentMessages = conversationMessagesByIdRef.current[conversationId] || [];
-    const afterSeq = options.incremental ? latestConversationSeq(currentMessages) : undefined;
-    const messages = await fetchConversationMessages(conversationId, { afterSeq });
-    const nextMessages = options.incremental
-      ? mergeConversationMessages(currentMessages, messages)
-      : messages;
-    conversationMessagesByIdRef.current = {
-      ...conversationMessagesByIdRef.current,
-      [conversationId]: nextMessages,
-    };
-    setConversationMessagesById((current) => ({
-      ...current,
-      [conversationId]: nextMessages,
-    }));
-    if (options.markRead) {
-      const latestSeq = latestConversationSeq(nextMessages);
-      if (latestSeq > 0) {
-        await markConversationRead(conversationId, latestSeq);
+  const refreshConversationMessages = useCallback(
+    async (conversationId: string, options: { incremental?: boolean; markRead?: boolean } = {}) => {
+      const currentMessages = conversationMessagesByIdRef.current[conversationId] || [];
+      const afterSeq = options.incremental ? latestConversationSeq(currentMessages) : undefined;
+      const messages = await fetchConversationMessages(conversationId, { afterSeq });
+      const nextMessages = options.incremental
+        ? mergeConversationMessages(currentMessages, messages)
+        : messages;
+      conversationMessagesByIdRef.current = {
+        ...conversationMessagesByIdRef.current,
+        [conversationId]: nextMessages,
+      };
+      setConversationMessagesById((current) => ({
+        ...current,
+        [conversationId]: nextMessages,
+      }));
+      if (options.markRead) {
+        const latestSeq = latestConversationSeq(nextMessages);
+        if (latestSeq > 0) {
+          await markConversationRead(conversationId, latestSeq);
+        }
       }
-    }
-    return nextMessages;
-  }, []);
+      return nextMessages;
+    },
+    []
+  );
 
   useEffect(() => {
     if (authState !== "authenticated") {
@@ -658,6 +667,9 @@ export default function Home() {
     onWorkspaceRefresh: handleWorkspaceRefresh,
     getSessionActions,
     getBrowserContext: () => browserContextRef.current,
+    browserCommandExecutor: (request) =>
+      browserCommandExecutorRef.current?.(request) ??
+      Promise.resolve({ ok: false, error: "Ripple browser panel is not open." }),
     onSessionAttention: handleSessionAttention,
   });
 
@@ -2278,6 +2290,7 @@ export default function Home() {
                 openFileRequest={pendingWorkspaceFileOpen}
                 onOpenFileRequestConsumed={handlePendingWorkspaceFileOpenConsumed}
                 onBrowserContextChange={setBrowserContext}
+                onBrowserCommandExecutorChange={handleBrowserCommandExecutorChange}
               />
             </Suspense>
           ) : null

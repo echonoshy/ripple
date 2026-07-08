@@ -14,6 +14,7 @@ fn main() {
                     "back",
                     "forward",
                     "capture",
+                    "run_automation",
                     "close",
                     "show",
                     "hide",

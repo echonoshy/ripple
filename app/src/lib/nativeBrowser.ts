@@ -37,6 +37,26 @@ export interface NativeBrowserCapturedPage {
   captured_at: string;
 }
 
+export interface NativeBrowserCommand {
+  command_id: string;
+  tool: string;
+  arguments?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+export interface NativeBrowserCommandResult {
+  ok: boolean;
+  observation?: string;
+  error?: string;
+  page?: Record<string, unknown>;
+  data?: unknown;
+  [key: string]: unknown;
+}
+
+export type BrowserCommandExecutor = (
+  request: NativeBrowserCommand
+) => Promise<NativeBrowserCommandResult>;
+
 export interface NativeBrowserSurface {
   navigate: (url: string) => Promise<void>;
   goBack: () => Promise<void>;
@@ -46,6 +66,7 @@ export interface NativeBrowserSurface {
   printPage: () => Promise<void>;
   setZoom: (scale: number) => Promise<void>;
   clearData: () => Promise<void>;
+  executeBrowserCommand: (command: NativeBrowserCommand) => Promise<NativeBrowserCommandResult>;
   syncBounds: () => Promise<void>;
   close: () => Promise<void>;
 }
@@ -166,6 +187,15 @@ export async function createNativeBrowserSurface(
     async clearData() {
       await clearDataNativeBrowser({ label });
     },
+    async executeBrowserCommand(command: NativeBrowserCommand) {
+      const result = await runAutomationNativeBrowser({
+        label,
+        command: command.tool,
+        arguments: command.arguments || {},
+      });
+      await syncBounds();
+      return result;
+    },
     syncBounds,
     async close() {
       if (closed) return;
@@ -202,6 +232,11 @@ interface NativeBrowserResizeRequest extends NativeBrowserLabelRequest {
 
 interface NativeBrowserZoomRequest extends NativeBrowserLabelRequest {
   scale: number;
+}
+
+interface NativeBrowserAutomationRequest extends NativeBrowserLabelRequest {
+  command: string;
+  arguments: Record<string, unknown>;
 }
 
 async function openNativeBrowser(request: NativeBrowserOpenRequest): Promise<void> {
@@ -254,6 +289,15 @@ async function setZoomNativeBrowser(request: NativeBrowserZoomRequest): Promise<
 async function clearDataNativeBrowser(request: NativeBrowserLabelRequest): Promise<void> {
   const { invoke } = await import("@tauri-apps/api/core");
   await invoke("plugin:ripple-browser|clear_data", { request });
+}
+
+async function runAutomationNativeBrowser(
+  request: NativeBrowserAutomationRequest
+): Promise<NativeBrowserCommandResult> {
+  const { invoke } = await import("@tauri-apps/api/core");
+  return (await invoke("plugin:ripple-browser|run_automation", {
+    request,
+  })) as NativeBrowserCommandResult;
 }
 
 async function closeNativeBrowser(request: NativeBrowserLabelRequest): Promise<void> {

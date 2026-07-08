@@ -9,6 +9,7 @@ use time::OffsetDateTime;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
+use crate::browser_commands::BrowserCommandBroker;
 use crate::codex::app_server::{
     AgentRunnerRequest, AgentRunnerResult, AgentRunnerStatus, CodexAppServerProvider,
 };
@@ -121,8 +122,24 @@ impl JobManager {
     }
 
     pub fn new_with_storage(config: Arc<AppConfig>, storage: Storage) -> Self {
+        Self::new_with_storage_and_browser_commands(
+            config,
+            storage,
+            BrowserCommandBroker::default(),
+        )
+    }
+
+    pub fn new_with_storage_and_browser_commands(
+        config: Arc<AppConfig>,
+        storage: Storage,
+        browser_commands: BrowserCommandBroker,
+    ) -> Self {
         Self {
-            provider: Arc::new(CodexAppServerProvider::new(config, storage.clone())),
+            provider: Arc::new(CodexAppServerProvider::new(
+                config,
+                storage.clone(),
+                browser_commands,
+            )),
             storage,
             jobs: Arc::new(RwLock::new(HashMap::new())),
         }

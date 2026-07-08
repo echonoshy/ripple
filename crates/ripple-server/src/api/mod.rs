@@ -1,6 +1,7 @@
 pub mod agent_delegations;
 pub mod auth;
 pub mod bilibili;
+pub mod browser;
 pub mod capabilities;
 pub mod chat;
 pub mod connectors;
@@ -346,6 +347,7 @@ pub fn router(state: AppState) -> Router {
         .routes(utoipa_axum::routes!(runs::run_output))
         .routes(utoipa_axum::routes!(runs::steer_run))
         .routes(utoipa_axum::routes!(runs::cancel_run))
+        .routes(utoipa_axum::routes!(browser::submit_browser_command_result))
         .routes(utoipa_axum::routes!(
             documents::list_documents,
             documents::create_document

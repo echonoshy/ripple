@@ -1564,6 +1564,12 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
                         last_emit = now_epoch_seconds();
                         continue;
                     }
+                    if let Some(browser_command) = extract_browser_command_request_event(&event) {
+                        let public_browser_command = sanitize_user_visible_value(&state, &user_id, &browser_command);
+                        yield Ok::<Bytes, Infallible>(sse_for_event(&public_browser_command));
+                        last_emit = now_epoch_seconds();
+                        continue;
+                    }
                     if let Some(tool_event) = extract_tool_event(&event) {
                         let public_tool_event = sanitize_user_visible_value(&state, &user_id, &tool_event);
                         yield Ok::<Bytes, Infallible>(sse_for_event(&public_tool_event));
@@ -2144,6 +2150,13 @@ async fn runtime_changed_files_for_run(info: &AgentRunInfo) -> Vec<changed_files
 
 async fn read_events_from_offset(events_file: &FsPath, offset: &mut usize) -> Vec<Value> {
     crate::api::read_jsonl_events_from_offset(events_file, offset).await
+}
+
+fn extract_browser_command_request_event(event: &Value) -> Option<Value> {
+    if event.get("type").and_then(Value::as_str) != Some("browser.command_request") {
+        return None;
+    }
+    event.pointer("/data/request").cloned()
 }
 
 #[derive(Default)]

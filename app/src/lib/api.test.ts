@@ -1867,12 +1867,13 @@ function testDevDefaultApiUrlUsesSameOriginProxy() {
   assert.equal(resolveApiUrl({ PROD: true }), "http://140.143.229.103:8810/v1");
 }
 
-function testViteDevServerProxiesV1ToPublicRippleServer() {
+function testViteDevServerProxiesV1ToLocalRippleServer() {
   const config = readFileSync(new URL("../../vite.config.ts", import.meta.url), "utf8");
 
   assert.match(config, /proxy/);
   assert.match(config, new RegExp(String.raw`["']/v1["']`));
-  assert.match(config, new RegExp(String.raw`http://140\.143\.229\.103:8810`));
+  assert.match(config, /RIPPLE_VITE_PROXY_TARGET/);
+  assert.match(config, new RegExp(String.raw`http://127\.0\.0\.1:8810`));
 }
 
 function testChatStreamingStaysOpenWhenPageIsHidden() {
@@ -1891,7 +1892,7 @@ function testChatStreamingAcceptsImageRuntimeEvents() {
 test("api client behavior", async () => {
   testDefaultApiOriginUsesPublicBaseUrl();
   testDevDefaultApiUrlUsesSameOriginProxy();
-  testViteDevServerProxiesV1ToPublicRippleServer();
+  testViteDevServerProxiesV1ToLocalRippleServer();
   testChatStreamingStaysOpenWhenPageIsHidden();
   testChatStreamingAcceptsImageRuntimeEvents();
   await testRenameEndpointNotFoundAsksForServerRestart();

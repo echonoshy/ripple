@@ -34,13 +34,13 @@ bun install
 bun run dev
 ```
 
-Web dev server 默认监听 `http://localhost:8820`。本地开发时，Vite 会把 `/v1` 代理到当前临时公网服务端 `http://140.143.229.103:8810`。如需改回本机后端，先从仓库根目录启动后端：
+Web dev server 默认监听 `http://localhost:8820`。本地开发时，Vite 会把 `/v1` 代理到本机后端 `http://127.0.0.1:8810`。先从仓库根目录启动后端：
 
 ```bash
 cargo run -p ripple-server
 ```
 
-然后显式设置 `VITE_RIPPLE_API_URL=http://127.0.0.1:8810/v1` 启动前端，或调整 Vite proxy。
+然后启动前端即可。若需要把 dev proxy 转发到其他后端，设置 `RIPPLE_VITE_PROXY_TARGET=http://<host>:<port>`；若要让浏览器绕过 proxy 直连后端，显式设置 `VITE_RIPPLE_API_URL=http://<host>:<port>/v1`。
 
 生产静态构建：
 

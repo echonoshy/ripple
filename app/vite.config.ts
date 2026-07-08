@@ -7,6 +7,7 @@ import rippleIconAsset from "./src/components/icons/rippleIconAsset.json";
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 const tauriDevHost = process.env.TAURI_DEV_HOST;
+const rippleProxyTarget = process.env.RIPPLE_VITE_PROXY_TARGET || "http://127.0.0.1:8810";
 const rippleIconPath = path.resolve(dirname, "../assets/ripple-launcher-icon.svg");
 const rippleIconOutputPath = rippleIconAsset.path.replace(/^\//, "");
 const rippleIconSrc = `${rippleIconAsset.path}?v=${rippleIconAsset.version}`;
@@ -70,7 +71,7 @@ export default defineConfig({
       : undefined,
     proxy: {
       "/v1": {
-        target: "http://140.143.229.103:8810",
+        target: rippleProxyTarget,
         changeOrigin: true,
       },
     },

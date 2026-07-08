@@ -177,6 +177,7 @@ pub fn router(state: AppState) -> Router {
         .routes(utoipa_axum::routes!(
             task_sessions::append_task_session_message
         ))
+        .routes(utoipa_axum::routes!(task_sessions::process_task_spec_turn))
         .routes(utoipa_axum::routes!(task_sessions::create_task_spec))
         .routes(utoipa_axum::routes!(task_sessions::update_task_spec))
         .routes(utoipa_axum::routes!(task_sessions::confirm_task_spec))

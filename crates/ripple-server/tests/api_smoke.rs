@@ -486,6 +486,14 @@ fn weekly_price_task_trigger_extraction_text() -> &'static str {
     "{\"is_task_trigger_request\":true,\"missing_fields\":[],\"clarification_question\":null,\"task_trigger\":{\"title\":\"Monitor used MacBook Pro prices\",\"prompt\":\"监控二手 M4 Pro 和 M5 Pro MacBook Pro 的价格。\",\"kind\":\"interval\",\"timezone\":\"Asia/Shanghai\",\"run_at\":null,\"interval_seconds\":604800,\"enabled\":false,\"cwd\":null,\"model\":null,\"effort\":null,\"summary\":null,\"output_schema\":null,\"max_runtime_seconds\":60,\"max_runs\":null,\"phases\":[]}}"
 }
 
+fn task_spec_turn_clarification_text() -> &'static str {
+    "{\"assistant_message\":\"还需要补充收件人是谁。\",\"ready_to_confirm\":false,\"missing_fields\":[\"recipient\"],\"task_spec\":{\"task_spec_id\":\"spec-dialog\",\"task_type\":\"send_message\",\"goal\":\"发送会议通知\",\"required_fields\":{\"content\":\"明天下午三点开会\"},\"source_refs\":[],\"risk_level\":\"medium\",\"impact_summary\":\"确认后会发送一条会议通知。\"}}"
+}
+
+fn task_spec_turn_ready_text() -> &'static str {
+    "{\"assistant_message\":\"TaskSpec 已生成，请确认后开始执行。\",\"ready_to_confirm\":true,\"missing_fields\":[],\"task_spec\":{\"task_spec_id\":\"spec-dialog\",\"task_type\":\"send_message\",\"goal\":\"给张三发送会议通知\",\"required_fields\":{\"recipient\":\"张三\",\"content\":\"明天下午三点开会\",\"channel\":\"feishu\"},\"source_refs\":[],\"risk_level\":\"medium\",\"impact_summary\":\"确认后会通过飞书给张三发送会议通知。\"}}"
+}
+
 fn title_generation_text() -> &'static str {
     "{\"title\":\"Chat Greeting\"}"
 }
@@ -659,7 +667,13 @@ fn main() {
                 } else if line.contains("strict chat-title generator") {
                     title_generation_text().to_string()
                 } else if line.contains("\"outputSchema\"") {
-                    if line.contains("[clarify-interval]") && !line.contains("一周一次") {
+                    if line.contains("strict TaskSpec turn extractor")
+                        && line.contains("[task-spec-ready]")
+                    {
+                        task_spec_turn_ready_text().to_string()
+                    } else if line.contains("strict TaskSpec turn extractor") {
+                        task_spec_turn_clarification_text().to_string()
+                    } else if line.contains("[clarify-interval]") && !line.contains("一周一次") {
                         task_trigger_clarification_text().to_string()
                     } else if line.contains("[news-feishu]") {
                         news_feishu_task_trigger_extraction_text().to_string()
@@ -1446,6 +1460,118 @@ async fn task_session_sse_stream_replays_task_status_events() {
     assert!(stream.contains("\"run_status\":\"completed\""), "{stream}");
     assert!(stream.contains("\"needs_user_action\":false"), "{stream}");
     assert!(stream.contains("data: [DONE]"), "{stream}");
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn task_session_spec_turns_collect_missing_info_before_confirmation() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (_state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+
+    let (status, created) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/task-sessions",
+        json!({
+            "session_id": "ts-dialog",
+            "title": "发送会议通知",
+            "task_type": "send_message",
+            "goal": "发送会议通知",
+            "executor": "vitana"
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+    assert_eq!(
+        created
+            .pointer("/task_session/status")
+            .and_then(Value::as_str),
+        Some("waiting_user"),
+        "{created}"
+    );
+
+    let (status, first_turn) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/task-sessions/ts-dialog/spec-turns",
+        json!({"message": "[task-spec-clarify] 明天下午三点开会"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{first_turn}");
+    assert_eq!(
+        first_turn
+            .pointer("/task_session/status")
+            .and_then(Value::as_str),
+        Some("waiting_user"),
+        "{first_turn}"
+    );
+    assert_eq!(
+        first_turn
+            .pointer("/missing_fields/0")
+            .and_then(Value::as_str),
+        Some("recipient"),
+        "{first_turn}"
+    );
+    assert_eq!(
+        first_turn
+            .pointer("/task_spec/status")
+            .and_then(Value::as_str),
+        Some("waiting_user"),
+        "{first_turn}"
+    );
+    assert_eq!(
+        first_turn
+            .pointer("/ready_to_confirm")
+            .and_then(Value::as_bool),
+        Some(false),
+        "{first_turn}"
+    );
+
+    let (status, second_turn) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/task-sessions/ts-dialog/spec-turns",
+        json!({"message": "[task-spec-ready] 发给张三，用飞书"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{second_turn}");
+    assert_eq!(
+        second_turn
+            .pointer("/task_session/status")
+            .and_then(Value::as_str),
+        Some("pending_confirm"),
+        "{second_turn}"
+    );
+    assert_eq!(
+        second_turn
+            .pointer("/ready_to_confirm")
+            .and_then(Value::as_bool),
+        Some(true),
+        "{second_turn}"
+    );
+    assert_eq!(
+        second_turn
+            .pointer("/task_spec/required_fields/recipient")
+            .and_then(Value::as_str),
+        Some("张三"),
+        "{second_turn}"
+    );
+    assert_eq!(
+        second_turn
+            .pointer("/detail/events")
+            .and_then(Value::as_array)
+            .is_some_and(|events| {
+                events.iter().any(|event| {
+                    event.get("event_type").and_then(Value::as_str)
+                        == Some("task_spec_ready_for_confirmation")
+                })
+            }),
+        true,
+        "{second_turn}"
+    );
 
     let _ = std::fs::remove_dir_all(root);
 }
@@ -4407,6 +4533,7 @@ async fn openapi_docs_are_public_and_keep_v1_auth_unchanged() {
         ("/v1/task-sessions/{session_id}", "get"),
         ("/v1/task-sessions/{session_id}", "patch"),
         ("/v1/task-sessions/{session_id}/messages", "post"),
+        ("/v1/task-sessions/{session_id}/spec-turns", "post"),
         ("/v1/task-sessions/{session_id}/task-specs", "post"),
         (
             "/v1/task-sessions/{session_id}/task-specs/{task_spec_id}",

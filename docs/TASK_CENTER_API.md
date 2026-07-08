@@ -175,7 +175,7 @@ curl -sS "$BASE_URL/task-sessions" \
 {
   "task_session": {
     "session_id": "ts-xxxx",
-    "status": "pending_confirm",
+    "status": "waiting_user",
     "title": "整理客户方案"
   },
   "task_spec": null
@@ -209,7 +209,171 @@ curl -sS "$BASE_URL/task-sessions" \
   }'
 ```
 
-### 2. 列表和详情
+### 2. 通过对话补齐 TaskSpec
+
+如果调用方只拿到自然语言任务，不需要自己抽取字段。把用户每一轮补充发给 spec-turns：
+
+```bash
+curl -sS "$BASE_URL/task-sessions/$TASK_SESSION_ID/spec-turns" \
+  -H "X-API-Key: $API_KEY" \
+  -H "X-Ripple-User-Id: $USER_ID" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "明天下午三点开会，帮我发个通知",
+    "required_fields": ["recipient", "channel", "content"]
+  }'
+```
+
+后端会：
+
+1. 把用户消息写入 TaskSession timeline。
+2. 调用 Agent 判断信息是否足够。
+3. 创建或更新 TaskSpec。
+4. 如果缺信息，写入 Agent 追问消息，把 TaskSession 投影为 `waiting_user`。
+5. 如果信息足够，把 TaskSession 投影为 `pending_confirm`，等待用户确认 TaskSpec。
+
+信息不足时，响应类似：
+
+```json
+{
+  "task_session": {
+    "session_id": "ts-xxxx",
+    "status": "waiting_user",
+    "needs_user_action": true,
+    "latest_message": "还需要补充收件人是谁。"
+  },
+  "task_spec": {
+    "task_spec_id": "spec-xxxx",
+    "status": "waiting_user",
+    "required_fields": {
+      "content": "明天下午三点开会"
+    }
+  },
+  "assistant_message": "还需要补充收件人是谁。",
+  "missing_fields": ["recipient"],
+  "ready_to_confirm": false,
+  "detail": {}
+}
+```
+
+用户补充后继续调用同一个接口：
+
+```bash
+curl -sS "$BASE_URL/task-sessions/$TASK_SESSION_ID/spec-turns" \
+  -H "X-API-Key: $API_KEY" \
+  -H "X-Ripple-User-Id: $USER_ID" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "发给张三，用飞书"
+  }'
+```
+
+信息足够时：
+
+```json
+{
+  "task_session": {
+    "status": "pending_confirm",
+    "needs_user_action": true
+  },
+  "task_spec": {
+    "task_spec_id": "spec-xxxx",
+    "status": "pending_confirm",
+    "goal": "给张三发送会议通知",
+    "required_fields": {
+      "recipient": "张三",
+      "channel": "feishu",
+      "content": "明天下午三点开会"
+    },
+    "risk_level": "medium",
+    "impact_summary": "确认后会通过飞书给张三发送会议通知。"
+  },
+  "assistant_message": "TaskSpec 已生成，请确认后开始执行。",
+  "missing_fields": [],
+  "ready_to_confirm": true
+}
+```
+
+`spec-turns` 是有 Agent 副作用的接口。只想记录消息时，仍然使用：
+
+```http
+POST /v1/task-sessions/:session_id/messages
+```
+
+#### Agent 追问写到哪里
+
+Agent 追问用户补充的信息，会写入当前 TaskSession 自己的 timeline，不会自动写回普通 session 的聊天历史。
+
+当调用 `spec-turns` 时，后端会写入两类对话消息：
+
+```json
+{
+  "event_type": "task_session_message",
+  "payload": {
+    "role": "user",
+    "content": "明天下午三点开会，帮我发个通知"
+  }
+}
+```
+
+```json
+{
+  "event_type": "task_session_message",
+  "payload": {
+    "role": "agent",
+    "content": "还需要补充收件人是谁。",
+    "metadata": {
+      "source": "task_spec_turn",
+      "ready_to_confirm": false,
+      "missing_fields": ["recipient"],
+      "task_spec_id": "spec-xxxx",
+      "extraction_run_id": "job-xxxx"
+    }
+  }
+}
+```
+
+同时还会写入一个状态事件：
+
+```json
+{
+  "event_type": "task_spec_waiting_user",
+  "payload": {
+    "task_spec_id": "spec-xxxx",
+    "missing_fields": ["recipient"],
+    "assistant_message": "还需要补充收件人是谁。"
+  }
+}
+```
+
+调用方读取任务对话历史时，用：
+
+```http
+GET /v1/task-sessions/:session_id/events
+```
+
+或直接读取任务详情里的 `events`。
+
+普通 session 只通过 `source_surface`、`source_id` 或 `source_refs` 和 TaskSession 建立关联。任务补齐过程里的用户消息、Agent 追问、TaskSpec 状态变化，都以 TaskSession timeline 为准。如果调用方想把追问展示在普通聊天窗口，需要订阅 task SSE 或读取 task events 后自行渲染。
+
+#### 对话补齐到执行的完整流程
+
+完整任务流程如下：
+
+1. 调用方创建 TaskSession。
+2. 如果没有传入 `task_spec`，TaskSession 默认进入 `waiting_user`。
+3. 用户每补充一句，就调用 `POST /v1/task-sessions/:session_id/spec-turns`。
+4. 后端先把用户消息写入 TaskSession timeline。
+5. 后端调用 Agent 判断信息是否足够。
+6. 信息不足时，Agent 生成追问，后端写入 `task_session_message` 和 `task_spec_waiting_user`，TaskSession 保持 `waiting_user`。
+7. 信息足够时，后端生成或更新 TaskSpec，写入 `task_spec_ready_for_confirmation`，TaskSession 进入 `pending_confirm`。
+8. 调用方展示 TaskSpec，让用户确认。
+9. 用户确认后，调用 `POST /v1/task-sessions/:session_id/task-specs/:task_spec_id/confirm`。
+10. 确认后创建 TaskRun 或用 `start_run: true` 同步启动执行。
+11. 执行过程通过 TaskRun 更新状态。
+12. 调用方订阅 task SSE 接收 `waiting_user`、`pending_confirm`、`in_progress`、`completed`、`failed`、`cancelled` 等状态变化。
+
+### 3. 列表和详情
 
 任务中心列表：
 
@@ -249,9 +413,9 @@ curl -sS "$BASE_URL/task-sessions/$TASK_SESSION_ID" \
 }
 ```
 
-### 3. 生成 TaskSpec
+### 4. 手工创建 TaskSpec
 
-如果创建 TaskSession 时没带 `task_spec`，后续创建：
+如果调用方不希望后端 Agent 参与，也可以手工创建 TaskSpec：
 
 ```bash
 curl -sS "$BASE_URL/task-sessions/$TASK_SESSION_ID/task-specs" \
@@ -278,7 +442,7 @@ curl -sS "$BASE_URL/task-sessions/$TASK_SESSION_ID/task-specs" \
 }
 ```
 
-### 4. 用户确认 TaskSpec
+### 5. 用户确认 TaskSpec
 
 只确认，不启动：
 
@@ -300,7 +464,7 @@ curl -sS "$BASE_URL/task-sessions/$TASK_SESSION_ID/task-specs/$TASK_SPEC_ID/conf
   -d '{ "start_run": true }'
 ```
 
-### 5. 启动 TaskRun
+### 6. 启动 TaskRun
 
 如果 TaskSpec 已确认：
 
@@ -334,7 +498,7 @@ curl -sS "$BASE_URL/task-sessions/$TASK_SESSION_ID/task-specs/$TASK_SPEC_ID/runs
 }
 ```
 
-### 6. 回写 TaskRun 状态
+### 7. 回写 TaskRun 状态
 
 完成：
 
@@ -387,7 +551,7 @@ curl -sS "$BASE_URL/task-sessions/$TASK_SESSION_ID/runs/$RUN_ID/cancel" \
 
 状态回写会同步更新 TaskSession 和 TaskSpec 的投影状态。
 
-### 7. 创建和响应确认卡
+### 8. 创建和响应确认卡
 
 创建确认卡：
 
@@ -494,6 +658,16 @@ event: task.status
 id: 18
 data: {"type":"task_status","event_version":1,"task_session_id":"ts_xxx","event_type":"task_confirmation_requested","task_status":"waiting_user","needs_user_action":true,"confirmation_id":"conf_xxx","confirmation_status":"requested"}
 ```
+
+如果是 Agent 追问用户补充 TaskSpec，`event_type` 会是 `task_spec_waiting_user`，追问内容在 `payload.assistant_message`：
+
+```text
+event: task.status
+id: 19
+data: {"type":"task_status","event_version":1,"task_session_id":"ts_xxx","event_type":"task_spec_waiting_user","task_status":"waiting_user","needs_user_action":true,"latest_message":"还需要补充收件人是谁。","payload":{"task_spec_id":"spec_xxx","missing_fields":["recipient"],"assistant_message":"还需要补充收件人是谁。"}}
+```
+
+如果 TaskSpec 已经补齐，`event_type` 会是 `task_spec_ready_for_confirmation`，`task_status` 会变成 `pending_confirm`。调用方此时应读取详情里的 `task_specs` 或本次 `spec-turns` 响应里的 `task_spec`，展示给用户确认。
 
 终态是 `completed`、`failed`、`cancelled`。默认 `close_on_terminal=true`，到终态后服务端会发送：
 
@@ -647,6 +821,8 @@ task_session_message
 task_session_updated
 task_spec_drafted
 task_spec_updated
+task_spec_waiting_user
+task_spec_ready_for_confirmation
 task_spec_confirmed
 task_run_started
 task_run_updated
@@ -678,6 +854,7 @@ task_confirmation_responded
 - 列表页调用 `GET /v1/task-sessions`。
 - 详情页调用 `GET /v1/task-sessions/:session_id`。
 - 创建入口调用 `POST /v1/task-sessions`，必要时内联 `task_spec`。
+- 自然语言任务补齐调用 `POST /v1/task-sessions/:session_id/spec-turns`，让 Agent 追问或生成待确认 TaskSpec。
 - 用户确认执行前调用 `POST /task-specs/:task_spec_id/confirm`。
 - 执行状态只写 TaskRun，不写旧 task/action。
 - 需要用户确认或授权时创建 Confirmation，而不是自定义状态字段。

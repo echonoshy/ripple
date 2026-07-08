@@ -96,6 +96,7 @@ Task Sessions 是 Vitana/Ripple 任务中心的产品层主 API。它把任务�
 - `GET /v1/task-sessions/:session_id` 返回会话详情，包括 `task_session`、`task_specs`、`runs`、`events` 和 `confirmations`。
 - `PATCH /v1/task-sessions/:session_id` 更新会话摘要字段，例如 `title`、`status`、`latest_message`、`needs_user_action`、`current_task_spec_id` 和 `current_run_id`。
 - `POST /v1/task-sessions/:session_id/messages` 向会话流写入用户或 Agent 消息，并更新会话摘要。
+- `POST /v1/task-sessions/:session_id/spec-turns` 处理一轮自然语言 TaskSpec 补齐。后端会保存用户消息，调用 Agent 判断缺失字段，创建或更新 TaskSpec；信息不足时投影为 `waiting_user` 并返回追问，信息足够时投影为 `pending_confirm` 等待用户确认。
 - `POST /v1/task-sessions/:session_id/task-specs` 在会话中创建 TaskSpec 草稿。TaskSpec 支持 `task_type`、`goal`、`required_fields`、`source_refs`、`risk_level`、`impact_summary` 和扩展字段。
 - `PATCH /v1/task-sessions/:session_id/task-specs/:task_spec_id` 更新 TaskSpec。
 - `POST /v1/task-sessions/:session_id/task-specs/:task_spec_id/confirm` 确认 TaskSpec，可带 `start_run: true` 同步创建一次 TaskRun 投影。

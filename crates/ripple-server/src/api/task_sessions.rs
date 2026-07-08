@@ -5,13 +5,15 @@ use axum::body::{Body, Bytes};
 use axum::extract::{Path, Query, State};
 use axum::http::{header, HeaderMap, HeaderValue, Response};
 use axum::Json;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use tokio::time::{sleep, Duration};
 use uuid::Uuid;
 
+use crate::api::users::assert_can_create_run;
 use crate::api::{paginate, ApiError, ListQuery};
 use crate::auth::now_iso;
+use crate::jobs::{AgentRunCreateRequest, AgentRunInfo};
 use crate::state::AppState;
 use crate::storage::Storage;
 use crate::user::user_id_from_headers;
@@ -301,6 +303,83 @@ pub async fn append_task_session_message(
     Ok(Json(json!({
         "task_session": session,
         "event": event
+    })))
+}
+
+#[utoipa::path(
+    post,
+    path = "/task-sessions/{session_id}/spec-turns",
+    tag = "task-sessions",
+    params(("session_id" = String, Path, description = "Task session id")),
+    request_body = crate::api::openapi::GenericJsonObject,
+    responses(
+        (status = 200, description = "Processed one conversational TaskSpec completion turn", body = serde_json::Value),
+        (status = 400, description = "Invalid spec turn payload", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 404, description = "Task session not found", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(
+        ("bearerAuth" = []),
+        ("apiKeyAuth" = [])
+    )
+)]
+pub async fn process_task_spec_turn(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(session_id): Path<String>,
+    Json(input): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
+    let message = string_field(&input, "message")
+        .or_else(|| string_field(&input, "content"))
+        .ok_or_else(|| ApiError::bad_request("spec turn message is required"))?;
+    let session = load_task_session(&state.storage, &user_id, &session_id).await?;
+    let user_event = append_task_session_event(
+        &state.storage,
+        &user_id,
+        &session_id,
+        "task_session_message",
+        json!({
+            "role": "user",
+            "content": message,
+            "metadata": input.get("metadata").cloned().unwrap_or(Value::Null)
+        }),
+    )
+    .await?;
+    let current_spec = current_task_spec(&state.storage, &user_id, &session_id, &session).await?;
+    let extraction = extract_task_spec_turn_with_codex(
+        &state,
+        &user_id,
+        &session_id,
+        &session,
+        current_spec.as_ref(),
+        &input,
+        &message,
+    )
+    .await?;
+    let projection = persist_task_spec_turn_projection(
+        &state.storage,
+        &user_id,
+        &session_id,
+        &session,
+        current_spec,
+        extraction,
+    )
+    .await?;
+    let detail = task_session_detail(&state.storage, &user_id, &session_id).await?;
+    Ok(Json(json!({
+        "task_session": detail.get("task_session").cloned().unwrap_or(Value::Null),
+        "task_spec": projection.task_spec,
+        "assistant_message": projection.assistant_message,
+        "missing_fields": projection.missing_fields,
+        "ready_to_confirm": projection.ready_to_confirm,
+        "extraction_run_id": projection.extraction_run_id,
+        "events": {
+            "user_message": user_event,
+            "assistant_message": projection.assistant_event,
+            "spec_event": projection.spec_event
+        },
+        "detail": detail
     })))
 }
 
@@ -1069,7 +1148,7 @@ fn task_session_from_payload(payload: &Value, user_id: &str, now: &str) -> Resul
         .or_else(|| task_type.clone())
         .unwrap_or_else(|| "任务会话".to_string());
     let status = string_field(payload, "status").unwrap_or_else(|| {
-        if goal.is_some() || task_type.is_some() || input.contains_key("task_spec") {
+        if input.contains_key("task_spec") {
             "pending_confirm".to_string()
         } else {
             "waiting_user".to_string()
@@ -1352,6 +1431,401 @@ async fn persist_task_run_status_projection(
     Ok(())
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct TaskSpecTurnExtractionResult {
+    #[serde(default)]
+    assistant_message: Option<String>,
+    #[serde(default)]
+    ready_to_confirm: bool,
+    #[serde(default)]
+    missing_fields: Vec<String>,
+    #[serde(default)]
+    task_spec: Option<Value>,
+    #[serde(default, skip)]
+    extraction_run_id: Option<String>,
+}
+
+struct TaskSpecTurnProjection {
+    task_spec: Value,
+    assistant_message: String,
+    missing_fields: Vec<String>,
+    ready_to_confirm: bool,
+    extraction_run_id: Option<String>,
+    assistant_event: Value,
+    spec_event: Value,
+}
+
+async fn extract_task_spec_turn_with_codex(
+    state: &AppState,
+    user_id: &str,
+    session_id: &str,
+    session: &Value,
+    current_spec: Option<&Value>,
+    input: &Value,
+    message: &str,
+) -> Result<TaskSpecTurnExtractionResult, ApiError> {
+    let workspace_root = state.sandboxes.ensure_sandbox(user_id)?;
+    let runtime_dir = state.sandboxes.sandbox_dir(user_id)?.join("agent-runs");
+    let max_runtime_seconds = input
+        .get("max_runtime_seconds")
+        .and_then(Value::as_u64)
+        .unwrap_or(state.config.task_trigger_extraction_max_runtime_seconds)
+        .clamp(1, 600);
+    assert_can_create_run(state, user_id, max_runtime_seconds).await?;
+
+    let model = string_field(input, "model").unwrap_or_else(|| state.config.default_model.clone());
+    let effort = string_field(input, "effort");
+    let prompt = build_task_spec_turn_prompt(
+        session,
+        current_spec,
+        &task_session_message_history(&state.storage, user_id, session_id).await?,
+        message,
+        input,
+    );
+    let create = AgentRunCreateRequest {
+        prompt: prompt.clone(),
+        provider: "codex".to_string(),
+        base_instructions: None,
+        turn_context: None,
+        client_context: None,
+        cwd: Some("/workspace".to_string()),
+        input_items: vec![json!({"type": "text", "text": prompt})],
+        model: Some(model),
+        effort,
+        summary: None,
+        output_schema: Some(task_spec_turn_output_schema()),
+        max_runtime_seconds,
+        task_trigger_id: None,
+        task_trigger_title: None,
+        task_trigger_reason: None,
+        codex_thread_id: None,
+        codex_persistent_thread: false,
+        client_request_id: string_field(input, "client_request_id"),
+        chat_user_input: None,
+        chat_user_content: None,
+    };
+    let info = state
+        .jobs
+        .run_internal(
+            create,
+            user_id.to_string(),
+            Some(session_id.to_string()),
+            workspace_root,
+            runtime_dir,
+        )
+        .await
+        .map_err(|err| ApiError::bad_request(format!("TaskSpec extraction failed: {err}")))?;
+    if info.status != "completed" {
+        return Err(ApiError::bad_request("TaskSpec extraction run failed"));
+    }
+    let mut extraction = parse_task_spec_turn_output(&read_agent_run_output(&info).await)?;
+    normalize_task_spec_turn_extraction(&mut extraction);
+    Ok(with_extraction_run_id(extraction, &info.job_id))
+}
+
+fn with_extraction_run_id(
+    mut extraction: TaskSpecTurnExtractionResult,
+    job_id: &str,
+) -> TaskSpecTurnExtractionResult {
+    extraction.extraction_run_id = Some(job_id.to_string());
+    if let Some(spec) = extraction.task_spec.as_mut() {
+        if let Some(object) = spec.as_object_mut() {
+            object
+                .entry("metadata".to_string())
+                .or_insert_with(|| json!({}));
+            if let Some(metadata) = object.get_mut("metadata").and_then(Value::as_object_mut) {
+                metadata.insert("spec_extraction_run_id".to_string(), json!(job_id));
+            }
+        }
+    }
+    extraction
+}
+
+async fn persist_task_spec_turn_projection(
+    storage: &Storage,
+    user_id: &str,
+    session_id: &str,
+    session: &Value,
+    current_spec: Option<Value>,
+    extraction: TaskSpecTurnExtractionResult,
+) -> Result<TaskSpecTurnProjection, ApiError> {
+    let now = now_iso();
+    let ready_to_confirm = extraction.ready_to_confirm && extraction.task_spec.is_some();
+    let status = if ready_to_confirm {
+        "pending_confirm"
+    } else {
+        "waiting_user"
+    };
+    let assistant_message = task_spec_turn_assistant_message(&extraction, ready_to_confirm);
+    let mut next_session = session.clone();
+    set_field(&mut next_session, "status", json!(status));
+    set_field(&mut next_session, "needs_user_action", json!(true));
+    set_field(
+        &mut next_session,
+        "latest_message",
+        json!(assistant_message.clone()),
+    );
+    set_field(&mut next_session, "updated_at", json!(now.clone()));
+
+    let mut saved_spec = Value::Null;
+    let mut spec_event = Value::Null;
+    let extraction_run_id = extraction.extraction_run_id.clone();
+    if let Some(mut spec_payload) = extraction.task_spec.clone() {
+        if let Some(object) = spec_payload.as_object_mut() {
+            object.insert("status".to_string(), json!(status));
+            object.entry("task_type".to_string()).or_insert_with(|| {
+                session
+                    .get("task_type")
+                    .cloned()
+                    .unwrap_or_else(|| json!("other"))
+            });
+            if let Some(goal) = session.get("goal") {
+                object
+                    .entry("goal".to_string())
+                    .or_insert_with(|| goal.clone());
+            }
+        }
+        let (spec, event_type) = if let Some(mut existing) = current_spec {
+            merge_task_spec_updates(&mut existing, &spec_payload)?;
+            (existing, "task_spec_updated")
+        } else {
+            (
+                task_spec_from_payload(&spec_payload, user_id, session_id, &now)?,
+                "task_spec_drafted",
+            )
+        };
+        let task_spec_id = required_str(&spec, "task_spec_id")?.to_string();
+        set_field(
+            &mut next_session,
+            "current_task_spec_id",
+            json!(task_spec_id.clone()),
+        );
+        storage
+            .upsert_task_session_spec(user_id, session_id, &spec)
+            .await?;
+        spec_event = append_task_session_event(
+            storage,
+            user_id,
+            session_id,
+            event_type,
+            json!({
+                "task_spec_id": task_spec_id,
+                "status": status,
+                "missing_fields": extraction.missing_fields.clone()
+            }),
+        )
+        .await?;
+        saved_spec = spec;
+    }
+
+    storage.upsert_task_session(user_id, &next_session).await?;
+    let assistant_event = append_task_session_event(
+        storage,
+        user_id,
+        session_id,
+        "task_session_message",
+        json!({
+            "role": "agent",
+            "content": assistant_message,
+            "metadata": {
+                "source": "task_spec_turn",
+                "ready_to_confirm": ready_to_confirm,
+                "missing_fields": extraction.missing_fields.clone(),
+                "task_spec_id": saved_spec.get("task_spec_id").cloned().unwrap_or(Value::Null),
+                "extraction_run_id": extraction_run_id.clone()
+            }
+        }),
+    )
+    .await?;
+    let status_event_type = if ready_to_confirm {
+        "task_spec_ready_for_confirmation"
+    } else {
+        "task_spec_waiting_user"
+    };
+    append_task_session_event(
+        storage,
+        user_id,
+        session_id,
+        status_event_type,
+        json!({
+            "task_spec_id": saved_spec.get("task_spec_id").cloned().unwrap_or(Value::Null),
+            "missing_fields": extraction.missing_fields.clone(),
+            "assistant_message": assistant_message
+        }),
+    )
+    .await?;
+
+    Ok(TaskSpecTurnProjection {
+        task_spec: saved_spec,
+        assistant_message,
+        missing_fields: extraction.missing_fields,
+        ready_to_confirm,
+        extraction_run_id,
+        assistant_event,
+        spec_event,
+    })
+}
+
+async fn current_task_spec(
+    storage: &Storage,
+    user_id: &str,
+    session_id: &str,
+    session: &Value,
+) -> Result<Option<Value>, ApiError> {
+    if let Some(task_spec_id) = session.get("current_task_spec_id").and_then(Value::as_str) {
+        if let Some(spec) = storage
+            .get_task_session_spec(user_id, session_id, task_spec_id)
+            .await?
+        {
+            return Ok(Some(spec));
+        }
+    }
+    Ok(storage
+        .list_task_session_specs(user_id, session_id)
+        .await?
+        .into_iter()
+        .last())
+}
+
+async fn task_session_message_history(
+    storage: &Storage,
+    user_id: &str,
+    session_id: &str,
+) -> Result<Vec<Value>, ApiError> {
+    let events = storage
+        .list_task_session_events(user_id, session_id)
+        .await?;
+    Ok(events
+        .into_iter()
+        .filter(|event| {
+            event.get("event_type").and_then(Value::as_str) == Some("task_session_message")
+        })
+        .filter_map(|event| event.get("payload").cloned())
+        .collect())
+}
+
+fn task_spec_turn_assistant_message(
+    extraction: &TaskSpecTurnExtractionResult,
+    ready_to_confirm: bool,
+) -> String {
+    if let Some(message) = extraction
+        .assistant_message
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return message.to_string();
+    }
+    if ready_to_confirm {
+        return "TaskSpec 已生成，请确认后开始执行。".to_string();
+    }
+    if !extraction.missing_fields.is_empty() {
+        return format!("还需要补充：{}", extraction.missing_fields.join("、"));
+    }
+    "还需要补充任务目标、执行对象或执行方式。".to_string()
+}
+
+fn normalize_task_spec_turn_extraction(extraction: &mut TaskSpecTurnExtractionResult) {
+    extraction
+        .missing_fields
+        .retain(|field| !field.trim().is_empty());
+    extraction.missing_fields.sort();
+    extraction.missing_fields.dedup();
+    if extraction.missing_fields.is_empty() && extraction.task_spec.is_some() {
+        extraction.ready_to_confirm = true;
+    }
+    if extraction.task_spec.is_none() {
+        extraction.ready_to_confirm = false;
+    }
+}
+
+fn parse_task_spec_turn_output(text: &str) -> Result<TaskSpecTurnExtractionResult, ApiError> {
+    serde_json::from_str::<TaskSpecTurnExtractionResult>(text.trim()).map_err(|err| {
+        ApiError::bad_request(format!("TaskSpec extraction output is invalid: {err}"))
+    })
+}
+
+async fn read_agent_run_output(info: &AgentRunInfo) -> String {
+    if let Some(output_file) = info.output_file.as_deref() {
+        if let Ok(text) = tokio::fs::read_to_string(output_file).await {
+            return text;
+        }
+    }
+    info.stdout_tail.clone()
+}
+
+fn task_spec_turn_output_schema() -> Value {
+    json!({
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["assistant_message", "ready_to_confirm", "missing_fields", "task_spec"],
+        "properties": {
+            "assistant_message": {"type": ["string", "null"]},
+            "ready_to_confirm": {"type": "boolean"},
+            "missing_fields": {"type": "array", "items": {"type": "string"}},
+            "task_spec": {
+                "type": ["object", "null"],
+                "additionalProperties": true,
+                "properties": {
+                    "task_spec_id": {"type": ["string", "null"]},
+                    "task_type": {"type": ["string", "null"]},
+                    "goal": {"type": ["string", "null"]},
+                    "required_fields": {"type": "object", "additionalProperties": true},
+                    "source_refs": {"type": "array", "items": {"type": "object", "additionalProperties": true}},
+                    "risk_level": {"type": ["string", "null"]},
+                    "impact_summary": {"type": ["string", "null"]},
+                    "metadata": {"type": "object", "additionalProperties": true}
+                }
+            }
+        }
+    })
+}
+
+fn build_task_spec_turn_prompt(
+    session: &Value,
+    current_spec: Option<&Value>,
+    message_history: &[Value],
+    latest_message: &str,
+    input: &Value,
+) -> String {
+    let required_fields = input
+        .get("required_fields")
+        .cloned()
+        .or_else(|| input.get("required_fields_schema").cloned())
+        .unwrap_or(Value::Null);
+    format!(
+        "You are a strict TaskSpec turn extractor for Ripple/Vitana task center.\n\
+Current time: {}.\n\
+Return only JSON matching the provided output schema.\n\n\
+Goal:\n\
+- Decide whether the task has enough information to create a confirmable TaskSpec.\n\
+- If information is missing, ask one concise clarification question in assistant_message.\n\
+- If information is sufficient, set ready_to_confirm=true and provide task_spec.\n\
+- Never execute the task. Never say the task is already done.\n\n\
+TaskSession:\n{}\n\n\
+Existing TaskSpec, if any:\n{}\n\n\
+Message history:\n{}\n\n\
+Latest user message:\n{}\n\n\
+Caller-required fields or schema:\n{}\n\n\
+TaskSpec rules:\n\
+- task_spec.task_type should be specific, such as todo, send_message, create_document, search_summarize, connector_action, or other.\n\
+- task_spec.goal must describe the executable user intent.\n\
+- task_spec.required_fields is an object of collected execution fields. Keep unknown fields out of required_fields and list them in missing_fields.\n\
+- source_refs should include referenced sessions, files, documents, records, or external objects when available.\n\
+- risk_level is low, medium, or high.\n\
+- impact_summary explains what will happen after confirmation.\n\
+- If delivery target, recipient, channel, source scope, file, time, account, permission, or failure behavior matters but is missing, set ready_to_confirm=false.\n",
+        now_iso(),
+        serde_json::to_string(session).unwrap_or_else(|_| "{}".to_string()),
+        current_spec
+            .and_then(|spec| serde_json::to_string(spec).ok())
+            .unwrap_or_else(|| "null".to_string()),
+        serde_json::to_string(message_history).unwrap_or_else(|_| "[]".to_string()),
+        latest_message.trim(),
+        serde_json::to_string(&required_fields).unwrap_or_else(|_| "null".to_string())
+    )
+}
+
 fn merge_task_session_updates(session: &mut Value, input: &Value) -> Result<(), ApiError> {
     let Some(updates) = input.as_object() else {
         return Err(ApiError::bad_request(
@@ -1604,8 +2078,13 @@ async fn task_status_sse_payload(
 
 fn task_status_for_sse_event(event_type: &str, payload: &Value, session: &Value) -> String {
     let status = match event_type {
-        "task_spec_drafted" => Some("pending_confirm"),
+        "task_spec_drafted" => payload
+            .get("status")
+            .and_then(Value::as_str)
+            .or(Some("pending_confirm")),
         "task_spec_confirmed" | "task_run_started" => Some("in_progress"),
+        "task_spec_ready_for_confirmation" => Some("pending_confirm"),
+        "task_spec_waiting_user" => Some("waiting_user"),
         "task_confirmation_requested" | "task_run_waiting_user" => Some("waiting_user"),
         "task_run_completed" => Some("completed"),
         "task_run_cancelled" => Some("cancelled"),

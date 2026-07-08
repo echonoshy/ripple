@@ -17,7 +17,7 @@ function testNativeBrowserUsesTauriInvokeBridge() {
   assert.match(source, /invoke\("plugin:ripple-browser\|back"/);
   assert.match(source, /invoke\("plugin:ripple-browser\|forward"/);
   assert.match(source, /invoke\("plugin:ripple-browser\|capture"/);
-  assert.match(source, /invoke\("plugin:ripple-browser\|print_page"/);
+  assert.doesNotMatch(source, /invoke\("plugin:ripple-browser\|print_page"/);
   assert.match(source, /invoke\("plugin:ripple-browser\|set_zoom"/);
   assert.match(source, /invoke\("plugin:ripple-browser\|clear_data"/);
   assert.match(source, /invoke\("plugin:ripple-browser\|close"/);
@@ -75,11 +75,11 @@ function testTauriBrowserHandlesNormalBrowserEvents() {
 }
 
 function testTauriBrowserExposesCodexStyleBasicPageTools() {
-  assert.match(source, /printPage: \(\) => Promise<void>/);
   assert.match(source, /setZoom: \(scale: number\) => Promise<void>/);
   assert.match(source, /clearData: \(\) => Promise<void>/);
-  assert.match(tauriBrowserSource, /fn print_page/);
-  assert.match(tauriBrowserSource, /webview\.print\(\)/);
+  assert.doesNotMatch(source, /printPage: \(\) => Promise<void>/);
+  assert.doesNotMatch(tauriBrowserSource, /fn print_page/);
+  assert.doesNotMatch(tauriBrowserSource, /webview\.print\(\)/);
   assert.match(tauriBrowserSource, /fn set_zoom/);
   assert.match(tauriBrowserSource, /webview\.set_zoom/);
   assert.match(tauriBrowserSource, /fn clear_data/);

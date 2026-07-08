@@ -63,7 +63,6 @@ export interface NativeBrowserSurface {
   goForward: () => Promise<void>;
   reload: () => Promise<void>;
   captureCurrentPage: () => Promise<NativeBrowserCapturedPage>;
-  printPage: () => Promise<void>;
   setZoom: (scale: number) => Promise<void>;
   clearData: () => Promise<void>;
   executeBrowserCommand: (command: NativeBrowserCommand) => Promise<NativeBrowserCommandResult>;
@@ -178,9 +177,6 @@ export async function createNativeBrowserSurface(
     async captureCurrentPage() {
       return captureNativeBrowser({ label });
     },
-    async printPage() {
-      await printNativeBrowser({ label });
-    },
     async setZoom(scale: number) {
       await setZoomNativeBrowser({ label, scale });
     },
@@ -274,11 +270,6 @@ async function captureNativeBrowser(
 ): Promise<NativeBrowserCapturedPage> {
   const { invoke } = await import("@tauri-apps/api/core");
   return (await invoke("plugin:ripple-browser|capture", { request })) as NativeBrowserCapturedPage;
-}
-
-async function printNativeBrowser(request: NativeBrowserLabelRequest): Promise<void> {
-  const { invoke } = await import("@tauri-apps/api/core");
-  await invoke("plugin:ripple-browser|print_page", { request });
 }
 
 async function setZoomNativeBrowser(request: NativeBrowserZoomRequest): Promise<void> {

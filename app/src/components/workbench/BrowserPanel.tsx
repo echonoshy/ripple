@@ -10,7 +10,6 @@ import {
   Globe2,
   Loader2,
   Paperclip,
-  Printer,
   RefreshCw,
   Search,
   Trash2,
@@ -460,14 +459,6 @@ export default function BrowserPanel({
       });
   };
 
-  const handlePrintPage = () => {
-    if (!nativeBrowserAvailable || !nativeBrowserRef.current) return;
-    void nativeBrowserRef.current.printPage().catch((printError: unknown) => {
-      console.warn("Failed to print native browser page:", printError);
-      setError(t("browser.failed"));
-    });
-  };
-
   const handleClearBrowserData = () => {
     if (!nativeBrowserAvailable || !nativeBrowserRef.current) return;
     if (!window.confirm(t("browser.clearDataConfirm"))) return;
@@ -595,6 +586,33 @@ export default function BrowserPanel({
           </button>
           <button
             type="button"
+            aria-label={t("browser.attachCurrentPage")}
+            title={t("browser.attachCurrentPage")}
+            disabled={
+              !nativeBrowserAvailable ||
+              !nativeSurfaceReady ||
+              !activeUrl ||
+              status === "loading" ||
+              isAttachingPage
+            }
+            onClick={handleAttachCurrentPage}
+            className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-[#DEE0E3] bg-white px-2.5 text-sm font-medium text-[#2B2F36] transition-colors hover:bg-[#F8F9FA] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isAttachingPage ? (
+              <Loader2 aria-hidden="true" size={16} className="animate-spin" />
+            ) : attachedToActivePage ? (
+              <CheckCircle2 aria-hidden="true" size={16} className="text-[#16845B]" />
+            ) : (
+              <Paperclip aria-hidden="true" size={16} />
+            )}
+            <span className="whitespace-nowrap">
+              {attachedToActivePage
+                ? t("browser.attachedCurrentPage")
+                : t("browser.attachCurrentPage")}
+            </span>
+          </button>
+          <button
+            type="button"
             aria-label={t("browser.zoomOut")}
             title={t("browser.zoomOut")}
             disabled={!nativeBrowserAvailable || !nativeSurfaceReady || nativeZoomLevel <= 0.5}
@@ -612,16 +630,6 @@ export default function BrowserPanel({
             className={WORKBENCH_ICON_BUTTON_CLASS}
           >
             <ZoomIn aria-hidden="true" size={16} />
-          </button>
-          <button
-            type="button"
-            aria-label={t("browser.printPage")}
-            title={t("browser.printPage")}
-            disabled={!nativeBrowserAvailable || !nativeSurfaceReady || !activeUrl}
-            onClick={handlePrintPage}
-            className={WORKBENCH_ICON_BUTTON_CLASS}
-          >
-            <Printer aria-hidden="true" size={16} />
           </button>
           <button
             type="button"
@@ -685,33 +693,6 @@ export default function BrowserPanel({
               {t("browser.attachedCurrentPage")}
             </span>
           ) : null}
-          <button
-            type="button"
-            aria-label={t("browser.attachCurrentPage")}
-            title={t("browser.attachCurrentPage")}
-            disabled={
-              !nativeBrowserAvailable ||
-              !nativeSurfaceReady ||
-              !activeUrl ||
-              status === "loading" ||
-              isAttachingPage
-            }
-            onClick={handleAttachCurrentPage}
-            className="inline-flex h-7 items-center justify-center gap-1.5 rounded-md border border-[#DEE0E3] bg-white px-2 text-xs font-medium text-[#2B2F36] transition-colors hover:bg-[#F8F9FA] disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {isAttachingPage ? (
-              <Loader2 aria-hidden="true" size={14} className="animate-spin" />
-            ) : attachedToActivePage ? (
-              <CheckCircle2 aria-hidden="true" size={14} className="text-[#16845B]" />
-            ) : (
-              <Paperclip aria-hidden="true" size={14} />
-            )}
-            <span className="hidden lg:inline">
-              {attachedToActivePage
-                ? t("browser.attachedCurrentPage")
-                : t("browser.attachCurrentPage")}
-            </span>
-          </button>
           <span
             className={`shrink-0 ${
               status === "failed"

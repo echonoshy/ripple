@@ -19,9 +19,10 @@ function testBrowserPanelRendersBrowserControls() {
   assert.match(html, /aria-label="Browser address"/);
   assert.match(html, /aria-label="Open page"/);
   assert.match(html, /aria-label="Refresh page"/);
+  assert.match(html, /aria-label="Attach current page"/);
   assert.match(html, /aria-label="Zoom out"/);
   assert.match(html, /aria-label="Zoom in"/);
-  assert.match(html, /aria-label="Print page"/);
+  assert.doesNotMatch(html, /aria-label="Print page"/);
   assert.match(html, /aria-label="Clear browser data"/);
   assert.match(html, /aria-label="Open externally"/);
   assert.match(html, /data-ripple-browser-frame="true"/);
@@ -182,15 +183,15 @@ function testBrowserPanelShowsDownloadStatusFromNativeEvents() {
   assert.match(source, /browser\.downloadFinished/);
 }
 
-function testBrowserPanelExposesCodexStyleBasicPageTools() {
+function testBrowserPanelExposesUsefulPageTools() {
   const source = readFileSync(new URL("./BrowserPanel.tsx", import.meta.url), "utf8");
 
   assert.match(source, /handleZoomOut/);
   assert.match(source, /handleZoomIn/);
-  assert.match(source, /handlePrintPage/);
   assert.match(source, /handleClearBrowserData/);
   assert.match(source, /nativeBrowserRef\.current\s*\.\s*setZoom/);
-  assert.match(source, /nativeBrowserRef\.current\.printPage/);
+  assert.doesNotMatch(source, /handlePrintPage/);
+  assert.doesNotMatch(source, /nativeBrowserRef\.current\.printPage/);
   assert.match(source, /nativeBrowserRef\.current\s*\.\s*clearData/);
 }
 
@@ -219,7 +220,7 @@ testBrowserPanelOpensFromEnterAndSearchButton();
 testBrowserPanelShowsCodexStyleLoadingAndEmptyState();
 testBrowserPanelRequiresExplicitPageAttachment();
 testBrowserPanelShowsDownloadStatusFromNativeEvents();
-testBrowserPanelExposesCodexStyleBasicPageTools();
+testBrowserPanelExposesUsefulPageTools();
 testBrowserPanelRegistersBrowserCommandExecutor();
 
 console.log("browser panel tests passed");

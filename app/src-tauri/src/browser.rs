@@ -157,6 +157,7 @@ async fn open<R: Runtime>(app: AppHandle<R>, request: BrowserOpenRequest) -> Res
     let webview_builder = WebviewBuilder::new(&request.label, WebviewUrl::External(url))
         .data_directory(data_dir)
         .enable_clipboard_access()
+        .initialization_script(browser_new_window_navigation_script())
         .on_new_window(move |url, _features| {
             emit_browser_state(
                 &app_for_new_window,
@@ -260,15 +261,6 @@ fn reload<R: Runtime>(app: AppHandle<R>, request: BrowserLabelRequest) -> Result
         .get_webview(&request.label)
         .ok_or_else(|| "Browser webview is not available".to_string())?;
     webview.reload().map_err(|err| err.to_string())
-}
-
-#[tauri::command]
-fn print_page<R: Runtime>(app: AppHandle<R>, request: BrowserLabelRequest) -> Result<(), String> {
-    validate_browser_label(&request.label)?;
-    let webview = app
-        .get_webview(&request.label)
-        .ok_or_else(|| "Browser webview is not available".to_string())?;
-    webview.print().map_err(|err| err.to_string())
 }
 
 #[tauri::command]
@@ -455,7 +447,6 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             resize,
             navigate,
             reload,
-            print_page,
             set_zoom,
             clear_data,
             back,
@@ -623,6 +614,66 @@ fn validate_browser_label(label: &str) -> Result<(), String> {
     } else {
         Err("Invalid browser label".to_string())
     }
+}
+
+fn browser_new_window_navigation_script() -> String {
+    r#"
+(() => {
+  if (window.__RIPPLE_BROWSER_NEW_WINDOW_NAVIGATION__) return;
+  window.__RIPPLE_BROWSER_NEW_WINDOW_NAVIGATION__ = true;
+
+  const toHttpUrl = (value) => {
+    try {
+      const url = new URL(String(value || ""), window.location.href);
+      if (url.protocol !== "http:" && url.protocol !== "https:") return "";
+      return url.href;
+    } catch {
+      return "";
+    }
+  };
+
+  const navigateCurrentSurface = (value) => {
+    const url = toHttpUrl(value);
+    if (!url) return false;
+    try {
+      (window.top || window).location.assign(url);
+    } catch {
+      window.location.assign(url);
+    }
+    return true;
+  };
+
+  const originalOpen = window.open ? window.open.bind(window) : null;
+  window.open = (url, target, features) => {
+    if (navigateCurrentSurface(url)) return window;
+    return originalOpen ? originalOpen(url, target, features) : null;
+  };
+
+  const shouldOpenInNewWindow = (event, link) => {
+    const target = String(link.getAttribute("target") || "").toLowerCase();
+    return target === "_blank" || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey;
+  };
+
+  document.addEventListener(
+    "click",
+    (event) => {
+      if (event.defaultPrevented || event.button !== 0) return;
+      const target = event.target;
+      const element = target && target.nodeType === Node.ELEMENT_NODE ? target : target?.parentElement;
+      if (!element || typeof element.closest !== "function") return;
+      const link = element.closest("a[href]");
+      if (!link || link.hasAttribute("download") || !shouldOpenInNewWindow(event, link)) return;
+      const href = link.getAttribute("href");
+      if (!toHttpUrl(href)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      navigateCurrentSurface(href);
+    },
+    true
+  );
+})()
+"#
+    .to_string()
 }
 
 fn browser_automation_script(command: &str, arguments: &Value) -> Result<String, String> {

@@ -10,6 +10,8 @@ function testNativeBrowserUsesTauriInvokeBridge() {
   assert.match(source, /invoke\("plugin:ripple-browser\|resize"/);
   assert.match(source, /invoke\("plugin:ripple-browser\|navigate"/);
   assert.match(source, /invoke\("plugin:ripple-browser\|reload"/);
+  assert.match(source, /invoke\("plugin:ripple-browser\|back"/);
+  assert.match(source, /invoke\("plugin:ripple-browser\|forward"/);
   assert.match(source, /invoke\("plugin:ripple-browser\|capture"/);
   assert.match(source, /invoke\("plugin:ripple-browser\|close"/);
 }
@@ -23,15 +25,23 @@ function testNativeBrowserTracksViewportRectAndVisibility() {
 }
 
 function testNativeBrowserOnlyRunsInTauriRuntime() {
-  assert.match(source, /ENABLE_NATIVE_BROWSER_SURFACE\s*=\s*false/);
-  assert.match(source, /if \(!ENABLE_NATIVE_BROWSER_SURFACE\) return false/);
+  assert.doesNotMatch(source, /ENABLE_NATIVE_BROWSER_SURFACE/);
+  assert.doesNotMatch(source, /inline child WebView disabled/);
   assert.match(source, /return isTauriRuntime\(\)/);
   assert.match(source, /typeof window === "undefined"/);
   assert.match(source, /return false/);
 }
 
+function testNativeBrowserSurfaceExposesHistoryControls() {
+  assert.match(source, /goBack: \(\) => Promise<void>/);
+  assert.match(source, /goForward: \(\) => Promise<void>/);
+  assert.match(source, /async goBack\(\)/);
+  assert.match(source, /async goForward\(\)/);
+}
+
 testNativeBrowserUsesTauriInvokeBridge();
 testNativeBrowserTracksViewportRectAndVisibility();
 testNativeBrowserOnlyRunsInTauriRuntime();
+testNativeBrowserSurfaceExposesHistoryControls();
 
 console.log("native browser tests passed");

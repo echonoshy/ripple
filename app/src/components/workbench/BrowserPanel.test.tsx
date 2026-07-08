@@ -61,6 +61,14 @@ function testBrowserPanelUsesNativeTauriBrowserWhenAvailable() {
   assert.match(source, /browser\.nativeMode/);
 }
 
+function testBrowserPanelUsesNativeHistoryControls() {
+  const source = readFileSync(new URL("./BrowserPanel.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /nativeBrowserRef\.current\?\.goBack\(\)/);
+  assert.match(source, /nativeBrowserRef\.current\?\.goForward\(\)/);
+  assert.match(source, /if \(nativeBrowserAvailable && nativeBrowserRef\.current\)/);
+}
+
 function testBrowserPanelKeepsNavigationInsideApp() {
   const source = readFileSync(new URL("./BrowserPanel.tsx", import.meta.url), "utf8");
 
@@ -87,6 +95,15 @@ function testBrowserPanelPreservesAgentReadableContextInNativeMode() {
   assert.doesNotMatch(
     source,
     /setPendingNavigationUrl\(null\);\s*return;\s*}\s*catch \(nativeError\)/
+  );
+}
+
+function testBrowserPanelDoesNotFallBackToServerPreviewInNativeMode() {
+  const source = readFileSync(new URL("./BrowserPanel.tsx", import.meta.url), "utf8");
+
+  assert.match(
+    source,
+    /catch \(nativeError\)[\s\S]*setStatus\("failed"\);[\s\S]*setError\(t\("browser\.failed"\)\);[\s\S]*return;/
   );
 }
 
@@ -129,9 +146,11 @@ testBrowserPanelBuildsAgentReadableContext();
 testBrowserPanelExplainsBlockedEmbeddedPreview();
 testBrowserPanelUsesSandboxedPreviewHtml();
 testBrowserPanelUsesNativeTauriBrowserWhenAvailable();
+testBrowserPanelUsesNativeHistoryControls();
 testBrowserPanelKeepsNavigationInsideApp();
 testBrowserPanelDirectlyFramesHttpWebSites();
 testBrowserPanelPreservesAgentReadableContextInNativeMode();
+testBrowserPanelDoesNotFallBackToServerPreviewInNativeMode();
 testBrowserPanelAvoidsStalePreviewAndSlowFetchJank();
 testBrowserPanelShowsCodexStyleLoadingAndEmptyState();
 testBrowserPanelRequiresExplicitPageAttachment();

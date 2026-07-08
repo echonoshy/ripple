@@ -70,6 +70,7 @@ export default function BrowserPanel({
   const nativeBrowserLabelRef = useRef("ripple-browser-main");
   const latestCaptureIdRef = useRef(0);
   const frameLoadedRef = useRef(false);
+  const nativeLoadTimeoutRef = useRef<number | null>(null);
   const initialUrl = normalizeBrowserUrlInput(initialAddress);
   const [address, setAddress] = useState(initialUrl);
   const [frameUrl, setFrameUrl] = useState(initialUrl);
@@ -118,6 +119,21 @@ export default function BrowserPanel({
     onBrowserContextChange(null);
   }, [onBrowserContextChange]);
 
+  const clearNativeLoadFallback = useCallback(() => {
+    if (nativeLoadTimeoutRef.current === null) return;
+    window.clearTimeout(nativeLoadTimeoutRef.current);
+    nativeLoadTimeoutRef.current = null;
+  }, []);
+
+  const scheduleNativeLoadFallback = useCallback(() => {
+    clearNativeLoadFallback();
+    nativeLoadTimeoutRef.current = window.setTimeout(() => {
+      nativeLoadTimeoutRef.current = null;
+      setPendingNavigationUrl(null);
+      setStatus((current) => (current === "loading" ? "loaded" : current));
+    }, 8000);
+  }, [clearNativeLoadFallback]);
+
   const pushHistory = useCallback((nextUrl: string) => {
     setHistory((current) => {
       if (!nextUrl) return { entries: [], index: -1 };
@@ -140,12 +156,14 @@ export default function BrowserPanel({
       if (event.phase === "started") {
         setStatus("loading");
         clearAttachedContext();
+        scheduleNativeLoadFallback();
         return;
       }
+      clearNativeLoadFallback();
       setStatus("loaded");
       pushHistory(event.url);
     },
-    [clearAttachedContext, pushHistory]
+    [clearAttachedContext, clearNativeLoadFallback, pushHistory, scheduleNativeLoadFallback]
   );
 
   const capturePage = useCallback(
@@ -155,6 +173,7 @@ export default function BrowserPanel({
       const shouldRecordHistory = options.recordHistory ?? true;
       const normalizedAddress = normalizeBrowserUrlInput(value);
 
+      clearNativeLoadFallback();
       setAddress(normalizedAddress);
       setPendingNavigationUrl(normalizedAddress || null);
       setError(null);
@@ -202,9 +221,14 @@ export default function BrowserPanel({
             await nativeBrowserRef.current.navigate(nativeUrl);
           }
           setPendingNavigationUrl(null);
+          scheduleNativeLoadFallback();
           nativePreviewActive = true;
         } catch (nativeError) {
           console.warn("Failed to open native browser surface:", nativeError);
+          setPendingNavigationUrl(null);
+          setStatus("failed");
+          setError(t("browser.failed"));
+          return;
         }
       }
 
@@ -254,10 +278,12 @@ export default function BrowserPanel({
     },
     [
       clearAttachedContext,
+      clearNativeLoadFallback,
       handleNativePageLoad,
       nativeBrowserAvailable,
       publishContext,
       pushHistory,
+      scheduleNativeLoadFallback,
       t,
     ]
   );
@@ -324,10 +350,47 @@ export default function BrowserPanel({
       const nextUrl = history.entries[nextIndex];
       if (!nextUrl) return;
 
+      if (nativeBrowserAvailable && nativeBrowserRef.current) {
+        const goBack = nextIndex < history.index;
+        setHistory((current) => ({ ...current, index: nextIndex }));
+        setAddress(nextUrl);
+        setFrameUrl(nextUrl);
+        setPendingNavigationUrl(nextUrl);
+        setStatus("loading");
+        setError(null);
+        clearAttachedContext();
+        scheduleNativeLoadFallback();
+        void (async () => {
+          try {
+            if (goBack) {
+              await nativeBrowserRef.current?.goBack();
+            } else {
+              await nativeBrowserRef.current?.goForward();
+            }
+          } catch (historyError) {
+            console.warn("Failed to navigate native browser history:", historyError);
+            clearNativeLoadFallback();
+            setPendingNavigationUrl(null);
+            setStatus("failed");
+            setError(t("browser.failed"));
+          }
+        })();
+        return;
+      }
+
       setHistory((current) => ({ ...current, index: nextIndex }));
       void capturePage(nextUrl, { recordHistory: false });
     },
-    [capturePage, history.entries]
+    [
+      capturePage,
+      clearAttachedContext,
+      clearNativeLoadFallback,
+      history.entries,
+      history.index,
+      nativeBrowserAvailable,
+      scheduleNativeLoadFallback,
+      t,
+    ]
   );
 
   useEffect(() => {
@@ -344,6 +407,10 @@ export default function BrowserPanel({
 
   useEffect(() => {
     return () => {
+      if (nativeLoadTimeoutRef.current !== null) {
+        window.clearTimeout(nativeLoadTimeoutRef.current);
+        nativeLoadTimeoutRef.current = null;
+      }
       const nativeBrowser = nativeBrowserRef.current;
       nativeBrowserRef.current = null;
       void nativeBrowser?.close();
@@ -358,8 +425,10 @@ export default function BrowserPanel({
   const handleRefresh = () => {
     if (nativeBrowserAvailable && nativeBrowserRef.current) {
       setStatus("loading");
+      scheduleNativeLoadFallback();
       void nativeBrowserRef.current.reload().catch((refreshError: unknown) => {
         console.warn("Failed to refresh native browser surface:", refreshError);
+        clearNativeLoadFallback();
         setStatus("failed");
         setError(t("browser.failed"));
       });

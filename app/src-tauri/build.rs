@@ -4,7 +4,8 @@ fn main() {
             "ripple-browser",
             tauri_build::InlinedPlugin::new()
                 .commands(&[
-                    "open", "resize", "navigate", "reload", "capture", "close", "show", "hide",
+                    "open", "resize", "navigate", "reload", "back", "forward", "capture", "close",
+                    "show", "hide",
                 ])
                 .default_permission(tauri_build::DefaultPermissionRule::AllowAllCommands),
         ),

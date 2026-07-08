@@ -1,7 +1,5 @@
 import { isTauriRuntime } from "./platform";
 
-const ENABLE_NATIVE_BROWSER_SURFACE = false;
-
 export interface NativeBrowserBounds {
   x: number;
   y: number;
@@ -27,6 +25,8 @@ export interface NativeBrowserCapturedPage {
 export interface NativeBrowserSurface {
   navigate: (url: string) => Promise<void>;
   reload: () => Promise<void>;
+  goBack: () => Promise<void>;
+  goForward: () => Promise<void>;
   captureCurrentPage: () => Promise<NativeBrowserCapturedPage>;
   syncBounds: () => Promise<void>;
   close: () => Promise<void>;
@@ -39,13 +39,15 @@ interface NativeBrowserSurfaceOptions {
   onPageLoad?: (event: NativeBrowserPageLoadEvent) => void;
 }
 
+interface NativeBrowserOpenUrlEvent {
+  label: string;
+  url: string;
+}
+
 type UnlistenFn = () => void;
 
 export function isNativeBrowserAvailable(): boolean {
   if (typeof window === "undefined" || typeof document === "undefined") return false;
-  // Keep the inline child WebView disabled by default. Arbitrary external pages
-  // can destabilize the main Tauri window's WebKit process on macOS.
-  if (!ENABLE_NATIVE_BROWSER_SURFACE) return false;
   return isTauriRuntime();
 }
 
@@ -63,6 +65,7 @@ export async function createNativeBrowserSurface(
   let latestIntersectionRatio = 1;
   let syncScheduled = false;
   let unlistenPageLoad: UnlistenFn | null = null;
+  let unlistenOpenUrl: UnlistenFn | null = null;
 
   const syncBounds = async () => {
     if (closed) return;
@@ -114,6 +117,14 @@ export async function createNativeBrowserSurface(
       onPageLoad?.(event.payload);
     }
   );
+  unlistenOpenUrl = await listen<NativeBrowserOpenUrlEvent>(
+    "ripple-browser-open-url",
+    (event) => {
+      if (event.payload.label !== label || !isHttpUrl(event.payload.url)) return;
+      currentUrl = event.payload.url;
+      void navigateNativeBrowser({ label, url: currentUrl }).then(syncBounds);
+    }
+  );
 
   await openNativeBrowser({
     label,
@@ -132,6 +143,14 @@ export async function createNativeBrowserSurface(
       await reloadNativeBrowser({ label });
       await syncBounds();
     },
+    async goBack() {
+      await backNativeBrowser({ label });
+      await syncBounds();
+    },
+    async goForward() {
+      await forwardNativeBrowser({ label });
+      await syncBounds();
+    },
     async captureCurrentPage() {
       return captureNativeBrowser({ label });
     },
@@ -146,6 +165,8 @@ export async function createNativeBrowserSurface(
       document.removeEventListener("visibilitychange", handleWindowChange);
       unlistenPageLoad?.();
       unlistenPageLoad = null;
+      unlistenOpenUrl?.();
+      unlistenOpenUrl = null;
       await closeNativeBrowser({ label });
     },
   };
@@ -187,6 +208,16 @@ async function navigateNativeBrowser(request: NativeBrowserNavigateRequest): Pro
 async function reloadNativeBrowser(request: NativeBrowserLabelRequest): Promise<void> {
   const { invoke } = await import("@tauri-apps/api/core");
   await invoke("plugin:ripple-browser|reload", { request });
+}
+
+async function backNativeBrowser(request: NativeBrowserLabelRequest): Promise<void> {
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("plugin:ripple-browser|back", { request });
+}
+
+async function forwardNativeBrowser(request: NativeBrowserLabelRequest): Promise<void> {
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("plugin:ripple-browser|forward", { request });
 }
 
 async function captureNativeBrowser(
@@ -245,4 +276,13 @@ function measureViewport(
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
+}
+
+function isHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
 }

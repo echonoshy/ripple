@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::plugin::{Builder as PluginBuilder, TauriPlugin};
-use tauri::webview::PageLoadEvent;
+use tauri::webview::{NewWindowResponse, PageLoadEvent};
 use tauri::{
     AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Runtime, Webview, WebviewBuilder,
     WebviewUrl,
@@ -53,6 +53,12 @@ struct BrowserLoadEvent {
     phase: String,
 }
 
+#[derive(Clone, Debug, Serialize)]
+struct BrowserOpenUrlEvent {
+    label: String,
+    url: String,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BrowserCaptureResponse {
     pub url: String,
@@ -80,7 +86,19 @@ fn open<R: Runtime>(app: AppHandle<R>, request: BrowserOpenRequest) -> Result<()
         .ok_or_else(|| "Main window is not available".to_string())?;
     let label = request.label.clone();
     let app_for_events = app.clone();
+    let app_for_new_windows = app.clone();
+    let label_for_new_windows = request.label.clone();
     let webview_builder = WebviewBuilder::new(&request.label, WebviewUrl::External(url))
+        .on_new_window(move |url, _features| {
+            let _ = app_for_new_windows.emit(
+                "ripple-browser-open-url",
+                BrowserOpenUrlEvent {
+                    label: label_for_new_windows.clone(),
+                    url: url.to_string(),
+                },
+            );
+            NewWindowResponse::Deny
+        })
         .on_page_load(move |_webview, payload| {
             let phase = match payload.event() {
                 PageLoadEvent::Started => "started",
@@ -135,6 +153,28 @@ fn reload<R: Runtime>(app: AppHandle<R>, request: BrowserLabelRequest) -> Result
         .get_webview(&request.label)
         .ok_or_else(|| "Browser webview is not available".to_string())?;
     webview.reload().map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn back<R: Runtime>(app: AppHandle<R>, request: BrowserLabelRequest) -> Result<(), String> {
+    validate_browser_label(&request.label)?;
+    let webview = app
+        .get_webview(&request.label)
+        .ok_or_else(|| "Browser webview is not available".to_string())?;
+    webview
+        .eval("window.history.back()")
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn forward<R: Runtime>(app: AppHandle<R>, request: BrowserLabelRequest) -> Result<(), String> {
+    validate_browser_label(&request.label)?;
+    let webview = app
+        .get_webview(&request.label)
+        .ok_or_else(|| "Browser webview is not available".to_string())?;
+    webview
+        .eval("window.history.forward()")
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
@@ -198,7 +238,7 @@ fn hide<R: Runtime>(app: AppHandle<R>, request: BrowserLabelRequest) -> Result<(
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
     PluginBuilder::new("ripple-browser")
         .invoke_handler(tauri::generate_handler![
-            open, resize, navigate, reload, capture, close, show, hide
+            open, resize, navigate, reload, back, forward, capture, close, show, hide
         ])
         .build()
 }

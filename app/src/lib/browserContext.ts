@@ -18,6 +18,8 @@ export function buildBrowserContext({ address, page }: BrowserContextInput): Cha
   const normalizedAddress = normalizeBrowserUrlInput(address);
   const visibleText = page?.text || "";
   const boundedText = limitText(visibleText, BROWSER_CONTEXT_VISIBLE_TEXT_LIMIT);
+  const selectedText =
+    typeof page?.selected_text === "string" ? limitText(page.selected_text, BROWSER_CONTEXT_VISIBLE_TEXT_LIMIT) : "";
   const textTruncated = Boolean(page?.truncated || visibleText.length > boundedText.length);
 
   return {
@@ -28,6 +30,7 @@ export function buildBrowserContext({ address, page }: BrowserContextInput): Cha
       url: page?.url || normalizedAddress,
       title: page?.title || null,
       visible_text: boundedText,
+      selected_text: selectedText || null,
       text_truncated: textTruncated,
     },
   };

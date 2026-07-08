@@ -11,6 +11,7 @@
     "ripple-browser:allow-resize",
     "ripple-browser:allow-navigate",
     "ripple-browser:allow-reload",
+    "ripple-browser:allow-capture",
     "ripple-browser:allow-close",
     "ripple-browser:allow-show",
     "ripple-browser:allow-hide"

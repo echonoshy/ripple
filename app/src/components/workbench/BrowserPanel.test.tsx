@@ -54,6 +54,7 @@ function testBrowserPanelUsesNativeTauriBrowserWhenAvailable() {
 
   assert.match(source, /createNativeBrowserSurface/);
   assert.match(source, /isNativeBrowserAvailable/);
+  assert.match(source, /captureCurrentPage/);
   assert.match(source, /nativeBrowserViewportRef/);
   assert.match(source, /nativeBrowserRef/);
   assert.match(source, /data-ripple-native-browser-viewport/);
@@ -67,6 +68,16 @@ function testBrowserPanelDirectlyFramesHttpWebSites() {
   assert.match(source, /shouldUseDirectIframe/);
   assert.match(source, /isDirectBrowserIframeUrl\(normalizedAddress\)/);
   assert.match(source, /sandbox=\{[\s\S]*shouldUseDirectIframe\s*\?\s*undefined/);
+}
+
+function testBrowserPanelPreservesAgentReadableContextInNativeMode() {
+  const source = readFileSync(new URL("./BrowserPanel.tsx", import.meta.url), "utf8");
+
+  assert.doesNotMatch(source, /publishContext\(event\.url,\s*null\)/);
+  assert.doesNotMatch(
+    source,
+    /setPendingNavigationUrl\(null\);\s*return;\s*}\s*catch \(nativeError\)/
+  );
 }
 
 function testBrowserPanelAvoidsStalePreviewAndSlowFetchJank() {
@@ -94,13 +105,24 @@ function testBrowserPanelShowsCodexStyleLoadingAndEmptyState() {
   assert.match(html, /Start browsing/);
 }
 
+function testBrowserPanelRequiresExplicitPageAttachment() {
+  const source = readFileSync(new URL("./BrowserPanel.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /browser\.attachCurrentPage/);
+  assert.match(source, /browser\.attachedCurrentPage/);
+  assert.match(source, /handleAttachCurrentPage/);
+  assert.doesNotMatch(source, /handleNativePageLoad[\s\S]*publishContext\(event\.url,\s*null\)/);
+}
+
 testBrowserPanelRendersBrowserControls();
 testBrowserPanelBuildsAgentReadableContext();
 testBrowserPanelExplainsBlockedEmbeddedPreview();
 testBrowserPanelUsesSandboxedPreviewHtml();
 testBrowserPanelUsesNativeTauriBrowserWhenAvailable();
 testBrowserPanelDirectlyFramesHttpWebSites();
+testBrowserPanelPreservesAgentReadableContextInNativeMode();
 testBrowserPanelAvoidsStalePreviewAndSlowFetchJank();
 testBrowserPanelShowsCodexStyleLoadingAndEmptyState();
+testBrowserPanelRequiresExplicitPageAttachment();
 
 console.log("browser panel tests passed");

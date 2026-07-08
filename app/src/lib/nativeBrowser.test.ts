@@ -10,6 +10,7 @@ function testNativeBrowserUsesTauriInvokeBridge() {
   assert.match(source, /invoke\("plugin:ripple-browser\|resize"/);
   assert.match(source, /invoke\("plugin:ripple-browser\|navigate"/);
   assert.match(source, /invoke\("plugin:ripple-browser\|reload"/);
+  assert.match(source, /invoke\("plugin:ripple-browser\|capture"/);
   assert.match(source, /invoke\("plugin:ripple-browser\|close"/);
 }
 
@@ -22,7 +23,8 @@ function testNativeBrowserTracksViewportRectAndVisibility() {
 }
 
 function testNativeBrowserOnlyRunsInTauriRuntime() {
-  assert.match(source, /isTauriRuntime\(\)/);
+  assert.doesNotMatch(source, /ENABLE_NATIVE_BROWSER_SURFACE\s*=\s*false/);
+  assert.match(source, /return isTauriRuntime\(\)/);
   assert.match(source, /typeof window === "undefined"/);
   assert.match(source, /return false/);
 }

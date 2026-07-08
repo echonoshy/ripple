@@ -13,9 +13,19 @@ export interface NativeBrowserPageLoadEvent {
   phase: "started" | "finished";
 }
 
+export interface NativeBrowserCapturedPage {
+  url: string;
+  title?: string | null;
+  text: string;
+  selected_text?: string | null;
+  truncated: boolean;
+  captured_at: string;
+}
+
 export interface NativeBrowserSurface {
   navigate: (url: string) => Promise<void>;
   reload: () => Promise<void>;
+  captureCurrentPage: () => Promise<NativeBrowserCapturedPage>;
   syncBounds: () => Promise<void>;
   close: () => Promise<void>;
 }
@@ -117,6 +127,9 @@ export async function createNativeBrowserSurface(
       await reloadNativeBrowser({ label });
       await syncBounds();
     },
+    async captureCurrentPage() {
+      return captureNativeBrowser({ label });
+    },
     syncBounds,
     async close() {
       if (closed) return;
@@ -169,6 +182,13 @@ async function navigateNativeBrowser(request: NativeBrowserNavigateRequest): Pro
 async function reloadNativeBrowser(request: NativeBrowserLabelRequest): Promise<void> {
   const { invoke } = await import("@tauri-apps/api/core");
   await invoke("plugin:ripple-browser|reload", { request });
+}
+
+async function captureNativeBrowser(
+  request: NativeBrowserLabelRequest
+): Promise<NativeBrowserCapturedPage> {
+  const { invoke } = await import("@tauri-apps/api/core");
+  return (await invoke("plugin:ripple-browser|capture", { request })) as NativeBrowserCapturedPage;
 }
 
 async function closeNativeBrowser(request: NativeBrowserLabelRequest): Promise<void> {

@@ -1,8 +1,10 @@
 export function isDirectBrowserIframeUrl(value: string): boolean {
   try {
-    const url = new URL(value);
-    return url.protocol === "https:" || url.protocol === "http:";
+    new URL(value);
   } catch {
     return false;
   }
+  // Most real sites block arbitrary iframes, and direct framing bypasses the
+  // server-side capture that feeds browser context to Codex.
+  return false;
 }

@@ -122,6 +122,7 @@ function testTauriNativeBrowserCommandsArePermissioned() {
   assert.match(mainCapability.permissions.join(" "), /ripple-browser:allow-resize/);
   assert.match(mainCapability.permissions.join(" "), /ripple-browser:allow-navigate/);
   assert.match(mainCapability.permissions.join(" "), /ripple-browser:allow-reload/);
+  assert.match(mainCapability.permissions.join(" "), /ripple-browser:allow-capture/);
   assert.match(mainCapability.permissions.join(" "), /ripple-browser:allow-close/);
   assert.match(mainCapability.permissions.join(" "), /ripple-browser:allow-show/);
   assert.match(mainCapability.permissions.join(" "), /ripple-browser:allow-hide/);

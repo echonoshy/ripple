@@ -2238,6 +2238,7 @@ export interface BrowserPageResponse {
   url: string;
   title?: string | null;
   text: string;
+  selected_text?: string | null;
   truncated: boolean;
   embeddable?: boolean;
   preview_blocked_reason?: string | null;

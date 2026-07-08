@@ -5,9 +5,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
+  CheckCircle2,
   ExternalLink,
   Globe2,
   Loader2,
+  Paperclip,
   RefreshCw,
   Search,
 } from "lucide-react";
@@ -76,6 +78,9 @@ export default function BrowserPanel({
   const [error, setError] = useState<string | null>(null);
   const [frameVersion, setFrameVersion] = useState(0);
   const [pendingNavigationUrl, setPendingNavigationUrl] = useState<string | null>(null);
+  const [isAttachingPage, setIsAttachingPage] = useState(false);
+  const [attachedPageUrl, setAttachedPageUrl] = useState<string | null>(null);
+  const [attachedPageCapturedAt, setAttachedPageCapturedAt] = useState<string | null>(null);
   const [history, setHistory] = useState<BrowserHistoryState>(() => ({
     entries: initialUrl ? [initialUrl] : [],
     index: initialUrl ? 0 : -1,
@@ -90,6 +95,7 @@ export default function BrowserPanel({
   const shouldUseDirectIframe = !shouldUsePreviewHtml && isDirectBrowserIframeUrl(frameUrl);
   const showPreviewBlocked = isPreviewBlocked && !shouldUsePreviewHtml;
   const previewBlockedReason = page?.preview_blocked_reason?.trim();
+  const attachedToActivePage = Boolean(attachedPageUrl && activeUrl && attachedPageUrl === activeUrl);
 
   const statusLabel = useMemo(() => {
     if (status === "loading") return t("browser.loading");
@@ -105,6 +111,12 @@ export default function BrowserPanel({
     },
     [onBrowserContextChange]
   );
+
+  const clearAttachedContext = useCallback(() => {
+    setAttachedPageUrl(null);
+    setAttachedPageCapturedAt(null);
+    onBrowserContextChange(null);
+  }, [onBrowserContextChange]);
 
   const pushHistory = useCallback((nextUrl: string) => {
     setHistory((current) => {
@@ -125,15 +137,15 @@ export default function BrowserPanel({
       setAddress(event.url);
       setFrameUrl(event.url);
       setPendingNavigationUrl(null);
-      publishContext(event.url, null);
       if (event.phase === "started") {
         setStatus("loading");
+        clearAttachedContext();
         return;
       }
       setStatus("loaded");
       pushHistory(event.url);
     },
-    [publishContext, pushHistory]
+    [clearAttachedContext, pushHistory]
   );
 
   const capturePage = useCallback(
@@ -153,12 +165,18 @@ export default function BrowserPanel({
         setFrameUrl("");
         setPage(null);
         setStatus("idle");
-        publishContext("", null);
+        clearAttachedContext();
         return;
       }
 
       setStatus("loading");
-      publishContext(normalizedAddress, null);
+      if (nativeBrowserAvailable) {
+        clearAttachedContext();
+      } else {
+        publishContext(normalizedAddress, null);
+      }
+
+      let nativePreviewActive = false;
 
       if (nativeBrowserAvailable) {
         const nativeUrl = normalizedAddress;
@@ -184,13 +202,15 @@ export default function BrowserPanel({
             await nativeBrowserRef.current.navigate(nativeUrl);
           }
           setPendingNavigationUrl(null);
-          return;
+          nativePreviewActive = true;
         } catch (nativeError) {
           console.warn("Failed to open native browser surface:", nativeError);
         }
       }
 
-      if (isDirectBrowserIframeUrl(normalizedAddress)) {
+      if (nativePreviewActive) return;
+
+      if (!nativePreviewActive && isDirectBrowserIframeUrl(normalizedAddress)) {
         const directUrl = normalizedAddress;
         setPage(null);
         setFrameUrl(directUrl);
@@ -213,10 +233,12 @@ export default function BrowserPanel({
         setAddress(resolvedUrl);
         setFrameUrl(resolvedUrl);
         setPendingNavigationUrl(null);
-        setFrameVersion((current) => current + 1);
-        frameLoadedRef.current = false;
-        setStatus("loading");
-        if (shouldRecordHistory) {
+        if (!nativePreviewActive) {
+          setFrameVersion((current) => current + 1);
+          frameLoadedRef.current = false;
+          setStatus("loading");
+        }
+        if (shouldRecordHistory && !nativePreviewActive) {
           pushHistory(resolvedUrl);
         }
         publishContext(resolvedUrl, nextPage);
@@ -224,12 +246,66 @@ export default function BrowserPanel({
         if (captureId !== latestCaptureIdRef.current) return;
         setPendingNavigationUrl(null);
         publishContext(normalizedAddress, null);
-        setStatus("failed");
-        setError(t("browser.failed"));
+        if (!nativePreviewActive) {
+          setStatus("failed");
+          setError(t("browser.failed"));
+        }
       }
     },
-    [handleNativePageLoad, nativeBrowserAvailable, publishContext, pushHistory, t]
+    [clearAttachedContext, handleNativePageLoad, nativeBrowserAvailable, publishContext, pushHistory, t]
   );
+
+  const handleAttachCurrentPage = useCallback(() => {
+    if (!activeUrl || isAttachingPage) return;
+
+    setIsAttachingPage(true);
+    setError(null);
+
+    void (async () => {
+      try {
+        let capturedPage: BrowserPageResponse;
+
+        if (nativeBrowserAvailable && nativeBrowserRef.current) {
+          const nextPage = await nativeBrowserRef.current.captureCurrentPage();
+          capturedPage = {
+            url: nextPage.url || activeUrl,
+            title: nextPage.title ?? null,
+            text: nextPage.text || "",
+            selected_text: nextPage.selected_text ?? null,
+            truncated: Boolean(nextPage.truncated),
+            captured_at: nextPage.captured_at || new Date().toISOString(),
+          };
+        } else {
+          const nextPage = page?.url === activeUrl ? page : await fetchBrowserPage(activeUrl);
+          capturedPage = {
+            url: nextPage.url || activeUrl,
+            title: nextPage.title ?? null,
+            text: nextPage.text || "",
+            selected_text: nextPage.selected_text ?? null,
+            truncated: Boolean(nextPage.truncated),
+            embeddable: nextPage.embeddable,
+            preview_blocked_reason: nextPage.preview_blocked_reason,
+            preview_html: nextPage.preview_html,
+            captured_at: nextPage.captured_at || new Date().toISOString(),
+          };
+        }
+
+        const resolvedUrl = capturedPage.url || activeUrl;
+        setPage(capturedPage);
+        setAddress(resolvedUrl);
+        setFrameUrl(resolvedUrl);
+        setAttachedPageUrl(resolvedUrl);
+        setAttachedPageCapturedAt(capturedPage.captured_at);
+        setStatus("loaded");
+        publishContext(resolvedUrl, capturedPage);
+      } catch (attachError) {
+        console.warn("Failed to attach browser page context:", attachError);
+        setError(t("browser.attachFailed"));
+      } finally {
+        setIsAttachingPage(false);
+      }
+    })();
+  }, [activeUrl, isAttachingPage, nativeBrowserAvailable, page, publishContext, t]);
 
   const handleFrameLoad = useCallback(() => {
     frameLoadedRef.current = true;
@@ -379,24 +455,50 @@ export default function BrowserPanel({
         />
       </div>
 
-      <div className="flex min-h-8 shrink-0 items-center justify-between border-b border-[#EFF0F1] px-3 py-1.5 text-xs leading-5 text-[#646A73]">
+      <div className="flex min-h-8 shrink-0 items-center justify-between gap-3 border-b border-[#EFF0F1] px-3 py-1.5 text-xs leading-5 text-[#646A73]">
         <span className="min-w-0 truncate">
           {nativeBrowserAvailable && frameUrl
             ? `${t("browser.nativeMode")} · ${activeUrl}`
             : page?.title || activeUrl || t("browser.empty")}
         </span>
-        <span
-          className={`ml-3 shrink-0 ${
-            status === "failed"
-              ? "text-[#B42318]"
-              : status === "loaded"
-                ? "text-[#16845B]"
-                : "text-[#646A73]"
-          }`}
-          role="status"
-        >
-          {statusLabel}
-        </span>
+        <div className="flex shrink-0 items-center gap-2">
+          {attachedPageCapturedAt && attachedToActivePage ? (
+            <span className="hidden max-w-40 truncate text-[#16845B] md:inline">
+              {t("browser.attachedCurrentPage")}
+            </span>
+          ) : null}
+          <button
+            type="button"
+            aria-label={t("browser.attachCurrentPage")}
+            title={t("browser.attachCurrentPage")}
+            disabled={!activeUrl || status === "loading" || isAttachingPage}
+            onClick={handleAttachCurrentPage}
+            className="inline-flex h-7 items-center justify-center gap-1.5 rounded-md border border-[#DEE0E3] bg-white px-2 text-xs font-medium text-[#2B2F36] transition-colors hover:bg-[#F8F9FA] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isAttachingPage ? (
+              <Loader2 aria-hidden="true" size={14} className="animate-spin" />
+            ) : attachedToActivePage ? (
+              <CheckCircle2 aria-hidden="true" size={14} className="text-[#16845B]" />
+            ) : (
+              <Paperclip aria-hidden="true" size={14} />
+            )}
+            <span className="hidden lg:inline">
+              {attachedToActivePage ? t("browser.attachedCurrentPage") : t("browser.attachCurrentPage")}
+            </span>
+          </button>
+          <span
+            className={`shrink-0 ${
+              status === "failed"
+                ? "text-[#B42318]"
+                : status === "loaded"
+                  ? "text-[#16845B]"
+                  : "text-[#646A73]"
+            }`}
+            role="status"
+          >
+            {statusLabel}
+          </span>
+        </div>
       </div>
 
       {error ? (

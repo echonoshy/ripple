@@ -1,11 +1,18 @@
 use serde::{Deserialize, Serialize};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tauri::plugin::{Builder as PluginBuilder, TauriPlugin};
 use tauri::webview::PageLoadEvent;
 use tauri::{
     AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Runtime, Webview, WebviewBuilder,
     WebviewUrl,
 };
+use tokio::sync::oneshot;
+use tokio::time::timeout;
 use url::Url;
+
+const MAX_CAPTURE_TEXT_CHARS: usize = 12_000;
+const CAPTURE_TIMEOUT_SECONDS: u64 = 5;
 
 #[derive(Debug, Deserialize)]
 pub struct BrowserBounds {
@@ -44,6 +51,16 @@ struct BrowserLoadEvent {
     label: String,
     url: String,
     phase: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BrowserCaptureResponse {
+    pub url: String,
+    pub title: Option<String>,
+    pub text: String,
+    pub selected_text: Option<String>,
+    pub truncated: bool,
+    pub captured_at: String,
 }
 
 #[tauri::command]
@@ -121,6 +138,37 @@ fn reload<R: Runtime>(app: AppHandle<R>, request: BrowserLabelRequest) -> Result
 }
 
 #[tauri::command]
+async fn capture<R: Runtime>(
+    app: AppHandle<R>,
+    request: BrowserLabelRequest,
+) -> Result<BrowserCaptureResponse, String> {
+    validate_browser_label(&request.label)?;
+    let webview = app
+        .get_webview(&request.label)
+        .ok_or_else(|| "Browser webview is not available".to_string())?;
+    let (tx, rx) = oneshot::channel::<String>();
+    let tx = Arc::new(Mutex::new(Some(tx)));
+    let callback_tx = Arc::clone(&tx);
+
+    webview
+        .eval_with_callback(browser_capture_script(), move |payload| {
+            let Ok(mut tx) = callback_tx.lock() else {
+                return;
+            };
+            if let Some(tx) = tx.take() {
+                let _ = tx.send(payload);
+            }
+        })
+        .map_err(|err| err.to_string())?;
+
+    let payload = timeout(Duration::from_secs(CAPTURE_TIMEOUT_SECONDS), rx)
+        .await
+        .map_err(|_| "Browser capture timed out".to_string())?
+        .map_err(|_| "Browser capture was cancelled".to_string())?;
+    serde_json::from_str(&payload).map_err(|err| format!("Invalid browser capture: {err}"))
+}
+
+#[tauri::command]
 fn close<R: Runtime>(app: AppHandle<R>, request: BrowserLabelRequest) -> Result<(), String> {
     validate_browser_label(&request.label)?;
     if let Some(webview) = app.get_webview(&request.label) {
@@ -150,7 +198,7 @@ fn hide<R: Runtime>(app: AppHandle<R>, request: BrowserLabelRequest) -> Result<(
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
     PluginBuilder::new("ripple-browser")
         .invoke_handler(tauri::generate_handler![
-            open, resize, navigate, reload, close, show, hide
+            open, resize, navigate, reload, capture, close, show, hide
         ])
         .build()
 }
@@ -187,4 +235,27 @@ fn validate_browser_label(label: &str) -> Result<(), String> {
     } else {
         Err("Invalid browser label".to_string())
     }
+}
+
+fn browser_capture_script() -> String {
+    format!(
+        r#"
+(() => {{
+  const maxChars = {max_chars};
+  const normalizeText = (value) => String(value || "").replace(/\u0000/g, "").trim();
+  const rawText = normalizeText(document.body ? document.body.innerText : "");
+  const selectedText = normalizeText(window.getSelection ? window.getSelection().toString() : "");
+  const truncated = rawText.length > maxChars;
+  return {{
+    url: String(window.location.href || document.URL || ""),
+    title: document.title ? String(document.title) : null,
+    text: truncated ? rawText.slice(0, maxChars).trimEnd() : rawText,
+    selected_text: selectedText ? selectedText.slice(0, maxChars).trimEnd() : null,
+    truncated,
+    captured_at: new Date().toISOString()
+  }};
+}})()
+"#,
+        max_chars = MAX_CAPTURE_TEXT_CHARS
+    )
 }

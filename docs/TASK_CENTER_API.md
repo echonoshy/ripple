@@ -1,6 +1,6 @@
 # Task Center API Integration Guide
 
-本文面向接入 Vitana/Ripple 任务中心的客户端、上游业务系统和外部执行器。任务中心的公开主入口是 `/v1/task-sessions`，不要再调用旧 `/v1/tasks`。
+本文面向接入 Vitana/Ripple 任务中心的客户端、gateway 和上游业务系统。任务中心的公开主入口是 `/v1/task-sessions`，不要再调用旧 `/v1/tasks`。
 
 ## 结论
 
@@ -8,8 +8,10 @@
 - 普通聊天 session 仍走 `/v1/responses` 和 `/v1/sessions`；如果一个任务来自普通 session，用 `source_surface: "session"` 和 `source_id: "<session_id>"` 把 TaskSession 关联回原会话。
 - `/v1/tasks`、`/v1/tasks/:task_id/*` 和 `/v1/task-triggers` 已不再公开注册。
 - `GET /v1/sessions/:session_id/tasks` 仅作为 session 兼容只读接口保留，新任务中心不要用它构建主体验。
-- 当前 `TaskRun` 是产品层执行投影。真正执行可以由上游业务系统、Ripple `/v1/runs` 或其他 worker 完成，再把执行状态回写到 TaskRun。
-- 调用方通过 `GET /v1/task-sessions/:session_id/events/stream` 订阅任务状态，不需要轮询详情接口。
+- gateway 负责选择执行器；只有选择到 Ripple/Vitana 时，才调用本接口进入 Ripple 执行流程。
+- 当前 `TaskRun` 是产品层执行投影。gateway 选择 `executor: "ripple"` 或 `"vitana"` 时，Ripple 会启动内部执行器并自动回写 TaskRun 状态。
+- 调用方可以传 `callback_url` 或 `callback.url`。Ripple 会把任务状态事件主动 `POST` 给该地址；调用方不需要轮询，也不需要把 SSE 作为主链路。
+- `GET /v1/task-sessions/:session_id/events/stream` 仍保留给直接客户端、调试页面和断线校准场景使用。
 
 ## Auth
 
@@ -54,6 +56,7 @@ USER_ID="<user-id>"
   "task_type": "todo",
   "goal": "把会议纪要整理成可执行方案",
   "executor": "vitana",
+  "callback_url": "https://caller.example.com/task-status",
   "latest_message": "等待确认 TaskSpec",
   "needs_user_action": true,
   "current_task_spec_id": "spec-xxxx",
@@ -97,7 +100,7 @@ USER_ID="<user-id>"
 
 ### TaskRun
 
-一次执行投影。它可以映射到 Ripple `/v1/runs`、上游业务 job 或外部 worker。
+一次执行投影。选择 Ripple/Vitana 执行时，它会映射到 Ripple 内部 Codex/Vitana job。
 
 关键字段：
 
@@ -165,6 +168,9 @@ curl -sS "$BASE_URL/task-sessions" \
     "task_type": "todo",
     "goal": "把会议纪要整理成可执行方案",
     "executor": "vitana",
+    "callback": {
+      "url": "https://caller.example.com/task-status"
+    },
     "initial_message": "把会议纪要整理成可执行方案"
   }'
 ```
@@ -354,7 +360,7 @@ GET /v1/task-sessions/:session_id/events
 
 或直接读取任务详情里的 `events`。
 
-普通 session 只通过 `source_surface`、`source_id` 或 `source_refs` 和 TaskSession 建立关联。任务补齐过程里的用户消息、Agent 追问、TaskSpec 状态变化，都以 TaskSession timeline 为准。如果调用方想把追问展示在普通聊天窗口，需要订阅 task SSE 或读取 task events 后自行渲染。
+普通 session 只通过 `source_surface`、`source_id` 或 `source_refs` 和 TaskSession 建立关联。任务补齐过程里的用户消息、Agent 追问、TaskSpec 状态变化，都以 TaskSession timeline 为准。如果调用方想把追问展示在普通聊天窗口，可以消费 callback、订阅 task SSE，或读取 task events 后自行渲染。
 
 #### 对话补齐到执行的完整流程
 
@@ -370,8 +376,8 @@ GET /v1/task-sessions/:session_id/events
 8. 调用方展示 TaskSpec，让用户确认。
 9. 用户确认后，调用 `POST /v1/task-sessions/:session_id/task-specs/:task_spec_id/confirm`。
 10. 确认后创建 TaskRun 或用 `start_run: true` 同步启动执行。
-11. 执行过程通过 TaskRun 更新状态。
-12. 调用方订阅 task SSE 接收 `waiting_user`、`pending_confirm`、`in_progress`、`completed`、`failed`、`cancelled` 等状态变化。
+11. 如果执行器是 Ripple/Vitana，Ripple 内部执行器会执行任务并更新 TaskRun。
+12. 调用方通过 callback 或 task SSE 接收 `waiting_user`、`pending_confirm`、`in_progress`、`completed`、`failed`、`cancelled` 等状态变化。
 
 ### 3. 列表和详情
 
@@ -454,7 +460,7 @@ curl -sS "$BASE_URL/task-sessions/$TASK_SESSION_ID/task-specs/$TASK_SPEC_ID/conf
   -d '{ "start_run": false }'
 ```
 
-确认并立即创建 TaskRun：
+确认并立即创建 TaskRun，但不触发 Ripple 内部执行器：
 
 ```bash
 curl -sS "$BASE_URL/task-sessions/$TASK_SESSION_ID/task-specs/$TASK_SPEC_ID/confirm" \
@@ -463,6 +469,22 @@ curl -sS "$BASE_URL/task-sessions/$TASK_SESSION_ID/task-specs/$TASK_SPEC_ID/conf
   -H "Content-Type: application/json" \
   -d '{ "start_run": true }'
 ```
+
+如果 gateway 已经选择由 Ripple/Vitana 执行，确认时显式传入执行器和 callback：
+
+```bash
+curl -sS "$BASE_URL/task-sessions/$TASK_SESSION_ID/task-specs/$TASK_SPEC_ID/confirm" \
+  -H "X-API-Key: $API_KEY" \
+  -H "X-Ripple-User-Id: $USER_ID" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "start_run": true,
+    "executor": "ripple",
+    "callback_url": "https://caller.example.com/task-status"
+  }'
+```
+
+此时 Ripple 会创建 TaskRun、启动内部执行器，并在状态变化时主动回调 `callback_url`。
 
 ### 6. 启动 TaskRun
 
@@ -489,16 +511,23 @@ curl -sS "$BASE_URL/task-sessions/$TASK_SESSION_ID/task-specs/$TASK_SPEC_ID/runs
 
 未确认且不带 `confirm: true` 时返回 `409 task_spec_confirmation_required`。
 
-如果 TaskRun 对应一个真实外部 job，把 job id 写进投影：
+如果执行器就是 Ripple/Vitana，传：
 
 ```json
 {
-  "executor": "external_worker",
-  "external_run_id": "job-123"
+  "executor": "ripple",
+  "auto_execute": true,
+  "callback_url": "https://caller.example.com/task-status"
 }
 ```
 
-### 7. 回写 TaskRun 状态
+`executor: "ripple"` / `"vitana"` 或 `auto_execute: true` 会触发 Ripple 内部执行器。执行完成后，Ripple 会把 TaskRun 投影为 `completed` 或 `failed`，并通过 callback/SSE 发出状态事件。
+
+### 7. TaskRun 状态回写
+
+gateway 选择 `executor: "ripple"` / `"vitana"` 后，不需要自己回写 TaskRun。Ripple 内部执行器会在执行完成、失败或等待用户动作时自动更新 TaskRun，并触发 callback。
+
+下面接口主要供内部执行链路、调试工具或迁移脚本使用。
 
 完成：
 
@@ -549,7 +578,7 @@ curl -sS "$BASE_URL/task-sessions/$TASK_SESSION_ID/runs/$RUN_ID/cancel" \
   -d '{ "reason": "cancelled_by_user" }'
 ```
 
-状态回写会同步更新 TaskSession 和 TaskSpec 的投影状态。
+状态回写会同步更新 TaskSession 和 TaskSpec 的投影状态，并触发 callback/SSE 状态事件。
 
 ### 8. 创建和响应确认卡
 
@@ -601,9 +630,77 @@ curl -sS "$BASE_URL/task-sessions/$TASK_SESSION_ID/confirmations/$CONFIRMATION_I
 
 如果 `critical: true` 且被拒绝，TaskSession 会投影为 `cancelled`。非关键确认被拒绝时，TaskSession 可回到 `in_progress`。
 
-## 订阅任务状态 SSE
+## Callback 状态回调
 
-调用方不需要轮询任务状态。创建 TaskSession 后，订阅这个接口：
+调用方希望 Ripple 主动通知任务状态时，在创建 TaskSession、确认 TaskSpec 或启动 TaskRun 时传：
+
+```json
+{
+  "callback_url": "https://caller.example.com/task-status"
+}
+```
+
+也可以传：
+
+```json
+{
+  "callback": {
+    "url": "https://caller.example.com/task-status"
+  }
+}
+```
+
+Ripple 会在任务状态事件产生后，向该地址发送：
+
+```http
+POST https://caller.example.com/task-status
+Content-Type: application/json
+```
+
+```json
+{
+  "event": "task.status",
+  "id": 12,
+  "data": {
+    "type": "task_status",
+    "event_version": 1,
+    "event_id": "evt_xxx",
+    "sse_id": 12,
+    "created_at": "2026-07-08T08:12:00Z",
+    "task_session_id": "ts_xxx",
+    "session_id": "ts_xxx",
+    "event_type": "task_run_completed",
+    "task_status": "completed",
+    "needs_user_action": false,
+    "task_spec_id": "spec_xxx",
+    "task_spec_status": "completed",
+    "run_id": "run_xxx",
+    "run_status": "completed",
+    "external_run_id": "internal-xxxx",
+    "latest_message": "已生成客户方案草稿。",
+    "result_summary": "已生成客户方案草稿。",
+    "result": {
+      "content": "..."
+    },
+    "failure_reason": null,
+    "task_session": {
+      "session_id": "ts_xxx",
+      "status": "completed",
+      "needs_user_action": false
+    },
+    "payload": {
+      "run_id": "run_xxx",
+      "status": "completed"
+    }
+  }
+}
+```
+
+调用方只需要按 `data.task_status` 更新自己的状态。`event_id` 或 `id` 可以用于幂等处理。
+
+## 直接订阅任务状态 SSE
+
+直接客户端和调试页面可以订阅这个接口。gateway 主链路优先使用 callback，不需要轮询，也不需要监听 SSE：
 
 ```bash
 curl -N "$BASE_URL/task-sessions/$TASK_SESSION_ID/events/stream?from_start=true" \
@@ -644,9 +741,10 @@ data: {"type":"task_status","event_version":1,"event_id":"evt_xxx","sse_id":12,"
 | `task_spec_status` | 当前 TaskSpec 状态 |
 | `confirmation_status` | 当前确认卡状态 |
 | `needs_user_action` | 是否需要用户确认、授权或补充信息 |
-| `external_run_id` | 外部 worker 或 `/v1/runs` 的 job id，存在时返回 |
+| `external_run_id` | Ripple 内部执行 job id 或其他执行器 job id，存在时返回 |
 | `latest_message` | 任务中心列表可展示的最新摘要 |
 | `result_summary` | TaskRun 成功结果摘要 |
+| `result` | TaskRun 结构化结果或文本结果包装 |
 | `failure_reason` | TaskRun 失败或取消原因 |
 | `task_session` | TaskSession 摘要，用于直接更新调用方本地状态 |
 | `payload` | 原始 timeline event 的 payload |
@@ -723,6 +821,7 @@ curl -N "$BASE_URL/task-sessions/$TASK_SESSION_ID/events/stream?after_seq=12" \
 - 收到 `needs_user_action: true` 时，读取 `confirmation_id` 或调用详情接口展示确认卡。
 - 收到 `completed`、`failed`、`cancelled` 或 `[DONE]` 后，调用方可以关闭连接。
 - 浏览器原生 `EventSource` 不能自定义 `X-API-Key` 和 `X-Ripple-User-Id` header；浏览器直连时应走 trusted proxy，或使用支持自定义 header 的 SSE/fetch 客户端。服务端到服务端对接可以直接用上面的 header。
+- gateway 对接优先消费 callback；SSE 仅作为直接客户端、调试或状态校准通道。
 
 ## 普通 Session 如何对接任务中心
 
@@ -798,18 +897,18 @@ GET /v1/sessions/:session_id
 - 只把结果写到 TaskRun 的 `result_summary`，任务中心显示即可。
 - 如果产品要求普通聊天也看到结果，由业务侧再调用普通 session/chat 相关能力写入消息或发起一次 `/v1/responses` 续接。
 
-## 外部执行器对接建议
+## 执行器对接建议
 
-如果有独立 worker 执行任务，推荐协议：
+当前 gateway 选择到 Ripple/Vitana 时才需要调用 `/v1/task-sessions` 的执行入口。推荐协议：
 
 1. 前端或业务系统创建 TaskSession 和 TaskSpec。
 2. 用户确认 TaskSpec。
-3. 业务系统创建 TaskRun，并记录 `external_run_id`。
-4. worker 执行真实任务。
-5. worker 用 `PATCH /task-sessions/:session_id/runs/:run_id` 回写状态。
-6. 调用方订阅 `/task-sessions/:session_id/events/stream` 接收状态变化；详情页也可以读取 `events` 做历史回放。
+3. 确认或启动 TaskRun 时传 `executor: "ripple"` / `"vitana"`，并传 `callback_url` 或 `callback.url`。
+4. Ripple 创建 TaskRun，启动内部执行器。
+5. Ripple 执行完成后自动回写 TaskRun 状态。
+6. 调用方通过 callback 接收状态变化；直接客户端和调试页面也可以订阅 `/task-sessions/:session_id/events/stream` 或读取 `events` 做历史回放。
 
-不要让 worker 写旧 `/v1/tasks`。旧 task/action 是 Ripple 内部执行层，不是产品 API。
+不要写旧 `/v1/tasks`。旧 task/action 是 Ripple 内部执行层，不是产品 API。
 
 ## Event Timeline
 
@@ -856,7 +955,9 @@ task_confirmation_responded
 - 创建入口调用 `POST /v1/task-sessions`，必要时内联 `task_spec`。
 - 自然语言任务补齐调用 `POST /v1/task-sessions/:session_id/spec-turns`，让 Agent 追问或生成待确认 TaskSpec。
 - 用户确认执行前调用 `POST /task-specs/:task_spec_id/confirm`。
-- 执行状态只写 TaskRun，不写旧 task/action。
+- gateway 选择 Ripple/Vitana 执行时，确认或启动 TaskRun 请求里传 `executor: "ripple"` / `"vitana"` 和 `callback_url` / `callback.url`。
+- gateway 通过 callback 接收状态；不要轮询 TaskSession，也不要把 SSE 当主链路。
+- Ripple 内部执行器自动回写 TaskRun；外部调用方不要写旧 task/action。
 - 需要用户确认或授权时创建 Confirmation，而不是自定义状态字段。
 - 普通 session 关联只用 `source_surface/source_id/source_refs`。
 - 不调用 `/v1/tasks`、`/v1/task-triggers` 或旧 action/trigger API。

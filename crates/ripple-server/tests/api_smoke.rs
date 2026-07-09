@@ -1084,6 +1084,27 @@ async fn call(app: axum::Router, method: Method, uri: &str, body: Value) -> (Sta
     (status, body)
 }
 
+async fn callback_collector() -> (String, tokio::sync::mpsc::Receiver<Value>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let (tx, rx) = tokio::sync::mpsc::channel::<Value>(32);
+    let app = axum::Router::new()
+        .route("/", axum::routing::post(callback_collect_handler))
+        .with_state(tx);
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    (format!("http://{addr}/"), rx)
+}
+
+async fn callback_collect_handler(
+    axum::extract::State(tx): axum::extract::State<tokio::sync::mpsc::Sender<Value>>,
+    axum::Json(payload): axum::Json<Value>,
+) -> &'static str {
+    let _ = tx.send(payload).await;
+    "ok"
+}
+
 fn response_body_from_chat_intent(mut body: Value) -> Value {
     let Some(object) = body.as_object_mut() else {
         return body;
@@ -1571,6 +1592,114 @@ async fn task_session_spec_turns_collect_missing_info_before_confirmation() {
             }),
         true,
         "{second_turn}"
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn task_session_ripple_executor_posts_callback_status() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (_state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+    let (callback_url, mut callbacks) = callback_collector().await;
+
+    let (status, created) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/task-sessions",
+        json!({
+            "session_id": "ts-callback",
+            "title": "执行回调任务",
+            "task_type": "todo",
+            "goal": "完成一个测试任务",
+            "callback": {
+                "url": callback_url
+            },
+            "task_spec": {
+                "task_spec_id": "spec-callback",
+                "task_type": "todo",
+                "goal": "完成一个测试任务",
+                "required_fields": {},
+                "impact_summary": "确认后由 Ripple 执行。"
+            }
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+
+    let (status, confirmed) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/task-sessions/ts-callback/task-specs/spec-callback/confirm",
+        json!({
+            "start_run": true,
+            "run_id": "run-callback",
+            "executor": "ripple",
+            "max_runtime_seconds": 5
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{confirmed}");
+
+    let mut completed_detail = Value::Null;
+    for _ in 0..30 {
+        let (status, detail) = call(
+            app.clone(),
+            Method::GET,
+            "/v1/task-sessions/ts-callback",
+            Value::Null,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{detail}");
+        if detail
+            .pointer("/task_session/status")
+            .and_then(Value::as_str)
+            == Some("completed")
+        {
+            completed_detail = detail;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert_eq!(
+        completed_detail
+            .pointer("/runs/0/status")
+            .and_then(Value::as_str),
+        Some("completed"),
+        "{completed_detail}"
+    );
+    assert_eq!(
+        completed_detail
+            .pointer("/runs/0/result_summary")
+            .and_then(Value::as_str),
+        Some("fake codex completed"),
+        "{completed_detail}"
+    );
+
+    let mut completed_callback = Value::Null;
+    for _ in 0..10 {
+        let payload = tokio::time::timeout(Duration::from_secs(2), callbacks.recv())
+            .await
+            .expect("timed out waiting for task callback")
+            .expect("callback channel closed");
+        if payload.pointer("/data/task_status").and_then(Value::as_str) == Some("completed") {
+            completed_callback = payload;
+            break;
+        }
+    }
+    assert_eq!(
+        completed_callback.pointer("/event").and_then(Value::as_str),
+        Some("task.status"),
+        "{completed_callback}"
+    );
+    assert_eq!(
+        completed_callback
+            .pointer("/data/result/content")
+            .and_then(Value::as_str),
+        Some("fake codex completed"),
+        "{completed_callback}"
     );
 
     let _ = std::fs::remove_dir_all(root);

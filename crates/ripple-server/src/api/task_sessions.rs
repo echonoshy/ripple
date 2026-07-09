@@ -8,6 +8,7 @@ use axum::Json;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use tokio::time::{sleep, Duration};
+use tracing::warn;
 use uuid::Uuid;
 
 use crate::api::users::assert_can_create_run;
@@ -48,6 +49,8 @@ const TASK_RUN_STATUSES: &[&str] = &[
 const CONFIRMATION_STATUSES: &[&str] = &["requested", "accepted", "rejected", "cancelled"];
 
 const TERMINAL_TASK_SESSION_STATUSES: &[&str] = &["completed", "cancelled", "failed"];
+
+const RIPPLE_EXECUTORS: &[&str] = &["ripple", "vitana", "ripple_vitana"];
 
 #[utoipa::path(
     get,
@@ -530,6 +533,7 @@ pub async fn confirm_task_spec(
     set_field(&mut session, "status", json!("in_progress"));
     set_field(&mut session, "needs_user_action", json!(false));
     set_field(&mut session, "current_task_spec_id", json!(task_spec_id));
+    merge_callback_fields(&mut session, &input);
     set_field(&mut session, "updated_at", json!(now));
     state
         .storage
@@ -549,16 +553,23 @@ pub async fn confirm_task_spec(
     .await?;
     let confirmed_task_spec_id = required_str(&spec, "task_spec_id")?.to_string();
     let run = if input.get("start_run").and_then(Value::as_bool) == Some(true) {
-        Some(
-            create_task_run_record(
-                &state.storage,
-                &user_id,
-                &session_id,
-                &confirmed_task_spec_id,
-                &input,
-            )
-            .await?,
+        let run = create_task_run_record(
+            &state.storage,
+            &user_id,
+            &session_id,
+            &confirmed_task_spec_id,
+            &input,
         )
+        .await?;
+        maybe_start_ripple_task_execution(
+            state.clone(),
+            user_id.clone(),
+            session_id.clone(),
+            run.clone(),
+            spec.clone(),
+            &input,
+        );
+        Some(run)
     } else {
         None
     };
@@ -609,6 +620,15 @@ pub async fn start_task_run(
     }
     let run = create_task_run_record(&state.storage, &user_id, &session_id, &task_spec_id, &input)
         .await?;
+    let spec = load_task_session_spec(&state.storage, &user_id, &session_id, &task_spec_id).await?;
+    maybe_start_ripple_task_execution(
+        state.clone(),
+        user_id.clone(),
+        session_id.clone(),
+        run.clone(),
+        spec,
+        &input,
+    );
     Ok(Json(json!({
         "run": run,
         "detail": task_session_detail(&state.storage, &user_id, &session_id).await?
@@ -1316,6 +1336,8 @@ async fn create_task_run_record(
     if let Some(value) = payload.get("metadata") {
         record.insert("metadata".to_string(), value.clone());
     }
+    copy_callback_fields(&mut record, &session);
+    copy_callback_fields(&mut record, payload);
     record.insert("started_at".to_string(), json!(now.clone()));
     record.insert("created_at".to_string(), json!(now.clone()));
     record.insert("updated_at".to_string(), json!(now.clone()));
@@ -1335,6 +1357,7 @@ async fn create_task_run_record(
         "latest_run_id",
         run.get("run_id").cloned().unwrap_or(Value::Null),
     );
+    merge_callback_fields(&mut session, payload);
     set_field(&mut session, "updated_at", json!(now));
     storage
         .upsert_task_session_run(user_id, session_id, &run)
@@ -1429,6 +1452,249 @@ async fn persist_task_run_status_projection(
     )
     .await?;
     Ok(())
+}
+
+fn maybe_start_ripple_task_execution(
+    state: AppState,
+    user_id: String,
+    session_id: String,
+    run: Value,
+    task_spec: Value,
+    input: &Value,
+) {
+    if !ripple_execution_requested(input) {
+        return;
+    }
+
+    let input = input.clone();
+    tokio::spawn(async move {
+        if let Err(err) = run_ripple_task_execution(
+            state,
+            user_id.clone(),
+            session_id.clone(),
+            run,
+            task_spec,
+            input,
+        )
+        .await
+        {
+            warn!(
+                user_id = %user_id,
+                session_id = %session_id,
+                error = ?err,
+                "Ripple task execution failed before status projection"
+            );
+        }
+    });
+}
+
+async fn run_ripple_task_execution(
+    state: AppState,
+    user_id: String,
+    session_id: String,
+    run: Value,
+    task_spec: Value,
+    input: Value,
+) -> Result<(), ApiError> {
+    let run_id = required_str(&run, "run_id")?.to_string();
+    let task_spec_id = required_str(&run, "task_spec_id")?.to_string();
+    let max_runtime_seconds = input
+        .get("max_runtime_seconds")
+        .and_then(Value::as_u64)
+        .unwrap_or(state.config.codex.max_runtime_seconds)
+        .clamp(1, 86_400);
+
+    if let Err(err) = assert_can_create_run(&state, &user_id, max_runtime_seconds).await {
+        let mut failed = run.clone();
+        set_field(&mut failed, "status", json!("failed"));
+        set_field(
+            &mut failed,
+            "failure_reason",
+            json!(format!("Ripple executor could not start: {err:?}")),
+        );
+        persist_task_run_status_projection(&state.storage, &user_id, &session_id, &failed).await?;
+        return Ok(());
+    }
+
+    let workspace_root = match state.sandboxes.ensure_sandbox(&user_id) {
+        Ok(path) => path,
+        Err(err) => {
+            let mut failed = run.clone();
+            set_field(&mut failed, "status", json!("failed"));
+            set_field(
+                &mut failed,
+                "failure_reason",
+                json!(format!("Ripple executor sandbox failed: {err}")),
+            );
+            persist_task_run_status_projection(&state.storage, &user_id, &session_id, &failed)
+                .await?;
+            return Ok(());
+        }
+    };
+    let runtime_dir = match state.sandboxes.sandbox_dir(&user_id) {
+        Ok(path) => path.join("agent-runs"),
+        Err(err) => {
+            let mut failed = run.clone();
+            set_field(&mut failed, "status", json!("failed"));
+            set_field(
+                &mut failed,
+                "failure_reason",
+                json!(format!("Ripple executor runtime directory failed: {err}")),
+            );
+            persist_task_run_status_projection(&state.storage, &user_id, &session_id, &failed)
+                .await?;
+            return Ok(());
+        }
+    };
+
+    let session = load_task_session(&state.storage, &user_id, &session_id).await?;
+    let prompt = build_ripple_task_execution_prompt(&session, &task_spec, &run);
+    let create = AgentRunCreateRequest {
+        prompt: prompt.clone(),
+        provider: "codex".to_string(),
+        base_instructions: None,
+        turn_context: None,
+        client_context: None,
+        cwd: Some("/workspace".to_string()),
+        input_items: vec![json!({"type": "text", "text": prompt})],
+        model: string_field(&input, "model").or_else(|| Some(state.config.default_model.clone())),
+        effort: string_field(&input, "effort"),
+        summary: None,
+        output_schema: None,
+        max_runtime_seconds,
+        task_trigger_id: None,
+        task_trigger_title: None,
+        task_trigger_reason: None,
+        codex_thread_id: None,
+        codex_persistent_thread: false,
+        client_request_id: string_field(&input, "client_request_id")
+            .or_else(|| string_field(&input, "req_id")),
+        chat_user_input: None,
+        chat_user_content: None,
+    };
+
+    let info = state
+        .jobs
+        .run_internal(
+            create,
+            user_id.clone(),
+            Some(session_id.clone()),
+            workspace_root,
+            runtime_dir,
+        )
+        .await;
+
+    let mut updated_run = state
+        .storage
+        .get_task_session_run(&user_id, &session_id, &run_id)
+        .await?
+        .unwrap_or(run);
+
+    match info {
+        Ok(info) if info.status == "completed" => {
+            let output = read_agent_run_output(&info).await;
+            let execution_result = task_execution_result_from_output(&output);
+            set_field(&mut updated_run, "status", json!("completed"));
+            set_field(&mut updated_run, "external_run_id", json!(info.job_id));
+            set_field(
+                &mut updated_run,
+                "result_summary",
+                json!(execution_result.result_summary),
+            );
+            if let Some(result) = execution_result.result {
+                set_field(&mut updated_run, "result", result);
+            }
+        }
+        Ok(info) => {
+            let reason = info
+                .error
+                .or_else(|| {
+                    let tail = info.stderr_tail.trim();
+                    (!tail.is_empty()).then(|| tail.to_string())
+                })
+                .unwrap_or_else(|| format!("Ripple executor finished with status {}", info.status));
+            set_field(&mut updated_run, "status", json!("failed"));
+            set_field(&mut updated_run, "external_run_id", json!(info.job_id));
+            set_field(&mut updated_run, "failure_reason", json!(reason));
+        }
+        Err(err) => {
+            set_field(&mut updated_run, "status", json!("failed"));
+            set_field(
+                &mut updated_run,
+                "failure_reason",
+                json!(format!("Ripple executor failed: {err}")),
+            );
+        }
+    }
+
+    set_field(&mut updated_run, "task_spec_id", json!(task_spec_id));
+    persist_task_run_status_projection(&state.storage, &user_id, &session_id, &updated_run).await
+}
+
+struct TaskExecutionResult {
+    result_summary: String,
+    result: Option<Value>,
+}
+
+fn task_execution_result_from_output(output: &str) -> TaskExecutionResult {
+    let trimmed = output.trim();
+    if let Ok(value) = serde_json::from_str::<Value>(trimmed) {
+        let result_summary = value
+            .get("result_summary")
+            .or_else(|| value.get("summary"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| "任务已完成。".to_string());
+        let result = value.get("result").cloned().or(Some(value));
+        return TaskExecutionResult {
+            result_summary,
+            result,
+        };
+    }
+
+    TaskExecutionResult {
+        result_summary: if trimmed.is_empty() {
+            "任务已完成。".to_string()
+        } else {
+            trimmed.chars().take(1000).collect()
+        },
+        result: if trimmed.is_empty() {
+            None
+        } else {
+            Some(json!({"content": trimmed}))
+        },
+    }
+}
+
+fn build_ripple_task_execution_prompt(session: &Value, task_spec: &Value, run: &Value) -> String {
+    format!(
+        "You are the Ripple/Vitana task executor.\n\
+Execute the confirmed TaskSpec for the user. Do the real work when possible using the available workspace and tools.\n\
+Do not ask for confirmation again unless execution is blocked by missing user input or authorization.\n\
+When finished, return a concise completion summary. If you can return structured JSON, use {{\"result_summary\":\"...\",\"result\":{{...}}}}.\n\n\
+TaskSession:\n{}\n\n\
+TaskSpec:\n{}\n\n\
+TaskRun:\n{}\n",
+        serde_json::to_string(session).unwrap_or_else(|_| "{}".to_string()),
+        serde_json::to_string(task_spec).unwrap_or_else(|_| "{}".to_string()),
+        serde_json::to_string(run).unwrap_or_else(|_| "{}".to_string()),
+    )
+}
+
+fn ripple_execution_requested(input: &Value) -> bool {
+    if input.get("auto_execute").and_then(Value::as_bool) == Some(true) {
+        return true;
+    }
+    string_field(input, "executor")
+        .as_deref()
+        .is_some_and(is_ripple_executor)
+}
+
+fn is_ripple_executor(value: &str) -> bool {
+    let normalized = value.trim().to_ascii_lowercase();
+    RIPPLE_EXECUTORS.contains(&normalized.as_str())
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -1918,7 +2184,159 @@ async fn append_task_session_event(
     storage
         .upsert_task_session_event(user_id, session_id, &event)
         .await?;
+    spawn_task_session_callback(
+        storage.clone(),
+        user_id.to_string(),
+        session_id.to_string(),
+        event.clone(),
+    );
     Ok(event)
+}
+
+fn spawn_task_session_callback(
+    storage: Storage,
+    user_id: String,
+    session_id: String,
+    event: Value,
+) {
+    tokio::spawn(async move {
+        if let Err(err) = post_task_session_callback(&storage, &user_id, &session_id, event).await {
+            warn!(
+                user_id = %user_id,
+                session_id = %session_id,
+                error = %err,
+                "task session callback delivery failed"
+            );
+        }
+    });
+}
+
+async fn post_task_session_callback(
+    storage: &Storage,
+    user_id: &str,
+    session_id: &str,
+    event: Value,
+) -> Result<(), String> {
+    let event = task_session_event_with_seq(storage, user_id, session_id, event).await;
+    let Some(callback_url) =
+        task_session_callback_url(storage, user_id, session_id, &event).await?
+    else {
+        return Ok(());
+    };
+    let data = task_status_sse_payload(storage, user_id, session_id, Some(&event))
+        .await
+        .map_err(|err| format!("{err:?}"))?;
+    let body = json!({
+        "event": "task.status",
+        "id": data.get("sse_id").cloned().unwrap_or(Value::Null),
+        "data": data
+    });
+    let response = reqwest::Client::new()
+        .post(callback_url.as_str())
+        .json(&body)
+        .send()
+        .await
+        .map_err(|err| err.to_string())?;
+    if response.status().is_success() {
+        Ok(())
+    } else {
+        Err(format!("callback returned HTTP {}", response.status()))
+    }
+}
+
+async fn task_session_event_with_seq(
+    storage: &Storage,
+    user_id: &str,
+    session_id: &str,
+    event: Value,
+) -> Value {
+    let Some(event_id) = event.get("event_id").and_then(Value::as_str) else {
+        return event;
+    };
+    match storage.list_task_session_events(user_id, session_id).await {
+        Ok(events) => events
+            .into_iter()
+            .find(|candidate| candidate.get("event_id").and_then(Value::as_str) == Some(event_id))
+            .unwrap_or(event),
+        Err(_) => event,
+    }
+}
+
+async fn task_session_callback_url(
+    storage: &Storage,
+    user_id: &str,
+    session_id: &str,
+    event: &Value,
+) -> Result<Option<String>, String> {
+    if let Some(callback_url) = callback_url_from_value(event) {
+        return Ok(Some(callback_url));
+    }
+    if let Some(callback_url) = event.get("payload").and_then(callback_url_from_value) {
+        return Ok(Some(callback_url));
+    }
+    if let Some(run_id) = event
+        .get("payload")
+        .and_then(|payload| payload.get("run_id"))
+        .and_then(Value::as_str)
+    {
+        if let Some(run) = storage
+            .get_task_session_run(user_id, session_id, run_id)
+            .await
+            .map_err(|err| err.to_string())?
+        {
+            if let Some(callback_url) = callback_url_from_value(&run) {
+                return Ok(Some(callback_url));
+            }
+        }
+    }
+    let Some(session) = storage
+        .get_task_session(user_id, session_id)
+        .await
+        .map_err(|err| err.to_string())?
+    else {
+        return Ok(None);
+    };
+    Ok(callback_url_from_value(&session))
+}
+
+fn callback_url_from_value(value: &Value) -> Option<String> {
+    value
+        .get("callback_url")
+        .and_then(Value::as_str)
+        .or_else(|| value.get("callback").and_then(Value::as_str))
+        .or_else(|| {
+            value
+                .get("callback")
+                .and_then(|callback| callback.get("url"))
+                .and_then(Value::as_str)
+        })
+        .or_else(|| {
+            value
+                .get("callback")
+                .and_then(|callback| callback.get("callback_url"))
+                .and_then(Value::as_str)
+        })
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn merge_callback_fields(target: &mut Value, source: &Value) {
+    if let Some(callback_url) = callback_url_from_value(source) {
+        set_field(target, "callback_url", json!(callback_url));
+    }
+    if let Some(callback) = source.get("callback").filter(|value| !value.is_null()) {
+        set_field(target, "callback", callback.clone());
+    }
+}
+
+fn copy_callback_fields(target: &mut Map<String, Value>, source: &Value) {
+    if let Some(callback_url) = callback_url_from_value(source) {
+        target.insert("callback_url".to_string(), json!(callback_url));
+    }
+    if let Some(callback) = source.get("callback").filter(|value| !value.is_null()) {
+        target.insert("callback".to_string(), callback.clone());
+    }
 }
 
 fn event_record(
@@ -2061,6 +2479,11 @@ async fn task_status_sse_payload(
         "result_summary": run
             .as_ref()
             .and_then(|run| run.get("result_summary"))
+            .cloned()
+            .unwrap_or(Value::Null),
+        "result": run
+            .as_ref()
+            .and_then(|run| run.get("result"))
             .cloned()
             .unwrap_or(Value::Null),
         "failure_reason": run

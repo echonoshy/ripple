@@ -170,11 +170,12 @@ Task Sessions 是 Vitana/Ripple 任务中心的产品层主 API。它把任务�
 - `POST /v1/task-sessions/:session_id/task-specs` 在会话中创建 TaskSpec 草稿。TaskSpec 支持 `task_type`、`goal`、`required_fields`、`source_refs`、`risk_level`、`impact_summary` 和扩展字段。
 - `PATCH /v1/task-sessions/:session_id/task-specs/:task_spec_id` 更新 TaskSpec。
 - `POST /v1/task-sessions/:session_id/task-specs/:task_spec_id/confirm` 确认 TaskSpec，可带 `start_run: true` 同步创建一次 TaskRun 投影。
-- `POST /v1/task-sessions/:session_id/task-specs/:task_spec_id/runs` 基于已确认 TaskSpec 创建一次 TaskRun。未确认 TaskSpec 默认返回 `409 task_spec_confirmation_required`，除非 body 带 `confirm: true`。
+- `POST /v1/task-sessions/:session_id/task-specs/:task_spec_id/runs` 基于已确认 TaskSpec 创建一次 TaskRun。未确认 TaskSpec 默认返回 `409 task_spec_confirmation_required`，除非 body 带 `confirm: true`。当请求显式传 `executor: "ripple"` / `"vitana"` 或 `auto_execute: true` 时，Ripple 会启动内部执行器并自动回写 TaskRun。
 - `PATCH /v1/task-sessions/:session_id/runs/:run_id` 更新 TaskRun 状态、结果摘要或失败原因，并同步投影到 TaskSession/TaskSpec 状态。
 - `POST /v1/task-sessions/:session_id/runs/:run_id/cancel` 取消当前 TaskRun；取消的是本次执行，不物理关闭 TaskSession。
 - `GET /v1/task-sessions/:session_id/events` 返回会话时间线。
 - `GET /v1/task-sessions/:session_id/events/stream` 返回任务状态 SSE。事件名为 `task.status`，`data.type` 固定为 `task_status`，并区分 `task_status`、`run_status`、`task_spec_status` 和 `confirmation_status`。支持 `from_start`、`follow`、`close_on_terminal`、`heartbeat_seconds`、`after_seq` 和 `Last-Event-ID` 续传。
+- 如果 TaskSession 或 TaskRun 带 `callback_url` / `callback.url`，Ripple 会把同一份 `task.status` 数据主动 POST 到该地址。
 - `POST /v1/task-sessions/:session_id/confirmations` 创建统一确认卡，适用于授权、手动输入、单选/多选、内容审核和异常恢复。
 - `POST /v1/task-sessions/:session_id/confirmations/:confirmation_id/respond` 记录确认卡响应。拒绝关键确认会把会话状态投影为 `cancelled`，非关键确认可回到 `in_progress`。
 

@@ -42,7 +42,7 @@ pub struct AgentRunCreateRequest {
     pub input_items: Vec<Value>,
     #[serde(default)]
     pub model: Option<String>,
-    #[serde(default)]
+    #[serde(default, alias = "think_level")]
     pub effort: Option<String>,
     #[serde(default)]
     pub summary: Option<String>,

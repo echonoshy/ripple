@@ -60,7 +60,8 @@
 ## Chat And Sessions
 
 - `POST /v1/responses` 是唯一 chat 入口。它是 Ripple 控制面提供的 Responses-style subset / façade，不是完整 OpenAI Responses API 代理；模型厂商兼容和完整 Responses 能力由服务端 Codex app-server 配置承接。
-- 请求支持 `input`、`instructions`、`stream`、`previous_response_id`、`metadata.ripple_session_id`、`store`、`reasoning.effort`、`reasoning.summary` 和 `text.format.json_schema` 等当前 chat 链路需要的字段；其它 Responses 字段可能被忽略，调用方不要依赖完整 OpenAI Responses 字段透传。
+- 请求支持 `model`、`input`、`instructions`、`stream`、`previous_response_id`、`metadata.ripple_session_id`、`store`、`think_level`、`reasoning.effort`、`reasoning.summary` 和 `text.format.json_schema` 等当前 chat 链路需要的字段；其它 Responses 字段可能被忽略，调用方不要依赖完整 OpenAI Responses 字段透传。
+- 调用方可以直接传 Codex runtime 暴露的真实模型 id，例如 `gpt-5.3-codex-spark`；也可以继续传 Ripple preset，例如 `codex-high`。`think_level` 是 `reasoning.effort` 的顶层别名，推荐值为 `low`、`medium`、`high`、`xhigh`。如果同时传 `think_level` 和 `reasoning.effort`，以 `reasoning.effort` 为准。
 - `input` 可为字符串、单个 message object 或 message object 数组。聊天执行以最后一个 user message 作为本轮用户输入；`instructions` 会作为 caller system prompt 注入。
 - 可用 `previous_response_id=resp_<session_id>` 或 `metadata.ripple_session_id` 续接已有 Ripple session；未传 session id 时由 Ripple 自动生成。
 - `/v1/responses` 返回 `object=response`、`output`、`output_text` 和 `metadata.ripple_session_id`；流式响应使用 `response.created`、`response.output_text.delta`、`response.completed`，Ripple 控制面事件以 `ripple.*` 扩展事件发送。需要 approval 或用户输入等等待态时，也会先发送对应 `ripple.*` 事件，再发送 terminal `response.completed` 和 `[DONE]`。
@@ -68,6 +69,75 @@
 - 调用方通过 `metadata.ripple_session_id` 或 `previous_response_id=resp_<session_id>` 传入的 session id 必须匹配 `[a-zA-Z0-9_-]{1,64}`。这是为了保证 session runtime 目录和 SQLite 主键都安全可控。
 - 调用方可通过 `metadata.req_id`、`metadata.client_req_id`、`metadata.external_req_id` 或 `metadata.request_id` 传入上游业务请求 ID。Ripple 会把该值写入 Codex job 的 `record_json.req_id` 和 `record_json.client_req_id`，便于后续从 SQLite 或 run 记录按业务请求反查 session/job/events。
 - `/v1/chat/completions` 不再注册；客户端和外部调用方必须使用 `/v1/responses`。
+
+### 3.4 完整 Chat 请求示例
+
+```jsonc
+{
+  // 可传 /v1/models 返回的真实 runtime 模型，例如 gpt-5.3-codex-spark；
+  // 也可继续传现有 preset，例如 codex-high。
+  "model": "gpt-5.3-codex-spark",
+
+  // think_level 是 reasoning.effort 的顶层别名；可选值：low / medium / high / xhigh。
+  "think_level": "high",
+
+  // 可不传。previous_response_id 使用 resp_<session_id> 形式；
+  // 如果同时传 metadata.ripple_session_id，建议两者保持同一个 session id。
+  "previous_response_id": "resp_srv_abc123",
+
+  // 可不传。会作为 caller system prompt 注入本轮。
+  "instructions": "本轮回答要先说明读取了哪些文件，再给结论。",
+
+  "input": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "请分析 /workspace/docs 和 /workspace/reports 两个目录，并重点参考下面这个文件。"
+        },
+        {
+          "type": "file",
+          "file": {
+            "path": "/workspace/docs/key_report.pdf",
+            "name": "key_report.pdf",
+            "mime_type": "application/pdf" // 可不传
+          }
+        }
+      ]
+    }
+  ],
+
+  // 可不传。true 或省略表示持久会话；false 表示临时对话，不持久延续 Codex thread。
+  "store": true,
+
+  "metadata": {
+    "ripple_session_id": "srv_abc123",
+    "required_skill_ids": []
+  }
+}
+```
+
+文件必须先进入当前 user 的 Ripple workspace，再通过 `/workspace/...` 虚拟路径传给 chat。文件 block 格式：
+
+```json
+{
+  "type": "file",
+  "file": {
+    "path": "/workspace/docs/a.md",
+    "name": "a.md",
+    "mime_type": "text/markdown"
+  }
+}
+```
+
+目录没有单独的 `type: "folder"` block；目录路径应写入用户文本，或作为辅助信息放进 `metadata.client_context`。
+
+## Models
+
+- `GET /v1/models` 返回 Codex runtime 当前可用模型和 Ripple preset 的合并列表。runtime 模型条目使用 `source: "codex_runtime"`，preset 条目使用 `source: "preset"` 并包含其映射到的真实 `model` 和默认 `default_think_level`。
+- `/v1/models` 不在 Codex runtime 不可用时回退到 preset；runtime catalog 读取失败会返回 `503 codex_runtime_models_unavailable`，避免调用方误以为真实模型目录已确认。
+- 响应顶层包含 `supported_think_levels` 和 `think_level_param`，调用方可据此使用 `/v1/responses` 的 `think_level` 或 `reasoning.effort`，以及 `/v1/runs` 的 `think_level` 或 `effort`。
 
 ### Session Context Folder 与目录权限
 

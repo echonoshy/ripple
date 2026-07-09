@@ -41,9 +41,15 @@ function testFormatModelNameFallback() {
   assert.equal(formatModelName(""), "");
 }
 
+function testFormatModelNameRuntimeGptIds() {
+  assert.equal(formatModelName("gpt-5.4-mini"), "GPT-5.4-Mini");
+  assert.equal(formatModelName("gpt-5.3-codex-spark"), "GPT-5.3-Codex-Spark");
+}
+
 testSortsCodexPresetsByReasoningEffort();
 testKeepsUnknownModelsInBackendOrder();
 testFormatModelNameKnown();
 testFormatModelNameFallback();
+testFormatModelNameRuntimeGptIds();
 
 console.log("model sorting tests passed");

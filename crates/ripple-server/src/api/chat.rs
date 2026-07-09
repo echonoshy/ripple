@@ -112,6 +112,8 @@ pub struct ResponsesCreateRequest {
     pub metadata: Option<Value>,
     pub store: Option<bool>,
     pub reasoning: Option<Value>,
+    #[serde(default)]
+    pub think_level: Option<String>,
     pub text: Option<Value>,
 }
 
@@ -131,7 +133,8 @@ impl ResponsesCreateRequest {
             .as_ref()
             .and_then(|value| value.get("effort"))
             .and_then(Value::as_str)
-            .map(str::to_string);
+            .map(str::to_string)
+            .or_else(|| clean_optional_string(self.think_level.as_deref()));
         let summary = self
             .reasoning
             .as_ref()
@@ -425,10 +428,18 @@ fn responses_output_schema(text: Option<&Value>) -> Option<Value> {
     None
 }
 
+fn clean_optional_string(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct ConnectorAuthPollRequest {
     pub model: Option<String>,
     pub stream: Option<bool>,
+    #[serde(default, alias = "think_level")]
     pub effort: Option<String>,
 }
 
@@ -2621,6 +2632,7 @@ mod tests {
             })),
             store: None,
             reasoning: None,
+            think_level: None,
             text: None,
         };
 
@@ -2678,6 +2690,7 @@ mod tests {
             })),
             store: None,
             reasoning: None,
+            think_level: None,
             text: None,
         };
 
@@ -2712,6 +2725,27 @@ mod tests {
                 .and_then(Value::as_str),
             Some("legacy.screen")
         );
+    }
+
+    #[test]
+    fn responses_top_level_think_level_maps_to_effort() {
+        let request = ResponsesCreateRequest {
+            model: Some("gpt-5.3-codex-spark".to_string()),
+            input: json!("hello"),
+            instructions: None,
+            stream: Some(false),
+            previous_response_id: None,
+            metadata: None,
+            store: None,
+            reasoning: None,
+            think_level: Some(" high ".to_string()),
+            text: None,
+        };
+
+        let chat = request.into_chat_request().expect("chat request");
+
+        assert_eq!(chat.model.as_deref(), Some("gpt-5.3-codex-spark"));
+        assert_eq!(chat.effort.as_deref(), Some("high"));
     }
 
     #[test]

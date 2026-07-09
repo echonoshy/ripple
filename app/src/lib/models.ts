@@ -1,6 +1,12 @@
 export interface ModelOption {
   id: string;
   owned_by: string;
+  display_name?: string;
+  provider?: string;
+  source?: "codex_runtime" | "preset" | string;
+  model?: string;
+  default_think_level?: string | null;
+  supported_think_levels?: string[];
 }
 
 export const MODEL_DISPLAY_MAPPING: Record<string, string> = {
@@ -11,7 +17,19 @@ export const MODEL_DISPLAY_MAPPING: Record<string, string> = {
 };
 
 export function formatModelName(id: string): string {
-  return MODEL_DISPLAY_MAPPING[id] ?? id;
+  return MODEL_DISPLAY_MAPPING[id] ?? formatRuntimeModelName(id);
+}
+
+function formatRuntimeModelName(id: string): string {
+  if (!id.toLowerCase().startsWith("gpt-")) return id;
+  return id
+    .split("-")
+    .map((part) => {
+      if (part.toLowerCase() === "gpt") return "GPT";
+      if (/^[a-z]/i.test(part)) return `${part.charAt(0).toUpperCase()}${part.slice(1)}`;
+      return part;
+    })
+    .join("-");
 }
 
 const CODEX_MODEL_ORDER = ["codex-low", "codex-medium", "codex-high", "codex-xhigh"];

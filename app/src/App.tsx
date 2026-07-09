@@ -520,16 +520,21 @@ export default function Home() {
     if (authState !== "authenticated") return;
     (async () => {
       try {
-        const fetched = sortModelOptions(await fetchModels());
-        setModels(fetched);
-        if (fetched.length > 0) {
-          const currentUserId = getUserId();
-          const preferredModel = selectPreferredModel(
-            fetched,
-            getStoredDefaultModel(currentUserId)
-          );
-          setDefaultModel(preferredModel);
-          setSelectedModel(preferredModel);
+        try {
+          const fetched = sortModelOptions(await fetchModels());
+          setModels(fetched);
+          if (fetched.length > 0) {
+            const currentUserId = getUserId();
+            const preferredModel = selectPreferredModel(
+              fetched,
+              getStoredDefaultModel(currentUserId)
+            );
+            setDefaultModel(preferredModel);
+            setSelectedModel(preferredModel);
+          }
+        } catch (err) {
+          if (err instanceof AuthError) throw err;
+          console.error("Failed to fetch models:", err);
         }
         const loadedSessions = await loadSessions();
         if (loadedSessions.length > 0) {

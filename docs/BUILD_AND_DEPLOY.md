@@ -282,6 +282,8 @@ curl -fsS \
   http://127.0.0.1:8810/v1/models
 ```
 
+`/v1/models` 会读取 Codex app-server 的 runtime model catalog，并合并 Ripple 现有 preset。这里不做 preset fallback；如果 runtime 模型目录不可用，应先修复 Codex app-server / `codex-multi-auth` 链路。
+
 ## 后端打包
 
 构建 release binary：

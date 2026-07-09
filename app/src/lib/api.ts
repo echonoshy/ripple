@@ -41,6 +41,7 @@ import {
 } from "@/types";
 import { buildChatMessageContent, type ChatFileRef } from "@/lib/chatInput";
 import { readableApiErrorMessage } from "@/lib/apiErrors";
+import type { ModelOption } from "@/lib/models";
 import {
   API_URL,
   AuthError,
@@ -1036,7 +1037,7 @@ function normalizeSessionDetail(raw: RawSessionDetail): SessionDetail {
   };
 }
 
-export async function fetchModels(): Promise<{ id: string; owned_by: string }[]> {
+export async function fetchModels(): Promise<ModelOption[]> {
   const res = await fetch(`${API_URL}/models`, { headers: { ...authHeaders() } });
   if (res.status === 401) throw new AuthError();
   if (!res.ok) throw new Error("Failed to fetch models");

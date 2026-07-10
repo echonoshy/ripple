@@ -4,6 +4,7 @@ pub mod capabilities;
 pub mod codex;
 pub mod config;
 pub mod connector_runtime;
+pub mod context_scope;
 pub mod diagnostics;
 pub mod document_preview;
 pub mod jobs;

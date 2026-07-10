@@ -5,6 +5,7 @@ use std::path::Path;
 use serde_json::{json, Value};
 use walkdir::WalkDir;
 
+use crate::context_scope::{resolve_context_scope, ContextScope};
 use crate::workspace as ws;
 
 const MAX_SCAN_FILES: usize = 2_000;
@@ -22,6 +23,7 @@ const TEXT_EXTENSIONS: &[&str] = &[
 pub(crate) struct FolderContext {
     pub prompt_section: String,
     pub runtime_event: Value,
+    pub context_root_read_only: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -39,6 +41,9 @@ struct FolderContextSearchSummary {
     scanned_files: usize,
     truncated: bool,
     matches: Vec<FolderContextMatch>,
+    discovered_link_count: usize,
+    linked_root_count: usize,
+    rejected_link_count: usize,
 }
 
 pub(crate) fn collect_folder_context(
@@ -54,26 +59,21 @@ pub(crate) fn collect_folder_context(
     if !context_folder.is_dir() {
         return None;
     }
+    let scope = resolve_context_scope(workspace_root, &context_folder).ok()?;
 
     let terms = query_terms(query);
-    let summary = search_context_folder_files(
-        workspace_root,
-        &context_folder,
-        context_folder_path,
-        query,
-        &terms,
-    );
+    let summary = search_context_folder_files(&scope, context_folder_path, query, &terms);
     let prompt_section = render_prompt_section(&summary, &terms);
     let runtime_event = runtime_event(&summary);
     Some(FolderContext {
         prompt_section,
         runtime_event,
+        context_root_read_only: scope.context_root_read_only(),
     })
 }
 
 fn search_context_folder_files(
-    workspace_root: &Path,
-    context_folder: &Path,
+    scope: &ContextScope,
     context_folder_path: &str,
     query: &str,
     terms: &[String],
@@ -82,55 +82,71 @@ fn search_context_folder_files(
     let mut truncated = false;
     let mut matches = Vec::new();
 
-    for entry in WalkDir::new(context_folder)
-        .follow_links(false)
-        .into_iter()
-        .filter_entry(|entry| {
-            entry.path() == context_folder || !is_hidden_path(context_folder, entry.path())
-        })
-        .filter_map(Result::ok)
-    {
-        let path = entry.path();
-        if path == context_folder || !entry.file_type().is_file() || entry.file_type().is_symlink()
-        {
-            continue;
-        }
-        if !is_text_path(path) {
-            continue;
-        }
-        let Ok(metadata) = entry.metadata() else {
-            continue;
-        };
-        if metadata.len() > MAX_FILE_BYTES {
-            continue;
-        }
-        if scanned_files >= MAX_SCAN_FILES {
-            truncated = true;
-            break;
-        }
-        scanned_files += 1;
+    let mut roots = vec![(
+        scope.context_root.as_path(),
+        scope.context_root_workspace_path.as_str(),
+    )];
+    roots.extend(
+        scope
+            .linked_roots
+            .iter()
+            .map(|root| (root.canonical_path.as_path(), root.logical_path.as_str())),
+    );
 
-        let Ok(workspace_path) = ws::workspace_path(workspace_root, path) else {
-            continue;
-        };
-        let Some(text) = read_text_file(path) else {
-            continue;
-        };
-        let path_score = score_text(&workspace_path.to_lowercase(), terms) * 5;
-        let Some((line, snippet, content_score)) = best_snippet(&text, terms, path_score > 0)
-        else {
-            continue;
-        };
-        let score = path_score + content_score;
-        if score == 0 {
-            continue;
+    'roots: for (physical_root, logical_root) in roots {
+        for entry in WalkDir::new(physical_root)
+            .follow_links(false)
+            .into_iter()
+            .filter_entry(|entry| {
+                entry.path() == physical_root || !is_hidden_path(physical_root, entry.path())
+            })
+            .filter_map(Result::ok)
+        {
+            let path = entry.path();
+            if path == physical_root
+                || !entry.file_type().is_file()
+                || entry.file_type().is_symlink()
+            {
+                continue;
+            }
+            if !is_text_path(path) {
+                continue;
+            }
+            let Ok(metadata) = entry.metadata() else {
+                continue;
+            };
+            if metadata.len() > MAX_FILE_BYTES {
+                continue;
+            }
+            if scanned_files >= MAX_SCAN_FILES {
+                truncated = true;
+                break 'roots;
+            }
+            scanned_files += 1;
+
+            let Some(workspace_path) = logical_workspace_path(logical_root, physical_root, path)
+            else {
+                continue;
+            };
+            let Some(text) = read_text_file(path) else {
+                continue;
+            };
+            let path_score = score_text(&workspace_path.to_lowercase(), terms) * 5;
+            let Some((line, snippet, content_score)) = best_snippet(&text, terms, path_score > 0)
+            else {
+                continue;
+            };
+            let score = path_score + content_score;
+            if score == 0 {
+                continue;
+            }
+            matches.push(FolderContextMatch {
+                path: workspace_path,
+                line,
+                snippet,
+                score,
+            });
         }
-        matches.push(FolderContextMatch {
-            path: workspace_path,
-            line,
-            snippet,
-            score,
-        });
     }
 
     matches.sort_by(|a, b| b.score.cmp(&a.score).then_with(|| a.path.cmp(&b.path)));
@@ -142,7 +158,22 @@ fn search_context_folder_files(
         scanned_files,
         truncated,
         matches,
+        discovered_link_count: scope.discovered_link_count,
+        linked_root_count: scope.linked_roots.len(),
+        rejected_link_count: scope.rejected_link_count,
     }
+}
+
+fn logical_workspace_path(logical_root: &str, physical_root: &Path, path: &Path) -> Option<String> {
+    let relative = path.strip_prefix(physical_root).ok()?;
+    if relative.as_os_str().is_empty() {
+        return Some(logical_root.to_string());
+    }
+    Some(format!(
+        "{}/{}",
+        logical_root.trim_end_matches('/'),
+        relative.to_string_lossy().replace('\\', "/")
+    ))
 }
 
 fn query_terms(query: &str) -> Vec<String> {
@@ -263,6 +294,9 @@ fn render_prompt_section(summary: &FolderContextSearchSummary, terms: &[String])
         format!("- Query: {}", summary.query),
         format!("- Scanned text files: {}", summary.scanned_files),
         format!("- Matched files: {}", summary.matches.len()),
+        format!("- Discovered direct links: {}", summary.discovered_link_count),
+        format!("- Authorized linked roots: {}", summary.linked_root_count),
+        format!("- Rejected links: {}", summary.rejected_link_count),
         format!(
             "- Search terms: {}",
             if terms.is_empty() {
@@ -273,6 +307,10 @@ fn render_prompt_section(summary: &FolderContextSearchSummary, terms: &[String])
         ),
         "- Guidance: Use these local matches as starting evidence. If they are incomplete, search or read more files under the context folder before using web_search. Use web_search as a supplement only when the user asks for online/latest information or local evidence is insufficient.".to_string(),
     ];
+
+    if summary.linked_root_count > 0 {
+        section.push("- Linked context guidance: Direct linked record directories are part of this context. The collection root is structural and read-only; read or write record content through the linked record directories.".to_string());
+    }
 
     if summary.matches.is_empty() {
         section.push(
@@ -305,6 +343,9 @@ fn runtime_event(summary: &FolderContextSearchSummary) -> Value {
         "match_count": summary.matches.len(),
         "scanned_files": summary.scanned_files,
         "truncated": summary.truncated,
+        "discovered_link_count": summary.discovered_link_count,
+        "linked_root_count": summary.linked_root_count,
+        "rejected_link_count": summary.rejected_link_count,
         "matches": summary.matches.iter().map(|item| json!({
             "path": item.path,
             "line": item.line,
@@ -395,6 +436,68 @@ mod tests {
                 .get("match_count")
                 .and_then(Value::as_u64),
             Some(0)
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn folder_context_reads_direct_linked_directory_inside_workspace() -> anyhow::Result<()> {
+        let root = std::env::temp_dir().join(format!("ripple-folder-context-{}", Uuid::new_v4()));
+        let space = root.join("研发周会");
+        let record = root.join("07-07 14:01");
+        std::fs::create_dir_all(&space)?;
+        std::fs::create_dir_all(&record)?;
+        std::fs::write(record.join("transcript.md"), "本周已完成登录链路改造。")?;
+        std::os::unix::fs::symlink(&record, space.join("07-07 14:01"))?;
+
+        let context =
+            collect_folder_context(&root, Some("/workspace/研发周会"), "本周完成了什么？")
+                .expect("folder context");
+
+        assert!(context
+            .prompt_section
+            .contains("/workspace/研发周会/07-07 14:01/transcript.md"));
+        assert_eq!(
+            context
+                .runtime_event
+                .get("linked_root_count")
+                .and_then(Value::as_u64),
+            Some(1)
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn folder_context_does_not_follow_nested_links_from_linked_root() -> anyhow::Result<()> {
+        let root = std::env::temp_dir().join(format!("ripple-folder-context-{}", Uuid::new_v4()));
+        let space = root.join("space");
+        let record = root.join("record");
+        let unrelated = root.join("unrelated");
+        std::fs::create_dir_all(&space)?;
+        std::fs::create_dir_all(&record)?;
+        std::fs::create_dir_all(&unrelated)?;
+        std::fs::write(record.join("transcript.md"), "ordinary record content")?;
+        std::fs::write(unrelated.join("secret.md"), "nested-link-secret")?;
+        std::os::unix::fs::symlink(&record, space.join("record"))?;
+        std::os::unix::fs::symlink(&unrelated, record.join("nested"))?;
+
+        let context = collect_folder_context(&root, Some("/workspace/space"), "nested-link-secret")
+            .expect("folder context");
+
+        assert!(context.prompt_section.contains("Matches: none"));
+        assert!(!context.prompt_section.contains("secret.md"));
+        assert_eq!(
+            context
+                .runtime_event
+                .get("linked_root_count")
+                .and_then(Value::as_u64),
+            Some(1)
         );
 
         let _ = std::fs::remove_dir_all(root);

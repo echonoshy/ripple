@@ -4,6 +4,7 @@ use std::path::{Component, Path, PathBuf};
 use serde_json::{json, Value};
 
 use crate::config::{resolve_path, AppConfig};
+use crate::context_scope::resolve_context_scope;
 
 pub const RIPPLE_CODEX_PERMISSION_PROFILE: &str = "ripple_workspace";
 
@@ -33,6 +34,11 @@ fn thread_permission_config_with_user(
         json!("none"),
     );
     let permission_root = normalized_permission_root(workspace_root, permission_root);
+    let context_scope = if permission_root != normalize_path_for_permission(workspace_root) {
+        resolve_context_scope(workspace_root, &permission_root).ok()
+    } else {
+        None
+    };
     if permission_root != normalize_path_for_permission(workspace_root) {
         filesystem.insert(workspace_root.to_string_lossy().to_string(), json!("none"));
     }
@@ -43,20 +49,32 @@ fn thread_permission_config_with_user(
     for agents_file in ancestor_agent_files(workspace_root, &permission_root) {
         filesystem.insert(agents_file.to_string_lossy().to_string(), json!("read"));
     }
-    let mut permission_root_rules = serde_json::Map::new();
-    permission_root_rules.insert(".".to_string(), json!("write"));
-    permission_root_rules.insert(".git".to_string(), json!("write"));
-    permission_root_rules.insert(".agents".to_string(), json!("read"));
-    permission_root_rules.insert(".codex".to_string(), json!("read"));
-    for native_skill_root in [".agents/skills", ".codex/skills"] {
-        if path_exists_for_permission_rule(&permission_root.join(native_skill_root)) {
-            permission_root_rules.insert(native_skill_root.to_string(), json!("none"));
-        }
-    }
+    let permission_root_access = if context_scope
+        .as_ref()
+        .is_some_and(|scope| scope.context_root_read_only())
+    {
+        "read"
+    } else {
+        "write"
+    };
     filesystem.insert(
         permission_root.to_string_lossy().to_string(),
-        Value::Object(permission_root_rules),
+        Value::Object(permission_rules_for_root(
+            &permission_root,
+            permission_root_access,
+        )),
     );
+    if let Some(scope) = &context_scope {
+        for linked_root in &scope.linked_roots {
+            filesystem.insert(
+                linked_root.canonical_path.to_string_lossy().to_string(),
+                Value::Object(permission_rules_for_root(
+                    &linked_root.canonical_path,
+                    "write",
+                )),
+            );
+        }
+    }
     for shared_skill_dir in shared_skill_permission_dirs(config) {
         if path_is_covered_by_parent(&shared_skill_dir, &config.sandbox.sandboxes_root) {
             continue;
@@ -169,6 +187,20 @@ fn thread_permission_config_with_user(
         },
         "shell_environment_policy": {"exclude": ["CODEX_HOME"]}
     })
+}
+
+fn permission_rules_for_root(root: &Path, access: &str) -> serde_json::Map<String, Value> {
+    let mut rules = serde_json::Map::new();
+    rules.insert(".".to_string(), json!(access));
+    rules.insert(".git".to_string(), json!(access));
+    rules.insert(".agents".to_string(), json!("read"));
+    rules.insert(".codex".to_string(), json!("read"));
+    for native_skill_root in [".agents/skills", ".codex/skills"] {
+        if path_exists_for_permission_rule(&root.join(native_skill_root)) {
+            rules.insert(native_skill_root.to_string(), json!("none"));
+        }
+    }
+    rules
 }
 
 fn current_user_codex_home(
@@ -335,7 +367,7 @@ fn current_user_bilibili_credential_file(
 mod tests {
     use std::collections::BTreeMap;
 
-    use serde_json::json;
+    use serde_json::{json, Value};
 
     use super::{thread_permission_config, thread_permission_config_for_user};
     use crate::config::{
@@ -487,6 +519,45 @@ mod tests {
             Some(&json!("read"))
         );
         assert!(!filesystem.contains_key(sibling.to_string_lossy().as_ref()));
+
+        let _ = std::fs::remove_dir_all(&config.repo_root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn profile_allows_direct_linked_roots_without_opening_workspace_siblings() {
+        let mut config = test_config();
+        config.codex.codex_home = Some(config.repo_root.join(".ripple/codex-service-home"));
+        let workspace = config.sandbox.sandboxes_root.join("alice/workspace");
+        let space = workspace.join("研发周会");
+        let record = workspace.join("07-07 14:01");
+        let unrelated = workspace.join("private-record");
+        std::fs::create_dir_all(&space).expect("create space");
+        std::fs::create_dir_all(&record).expect("create record");
+        std::fs::create_dir_all(record.join(".agents/skills"))
+            .expect("create linked record native skills");
+        std::fs::create_dir_all(&unrelated).expect("create unrelated record");
+        std::os::unix::fs::symlink(&record, space.join("07-07 14:01"))
+            .expect("link record into space");
+
+        let permissions = thread_permission_config_for_user("alice", &workspace, &space, &config);
+        let filesystem = permissions
+            .pointer("/permissions/ripple_workspace/filesystem")
+            .and_then(|filesystem| filesystem.as_object())
+            .expect("filesystem rules");
+        let space_rules = filesystem
+            .get(space.to_string_lossy().as_ref())
+            .and_then(Value::as_object)
+            .expect("space rules");
+        let record_rules = filesystem
+            .get(record.to_string_lossy().as_ref())
+            .and_then(Value::as_object)
+            .expect("linked record rules");
+
+        assert_eq!(space_rules.get("."), Some(&json!("read")));
+        assert_eq!(record_rules.get("."), Some(&json!("write")));
+        assert_eq!(record_rules.get(".agents/skills"), Some(&json!("none")));
+        assert!(!filesystem.contains_key(unrelated.to_string_lossy().as_ref()));
 
         let _ = std::fs::remove_dir_all(&config.repo_root);
     }

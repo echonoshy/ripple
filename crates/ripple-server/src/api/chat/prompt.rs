@@ -51,6 +51,7 @@ pub(crate) fn build_codex_chat_turn_context(
     session_id: &str,
     workspace_root: &FsPath,
     context_folder_path: Option<&str>,
+    context_root_read_only: bool,
     folder_context_evidence: Option<&str>,
     recent_display_context: Option<&str>,
     recent_task_triggers_context: Option<&str>,
@@ -91,6 +92,10 @@ pub(crate) fn build_codex_chat_turn_context(
     let context_section = if context_folder == "/workspace" {
         "- Context folder: /workspace (full workspace)\n- Permission root: /workspace\n- Use the full workspace as the default reading and search scope.\n- If the user does not specify an output path, choose the workspace path that best fits the task."
             .to_string()
+    } else if context_root_read_only {
+        format!(
+            "- Context folder: {context_folder}\n- Permission root: {context_folder} plus its authorized direct linked record directories\n- Treat this folder and its linked record directories as the default reading and search scope for this session.\n- The context folder itself is a read-only collection structure. Do not create, replace, or remove its membership links.\n- Linked record directories are writable. When editing record content, use the linked record path under the context folder.\n- If the user specifies a path outside this scope, use Codex `request_permissions` before reading or writing it.\n- Do not bypass the permission boundary with path traversal, unlisted symlinks, shell tricks, or copying data through scratch directories.\n- Use web_search as a supplement when the user explicitly asks for online/latest information or when local folder evidence is insufficient. When using web_search, distinguish local evidence from web-sourced additions."
+        )
     } else {
         format!(
             "- Context folder: {context_folder}\n- Permission root: {context_folder}\n- Treat this folder as the default reading and search scope for this session.\n- Prefer files under this folder when answering questions or inspecting local context.\n- If the task clearly belongs to this folder and the user does not specify an output path, write new files under this folder.\n- If the user specifies a path outside this folder, use Codex `request_permissions` before reading or writing it.\n- Do not bypass the permission boundary with path traversal, symlinks, shell tricks, or copying data through scratch directories.\n- Use web_search as a supplement when the user explicitly asks for online/latest information or when local folder evidence is insufficient. When using web_search, distinguish local evidence from web-sourced additions."

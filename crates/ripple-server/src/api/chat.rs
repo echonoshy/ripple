@@ -459,6 +459,7 @@ struct CodexChatStart {
     prefix_event: Option<Value>,
     folder_context_evidence: Option<String>,
     folder_context_event: Option<Value>,
+    context_root_read_only: bool,
     request_base_url: Option<String>,
     skill_options: SkillManifestOptions,
     required_skills: Vec<RequiredSkillContext>,
@@ -775,6 +776,9 @@ async fn handle_chat_request(
                 folder_context_evidence: folder_context
                     .as_ref()
                     .map(|context| context.prompt_section.clone()),
+                context_root_read_only: folder_context
+                    .as_ref()
+                    .is_some_and(|context| context.context_root_read_only),
                 folder_context_event: folder_context.map(|context| context.runtime_event),
                 request_base_url: request_base_url.clone(),
                 skill_options,
@@ -828,6 +832,9 @@ async fn handle_chat_request(
         folder_context_evidence: folder_context
             .as_ref()
             .map(|context| context.prompt_section.clone()),
+        context_root_read_only: folder_context
+            .as_ref()
+            .is_some_and(|context| context.context_root_read_only),
         folder_context_event: folder_context.map(|context| context.runtime_event),
         request_base_url,
         skill_options,
@@ -849,6 +856,7 @@ async fn create_codex_chat_run(args: &CodexChatStart) -> Result<AgentRunInfo, Ap
         &args.session.session_id,
         &args.workspace_root,
         args.session.context_folder_path.as_deref(),
+        args.context_root_read_only,
         args.folder_context_evidence.as_deref(),
         recent_display_context.as_deref(),
         recent_task_triggers_context.as_deref(),
@@ -989,6 +997,7 @@ async fn finish_codex_chat_response(
         prefix_event,
         folder_context_evidence: _,
         folder_context_event,
+        context_root_read_only: _,
         request_base_url,
         skill_options: _,
         required_skills: _,
@@ -1254,6 +1263,9 @@ pub async fn poll_session_connector_auth(
             folder_context_evidence: folder_context
                 .as_ref()
                 .map(|context| context.prompt_section.clone()),
+            context_root_read_only: folder_context
+                .as_ref()
+                .is_some_and(|context| context.context_root_read_only),
             folder_context_event: folder_context.map(|context| context.runtime_event),
             request_base_url: None,
             skill_options,
@@ -2385,6 +2397,7 @@ mod tests {
             "session-1",
             &workspace_root,
             None,
+            false,
             None,
             None,
             None,
@@ -2492,6 +2505,7 @@ mod tests {
             "session-1",
             &workspace_root,
             Some("/workspace/genius_club"),
+            false,
             Some("Matches:\n1. /workspace/genius_club/001.txt:1\n   天才俱乐部成员名单"),
             None,
             None,
@@ -2515,6 +2529,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn codex_chat_context_describes_linked_collection_permissions() {
+        let root = std::env::temp_dir().join(format!("ripple-chat-test-{}", Uuid::new_v4()));
+        let state = AppState::new(test_config(&root));
+        let workspace_root = state
+            .sandboxes
+            .ensure_sandbox("alice")
+            .expect("create sandbox");
+
+        let prompt = build_codex_chat_turn_context(
+            &state,
+            "alice",
+            "session-1",
+            &workspace_root,
+            Some("/workspace/研发周会"),
+            true,
+            Some("- Authorized linked roots: 1"),
+            None,
+            None,
+            &crate::skills::SkillManifestOptions::default(),
+            &[],
+            None,
+            &[],
+            None,
+        );
+
+        assert!(prompt.contains("read-only collection structure"));
+        assert!(prompt.contains("Linked record directories are writable"));
+        assert!(!prompt.contains("write new files under this folder"));
+
+        cleanup_test_root(&root).expect("cleanup test root");
+    }
+
+    #[tokio::test]
     async fn codex_chat_context_does_not_inject_shared_knowledge_evidence() {
         let root = std::env::temp_dir().join(format!("ripple-chat-test-{}", Uuid::new_v4()));
         let state = AppState::new(test_config(&root));
@@ -2529,6 +2576,7 @@ mod tests {
             "session-1",
             &workspace_root,
             None,
+            false,
             None,
             None,
             None,
@@ -2587,6 +2635,7 @@ mod tests {
             "session-1",
             &workspace_root,
             None,
+            false,
             None,
             None,
             None,
@@ -2876,6 +2925,7 @@ mod tests {
             "session-1",
             &workspace_root,
             None,
+            false,
             None,
             Some("user: 创建一个定时任务\nassistant: 你希望多久执行一次？"),
             None,
@@ -2951,6 +3001,7 @@ mod tests {
             "session-1",
             &workspace_root,
             None,
+            false,
             None,
             None,
             Some(

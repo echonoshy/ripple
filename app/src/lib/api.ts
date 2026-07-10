@@ -1042,7 +1042,111 @@ export async function fetchModels(): Promise<ModelOption[]> {
   if (res.status === 401) throw new AuthError();
   if (!res.ok) throw new Error("Failed to fetch models");
   const data = await res.json();
-  return data.data || [];
+  const models = normalizeModelOptions(isRecord(data) ? data.data : null);
+  if (models.some((model) => model.source === "codex_runtime")) return models;
+  return mergeModelOptions(models, await fetchRuntimeModelOptionsFallback());
+}
+
+async function fetchRuntimeModelOptionsFallback(): Promise<ModelOption[]> {
+  const res = await fetch(`${API_URL}/runtime/codex`, { headers: { ...authHeaders() } });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) return [];
+  const data = await res.json();
+  return normalizeModelOptions(runtimeModelItems(data).map(runtimeModelEntry));
+}
+
+function normalizeModelOptions(value: unknown): ModelOption[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    const model = normalizeModelOption(item);
+    return model && !model.hidden ? [model] : [];
+  });
+}
+
+function normalizeModelOption(value: unknown): ModelOption | null {
+  if (typeof value === "string") {
+    const id = value.trim();
+    return id ? { id, owned_by: "codex", source: "codex_runtime" } : null;
+  }
+  if (!isRecord(value)) return null;
+  const id = stringValue(value.id) || stringValue(value.model) || stringValue(value.name);
+  if (!id) return null;
+  return {
+    id,
+    owned_by: stringValue(value.owned_by) || stringValue(value.ownedBy) || "codex",
+    display_name: stringValue(value.display_name) || stringValue(value.displayName),
+    provider: stringValue(value.provider) || stringValue(value.model_provider),
+    source: stringValue(value.source),
+    model: stringValue(value.model),
+    default_think_level:
+      stringValue(value.default_think_level) || stringValue(value.defaultReasoningEffort),
+    supported_think_levels:
+      stringArrayValue(value.supported_think_levels) ||
+      reasoningEffortArrayValue(value.supportedReasoningEfforts),
+    hidden: value.hidden === true,
+  };
+}
+
+function runtimeModelItems(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  if (!isRecord(value)) return [];
+  const models = value.models;
+  if (Array.isArray(models)) return models;
+  if (isRecord(models)) {
+    for (const key of ["data", "models", "items"]) {
+      const items = models[key];
+      if (Array.isArray(items)) return items;
+    }
+  }
+  for (const key of ["data", "items"]) {
+    const items = value[key];
+    if (Array.isArray(items)) return items;
+  }
+  return [];
+}
+
+function runtimeModelEntry(value: unknown): unknown {
+  if (!isRecord(value)) return value;
+  return {
+    ...value,
+    id: stringValue(value.id) || stringValue(value.model) || stringValue(value.name),
+    owned_by: stringValue(value.owned_by) || stringValue(value.ownedBy) || "codex",
+    display_name: stringValue(value.display_name) || stringValue(value.displayName),
+    source: "codex_runtime",
+  };
+}
+
+function mergeModelOptions(primary: ModelOption[], fallback: ModelOption[]): ModelOption[] {
+  const seen = new Set<string>();
+  const merged: ModelOption[] = [];
+  for (const model of [...fallback, ...primary]) {
+    if (seen.has(model.id)) continue;
+    seen.add(model.id);
+    merged.push(model);
+  }
+  return merged;
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function stringArrayValue(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const items = value.filter((item): item is string => typeof item === "string");
+  return items.length > 0 ? items : undefined;
+}
+
+function reasoningEffortArrayValue(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const items = value.flatMap((item) => {
+    if (typeof item === "string") return [item];
+    if (isRecord(item) && typeof item.reasoningEffort === "string") {
+      return [item.reasoningEffort];
+    }
+    return [];
+  });
+  return items.length > 0 ? items : undefined;
 }
 
 function urlWithCursor(url: string, cursor: string | null): string {

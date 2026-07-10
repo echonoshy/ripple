@@ -736,6 +736,97 @@ async function testAuthHeadersKeepServiceKeyUserIdCompatibility() {
   });
 }
 
+async function testFetchModelsMergesRuntimeCatalogForLegacyModelList() {
+  const requests: string[] = [];
+
+  await withFetch(
+    async (input) => {
+      const url = new URL(String(input));
+      requests.push(url.pathname);
+      if (url.pathname.endsWith("/models")) {
+        return new Response(
+          JSON.stringify({
+            data: [{ id: "codex-medium", owned_by: "ripple" }],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      if (url.pathname.endsWith("/runtime/codex")) {
+        return new Response(
+          JSON.stringify({
+            models: {
+              data: [
+                {
+                  id: "gpt-5.6-sol",
+                  model: "gpt-5.6-sol",
+                  displayName: "GPT-5.6-Sol",
+                  hidden: false,
+                  supportedReasoningEfforts: [
+                    { reasoningEffort: "low" },
+                    { reasoningEffort: "medium" },
+                    { reasoningEffort: "max" },
+                    { reasoningEffort: "ultra" },
+                  ],
+                },
+                {
+                  id: "codex-auto-review",
+                  displayName: "Codex Auto Review",
+                  hidden: true,
+                },
+              ],
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      return response(404, "unexpected request");
+    },
+    async () => {
+      const models = await fetchModels();
+      assert.deepEqual(requests, ["/v1/models", "/v1/runtime/codex"]);
+      assert.deepEqual(
+        models.map((model) => model.id),
+        ["gpt-5.6-sol", "codex-medium"]
+      );
+      assert.equal(models[0]?.source, "codex_runtime");
+      assert.equal(models[0]?.display_name, "GPT-5.6-Sol");
+      assert.deepEqual(models[0]?.supported_think_levels, ["low", "medium", "max", "ultra"]);
+    }
+  );
+}
+
+async function testFetchModelsSkipsRuntimeFallbackWhenModelsContainRuntimeCatalog() {
+  const requests: string[] = [];
+
+  await withFetch(
+    async (input) => {
+      const url = new URL(String(input));
+      requests.push(url.pathname);
+      return new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: "gpt-5.6-terra",
+              owned_by: "codex",
+              display_name: "GPT-5.6-Terra",
+              source: "codex_runtime",
+            },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    },
+    async () => {
+      const models = await fetchModels();
+      assert.deepEqual(requests, ["/v1/models"]);
+      assert.deepEqual(
+        models.map((model) => model.id),
+        ["gpt-5.6-terra"]
+      );
+    }
+  );
+}
+
 function testParseWorkspaceLinkDecodesEncodedSandboxPath() {
   assert.deepEqual(
     parseWorkspaceLink(
@@ -1591,20 +1682,26 @@ async function testSendChatMessagePassesRequiredSkillsAndScreenContext() {
         });
       },
       async () => {
-        await sendChatMessage("session-1", "这个按钮有什么用？", "codex-test", {
-          onMessageDelta: () => undefined,
-          onToolCall: () => undefined,
-          onToolResult: () => undefined,
-          onUsage: () => undefined,
-          onComplete: () => undefined,
-          onError: () => undefined,
-        }, {
-          requiredSkillIds: ["ripple:viaim-product-support"],
-          screenContext: {
-            app: "ripple",
-            screen_id: "session.chat",
+        await sendChatMessage(
+          "session-1",
+          "这个按钮有什么用？",
+          "codex-test",
+          {
+            onMessageDelta: () => undefined,
+            onToolCall: () => undefined,
+            onToolResult: () => undefined,
+            onUsage: () => undefined,
+            onComplete: () => undefined,
+            onError: () => undefined,
           },
-        });
+          {
+            requiredSkillIds: ["ripple:viaim-product-support"],
+            screenContext: {
+              app: "ripple",
+              screen_id: "session.chat",
+            },
+          }
+        );
       }
     );
   } finally {
@@ -1910,6 +2007,8 @@ test("api client behavior", async () => {
   await testUpdateUserProfilePatchesDisplayName();
   await testAuthHeadersUseUserSessionWithoutSpoofableUserId();
   await testAuthHeadersKeepServiceKeyUserIdCompatibility();
+  await testFetchModelsMergesRuntimeCatalogForLegacyModelList();
+  await testFetchModelsSkipsRuntimeFallbackWhenModelsContainRuntimeCatalog();
   testParseWorkspaceLinkDecodesEncodedSandboxPath();
   await testWorkspaceFilePreviewPathNotFoundStaysFileSpecific();
   await testWorkspaceDocumentPreviewUsesPreviewEndpoint();

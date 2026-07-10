@@ -7,6 +7,7 @@ export interface ModelOption {
   model?: string;
   default_think_level?: string | null;
   supported_think_levels?: string[];
+  hidden?: boolean;
 }
 
 export const MODEL_DISPLAY_MAPPING: Record<string, string> = {

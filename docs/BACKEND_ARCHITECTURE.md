@@ -98,8 +98,8 @@ Ripple 是控制面，Codex app-server 是服务端受信执行面宿主进程�
 - 创建或更新 session 时，`context_folder_path` 必须是当前 user workspace 内已存在的目录。active run、pending approval 或 compaction 期间不允许切换 context folder。
 - chat、run 和 compaction 启动 Codex 时使用该目录作为 cwd，并把同一路径作为 permission root 生成 Codex managed permissions profile。
 - scoped session 下，workspace 根默认 `none`；permission root 为 `write`；同一 workspace 下的同级或其他目录读写必须由 Codex `request_permissions` 发起审批。
-- 如果 scoped context folder 的直属成员是指向当前 user workspace 内非敏感目录的软链接，Ripple 会把验证后的 canonical target 作为附加 context root。该集合目录本身只读，链接记录目录可读写；越出 workspace、指向敏感目录、循环或非目录链接按 fail-closed 忽略。
-- chat folder context 检索与 Codex permission profile 共用同一套受控链接解析规则：只扫描已授权的直属链接目标，不递归跟随记录内的二级软链接。
+- scoped context folder 可以同时包含真实记录子目录和指向当前 user workspace 内非敏感记录目录的直属软链接。只要存在合法成员软链接，该集合目录本身只读；Ripple 会把真实记录子目录和验证后的 canonical link target 都作为可读写 record roots，避免混合 Space 隐藏真实子目录。越出 workspace、指向敏感目录、循环或非目录链接按 fail-closed 忽略。
+- chat folder context 检索与 Codex permission profile 共用同一套受控成员解析规则：扫描集合内真实记录子目录及已授权的直属链接目标，不递归跟随记录内的二级软链接。
 - `/workspace/.tmp` 作为运行时 scratch 例外保留 `write`。提示词要求临时分析和转换产物优先写 `$TMPDIR`。
 - 从 `/workspace` 到 permission root 路径上的 `AGENTS.md` 会被精确授予 `read`，用于加载目录规则；`AGENTS.md` 只提供上下文约定，不是安全边界。
 - shared skills、connector CLI/runtime/cache 继续按最小必要读写开放；服务端 Codex auth、其他 user sandbox、`.agents/skills` 和 `.codex/skills` 继续 deny，避免绕过 Ripple skill manifest。

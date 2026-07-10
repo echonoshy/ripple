@@ -42,6 +42,7 @@ struct FolderContextSearchSummary {
     truncated: bool,
     matches: Vec<FolderContextMatch>,
     discovered_link_count: usize,
+    direct_root_count: usize,
     linked_root_count: usize,
     rejected_link_count: usize,
 }
@@ -159,6 +160,7 @@ fn search_context_folder_files(
         truncated,
         matches,
         discovered_link_count: scope.discovered_link_count,
+        direct_root_count: scope.direct_roots.len(),
         linked_root_count: scope.linked_roots.len(),
         rejected_link_count: scope.rejected_link_count,
     }
@@ -295,6 +297,7 @@ fn render_prompt_section(summary: &FolderContextSearchSummary, terms: &[String])
         format!("- Scanned text files: {}", summary.scanned_files),
         format!("- Matched files: {}", summary.matches.len()),
         format!("- Discovered direct links: {}", summary.discovered_link_count),
+        format!("- Authorized direct roots: {}", summary.direct_root_count),
         format!("- Authorized linked roots: {}", summary.linked_root_count),
         format!("- Rejected links: {}", summary.rejected_link_count),
         format!(
@@ -306,10 +309,11 @@ fn render_prompt_section(summary: &FolderContextSearchSummary, terms: &[String])
             }
         ),
         "- Guidance: Use these local matches as starting evidence. If they are incomplete, search or read more files under the context folder before using web_search. Use web_search as a supplement only when the user asks for online/latest information or local evidence is insufficient.".to_string(),
+        "- Record evidence priority: Read the record's AGENTS.md and use its designated original-text source. Extracted content.md or transcript.md takes priority over summary.md for questions about original record contents.".to_string(),
     ];
 
     if summary.linked_root_count > 0 {
-        section.push("- Linked context guidance: Direct linked record directories are part of this context. The collection root is structural and read-only; read or write record content through the linked record directories.".to_string());
+        section.push("- Collection context guidance: Direct and linked record directories are part of this context. The collection root is structural and read-only; read or write content through the individual record directories.".to_string());
     }
 
     if summary.matches.is_empty() {
@@ -344,6 +348,7 @@ fn runtime_event(summary: &FolderContextSearchSummary) -> Value {
         "scanned_files": summary.scanned_files,
         "truncated": summary.truncated,
         "discovered_link_count": summary.discovered_link_count,
+        "direct_root_count": summary.direct_root_count,
         "linked_root_count": summary.linked_root_count,
         "rejected_link_count": summary.rejected_link_count,
         "matches": summary.matches.iter().map(|item| json!({

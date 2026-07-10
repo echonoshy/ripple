@@ -65,6 +65,14 @@ fn thread_permission_config_with_user(
         )),
     );
     if let Some(scope) = &context_scope {
+        if scope.context_root_read_only() {
+            for direct_root in &scope.direct_roots {
+                filesystem.insert(
+                    direct_root.to_string_lossy().to_string(),
+                    Value::Object(permission_rules_for_root(direct_root, "write")),
+                );
+            }
+        }
         for linked_root in &scope.linked_roots {
             filesystem.insert(
                 linked_root.canonical_path.to_string_lossy().to_string(),
@@ -525,14 +533,16 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn profile_allows_direct_linked_roots_without_opening_workspace_siblings() {
+    fn profile_allows_mixed_direct_and_linked_roots_without_opening_workspace_siblings() {
         let mut config = test_config();
         config.codex.codex_home = Some(config.repo_root.join(".ripple/codex-service-home"));
         let workspace = config.sandbox.sandboxes_root.join("alice/workspace");
         let space = workspace.join("研发周会");
+        let direct_record = space.join("Solomon测试报告");
         let record = workspace.join("07-07 14:01");
         let unrelated = workspace.join("private-record");
         std::fs::create_dir_all(&space).expect("create space");
+        std::fs::create_dir_all(&direct_record).expect("create direct record");
         std::fs::create_dir_all(&record).expect("create record");
         std::fs::create_dir_all(record.join(".agents/skills"))
             .expect("create linked record native skills");
@@ -553,8 +563,13 @@ mod tests {
             .get(record.to_string_lossy().as_ref())
             .and_then(Value::as_object)
             .expect("linked record rules");
+        let direct_record_rules = filesystem
+            .get(direct_record.to_string_lossy().as_ref())
+            .and_then(Value::as_object)
+            .expect("direct record rules");
 
         assert_eq!(space_rules.get("."), Some(&json!("read")));
+        assert_eq!(direct_record_rules.get("."), Some(&json!("write")));
         assert_eq!(record_rules.get("."), Some(&json!("write")));
         assert_eq!(record_rules.get(".agents/skills"), Some(&json!("none")));
         assert!(!filesystem.contains_key(unrelated.to_string_lossy().as_ref()));

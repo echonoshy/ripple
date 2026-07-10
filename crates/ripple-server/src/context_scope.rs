@@ -4,6 +4,7 @@ use std::path::{Component, Path, PathBuf};
 use crate::workspace as ws;
 
 const MAX_LINKED_ROOTS: usize = 512;
+const MAX_DIRECT_ROOTS: usize = 512;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LinkedContextRoot {
@@ -16,6 +17,7 @@ pub struct LinkedContextRoot {
 pub struct ContextScope {
     pub context_root: PathBuf,
     pub context_root_workspace_path: String,
+    pub direct_roots: Vec<PathBuf>,
     pub linked_roots: Vec<LinkedContextRoot>,
     pub discovered_link_count: usize,
     pub rejected_link_count: usize,
@@ -41,6 +43,7 @@ pub fn resolve_context_scope(
     let mut scope = ContextScope {
         context_root: context_root.clone(),
         context_root_workspace_path,
+        direct_roots: Vec::new(),
         linked_roots: Vec::new(),
         discovered_link_count: 0,
         rejected_link_count: 0,
@@ -61,6 +64,16 @@ pub fn resolve_context_scope(
             continue;
         };
         if !metadata.file_type().is_symlink() {
+            if metadata.is_dir()
+                && !is_hidden_entry(&entry_path)
+                && scope.direct_roots.len() < MAX_DIRECT_ROOTS
+            {
+                if let Ok(canonical_path) = entry_path.canonicalize() {
+                    if canonical_path.starts_with(&context_root) {
+                        scope.direct_roots.push(canonical_path);
+                    }
+                }
+            }
             continue;
         }
         scope.discovered_link_count = scope.discovered_link_count.saturating_add(1);
@@ -84,6 +97,11 @@ pub fn resolve_context_scope(
     }
 
     Ok(scope)
+}
+
+fn is_hidden_entry(path: &Path) -> bool {
+    path.file_name()
+        .is_some_and(|name| name.to_string_lossy().starts_with('.'))
 }
 
 fn resolve_linked_root(
@@ -164,6 +182,29 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(root);
         let _ = std::fs::remove_dir_all(outside);
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolves_direct_and_linked_roots_in_mixed_context() -> anyhow::Result<()> {
+        let root = std::env::temp_dir().join(format!("ripple-context-scope-{}", Uuid::new_v4()));
+        let space = root.join("space");
+        let direct_record = space.join("direct-record");
+        let linked_record = root.join("linked-record");
+        std::fs::create_dir_all(&direct_record)?;
+        std::fs::create_dir_all(&linked_record)?;
+        std::fs::create_dir_all(space.join(".internal"))?;
+        std::os::unix::fs::symlink(&linked_record, space.join("linked-record"))?;
+
+        let scope = resolve_context_scope(&root, &space)?;
+
+        assert!(scope.context_root_read_only());
+        assert_eq!(scope.direct_roots, vec![direct_record.canonicalize()?]);
+        assert_eq!(scope.linked_roots.len(), 1);
+        assert_eq!(scope.linked_roots[0].canonical_path, linked_record);
+
+        let _ = std::fs::remove_dir_all(root);
         Ok(())
     }
 }

@@ -144,7 +144,7 @@
 - session 的 `context_folder_path` 是当前对话的 Codex cwd 和 permission root。`null` 表示 `/workspace`；space/record 入口应传入已存在的 `/workspace/...` 目录。
 - `POST /v1/sessions` 和 `PATCH /v1/sessions/:session_id` 会校验该路径必须在当前 user workspace 内且为目录。session 有 active run、pending approval 或 context compaction 时，切换 context folder 返回 `409`。
 - scoped session 下，Codex 默认只能读写 permission root；同一 user workspace 下其他目录读写需要 Codex app-server 通过 `item/permissions/requestApproval` 发起审批。
-- context folder 下指向当前 user workspace 内非敏感目录的直属软链接会被视为受控附加 context roots。此时集合目录本身只读，链接目标可读写；Ripple 不递归跟随目标内的其他软链接。
+- context folder 可以混合包含真实记录子目录和指向当前 user workspace 内非敏感记录目录的直属软链接。存在合法成员软链接时，集合目录本身只读，真实记录子目录与验证后的链接目标都可读写；Ripple 不递归跟随记录内的其他软链接。
 - 审批状态通过 session 的 `pending_permission_request` 和 SSE `ripple.approval_required` 暴露；`action: "permissions"` 时，`metadata` 包含 Codex 原始请求，例如 `reason`、`cwd` 和 `permissions`。
 - 客户端继续调用 `POST /v1/sessions/:session_id/permissions/resolve`。`action=allow` 映射 Codex `scope=turn`，`action=always` 映射 `scope=session`，`action=deny` 返回空 permissions。
 

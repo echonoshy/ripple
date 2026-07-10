@@ -2555,7 +2555,7 @@ mod tests {
         );
 
         assert!(prompt.contains("read-only collection structure"));
-        assert!(prompt.contains("Linked record directories are writable"));
+        assert!(prompt.contains("Individual record directories are writable"));
         assert!(!prompt.contains("write new files under this folder"));
 
         cleanup_test_root(&root).expect("cleanup test root");

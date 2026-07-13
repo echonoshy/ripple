@@ -9476,6 +9476,135 @@ async fn chat_session_bound_to_context_folder_runs_from_that_folder() {
 }
 
 #[tokio::test]
+async fn changing_context_folder_starts_a_new_codex_thread() {
+    let root = std::env::temp_dir().join(format!("ripple-api-folder-rotation-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+    let user_id = "smoke-user";
+    let workspace = state.sandboxes.ensure_sandbox(user_id).unwrap();
+    fs::create_dir_all(workspace.join("alpha")).unwrap();
+    fs::create_dir_all(workspace.join("other")).unwrap();
+
+    let (status, session) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/sessions",
+        json!({"model": "codex-test", "context_folder_path": "/workspace/alpha"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let session_id = session
+        .get("session_id")
+        .and_then(Value::as_str)
+        .expect("session id")
+        .to_string();
+
+    let (status, first) = call_response(
+        app.clone(),
+        json!({
+            "model": "codex-test",
+            "session_id": session_id,
+            "messages": [{"role": "user", "content": "[ids] first context"}],
+            "stream": false
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{first}");
+    assert_eq!(
+        Some(response_output_text(&first)),
+        Some("fake codex completed thread-1 turn-1")
+    );
+
+    let (status, unchanged) = call(
+        app.clone(),
+        Method::PATCH,
+        &format!("/v1/sessions/{session_id}"),
+        json!({"context_folder_path": "/workspace/alpha"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{unchanged}");
+    assert_eq!(
+        state
+            .sessions
+            .load(user_id, &session_id)
+            .await
+            .unwrap()
+            .expect("session")
+            .codex_thread_id
+            .as_deref(),
+        Some("thread-1")
+    );
+
+    let (status, changed) = call(
+        app.clone(),
+        Method::PATCH,
+        &format!("/v1/sessions/{session_id}"),
+        json!({"context_folder_path": "/workspace/other"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{changed}");
+    let detached = state
+        .sessions
+        .load(user_id, &session_id)
+        .await
+        .unwrap()
+        .expect("session");
+    assert!(detached.codex_thread_id.is_none());
+    assert!(detached
+        .messages
+        .iter()
+        .any(|message| format!("{message}").contains("first context")));
+
+    let (status, second) = call_response(
+        app,
+        json!({
+            "model": "codex-test",
+            "session_id": session_id,
+            "messages": [{"role": "user", "content": "[ids] switched context"}],
+            "stream": false
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{second}");
+    let second_output = response_output_text(&second);
+    assert!(
+        second_output.starts_with("fake codex completed thread-"),
+        "unexpected response: {second_output}"
+    );
+
+    let reloaded = state
+        .sessions
+        .load(user_id, &session_id)
+        .await
+        .unwrap()
+        .expect("session");
+    assert!(reloaded.codex_thread_id.is_some());
+    let jobs = state.jobs.list_user(user_id).await.unwrap();
+    let switched_job = jobs
+        .iter()
+        .find(|job| {
+            job.metadata.get("chat_user_input").and_then(Value::as_str)
+                == Some("[ids] switched context")
+        })
+        .expect("switched context job");
+    assert_eq!(
+        switched_job
+            .metadata
+            .get("codex_thread_resumed")
+            .and_then(Value::as_bool),
+        Some(false),
+        "context switch must start a fresh Codex thread"
+    );
+    assert_eq!(
+        switched_job.sandbox_cwd.as_deref(),
+        Some("/workspace/other")
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[tokio::test]
 async fn chat_follow_up_resumes_codex_thread_without_replaying_turns() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let fake_codex = write_fake_codex_app_server(&root);

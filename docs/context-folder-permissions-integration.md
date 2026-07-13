@@ -591,9 +591,10 @@ curl -X PATCH "$BASE_URL/sessions/$SESSION_ID" \
 限制：
 
 - 目标目录必须存在。
-- session 正在 running、awaiting permission、compacting，或存在 active run 时，返回 `409`。
+- session 正在 running、awaiting permission、awaiting user input、compacting，或存在 active run 时，返回 `409`。
 - 更新只影响后续 turn。
 - 已经在跑的 turn 不会中途换 cwd 或权限根。
+- 规范化后的路径实际变化时，Ripple 会保留 session 消息并轮换底层 Codex thread；下一轮在新 cwd 和 permission root 下创建 thread。重复 PATCH 同一路径或只更新其他 metadata 不会轮换 thread。
 
 前端 TypeScript：
 
@@ -662,7 +663,7 @@ stateDiagram-v2
   AwaitingPermission --> Running: resolve allow/always/deny
   Running --> Idle: turn completed
   AwaitingPermission --> Idle: run failed/cancelled
-  Idle --> Idle: patch context_folder_path
+  Idle --> Idle: patch context_folder_path / rotate Codex thread
 ```
 
 简化逻辑：

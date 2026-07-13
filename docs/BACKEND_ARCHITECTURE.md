@@ -95,7 +95,7 @@ Ripple 是控制面，Codex app-server 是服务端受信执行面宿主进程�
 
 - user workspace 是长期文件存储边界，例如 `/workspace` 映射到 `.ripple/sandboxes/<user_id>/workspace` 或配置的外部 workspace root。
 - session 的 `context_folder_path` 是当前 Codex 项目根和默认权限根。`null` 表示 `/workspace`；space/record 对话应传入对应 `/workspace/...` 目录。
-- 创建或更新 session 时，`context_folder_path` 必须是当前 user workspace 内已存在的目录。active run、pending approval 或 compaction 期间不允许切换 context folder。
+- 创建或更新 session 时，`context_folder_path` 必须是当前 user workspace 内已存在的目录。active run、pending approval、pending user input 或 compaction 期间不允许切换 context folder。路径实际变化时，Ripple 保留 session 消息，但解除原 `codex_thread_id` 并让下一轮创建新的 Codex thread，避免旧 thread 的 cwd 与 sandbox permission root 分裂。
 - chat、run 和 compaction 启动 Codex 时使用该目录作为 cwd，并把同一路径作为 permission root 生成 Codex managed permissions profile。
 - scoped session 下，workspace 根默认 `none`；permission root 为 `write`；同一 workspace 下的同级或其他目录读写必须由 Codex `request_permissions` 发起审批。
 - scoped context folder 可以同时包含真实记录子目录和指向当前 user workspace 内非敏感记录目录的直属软链接。只要存在合法成员软链接，该集合目录本身只读；Ripple 会把真实记录子目录和验证后的 canonical link target 都作为可读写 record roots，避免混合 Space 隐藏真实子目录。越出 workspace、指向敏感目录、循环或非目录链接按 fail-closed 忽略。

@@ -636,12 +636,25 @@ pub async fn update_session(
         })
         .transpose()?;
 
+    let _session_run_guard = if input.context_folder_path.is_some() {
+        Some(
+            state
+                .sessions
+                .session_lock(&user_id, &session_id)
+                .lock_owned()
+                .await,
+        )
+    } else {
+        None
+    };
+
     if input.context_folder_path.is_some() {
         recover_session_run_state(&state, &user_id, &session_id).await?;
         let Some(existing) = state.sessions.load(&user_id, &session_id).await? else {
             return Err(ApiError::not_found("Session not found"));
         };
         if existing.status_kind().is_busy()
+            || existing.status_kind().is_waiting_for_user()
             || existing.status_kind().is_awaiting_approval()
             || state
                 .jobs
@@ -654,7 +667,7 @@ pub async fn update_session(
         }
     }
 
-    let Some(info) = state
+    let Some(update) = state
         .sessions
         .update_session_metadata(
             &user_id,
@@ -669,8 +682,16 @@ pub async fn update_session(
         return Err(ApiError::not_found("Session not found"));
     };
 
+    if let Some(thread_id) = update.detached_codex_thread_id {
+        let archive_state = state.clone();
+        let archive_user_id = user_id.clone();
+        tokio::spawn(async move {
+            archive_session_codex_thread(&archive_state, &archive_user_id, Some(thread_id)).await;
+        });
+    }
+
     Ok(Json(
-        serde_json::to_value(info).unwrap_or_else(|_| json!({})),
+        serde_json::to_value(update.info).unwrap_or_else(|_| json!({})),
     ))
 }
 

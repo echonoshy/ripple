@@ -155,6 +155,11 @@ pub struct SessionInfo {
     pub workspace_size_bytes: Option<u64>,
 }
 
+pub struct SessionMetadataUpdate {
+    pub info: SessionInfo,
+    pub detached_codex_thread_id: Option<String>,
+}
+
 #[derive(Debug, Serialize)]
 pub struct SessionDetail {
     #[serde(flatten)]
@@ -401,7 +406,7 @@ impl SessionManager {
         pinned: Option<bool>,
         context_folder_path: Option<Option<String>>,
         model: Option<String>,
-    ) -> anyhow::Result<Option<SessionInfo>> {
+    ) -> anyhow::Result<Option<SessionMetadataUpdate>> {
         let key = (user_id.to_string(), session_id.to_string());
         if self.deleted.read().await.contains(&key) {
             self.active.write().await.remove(&key);
@@ -426,14 +431,24 @@ impl SessionManager {
         if let Some(model) = model {
             record.model = model;
         }
+        let mut detached_codex_thread_id = None;
         if let Some(context_folder_path) = context_folder_path {
-            record.context_folder_path =
+            let next_context_folder_path =
                 self.normalize_context_folder_path(user_id, context_folder_path.as_deref())?;
+            if record.context_folder_path != next_context_folder_path {
+                record.context_folder_path = next_context_folder_path;
+                detached_codex_thread_id = record.codex_thread_id.take();
+                record.plan_steps.clear();
+                record.plan_progress = None;
+            }
         }
 
         self.persist(&record).await?;
         self.active.write().await.insert(key, record.clone());
-        Ok(Some(self.info_from_record(&record)?))
+        Ok(Some(SessionMetadataUpdate {
+            info: self.info_from_record(&record)?,
+            detached_codex_thread_id,
+        }))
     }
 
     pub async fn update_generated_title_if_unchanged(
@@ -1071,6 +1086,8 @@ mod tests {
     use super::*;
     use std::path::Path;
 
+    use serde_json::json;
+
     use crate::config::{
         AppConfig, CodexConfig, CorsConfig, FeishuConfig, GogcliOAuthConfig, LoggingConfig,
         SandboxConfig, SecurityConfig, SkillsConfig, UserAuthConfig,
@@ -1274,7 +1291,8 @@ mod tests {
             .await?
             .expect("session should be updated");
 
-        assert_eq!(updated.model, "codex-high");
+        assert_eq!(updated.info.model, "codex-high");
+        assert!(updated.detached_codex_thread_id.is_none());
         assert_eq!(
             manager
                 .load(user_id, &session.session_id)
@@ -1283,6 +1301,89 @@ mod tests {
                 .model,
             "codex-high"
         );
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn changing_context_folder_detaches_codex_thread_and_clears_plan() -> anyhow::Result<()> {
+        let root = std::env::temp_dir().join(format!("ripple-session-test-{}", Uuid::new_v4()));
+        let config = test_config(&root);
+        let manager = SessionManager::new(config.clone(), SandboxManager::new(config));
+        let user_id = "alice";
+        let workspace = manager.sandboxes.ensure_sandbox(user_id)?;
+        std::fs::create_dir_all(workspace.join("demo"))?;
+        std::fs::create_dir_all(workspace.join("other"))?;
+
+        let mut session = manager
+            .create_session(
+                user_id,
+                CreateSessionInput {
+                    model: Some("codex-low".to_string()),
+                    max_turns: None,
+                    system_prompt: None,
+                    context_folder_path: Some("/workspace/demo".to_string()),
+                },
+            )
+            .await?;
+        session.codex_thread_id = Some("thread-1".to_string());
+        session.messages = vec![json!({"role": "user", "content": "keep me"})];
+        session.message_count = session.messages.len();
+        session.plan_steps = vec![json!({"step": "old plan"})];
+        session.plan_progress = Some(json!({"completed": 0, "total": 1}));
+        manager.save_record(session.clone()).await?;
+
+        let unchanged = manager
+            .update_session_metadata(
+                user_id,
+                &session.session_id,
+                None,
+                None,
+                Some(Some("/workspace/demo".to_string())),
+                None,
+            )
+            .await?
+            .expect("session should be updated");
+        assert!(unchanged.detached_codex_thread_id.is_none());
+        assert_eq!(
+            manager
+                .load(user_id, &session.session_id)
+                .await?
+                .expect("session should reload")
+                .codex_thread_id
+                .as_deref(),
+            Some("thread-1")
+        );
+
+        let changed = manager
+            .update_session_metadata(
+                user_id,
+                &session.session_id,
+                None,
+                None,
+                Some(Some("/workspace/other".to_string())),
+                None,
+            )
+            .await?
+            .expect("session should be updated");
+        assert_eq!(
+            changed.detached_codex_thread_id.as_deref(),
+            Some("thread-1")
+        );
+        assert_eq!(
+            changed.info.context_folder_path.as_deref(),
+            Some("/workspace/other")
+        );
+
+        let reloaded = manager
+            .load(user_id, &session.session_id)
+            .await?
+            .expect("session should reload");
+        assert!(reloaded.codex_thread_id.is_none());
+        assert_eq!(reloaded.messages, session.messages);
+        assert!(reloaded.plan_steps.is_empty());
+        assert!(reloaded.plan_progress.is_none());
 
         let _ = std::fs::remove_dir_all(root);
         Ok(())

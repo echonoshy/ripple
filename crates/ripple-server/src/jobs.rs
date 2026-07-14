@@ -145,6 +145,26 @@ impl JobManager {
         workspace_root: PathBuf,
         runtime_dir: PathBuf,
     ) -> anyhow::Result<AgentRunInfo> {
+        self.start_with_additional_context(
+            create,
+            user_id,
+            session_id,
+            workspace_root,
+            runtime_dir,
+            BTreeMap::new(),
+        )
+        .await
+    }
+
+    pub(crate) async fn start_with_additional_context(
+        &self,
+        create: AgentRunCreateRequest,
+        user_id: String,
+        session_id: Option<String>,
+        workspace_root: PathBuf,
+        runtime_dir: PathBuf,
+        additional_context: BTreeMap<String, String>,
+    ) -> anyhow::Result<AgentRunInfo> {
         if create.provider != "codex" && create.provider != "auto" {
             anyhow::bail!("Only the codex provider is supported");
         }
@@ -232,6 +252,7 @@ impl JobManager {
             base_instructions: create.base_instructions,
             turn_context: create.turn_context,
             client_context: create.client_context,
+            additional_context,
             cwd,
             input_items: create.input_items,
             model: create.model,
@@ -348,6 +369,7 @@ impl JobManager {
             base_instructions: create.base_instructions,
             turn_context: create.turn_context,
             client_context: create.client_context,
+            additional_context: BTreeMap::new(),
             cwd: cwd.clone(),
             input_items: create.input_items,
             model: create.model,

@@ -1,7 +1,7 @@
 use serde_json::Value;
 use sqlx::{Row, SqlitePool};
 
-pub const CURRENT_SCHEMA_VERSION: i64 = 12;
+pub const CURRENT_SCHEMA_VERSION: i64 = 13;
 
 const SCHEMA_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS sessions (
@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     pending_connector_auth_json TEXT,
     pending_control_request_json TEXT,
     codex_thread_id TEXT,
+    codex_synced_message_count INTEGER NOT NULL DEFAULT 0,
     memory_disabled INTEGER NOT NULL DEFAULT 0,
     plan_steps_json TEXT NOT NULL DEFAULT '[]',
     plan_progress_json TEXT,
@@ -350,6 +351,10 @@ async fn ensure_schema_columns(pool: &SqlitePool) -> anyhow::Result<()> {
             "pending_control_request_json",
             "ALTER TABLE sessions ADD COLUMN pending_control_request_json TEXT",
         ),
+        (
+            "codex_synced_message_count",
+            "ALTER TABLE sessions ADD COLUMN codex_synced_message_count INTEGER NOT NULL DEFAULT 0",
+        ),
     ] {
         let exists = rows
             .iter()
@@ -591,6 +596,7 @@ async fn ensure_schema_migrations(pool: &SqlitePool) -> anyhow::Result<()> {
         (10_i64, "token_usage_events_v1"),
         (11_i64, "task_sessions_v1"),
         (12_i64, "task_session_event_stream_ids"),
+        (13_i64, "codex_message_sync_watermark"),
     ] {
         sqlx::query("INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (?, ?)")
             .bind(version)

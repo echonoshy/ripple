@@ -10,7 +10,18 @@ const RECENT_TASK_TRIGGERS_CONTEXT_LIMIT: usize = 10;
 const RECENT_TASK_TRIGGERS_CONTEXT_MAX_CHARS: usize = 16_000;
 const RECENT_TASK_TRIGGER_PROMPT_MAX_CHARS: usize = 1_200;
 
+#[cfg(test)]
 pub(super) fn recent_display_context(messages: &[Value]) -> Option<String> {
+    recent_display_context_since(messages, None)
+}
+
+pub(super) fn recent_display_context_since(
+    messages: &[Value],
+    synced_message_count: Option<usize>,
+) -> Option<String> {
+    let messages = synced_message_count
+        .and_then(|count| messages.get(count..))
+        .unwrap_or(messages);
     let mut lines = messages
         .iter()
         .rev()

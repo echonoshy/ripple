@@ -55,6 +55,8 @@ pub struct SessionRecord {
     pub pending_connector_auth: Option<Value>,
     pub pending_control_request: Option<Value>,
     pub codex_thread_id: Option<String>,
+    #[serde(default, skip_serializing)]
+    pub codex_synced_message_count: usize,
     #[serde(default)]
     pub memory_disabled: bool,
     pub plan_steps: Vec<Value>,
@@ -283,6 +285,7 @@ impl SessionManager {
             pending_connector_auth: None,
             pending_control_request: None,
             codex_thread_id: None,
+            codex_synced_message_count: 0,
             memory_disabled: false,
             plan_steps: Vec::new(),
             plan_progress: None,
@@ -438,6 +441,7 @@ impl SessionManager {
             if record.context_folder_path != next_context_folder_path {
                 record.context_folder_path = next_context_folder_path;
                 detached_codex_thread_id = record.codex_thread_id.take();
+                record.codex_synced_message_count = 0;
                 record.plan_steps.clear();
                 record.plan_progress = None;
             }
@@ -458,6 +462,7 @@ impl SessionManager {
         fallback_title: &str,
         generated_title: &str,
     ) -> anyhow::Result<bool> {
+        let _session_guard = self.session_lock(user_id, session_id).lock_owned().await;
         let key = (user_id.to_string(), session_id.to_string());
         if self.deleted.read().await.contains(&key) {
             self.active.write().await.remove(&key);
@@ -748,6 +753,7 @@ impl SessionManager {
         record.pending_connector_auth = None;
         record.pending_control_request = None;
         record.codex_thread_id = None;
+        record.codex_synced_message_count = 0;
         record.plan_steps.clear();
         record.plan_progress = None;
         record.last_active = now_iso();
@@ -1330,6 +1336,7 @@ mod tests {
         session.codex_thread_id = Some("thread-1".to_string());
         session.messages = vec![json!({"role": "user", "content": "keep me"})];
         session.message_count = session.messages.len();
+        session.codex_synced_message_count = 1;
         session.plan_steps = vec![json!({"step": "old plan"})];
         session.plan_progress = Some(json!({"completed": 0, "total": 1}));
         manager.save_record(session.clone()).await?;
@@ -1381,6 +1388,7 @@ mod tests {
             .await?
             .expect("session should reload");
         assert!(reloaded.codex_thread_id.is_none());
+        assert_eq!(reloaded.codex_synced_message_count, 0);
         assert_eq!(reloaded.messages, session.messages);
         assert!(reloaded.plan_steps.is_empty());
         assert!(reloaded.plan_progress.is_none());
@@ -1536,6 +1544,7 @@ mod tests {
         session.pending_connector_auth = Some(serde_json::json!({"connector": "notion"}));
         session.pending_control_request = Some(serde_json::json!({"title": "task trigger"}));
         session.codex_thread_id = Some("thread".to_string());
+        session.codex_synced_message_count = 1;
         session.plan_steps = vec![serde_json::json!({"step": "old"})];
         session.plan_progress = Some(serde_json::json!({"total": 1}));
         manager.save_record(session.clone()).await?;
@@ -1557,6 +1566,7 @@ mod tests {
         assert!(cleared.pending_connector_auth.is_none());
         assert!(cleared.pending_control_request.is_none());
         assert!(cleared.codex_thread_id.is_none());
+        assert_eq!(cleared.codex_synced_message_count, 0);
         assert!(cleared.plan_steps.is_empty());
         assert!(cleared.plan_progress.is_none());
 
@@ -1742,6 +1752,8 @@ mod tests {
             )
             .await?;
         session.codex_thread_id = Some("thr_123".to_string());
+        session.messages = vec![serde_json::json!({"role": "user", "content": "old"})];
+        session.codex_synced_message_count = 1;
         manager.save_record(session.clone()).await?;
 
         let thread_id = manager
@@ -1767,6 +1779,7 @@ mod tests {
             .expect("session should exist");
         assert_eq!(finished.status, "idle");
         assert_eq!(finished.codex_thread_id.as_deref(), Some("thr_123"));
+        assert_eq!(finished.codex_synced_message_count, 1);
 
         let _ = std::fs::remove_dir_all(root);
         Ok(())

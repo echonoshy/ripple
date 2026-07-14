@@ -16,7 +16,7 @@ use time::OffsetDateTime;
 use tokio::time::{sleep, Duration, Instant};
 use uuid::Uuid;
 
-use crate::api::capabilities::catalog_skill_manifest_options_for_user;
+use crate::api::capabilities::catalog_skill_manifest_for_user;
 use crate::api::run_public::{sanitize_user_visible_text, sanitize_user_visible_value};
 use crate::api::skill_chat::maybe_handle_skill_chat;
 use crate::api::task_trigger_chat::{maybe_handle_task_trigger_chat, TaskTriggerChatDecision};
@@ -30,7 +30,9 @@ use crate::sessions::{
     extract_title_from_messages, record_usage, validate_session_id, CreateSessionInput,
     SessionRecord, SessionStatus,
 };
-use crate::skills::{build_skill_manifest_with_options, public_skill_path, SkillManifestOptions};
+use crate::skills::{
+    public_skill_path, render_available_skill_entries, SkillManifestEntry, SkillManifestOptions,
+};
 use crate::state::AppState;
 use crate::user::user_id_from_headers;
 
@@ -60,13 +62,16 @@ pub(crate) use media::{
 #[cfg(test)]
 use media::{decode_base64_image_payload, workspace_path_or_none};
 use project_context::collect_folder_context;
+#[cfg(test)]
+pub(crate) use prompt::build_codex_chat_turn_context;
 pub(crate) use prompt::{
-    build_codex_chat_base_instructions, build_codex_chat_turn_context, render_client_context,
+    build_codex_chat_additional_context, build_codex_chat_base_instructions,
+    build_codex_chat_turn_context_with_available_skills, render_client_context,
     RequiredSkillContext,
 };
 #[cfg(test)]
-use recent_context::recent_task_triggers_context_from_records;
-use recent_context::{recent_display_context, recent_task_triggers_context};
+use recent_context::{recent_display_context, recent_task_triggers_context_from_records};
+use recent_context::{recent_display_context_since, recent_task_triggers_context};
 use session_actions::handle_session_control_action;
 use title::spawn_session_title_generation;
 use wire::{
@@ -463,6 +468,7 @@ struct CodexChatStart {
     request_base_url: Option<String>,
     skill_options: SkillManifestOptions,
     required_skills: Vec<RequiredSkillContext>,
+    available_skills: String,
 }
 
 struct CodexChatStream {
@@ -490,16 +496,13 @@ async fn prepare_chat_skill_context(
     user_id: &str,
     workspace_root: &FsPath,
     request: &InternalChatRequest,
-) -> Result<(SkillManifestOptions, Vec<RequiredSkillContext>), ApiError> {
-    let skill_options = catalog_skill_manifest_options_for_user(state, user_id).await?;
+) -> Result<(SkillManifestOptions, Vec<RequiredSkillContext>, String), ApiError> {
+    let (skill_options, entries) = catalog_skill_manifest_for_user(state, user_id).await?;
     let required_skill_ids = effective_required_skill_ids(request);
-    let required_skills = required_skill_contexts(
-        state,
-        Some(workspace_root),
-        &skill_options,
-        &required_skill_ids,
-    )?;
-    Ok((skill_options, required_skills))
+    let required_skills =
+        required_skill_contexts(Some(workspace_root), &entries, &required_skill_ids)?;
+    let available_skills = render_available_skill_entries(&entries, Some(workspace_root));
+    Ok((skill_options, required_skills, available_skills))
 }
 
 fn effective_required_skill_ids(request: &InternalChatRequest) -> Vec<String> {
@@ -530,9 +533,8 @@ fn effective_client_context(request: &InternalChatRequest) -> Option<&Value> {
 }
 
 fn required_skill_contexts(
-    state: &AppState,
     workspace_root: Option<&FsPath>,
-    skill_options: &SkillManifestOptions,
+    entries: &[SkillManifestEntry],
     required_skill_ids: &[String],
 ) -> Result<Vec<RequiredSkillContext>, ApiError> {
     let mut contexts = Vec::new();
@@ -547,17 +549,15 @@ fn required_skill_contexts(
         {
             continue;
         }
-        let entries =
-            build_skill_manifest_with_options(&state.config, workspace_root, skill_options);
         let matches = entries
-            .into_iter()
+            .iter()
             .filter(|entry| {
                 entry.enabled
                     && entry.status == "available"
                     && (entry.id == requested || entry.name == requested)
             })
             .collect::<Vec<_>>();
-        let Some(entry) = matches.first() else {
+        let Some(entry) = matches.first().copied() else {
             return Err(ApiError::bad_request(format!(
                 "Required skill '{requested}' is not available"
             )));
@@ -757,7 +757,7 @@ async fn handle_chat_request(
                 session.context_folder_path.as_deref(),
                 &resume_user_input,
             );
-            let (skill_options, required_skills) =
+            let (skill_options, required_skills, available_skills) =
                 prepare_chat_skill_context(&state, &user_id, &workspace_root, &request).await?;
             let start = CodexChatStart {
                 state,
@@ -783,6 +783,7 @@ async fn handle_chat_request(
                 request_base_url: request_base_url.clone(),
                 skill_options,
                 required_skills,
+                available_skills,
             };
             let info = create_codex_chat_run_marking_start_failure(&start).await?;
             drop(session_run_guard);
@@ -813,7 +814,7 @@ async fn handle_chat_request(
         session.context_folder_path.as_deref(),
         &user_input,
     );
-    let (skill_options, required_skills) =
+    let (skill_options, required_skills, available_skills) =
         prepare_chat_skill_context(&state, &user_id, &workspace_root, &request).await?;
     let start = CodexChatStart {
         state,
@@ -839,6 +840,7 @@ async fn handle_chat_request(
         request_base_url,
         skill_options,
         required_skills,
+        available_skills,
     };
     let info = create_codex_chat_run_marking_start_failure(&start).await?;
     drop(session_run_guard);
@@ -846,30 +848,64 @@ async fn handle_chat_request(
 }
 
 async fn create_codex_chat_run(args: &CodexChatStart) -> Result<AgentRunInfo, ApiError> {
-    let recent_display_context = recent_display_context(&args.session.messages);
+    let context_started = Instant::now();
+    let use_persistent_history_watermark = !args.request.temporary
+        && args
+            .session
+            .codex_thread_id
+            .as_deref()
+            .is_some_and(|thread_id| !thread_id.trim().is_empty());
+    let recent_display_context = recent_display_context_since(
+        &args.session.messages,
+        use_persistent_history_watermark.then_some(args.session.codex_synced_message_count),
+    );
     let recent_task_triggers_context =
         recent_task_triggers_context(&args.state, &args.user_id).await?;
     let base_instructions = build_codex_chat_base_instructions();
-    let turn_context = build_codex_chat_turn_context(
-        &args.state,
-        &args.user_id,
-        &args.session.session_id,
-        &args.workspace_root,
-        args.session.context_folder_path.as_deref(),
-        args.context_root_read_only,
-        args.folder_context_evidence.as_deref(),
-        recent_display_context.as_deref(),
-        recent_task_triggers_context.as_deref(),
-        &args.skill_options,
-        &args.required_skills,
-        args.request.screen_context.as_ref(),
-        &args.attachment_items,
-        args.caller_system_prompt.as_deref(),
-    );
+    let rendered_client_context = render_client_context(effective_client_context(&args.request));
+    let turn_context = args.request.temporary.then(|| {
+        build_codex_chat_turn_context_with_available_skills(
+            &args.user_id,
+            &args.session.session_id,
+            args.session.context_folder_path.as_deref(),
+            args.context_root_read_only,
+            args.folder_context_evidence.as_deref(),
+            recent_display_context.as_deref(),
+            recent_task_triggers_context.as_deref(),
+            &args.skill_options,
+            &args.required_skills,
+            args.request.screen_context.as_ref(),
+            &args.attachment_items,
+            args.caller_system_prompt.as_deref(),
+            &args.available_skills,
+        )
+    });
+    let additional_context = if args.request.temporary {
+        std::collections::BTreeMap::new()
+    } else {
+        build_codex_chat_additional_context(
+            &args.user_id,
+            &args.session.session_id,
+            args.session.context_folder_path.as_deref(),
+            args.context_root_read_only,
+            args.folder_context_evidence.as_deref(),
+            recent_display_context.as_deref(),
+            recent_task_triggers_context.as_deref(),
+            &args.skill_options,
+            &args.required_skills,
+            args.request.screen_context.as_ref(),
+            &args.attachment_items,
+            args.caller_system_prompt.as_deref(),
+            &args.available_skills,
+            rendered_client_context.as_deref(),
+        )
+    };
+    let context_chars = turn_context.as_ref().map_or(0, String::len)
+        + additional_context.values().map(String::len).sum::<usize>();
+    let context_fragments = additional_context.len();
     let prompt = chat_turn_prompt(&args.user_input);
     let mut native_items = args.input_items.clone();
     native_items.push(json!({"type": "text", "text": prompt}));
-    let client_context = render_client_context(effective_client_context(&args.request));
     let runtime_dir = args
         .state
         .sandboxes
@@ -878,8 +914,12 @@ async fn create_codex_chat_run(args: &CodexChatStart) -> Result<AgentRunInfo, Ap
         prompt,
         provider: "codex".to_string(),
         base_instructions: Some(base_instructions),
-        turn_context: Some(turn_context),
-        client_context,
+        turn_context,
+        client_context: args
+            .request
+            .temporary
+            .then_some(rendered_client_context)
+            .flatten(),
         cwd: Some(chat_cwd_for_session(&args.session)),
         input_items: native_items,
         model: Some(args.model.clone()),
@@ -897,17 +937,42 @@ async fn create_codex_chat_run(args: &CodexChatStart) -> Result<AgentRunInfo, Ap
         chat_user_content: Some(args.user_content.clone()),
     };
     ensure_workspace_change_baseline(&args.state, &args.user_id, &args.workspace_root).await;
-    args.state
-        .jobs
-        .start(
-            create,
-            args.user_id.clone(),
-            Some(args.session.session_id.clone()),
-            args.workspace_root.clone(),
-            runtime_dir,
-        )
-        .await
-        .map_err(|err| ApiError::bad_request(err.to_string()))
+    let context_elapsed_ms = context_started.elapsed().as_millis() as u64;
+    let enqueue_started = Instant::now();
+    let result = if args.request.temporary {
+        args.state
+            .jobs
+            .start(
+                create,
+                args.user_id.clone(),
+                Some(args.session.session_id.clone()),
+                args.workspace_root.clone(),
+                runtime_dir,
+            )
+            .await
+    } else {
+        args.state
+            .jobs
+            .start_with_additional_context(
+                create,
+                args.user_id.clone(),
+                Some(args.session.session_id.clone()),
+                args.workspace_root.clone(),
+                runtime_dir,
+                additional_context,
+            )
+            .await
+    };
+    tracing::debug!(
+        session_id = %args.session.session_id,
+        temporary = args.request.temporary,
+        context_chars,
+        context_fragments,
+        context_elapsed_ms,
+        enqueue_elapsed_ms = enqueue_started.elapsed().as_millis() as u64,
+        "Codex chat context prepared and run enqueued"
+    );
+    result.map_err(|err| ApiError::bad_request(err.to_string()))
 }
 
 fn chat_turn_prompt(user_input: &str) -> String {
@@ -1001,6 +1066,7 @@ async fn finish_codex_chat_response(
         request_base_url,
         skill_options: _,
         required_skills: _,
+        available_skills: _,
     } = args;
 
     if request.stream.unwrap_or(false) {
@@ -1054,6 +1120,7 @@ async fn finish_codex_chat_response(
         &user_input,
         &output_text,
         request_base_url.as_deref(),
+        &final_info,
     )
     .await?
     {
@@ -1073,6 +1140,7 @@ async fn finish_codex_chat_response(
         &output_text,
         &image_events,
     );
+    mark_codex_messages_synced(&mut session, &final_info);
     session.set_status(SessionStatus::Idle);
     session.pending_permission_request = None;
     session.pending_question = None;
@@ -1125,6 +1193,7 @@ async fn maybe_persist_model_connector_auth_request(
     user_input: &str,
     output_text: &str,
     request_base_url: Option<&str>,
+    info: &AgentRunInfo,
 ) -> Result<Option<Value>, ApiError> {
     let Some(request) = parse_model_connector_auth_request(output_text) else {
         return Ok(None);
@@ -1140,6 +1209,24 @@ async fn maybe_persist_model_connector_auth_request(
     .await?;
     let event = decision.event;
     persist_connector_auth_event(state, session, user_content, user_input, &event).await?;
+    let public_assistant_messages = usize::from(
+        event
+            .get("message")
+            .and_then(Value::as_str)
+            .is_some_and(|message| !message.trim().is_empty()),
+    );
+    mark_codex_message_prefix_synced(
+        session,
+        info,
+        session
+            .messages
+            .len()
+            .saturating_sub(public_assistant_messages),
+    );
+    let _ = state
+        .sessions
+        .save_record_if_exists(session.clone())
+        .await?;
     Ok(Some(event))
 }
 
@@ -1244,7 +1331,7 @@ pub async fn poll_session_connector_auth(
             session.context_folder_path.as_deref(),
             &user_input,
         );
-        let (skill_options, required_skills) =
+        let (skill_options, required_skills, available_skills) =
             prepare_chat_skill_context(&state, &user_id, &workspace_root, &chat_request).await?;
         let start = CodexChatStart {
             state,
@@ -1270,6 +1357,7 @@ pub async fn poll_session_connector_auth(
             request_base_url: None,
             skill_options,
             required_skills,
+            available_skills,
         };
         let info = create_codex_chat_run_marking_start_failure(&start).await?;
         drop(session_run_guard);
@@ -1652,6 +1740,7 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
                         &user_input,
                         auth_output_text,
                         request_base_url.as_deref(),
+                        &info,
                     )
                     .await
                     {
@@ -1682,6 +1771,7 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
                         &emitted,
                         &image_events,
                     );
+                    mark_codex_messages_synced(&mut session, &info);
                     session.set_status(SessionStatus::Idle);
                     session.pending_permission_request = None;
                     session.pending_question = None;
@@ -1908,6 +1998,7 @@ async fn finalize_stale_completed_chat_run(
         &output_text,
         &image_events,
     );
+    mark_codex_messages_synced(session, info);
     record_usage(session, &usage);
     session.set_status(SessionStatus::Idle);
     session.pending_permission_request = None;
@@ -1919,6 +2010,31 @@ async fn finalize_stale_completed_chat_run(
         .save_record_if_exists(session.clone())
         .await?;
     Ok(true)
+}
+
+fn mark_codex_messages_synced(session: &mut SessionRecord, info: &AgentRunInfo) {
+    mark_codex_message_prefix_synced(session, info, session.messages.len());
+}
+
+fn mark_codex_message_prefix_synced(
+    session: &mut SessionRecord,
+    info: &AgentRunInfo,
+    message_count: usize,
+) {
+    let persistent = info
+        .metadata
+        .get("codex_persistent_thread")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let thread_id = info
+        .metadata
+        .get("codex_thread_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if persistent && thread_id.is_some() && session.codex_thread_id.as_deref() == thread_id {
+        session.codex_synced_message_count = message_count.min(session.messages.len());
+    }
 }
 
 fn record_session_plan_update(session: &mut SessionRecord, update: &Value) {
@@ -2612,10 +2728,14 @@ mod tests {
             .ensure_sandbox("alice")
             .expect("create sandbox");
         let skill_options = crate::skills::SkillManifestOptions::default();
-        let required_skills = required_skill_contexts(
-            &state,
+        let entries = crate::skills::build_skill_manifest_with_options(
+            &state.config,
             Some(&workspace_root),
             &skill_options,
+        );
+        let required_skills = required_skill_contexts(
+            Some(&workspace_root),
+            &entries,
             &["ripple:viaim-product-support".to_string()],
         )
         .expect("required skill context");
@@ -2964,6 +3084,100 @@ mod tests {
     }
 
     #[test]
+    fn recent_display_context_only_includes_messages_not_synced_to_codex() {
+        let messages = vec![
+            json!({"role": "user", "content": "already in thread"}),
+            json!({"role": "assistant", "content": "already answered"}),
+            json!({"role": "assistant", "content": "control-plane update"}),
+        ];
+
+        let context = recent_display_context_since(&messages, Some(2)).expect("context");
+
+        assert_eq!(context, "assistant: control-plane update");
+    }
+
+    #[test]
+    fn codex_chat_additional_context_has_complete_stable_key_set() {
+        let context = build_codex_chat_additional_context(
+            "alice",
+            "session-1",
+            None,
+            false,
+            None,
+            None,
+            None,
+            &crate::skills::SkillManifestOptions::default(),
+            &[],
+            None,
+            &[],
+            None,
+            "- no skills available",
+            None,
+        );
+
+        assert_eq!(
+            context.keys().map(String::as_str).collect::<Vec<_>>(),
+            vec![
+                "ripple_00_client_context",
+                "ripple_01_session_context",
+                "ripple_02_context_folder",
+                "ripple_03_folder_context_evidence",
+                "ripple_04_connector_status",
+                "ripple_05_required_skills",
+                "ripple_06_screen_context",
+                "ripple_07_available_skills",
+                "ripple_08_system_instructions",
+                "ripple_09_conversation_state",
+                "ripple_10_recent_display_context",
+                "ripple_11_recent_task_triggers",
+                "ripple_12_attachments",
+                "ripple_client_context",
+                "ripple_turn_context",
+            ]
+        );
+        assert_eq!(context["ripple_00_client_context"], "(none)");
+        assert!(context["ripple_06_screen_context"]
+            .contains("Do not assume uploaded screenshots are Ripple UI"));
+        assert!(context["ripple_10_recent_display_context"].ends_with("(none)"));
+        assert_eq!(
+            context["ripple_turn_context"],
+            "(superseded by granular Ripple chat context)"
+        );
+    }
+
+    #[test]
+    fn codex_chat_additional_context_only_changes_recent_display_fragment() {
+        let build = |recent_display_context| {
+            build_codex_chat_additional_context(
+                "alice",
+                "session-1",
+                None,
+                false,
+                None,
+                recent_display_context,
+                None,
+                &crate::skills::SkillManifestOptions::default(),
+                &[],
+                None,
+                &[],
+                None,
+                "- no skills available",
+                None,
+            )
+        };
+        let before = build(Some("assistant: first control-plane update"));
+        let after = build(Some("assistant: second control-plane update"));
+
+        for key in before.keys() {
+            if key == "ripple_10_recent_display_context" {
+                assert_ne!(before[key], after[key]);
+            } else {
+                assert_eq!(before[key], after[key], "unexpected change in {key}");
+            }
+        }
+    }
+
+    #[test]
     fn recent_task_triggers_context_is_structured_and_limited() {
         let records = vec![json!({
             "trigger_id": "sch-price",
@@ -3063,6 +3277,7 @@ mod tests {
             pending_connector_auth: None,
             pending_control_request: None,
             codex_thread_id: None,
+            codex_synced_message_count: 0,
             memory_disabled: false,
             plan_steps: Vec::new(),
             plan_progress: None,
@@ -3198,6 +3413,7 @@ mod tests {
             pending_connector_auth: Some(json!({"connector": "feishu"})),
             pending_control_request: None,
             codex_thread_id: None,
+            codex_synced_message_count: 0,
             memory_disabled: false,
             plan_steps: Vec::new(),
             plan_progress: None,

@@ -54,6 +54,22 @@ pub(super) fn is_context_compaction_completed(message: &Value, thread_id: &str) 
     }
 }
 
+pub(super) fn is_additional_context_compaction_completed(message: &Value, thread_id: &str) -> bool {
+    if !message_thread_matches(message, thread_id) {
+        return false;
+    }
+    match message.get("method").and_then(Value::as_str) {
+        Some("thread/compacted") | Some("thread/contextCompacted") | Some("context/compacted") => {
+            true
+        }
+        Some("item/completed") => {
+            message.pointer("/params/item/type").and_then(Value::as_str)
+                == Some("contextCompaction")
+        }
+        _ => false,
+    }
+}
+
 pub(super) fn is_compaction_turn_failed(message: &Value, thread_id: &str) -> bool {
     message_thread_matches(message, thread_id)
         && message.get("method").and_then(Value::as_str) == Some("turn/completed")
@@ -189,4 +205,38 @@ pub(super) fn is_turn_completed(message: &Value, thread_id: &str, turn_id: &str)
         && message.pointer("/params/threadId").and_then(Value::as_str) == Some(thread_id)
         && (message.pointer("/params/turnId").and_then(Value::as_str) == Some(turn_id)
             || message.pointer("/params/turn/id").and_then(Value::as_str) == Some(turn_id))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn additional_context_epoch_only_changes_for_completed_compaction() {
+        let compacted = json!({
+            "method": "item/completed",
+            "params": {
+                "threadId": "thread-1",
+                "item": {"type": "contextCompaction"}
+            }
+        });
+        let turn_completed = json!({
+            "method": "turn/completed",
+            "params": {
+                "threadId": "thread-1",
+                "turn": {"status": "completed"}
+            }
+        });
+
+        assert!(is_additional_context_compaction_completed(
+            &compacted, "thread-1"
+        ));
+        assert!(!is_additional_context_compaction_completed(
+            &turn_completed,
+            "thread-1"
+        ));
+        assert!(!is_additional_context_compaction_completed(
+            &compacted, "thread-2"
+        ));
+    }
 }

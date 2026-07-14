@@ -1,8 +1,13 @@
+use std::collections::BTreeMap;
+#[cfg(test)]
 use std::path::Path as FsPath;
 
 use serde_json::Value;
 
-use crate::skills::{render_skill_manifest_with_options, SkillManifestOptions};
+#[cfg(test)]
+use crate::skills::render_skill_manifest_with_options;
+use crate::skills::SkillManifestOptions;
+#[cfg(test)]
 use crate::state::AppState;
 
 #[derive(Debug, Clone)]
@@ -45,6 +50,7 @@ Ripple is the control plane: it owns user identity, sandbox isolation, connector
         .to_string()
 }
 
+#[cfg(test)]
 pub(crate) fn build_codex_chat_turn_context(
     state: &AppState,
     user_id: &str,
@@ -61,6 +67,180 @@ pub(crate) fn build_codex_chat_turn_context(
     attachment_items: &[Value],
     system_prompt: Option<&str>,
 ) -> String {
+    let available_skills =
+        render_skill_manifest_with_options(&state.config, Some(workspace_root), skill_options);
+    build_codex_chat_turn_context_with_available_skills(
+        user_id,
+        session_id,
+        context_folder_path,
+        context_root_read_only,
+        folder_context_evidence,
+        recent_display_context,
+        recent_task_triggers_context,
+        skill_options,
+        required_skills,
+        screen_context,
+        attachment_items,
+        system_prompt,
+        &available_skills,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn build_codex_chat_turn_context_with_available_skills(
+    user_id: &str,
+    session_id: &str,
+    context_folder_path: Option<&str>,
+    context_root_read_only: bool,
+    folder_context_evidence: Option<&str>,
+    recent_display_context: Option<&str>,
+    recent_task_triggers_context: Option<&str>,
+    skill_options: &SkillManifestOptions,
+    required_skills: &[RequiredSkillContext],
+    screen_context: Option<&Value>,
+    attachment_items: &[Value],
+    system_prompt: Option<&str>,
+    available_skills: &str,
+) -> String {
+    build_codex_chat_context_sections(
+        user_id,
+        session_id,
+        context_folder_path,
+        context_root_read_only,
+        folder_context_evidence,
+        recent_display_context,
+        recent_task_triggers_context,
+        skill_options,
+        required_skills,
+        screen_context,
+        attachment_items,
+        system_prompt,
+        available_skills,
+    )
+    .render_monolithic()
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn build_codex_chat_additional_context(
+    user_id: &str,
+    session_id: &str,
+    context_folder_path: Option<&str>,
+    context_root_read_only: bool,
+    folder_context_evidence: Option<&str>,
+    recent_display_context: Option<&str>,
+    recent_task_triggers_context: Option<&str>,
+    skill_options: &SkillManifestOptions,
+    required_skills: &[RequiredSkillContext],
+    screen_context: Option<&Value>,
+    attachment_items: &[Value],
+    system_prompt: Option<&str>,
+    available_skills: &str,
+    client_context: Option<&str>,
+) -> BTreeMap<String, String> {
+    let sections = build_codex_chat_context_sections(
+        user_id,
+        session_id,
+        context_folder_path,
+        context_root_read_only,
+        folder_context_evidence,
+        recent_display_context,
+        recent_task_triggers_context,
+        skill_options,
+        required_skills,
+        screen_context,
+        attachment_items,
+        system_prompt,
+        available_skills,
+    );
+    sections.into_additional_context(client_context)
+}
+
+struct CodexChatContextSections {
+    session: String,
+    context_folder: String,
+    folder_context_evidence: String,
+    connector_status: String,
+    required_skills: String,
+    screen_context: String,
+    available_skills: String,
+    system_instructions: String,
+    conversation_state: String,
+    recent_display_context: String,
+    recent_task_triggers: String,
+    attachments: String,
+}
+
+impl CodexChatContextSections {
+    fn ordered(self) -> Vec<(&'static str, String)> {
+        vec![
+            ("ripple_01_session_context", self.session),
+            ("ripple_02_context_folder", self.context_folder),
+            (
+                "ripple_03_folder_context_evidence",
+                self.folder_context_evidence,
+            ),
+            ("ripple_04_connector_status", self.connector_status),
+            ("ripple_05_required_skills", self.required_skills),
+            ("ripple_06_screen_context", self.screen_context),
+            ("ripple_07_available_skills", self.available_skills),
+            ("ripple_08_system_instructions", self.system_instructions),
+            ("ripple_09_conversation_state", self.conversation_state),
+            (
+                "ripple_10_recent_display_context",
+                self.recent_display_context,
+            ),
+            ("ripple_11_recent_task_triggers", self.recent_task_triggers),
+            ("ripple_12_attachments", self.attachments),
+        ]
+    }
+
+    fn render_monolithic(self) -> String {
+        let mut rendered = self
+            .ordered()
+            .into_iter()
+            .map(|(_, value)| value)
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        rendered.push('\n');
+        rendered
+    }
+
+    fn into_additional_context(self, client_context: Option<&str>) -> BTreeMap<String, String> {
+        let mut context = BTreeMap::new();
+        context.insert(
+            "ripple_00_client_context".to_string(),
+            client_context
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or("(none)")
+                .to_string(),
+        );
+        for (key, value) in self.ordered() {
+            context.insert(key.to_string(), value);
+        }
+        let tombstone = "(superseded by granular Ripple chat context)".to_string();
+        context.insert("ripple_client_context".to_string(), tombstone.clone());
+        context.insert("ripple_turn_context".to_string(), tombstone);
+        context
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_codex_chat_context_sections(
+    user_id: &str,
+    session_id: &str,
+    context_folder_path: Option<&str>,
+    context_root_read_only: bool,
+    folder_context_evidence: Option<&str>,
+    recent_display_context: Option<&str>,
+    recent_task_triggers_context: Option<&str>,
+    skill_options: &SkillManifestOptions,
+    required_skills: &[RequiredSkillContext],
+    screen_context: Option<&Value>,
+    attachment_items: &[Value],
+    system_prompt: Option<&str>,
+    available_skills: &str,
+) -> CodexChatContextSections {
     let attachment_lines = attachment_items
         .iter()
         .filter(|item| item.get("type").and_then(Value::as_str) == Some("attachment"))
@@ -116,45 +296,35 @@ pub(crate) fn build_codex_chat_turn_context(
         .unwrap_or("(none)");
     let required_skill_section = render_required_skills(required_skills);
     let screen_context_section = render_screen_context(screen_context);
-    format!(
-        "## Ripple Session\n\
-- user_id: {user_id}\n\
-- session_id: {session_id}\n\
-- workspace: current working directory\n\n\
-## Context Folder\n\
-{}\n\n\
-## Folder Context Evidence\n\
-{}\n\n\
-## Connector Status\n\
-{}\n\n\
-## Required Skills\n\
-{}\n\n\
-## Screen Context\n\
-{}\n\n\
-## Available Skills\n\
-{}\n\n\
-## System Instructions\n\
-{}\n\n\
-## Conversation State\n\
-- The Codex persistent thread is the primary execution context and conversation history.\n\
-- Ripple includes bounded recent display context below so control-plane-only turns and recovery paths keep local continuity.\n\n\
-## Recent Ripple Display Context\n\
-{}\n\n\
-## Recent Task Triggers\n\
-{}\n\n\
-## Attachments\n\
-{}\n",
-        context_section,
-        folder_context_evidence_section,
-        connector_manifest(skill_options),
-        required_skill_section,
-        screen_context_section,
-        render_skill_manifest_with_options(&state.config, Some(workspace_root), skill_options),
-        system_prompt.unwrap_or("(none)"),
-        recent_display_context_section,
-        recent_task_triggers_context_section,
-        attachment_section
-    )
+    CodexChatContextSections {
+        session: format!(
+            "## Ripple Session\n- user_id: {user_id}\n- session_id: {session_id}\n- workspace: current working directory"
+        ),
+        context_folder: format!("## Context Folder\n{context_section}"),
+        folder_context_evidence: format!(
+            "## Folder Context Evidence\n{folder_context_evidence_section}"
+        ),
+        connector_status: format!(
+            "## Connector Status\n{}",
+            connector_manifest(skill_options)
+        ),
+        required_skills: format!("## Required Skills\n{required_skill_section}"),
+        screen_context: format!("## Screen Context\n{screen_context_section}"),
+        available_skills: format!("## Available Skills\n{available_skills}"),
+        system_instructions: format!(
+            "## System Instructions\n{}",
+            system_prompt.unwrap_or("(none)")
+        ),
+        conversation_state: "## Conversation State\n- The Codex persistent thread is the primary execution context and conversation history.\n- Ripple includes bounded recent display context below so control-plane-only turns and recovery paths keep local continuity."
+            .to_string(),
+        recent_display_context: format!(
+            "## Recent Ripple Display Context\n{recent_display_context_section}"
+        ),
+        recent_task_triggers: format!(
+            "## Recent Task Triggers\n{recent_task_triggers_context_section}"
+        ),
+        attachments: format!("## Attachments\n{attachment_section}"),
+    }
 }
 
 fn render_required_skills(required_skills: &[RequiredSkillContext]) -> String {

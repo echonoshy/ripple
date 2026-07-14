@@ -686,6 +686,13 @@ fn main() {
                     "<ripple_connector_auth_request>{\"connector\":\"google_workspace\",\"force_reauth\":false,\"reason\":\"needs Gmail access\"}</ripple_connector_auth_request>".to_string()
                 } else if line.contains("[model-alias-check]") {
                     format!("model seen: {request_model}; effort seen: {request_effort}")
+                } else if line.contains("[history-watermark-check]") {
+                    let history_state = if line.contains("[history-watermark-old]") {
+                        "history replayed"
+                    } else {
+                        "history delta clean"
+                    };
+                    format!("{history_state} {thread_id} {turn_id}")
                 } else if line.contains("## Context Folder")
                     && line.contains("Context folder: /workspace/demo")
                 {
@@ -9608,27 +9615,37 @@ async fn changing_context_folder_starts_a_new_codex_thread() {
 async fn chat_follow_up_resumes_codex_thread_without_replaying_turns() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let fake_codex = write_fake_codex_app_server(&root);
-    let (_state, app) =
+    let (state, app) =
         test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
 
     let (status, first) = call_response(
         app.clone(),
         json!({
             "model": "codex-test",
-            "messages": [{"role": "user", "content": "start a persistent thread"}],
+            "messages": [{"role": "user", "content": "[history-watermark-old] start a persistent thread"}],
             "stream": false
         }),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
     let session_id = response_session_id(&first).expect("session id").to_string();
+    let first_session = state
+        .sessions
+        .load("smoke-user", &session_id)
+        .await
+        .unwrap()
+        .expect("session");
+    assert_eq!(
+        first_session.codex_synced_message_count,
+        first_session.messages.len()
+    );
 
     let (status, follow_up) = call_response(
         app,
         json!({
             "model": "codex-test",
             "session_id": session_id,
-            "messages": [{"role": "user", "content": "[ids] continue the persistent thread"}],
+            "messages": [{"role": "user", "content": "[history-watermark-check] continue the persistent thread"}],
             "stream": false
         }),
     )
@@ -9636,8 +9653,18 @@ async fn chat_follow_up_resumes_codex_thread_without_replaying_turns() {
     assert_eq!(status, StatusCode::OK, "follow-up response: {follow_up}");
     let content = response_output_text(&follow_up);
     assert!(
-        content.starts_with("fake codex completed thread-1 turn-"),
-        "follow-up should resume the original thread, got {content:?}"
+        content.starts_with("history delta clean thread-1 turn-"),
+        "follow-up should resume the original thread without replaying synced history, got {content:?}"
+    );
+    let follow_up_session = state
+        .sessions
+        .load("smoke-user", &session_id)
+        .await
+        .unwrap()
+        .expect("session");
+    assert_eq!(
+        follow_up_session.codex_synced_message_count,
+        follow_up_session.messages.len()
     );
 
     let _ = std::fs::remove_dir_all(root);

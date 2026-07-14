@@ -558,6 +558,14 @@ pub(crate) fn reconcile_user_skill_settings(
         connector_statuses,
     };
     let skills = build_skill_manifest_with_options(&state.config, Some(&workspace), &options);
+    reconcile_user_skill_settings_from_entries(state, settings, &skills)
+}
+
+pub(crate) fn reconcile_user_skill_settings_from_entries(
+    state: &AppState,
+    settings: &mut UserSkillSettings,
+    skills: &[SkillManifestEntry],
+) -> Result<bool, ApiError> {
     let mut changed = false;
     for skill in skills.iter().filter(|skill| skill.source == "user") {
         if settings.archived_skill_ids().contains(&skill.id) {

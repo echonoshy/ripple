@@ -47,7 +47,7 @@ pub struct SkillManifestEntry {
     pub blocked_connectors: Vec<String>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SkillManifestOptions {
     pub enabled_user_skill_ids: BTreeSet<String>,
     pub validated_user_skill_ids: BTreeSet<String>,
@@ -237,11 +237,22 @@ pub fn render_skill_manifest_with_options(
     workspace_root: Option<&Path>,
     options: &SkillManifestOptions,
 ) -> String {
-    let entries = build_skill_manifest_with_options(config, workspace_root, options)
-        .into_iter()
-        .filter(|entry| entry.enabled && entry.status == STATUS_AVAILABLE)
-        .collect::<Vec<_>>();
-    render_skill_entries(entries, workspace_root)
+    let entries = build_skill_manifest_with_options(config, workspace_root, options);
+    render_available_skill_entries(&entries, workspace_root)
+}
+
+pub fn render_available_skill_entries(
+    entries: &[SkillManifestEntry],
+    workspace_root: Option<&Path>,
+) -> String {
+    render_skill_entries(
+        entries
+            .iter()
+            .filter(|entry| entry.enabled && entry.status == STATUS_AVAILABLE)
+            .cloned()
+            .collect(),
+        workspace_root,
+    )
 }
 
 pub fn render_all_skill_manifest_with_options(
@@ -1284,6 +1295,7 @@ metadata:
         assert!(!entry.enabled);
 
         let rendered = render_skill_manifest_with_options(&config, None, &options);
+        assert_eq!(rendered, render_available_skill_entries(&entries, None));
         assert!(!rendered.contains("ripple:gog-gmail"));
 
         let _ = std::fs::remove_dir_all(fake_gog_root);

@@ -33,8 +33,9 @@ use crate::storage::Storage;
 use event_log::append_event;
 use pool::{pool_generation, PoolKey, PoolState, PoolWorker, IDLE_REAPER_INTERVAL_SECONDS};
 use protocol::{
-    completed_final_agent_message, is_compaction_turn_failed, is_context_compaction_completed,
-    is_turn_completed, is_unsupported_server_request, notification_thread_id, notification_turn_id,
+    completed_final_agent_message, is_additional_context_compaction_completed,
+    is_compaction_turn_failed, is_context_compaction_completed, is_turn_completed,
+    is_unsupported_server_request, notification_thread_id, notification_turn_id,
     parse_approval_request, record_agent_message_phase, streamable_final_delta,
 };
 use runtime_env::{
@@ -545,6 +546,9 @@ pub struct CodexAppServerProvider {
     active_turns: Arc<Mutex<HashMap<String, ActiveTurn>>>,
     pending_approvals: Arc<Mutex<HashMap<String, Value>>>,
     pending_user_inputs: Arc<Mutex<HashMap<String, Value>>>,
+    // Avoid reusing pre-restart keys after a later context compaction.
+    additional_context_epoch_seed: u64,
+    additional_context_epochs: Arc<Mutex<HashMap<String, u64>>>,
 }
 
 impl CodexAppServerProvider {
@@ -560,6 +564,8 @@ impl CodexAppServerProvider {
             active_turns: Arc::new(Mutex::new(HashMap::new())),
             pending_approvals: Arc::new(Mutex::new(HashMap::new())),
             pending_user_inputs: Arc::new(Mutex::new(HashMap::new())),
+            additional_context_epoch_seed: uuid::Uuid::new_v4().as_u128() as u64,
+            additional_context_epochs: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -750,6 +756,23 @@ impl CodexAppServerProvider {
         })
     }
 
+    async fn additional_context_epoch(&self, thread_id: &str) -> u64 {
+        self.additional_context_epochs
+            .lock()
+            .await
+            .get(thread_id)
+            .copied()
+            .unwrap_or(self.additional_context_epoch_seed)
+    }
+
+    async fn bump_additional_context_epoch(&self, thread_id: &str) {
+        let mut epochs = self.additional_context_epochs.lock().await;
+        let epoch = epochs
+            .entry(thread_id.to_string())
+            .or_insert(self.additional_context_epoch_seed);
+        *epoch = epoch.wrapping_add(1);
+    }
+
     async fn run_turn(
         &self,
         request: &AgentRunnerRequest,
@@ -781,11 +804,17 @@ impl CodexAppServerProvider {
         let (thread_id, thread_resumed) = self
             .ensure_thread(request, session, &permission_config)
             .await?;
+        let additional_context_epoch = self.additional_context_epoch(&thread_id).await;
 
         let turn_result = session
             .request(
                 "turn/start",
-                turn_start_params(&thread_id, request, &self.config.codex.approval_policy),
+                turn_start_params(
+                    &thread_id,
+                    request,
+                    &self.config.codex.approval_policy,
+                    additional_context_epoch,
+                ),
             )
             .await?;
         let turn_id = turn_result
@@ -833,6 +862,7 @@ impl CodexAppServerProvider {
         let mut legacy_output_parts = Vec::new();
         let mut final_output_text = String::new();
         let mut phases: HashMap<String, Option<String>> = HashMap::new();
+        let mut context_compaction_seen = false;
         let deadline = Duration::from_secs(request.max_runtime_seconds.max(1));
         let collect = async {
             while let Some(message) = rx.recv().await {
@@ -892,6 +922,12 @@ impl CodexAppServerProvider {
                     continue;
                 }
                 record_agent_message_phase(&message, &mut phases);
+                if !context_compaction_seen
+                    && is_additional_context_compaction_completed(&message, thread_id)
+                {
+                    self.bump_additional_context_epoch(thread_id).await;
+                    context_compaction_seen = true;
+                }
                 if let Some(text) = completed_final_agent_message(&message) {
                     final_output_text = text;
                 } else if let Some(delta) = streamable_final_delta(&message, &phases) {
@@ -1063,6 +1099,7 @@ impl CodexAppServerProvider {
         thread_id: String,
     ) -> anyhow::Result<Value> {
         let session = CodexAppServerSession::new(user_id, self.config.clone(), workspace_root);
+        let epoch_thread_id = thread_id.clone();
         let result = async {
             session.ensure_started().await?;
             session.ensure_initialized().await?;
@@ -1072,6 +1109,12 @@ impl CodexAppServerProvider {
         }
         .await;
         session.shutdown().await;
+        if result.is_ok() {
+            self.additional_context_epochs
+                .lock()
+                .await
+                .remove(&epoch_thread_id);
+        }
         result
     }
 
@@ -1471,10 +1514,14 @@ impl CodexAppServerProvider {
         max_runtime_seconds: u64,
     ) -> anyhow::Result<()> {
         let session = CodexAppServerSession::new(user_id, self.config.clone(), workspace_root);
+        let epoch_thread_id = thread_id.clone();
         let result = self
             .compact_thread_with_session(&session, cwd, thread_id, max_runtime_seconds)
             .await;
         session.shutdown().await;
+        if result.is_ok() {
+            self.bump_additional_context_epoch(&epoch_thread_id).await;
+        }
         result
     }
 
@@ -1792,6 +1839,7 @@ fn turn_start_params(
     thread_id: &str,
     request: &AgentRunnerRequest,
     approval_policy: &Value,
+    additional_context_epoch: u64,
 ) -> Value {
     let mut params = serde_json::Map::new();
     params.insert("threadId".to_string(), json!(thread_id));
@@ -1828,6 +1876,21 @@ fn turn_start_params(
             }),
         );
     }
+    for (key, value) in &request.additional_context {
+        if key.trim().is_empty() {
+            continue;
+        }
+        let value = value.trim();
+        let value = if value.is_empty() { "(none)" } else { value };
+        let wire_key = granular_additional_context_key(key, additional_context_epoch);
+        additional_context.insert(
+            wire_key,
+            json!({
+                "value": value,
+                "kind": "application"
+            }),
+        );
+    }
     if !additional_context.is_empty() {
         params.insert(
             "additionalContext".to_string(),
@@ -1849,6 +1912,20 @@ fn turn_start_params(
         params.insert("outputSchema".to_string(), output_schema.clone());
     }
     Value::Object(params)
+}
+
+fn granular_additional_context_key(key: &str, epoch: u64) -> String {
+    let is_granular = key
+        .strip_prefix("ripple_")
+        .and_then(|value| value.split('_').next())
+        .is_some_and(|prefix| {
+            prefix.len() == 2 && prefix.bytes().all(|byte| byte.is_ascii_digit())
+        });
+    if is_granular {
+        format!("{key}_e{epoch}")
+    } else {
+        key.to_string()
+    }
 }
 
 fn persistent_thread(request: &AgentRunnerRequest) -> bool {
@@ -2024,6 +2101,7 @@ mod tests {
             base_instructions: None,
             turn_context: None,
             client_context: None,
+            additional_context: BTreeMap::new(),
             cwd: PathBuf::from("/tmp/ripple-test"),
             input_items: vec![
                 json!({"type": "skill", "name": "google_workspace"}),
@@ -2071,6 +2149,7 @@ mod tests {
                     .to_string(),
             ),
             client_context: None,
+            additional_context: BTreeMap::new(),
             cwd: PathBuf::from("/tmp/ripple-test"),
             input_items: Vec::new(),
             model: None,
@@ -2083,7 +2162,7 @@ mod tests {
             metadata: json!({}),
         };
 
-        let params = turn_start_params("thread-1", &request, &json!("never"));
+        let params = turn_start_params("thread-1", &request, &json!("never"), 0);
 
         assert_eq!(
             params.pointer("/input/0/text").and_then(Value::as_str),
@@ -2124,6 +2203,7 @@ mod tests {
                 "Client-provided state:\n- left_battery_percent: 80\n- right_battery_percent: 78\n- case_battery_percent: 55"
                     .to_string(),
             ),
+            additional_context: BTreeMap::new(),
             cwd: PathBuf::from("/tmp/ripple-test"),
             input_items: Vec::new(),
             model: None,
@@ -2136,7 +2216,7 @@ mod tests {
             metadata: json!({}),
         };
 
-        let params = turn_start_params("thread-1", &request, &json!("never"));
+        let params = turn_start_params("thread-1", &request, &json!("never"), 0);
 
         assert_eq!(
             params
@@ -2150,6 +2230,94 @@ mod tests {
             .expect("client context additionalContext");
         assert!(client_context.contains("left_battery_percent: 80"));
         assert!(client_context.contains("case_battery_percent: 55"));
+    }
+
+    #[test]
+    fn turn_start_params_send_granular_internal_context_without_user_input_changes() {
+        let request = AgentRunnerRequest {
+            provider: "codex".to_string(),
+            prompt: "继续处理".to_string(),
+            base_instructions: None,
+            turn_context: Some("legacy turn context".to_string()),
+            client_context: Some("legacy client context".to_string()),
+            additional_context: BTreeMap::from([
+                (
+                    "ripple_01_session_context".to_string(),
+                    "## Ripple Session\n- session_id: session-1".to_string(),
+                ),
+                (
+                    "ripple_10_recent_display_context".to_string(),
+                    "## Recent Ripple Display Context\n(none)".to_string(),
+                ),
+                ("ripple_12_attachments".to_string(), String::new()),
+                (
+                    "ripple_client_context".to_string(),
+                    "(superseded)".to_string(),
+                ),
+                (
+                    "ripple_turn_context".to_string(),
+                    "(superseded)".to_string(),
+                ),
+            ]),
+            cwd: PathBuf::from("/tmp/ripple-test"),
+            input_items: Vec::new(),
+            model: None,
+            effort: None,
+            summary: None,
+            output_schema: None,
+            max_runtime_seconds: 60,
+            user_id: Some("alice".to_string()),
+            session_id: Some("session-1".to_string()),
+            metadata: json!({}),
+        };
+
+        let params = turn_start_params("thread-1", &request, &json!("never"), 0);
+
+        assert_eq!(
+            params.pointer("/input/0/text").and_then(Value::as_str),
+            Some("继续处理")
+        );
+        assert_eq!(
+            params
+                .pointer("/additionalContext/ripple_01_session_context_e0/value")
+                .and_then(Value::as_str),
+            Some("## Ripple Session\n- session_id: session-1")
+        );
+        assert_eq!(
+            params
+                .pointer("/additionalContext/ripple_10_recent_display_context_e0/value")
+                .and_then(Value::as_str),
+            Some("## Recent Ripple Display Context\n(none)")
+        );
+        assert_eq!(
+            params
+                .pointer("/additionalContext/ripple_turn_context/value")
+                .and_then(Value::as_str),
+            Some("(superseded)")
+        );
+        assert_eq!(
+            params
+                .pointer("/additionalContext/ripple_client_context/value")
+                .and_then(Value::as_str),
+            Some("(superseded)")
+        );
+        assert_eq!(
+            params
+                .pointer("/additionalContext/ripple_12_attachments_e0/value")
+                .and_then(Value::as_str),
+            Some("(none)")
+        );
+
+        let after_compaction = turn_start_params("thread-1", &request, &json!("never"), 1);
+        assert!(after_compaction
+            .pointer("/additionalContext/ripple_01_session_context_e0")
+            .is_none());
+        assert_eq!(
+            after_compaction
+                .pointer("/additionalContext/ripple_01_session_context_e1/value")
+                .and_then(Value::as_str),
+            Some("## Ripple Session\n- session_id: session-1")
+        );
     }
 
     #[test]
@@ -2193,6 +2361,7 @@ mod tests {
             base_instructions: None,
             turn_context: None,
             client_context: None,
+            additional_context: BTreeMap::new(),
             cwd: PathBuf::from("/tmp/ripple-test"),
             input_items: Vec::new(),
             model: None,
@@ -2214,7 +2383,7 @@ mod tests {
             }
         });
 
-        let params = turn_start_params("thread-1", &request, &approval_policy);
+        let params = turn_start_params("thread-1", &request, &approval_policy, 0);
 
         assert_eq!(params.get("approvalPolicy"), Some(&approval_policy));
     }
@@ -2246,6 +2415,7 @@ mod tests {
             base_instructions: None,
             turn_context: None,
             client_context: None,
+            additional_context: BTreeMap::new(),
             cwd: PathBuf::from("/tmp/ripple-test"),
             input_items: Vec::new(),
             model: None,
@@ -2273,6 +2443,7 @@ mod tests {
             base_instructions: None,
             turn_context: None,
             client_context: None,
+            additional_context: BTreeMap::new(),
             cwd: PathBuf::from("/tmp/ripple-test"),
             input_items: Vec::new(),
             model: None,
@@ -2421,6 +2592,7 @@ mod tests {
             base_instructions: None,
             turn_context: None,
             client_context: None,
+            additional_context: BTreeMap::new(),
             cwd: workspace.clone(),
             input_items: Vec::new(),
             model: None,
@@ -2454,6 +2626,7 @@ mod tests {
             base_instructions: None,
             turn_context: None,
             client_context: None,
+            additional_context: BTreeMap::new(),
             cwd: workspace.clone(),
             input_items: Vec::new(),
             model: None,

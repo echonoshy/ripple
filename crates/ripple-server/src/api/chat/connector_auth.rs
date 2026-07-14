@@ -1239,6 +1239,7 @@ mod tests {
             pending_connector_auth: None,
             pending_control_request: None,
             codex_thread_id: None,
+            codex_synced_message_count: 0,
             memory_disabled: false,
             plan_steps: Vec::<Value>::new(),
             plan_progress: None,

@@ -191,9 +191,10 @@ impl Storage {
                 created_at, last_active, status, message_count,
                 pending_question, pending_options_json, pending_permission_request_json,
                 pending_connector_auth_json, pending_control_request_json, codex_thread_id,
+                codex_synced_message_count,
                 memory_disabled, plan_steps_json, plan_progress_json
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(user_id, session_id) DO UPDATE SET
                 title = excluded.title,
                 pinned = excluded.pinned,
@@ -214,6 +215,7 @@ impl Storage {
                 pending_connector_auth_json = excluded.pending_connector_auth_json,
                 pending_control_request_json = excluded.pending_control_request_json,
                 codex_thread_id = excluded.codex_thread_id,
+                codex_synced_message_count = excluded.codex_synced_message_count,
                 memory_disabled = excluded.memory_disabled,
                 plan_steps_json = excluded.plan_steps_json,
                 plan_progress_json = excluded.plan_progress_json
@@ -242,6 +244,9 @@ impl Storage {
         .bind(json_option_text(record.pending_connector_auth.as_ref())?)
         .bind(json_option_text(record.pending_control_request.as_ref())?)
         .bind(&record.codex_thread_id)
+        .bind(usize_to_i64(
+            record.codex_synced_message_count.min(record.messages.len()),
+        )?)
         .bind(if record.memory_disabled { 1_i64 } else { 0_i64 })
         .bind(json_serialize_text(&record.plan_steps)?)
         .bind(json_option_text(record.plan_progress.as_ref())?)
@@ -286,6 +291,7 @@ impl Storage {
                    created_at, last_active, status, message_count,
                    pending_question, pending_options_json, pending_permission_request_json,
                    pending_connector_auth_json, pending_control_request_json, codex_thread_id,
+                   codex_synced_message_count,
                    memory_disabled, plan_steps_json, plan_progress_json
             FROM sessions
             WHERE user_id = ? AND session_id = ?
@@ -312,6 +318,7 @@ impl Storage {
                    created_at, last_active, status, message_count,
                    pending_question, pending_options_json, pending_permission_request_json,
                    pending_connector_auth_json, pending_control_request_json, codex_thread_id,
+                   codex_synced_message_count,
                    memory_disabled, plan_steps_json, plan_progress_json
             FROM sessions
             WHERE user_id = ?
@@ -790,6 +797,9 @@ impl Storage {
                 message_row.get::<String, _>("message_json").as_str(),
             )?);
         }
+        let message_count = messages.len();
+        let codex_synced_message_count =
+            i64_to_usize(row.get::<i64, _>("codex_synced_message_count"))?.min(message_count);
         Ok(SessionRecord {
             session_id,
             user_id,
@@ -805,7 +815,7 @@ impl Storage {
             created_at: row.get("created_at"),
             last_active: row.get("last_active"),
             status: row.get("status"),
-            message_count: messages.len(),
+            message_count,
             messages,
             pending_question: row.get("pending_question"),
             pending_options: json_option_from_text(
@@ -821,6 +831,7 @@ impl Storage {
                 row.get::<Option<String>, _>("pending_control_request_json"),
             )?,
             codex_thread_id: row.get("codex_thread_id"),
+            codex_synced_message_count,
             memory_disabled: row.get::<i64, _>("memory_disabled") != 0,
             plan_steps: serde_json::from_str(row.get::<String, _>("plan_steps_json").as_str())?,
             plan_progress: json_option_from_text(
@@ -930,6 +941,10 @@ fn i64_to_u64(value: i64) -> anyhow::Result<u64> {
     u64::try_from(value).context("SQLite integer is negative")
 }
 
+fn i64_to_usize(value: i64) -> anyhow::Result<usize> {
+    usize::try_from(value).context("SQLite integer exceeds usize range")
+}
+
 fn i64_to_u32(value: i64) -> anyhow::Result<u32> {
     u32::try_from(value).context("SQLite integer exceeds u32 range")
 }
@@ -967,6 +982,7 @@ mod tests {
             pending_connector_auth: None,
             pending_control_request: None,
             codex_thread_id: None,
+            codex_synced_message_count: 99,
             memory_disabled: false,
             plan_steps: Vec::new(),
             plan_progress: None,
@@ -985,6 +1001,7 @@ mod tests {
             Some("/workspace/demo")
         );
         assert_eq!(loaded.total_output_tokens, 2);
+        assert_eq!(loaded.codex_synced_message_count, 1);
 
         let _ = std::fs::remove_dir_all(root);
         Ok(())
@@ -1018,6 +1035,7 @@ mod tests {
             pending_connector_auth: None,
             pending_control_request: None,
             codex_thread_id: None,
+            codex_synced_message_count: 0,
             memory_disabled: false,
             plan_steps: Vec::new(),
             plan_progress: None,
@@ -1066,6 +1084,7 @@ mod tests {
             pending_connector_auth: None,
             pending_control_request: None,
             codex_thread_id: None,
+            codex_synced_message_count: 0,
             memory_disabled: false,
             plan_steps: Vec::new(),
             plan_progress: None,
@@ -1133,6 +1152,7 @@ mod tests {
             pending_connector_auth: None,
             pending_control_request: None,
             codex_thread_id: None,
+            codex_synced_message_count: 0,
             memory_disabled: false,
             plan_steps: Vec::new(),
             plan_progress: None,
@@ -1196,6 +1216,7 @@ mod tests {
             pending_connector_auth: None,
             pending_control_request: None,
             codex_thread_id: None,
+            codex_synced_message_count: 0,
             memory_disabled: false,
             plan_steps: Vec::new(),
             plan_progress: None,
@@ -1386,6 +1407,7 @@ mod tests {
             pending_connector_auth: None,
             pending_control_request: None,
             codex_thread_id: None,
+            codex_synced_message_count: 0,
             memory_disabled: false,
             plan_steps: Vec::new(),
             plan_progress: None,

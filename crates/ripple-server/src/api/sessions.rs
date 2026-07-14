@@ -767,10 +767,21 @@ pub async fn clear_session_context(
         .sessions
         .recover_stale_context_compaction(&user_id, &session_id)
         .await?;
+    let _session_run_guard = state
+        .sessions
+        .session_lock(&user_id, &session_id)
+        .lock_owned()
+        .await;
+    recover_session_run_state(&state, &user_id, &session_id).await?;
     let Some(session) = state.sessions.load(&user_id, &session_id).await? else {
         return Err(ApiError::not_found("Session not found"));
     };
-    if session.status_kind().is_busy() {
+    if session.status_kind().is_busy()
+        || state
+            .jobs
+            .has_active_session_run(&user_id, &session_id)
+            .await
+    {
         return Err(ApiError::conflict("Session is currently running"));
     }
     let codex_thread_id = trimmed_codex_thread_id(session.codex_thread_id.as_deref());

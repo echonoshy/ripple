@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::time::Instant;
 
 use axum::extract::State;
 use axum::http::HeaderMap;
@@ -6,7 +7,10 @@ use axum::Json;
 use serde_json::{json, Value};
 
 use crate::api::connectors::{connector_status_value, read_valid_bilibili_credential_file};
-use crate::api::skills::{public_skill_api_path, reconcile_user_skill_settings};
+use crate::api::skills::{
+    public_skill_api_path, reconcile_user_skill_settings,
+    reconcile_user_skill_settings_from_entries,
+};
 use crate::api::ApiError;
 use crate::capabilities::{
     connector_definitions, connector_info, related_connector_for_skill,
@@ -63,16 +67,36 @@ pub(crate) async fn catalog_skill_manifest_options_for_user(
     state: &AppState,
     user_id: &str,
 ) -> Result<SkillManifestOptions, ApiError> {
+    Ok(catalog_skill_manifest_for_user(state, user_id).await?.0)
+}
+
+pub(crate) async fn catalog_skill_manifest_for_user(
+    state: &AppState,
+    user_id: &str,
+) -> Result<(SkillManifestOptions, Vec<SkillManifestEntry>), ApiError> {
+    let started = Instant::now();
     let settings_file = state.sandboxes.skill_settings_file(user_id)?;
     let mut settings = read_user_skill_settings(&settings_file);
     let connector_statuses = catalog_connector_statuses(state, user_id).await?;
-    if reconcile_user_skill_settings(state, user_id, &mut settings, connector_statuses.clone())? {
+    let initial_options =
+        skill_manifest_options_for_user_with_settings(&settings, connector_statuses.clone())?;
+    let workspace = state.sandboxes.workspace_dir(user_id)?;
+    let mut skills =
+        build_skill_manifest_with_options(&state.config, Some(&workspace), &initial_options);
+    if reconcile_user_skill_settings_from_entries(state, &mut settings, &skills)? {
         write_user_skill_settings(&settings_file, &settings)?;
     }
-    Ok(skill_manifest_options_for_user_with_settings(
-        &settings,
-        connector_statuses,
-    )?)
+    let final_options =
+        skill_manifest_options_for_user_with_settings(&settings, connector_statuses)?;
+    if final_options != initial_options {
+        skills = build_skill_manifest_with_options(&state.config, Some(&workspace), &final_options);
+    }
+    tracing::debug!(
+        skill_count = skills.len(),
+        elapsed_ms = started.elapsed().as_millis() as u64,
+        "skill catalog prepared"
+    );
+    Ok((final_options, skills))
 }
 
 fn skill_manifest_options_for_user_with_settings(
@@ -90,14 +114,7 @@ fn skill_manifest_options_for_user_with_settings(
 
 async fn capability_catalog(state: &AppState, user_id: &str) -> Result<Vec<Value>, ApiError> {
     let workspace = state.sandboxes.workspace_dir(user_id)?;
-    let settings_file = state.sandboxes.skill_settings_file(user_id)?;
-    let mut settings = read_user_skill_settings(&settings_file);
-    let connector_statuses = catalog_connector_statuses(state, user_id).await?;
-    if reconcile_user_skill_settings(state, user_id, &mut settings, connector_statuses.clone())? {
-        write_user_skill_settings(&settings_file, &settings)?;
-    }
-    let options = skill_manifest_options_for_user_with_settings(&settings, connector_statuses)?;
-    let skills = build_skill_manifest_with_options(&state.config, Some(&workspace), &options);
+    let (options, skills) = catalog_skill_manifest_for_user(state, user_id).await?;
     let connector_statuses = options.connector_statuses.clone();
     let mut capabilities = Vec::new();
     for connector in connector_definitions() {
@@ -161,21 +178,58 @@ async fn catalog_connector_statuses(
     state: &AppState,
     user_id: &str,
 ) -> Result<BTreeMap<String, bool>, ApiError> {
-    let mut statuses = BTreeMap::new();
-    for connector in connector_definitions() {
+    let started = Instant::now();
+    let definitions = connector_definitions();
+    let mut pending = tokio::task::JoinSet::new();
+    let mut results = (0..definitions.len())
+        .map(|_| None)
+        .collect::<Vec<Option<Result<bool, ApiError>>>>();
+
+    for (index, connector) in definitions.iter().enumerate() {
         if connector.kind == "runtime_capability" {
-            statuses.insert(connector.name.to_string(), true);
+            results[index] = Some(Ok(true));
             continue;
         }
-        let status = connector_status_value(state, user_id, connector.name).await?;
-        statuses.insert(
-            connector.name.to_string(),
-            status
-                .get("connected")
-                .and_then(Value::as_bool)
-                .unwrap_or(false),
-        );
+        let state = state.clone();
+        let user_id = user_id.to_string();
+        let connector_name = connector.name;
+        pending.spawn(async move {
+            let connector_started = Instant::now();
+            let result = connector_status_value(&state, &user_id, connector_name)
+                .await
+                .map(|status| {
+                    status
+                        .get("connected")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false)
+                });
+            tracing::debug!(
+                connector = connector_name,
+                elapsed_ms = connector_started.elapsed().as_millis() as u64,
+                "connector status check completed"
+            );
+            (index, result)
+        });
     }
+
+    while let Some(joined) = pending.join_next().await {
+        let (index, result) = joined
+            .map_err(|err| ApiError::bad_request(format!("connector status task failed: {err}")))?;
+        results[index] = Some(result);
+    }
+
+    let mut statuses = BTreeMap::new();
+    for (index, connector) in definitions.iter().enumerate() {
+        let connected = results[index]
+            .take()
+            .expect("connector status result must be collected")?;
+        statuses.insert(connector.name.to_string(), connected);
+    }
+    tracing::debug!(
+        connector_count = definitions.len(),
+        elapsed_ms = started.elapsed().as_millis() as u64,
+        "connector catalog status checks completed"
+    );
     Ok(statuses)
 }
 

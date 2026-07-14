@@ -2654,6 +2654,13 @@ async fn execute_task_action_inner(
         .load(user_id, &session_id)
         .await?
         .ok_or_else(|| ApiError::not_found("Session not found"))?;
+    let codex_prefix_was_fully_synced = session.codex_synced_message_count
+        == session.messages.len()
+        && (session
+            .codex_thread_id
+            .as_deref()
+            .is_some_and(|thread_id| !thread_id.trim().is_empty())
+            || session.messages.is_empty());
     if session.status_kind().is_busy() || session.status_kind().is_awaiting_approval() {
         return Err(ApiError::conflict("Session already has work in progress"));
     }
@@ -2837,6 +2844,16 @@ async fn execute_task_action_inner(
         let result_summary = sanitize_user_visible_text(state, user_id, &output_text);
         if !result_summary.trim().is_empty() {
             append_assistant_message(&mut session, &result_summary);
+            if codex_prefix_was_fully_synced
+                && final_info
+                    .metadata
+                    .get("codex_persistent_thread")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+                && session.codex_thread_id.is_some()
+            {
+                session.codex_synced_message_count = session.messages.len();
+            }
         }
         let latest_action = load_task_action(&state.storage, user_id, task_id, &action_id).await?;
         let latest_action_status = latest_action

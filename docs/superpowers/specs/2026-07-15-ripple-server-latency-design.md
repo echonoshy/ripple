@@ -1,7 +1,7 @@
 # Ripple Server Latency Remediation Design
 
 Date: 2026-07-15
-Status: Approved; health-only connector refinement clarified during implementation planning
+Status: Ready for final user review
 
 ## 1. Problem statement
 
@@ -83,9 +83,9 @@ WHERE user_id = ?
   AND pending_connector_auth_json IS NOT NULL
 ```
 
-Parse this result once into `BTreeMap<String, usize>`. The explicit single-connector status endpoint uses the lightweight map for its connector count while retaining a live health check.
+Parse this result once into `BTreeMap<String, usize>`. `catalog_connector_statuses` obtains the map once and passes counts into individual connector checks. It must not call `list_sessions`, construct `SessionRecord`, or query `session_messages`.
 
-`catalog_connector_statuses` only consumes the connector `connected` boolean, so it must call a health-only helper and perform zero pending-auth reads. Neither path may call `list_sessions`, construct `SessionRecord`, or query `session_messages`.
+The explicit single-connector status endpoint may use the same lightweight query for its connector count, but it retains a live health check.
 
 ### 5.2 Chat-only connector health cache
 
@@ -102,7 +102,7 @@ Introduce an application-state cache for the connector health values consumed by
 
 Connector mutation flows must invalidate or update the affected user's cache. Explicit connector status endpoints bypass stale-while-revalidate so their existing live semantics remain intact.
 
-Pending authentication counts are not part of this cache. Chat/capability catalog preparation does not read them; an explicit connector status request performs one lightweight pending-auth projection so cancellation and user-action state remain prompt.
+Pending authentication counts are not part of this cache; they remain one lightweight database read per catalog preparation so cancellation and user-action state remain prompt.
 
 ### 5.3 Skill manifest cache
 
@@ -163,6 +163,7 @@ Add structured timings without changing API payloads:
 - pending-auth batch-query duration;
 - skill manifest cache/build duration;
 - session summary count/query duration;
+- SQLite pool-acquire duration where practical;
 - maintenance and task-poller duration and errors;
 - existing folder-context and Codex enqueue timings promoted or sampled at an operationally visible level.
 
@@ -229,7 +230,7 @@ Changing journal mode, pool size, binary profile, folder-context caching, or SSE
 
 ## 9. Success criteria
 
-- One chat catalog preparation performs zero pending-auth and zero session-message queries; an explicit connector status request performs at most one lightweight pending-auth query.
+- One chat catalog preparation performs at most one lightweight pending-auth query and zero session-message queries for pending-auth counts.
 - A hot connector/skill cache path performs no connector CLI probe and no recursive skill filesystem build.
 - `/sessions` database work does not grow with the number of session messages outside the requested page.
 - No global active-session map lock is held across SQLite I/O.

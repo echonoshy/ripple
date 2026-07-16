@@ -122,12 +122,21 @@ POST /via-gateway/v1/task-sessions
   "idempotency_key": "create-via-20260716-000123",
   "title": "发送会议通知",
   "content": "用飞书通知张三明天下午三点开会",
+  "model": "codex-medium",
+  "effort": "medium",
   "callback_url": "https://server.example.com/task-status",
   "context": {"space_id": "space_001", "doc_id": "doc_001"}
 }
 ```
 
 响应 `data.task_session`。信息不足时状态为 `waiting_user`，并返回 `required_action.type = reply`；信息完整时状态为 `pending_confirmation`。
+
+`model`、`effort` 都是可选字段：
+
+- 创建时传入后，作为该 TaskSession 的默认执行配置保存，并在 `data.task_session.model`、`data.task_session.effort` 中回显。
+- `model` 可以传真实模型名，也可以传 Ripple 配置中的 preset 名称；Ripple 会像 Chat 接口一样把 preset 解析为真实模型名。
+- `effort` 的取值与 Chat 接口一致，例如 `low`、`medium`、`high`；显式传入的 `effort` 优先于 preset 默认值。
+- 未传时使用 Ripple 的默认模型及该模型 preset 的默认 effort。
 
 ### 3.2 补充或修改任务
 
@@ -141,11 +150,15 @@ POST /via-gateway/v1/task-sessions/{task_id}/messages
   "req_id": "via-20260716-000123",
   "idempotency_key": "message-via-20260716-000123-1",
   "expected_draft_version": 1,
-  "content": "收件人是张三，内容是明天下午三点开会"
+  "content": "收件人是张三，内容是明天下午三点开会",
+  "model": "codex-medium",
+  "effort": "high"
 }
 ```
 
 每次有效更新后 `draft_version + 1`。版本不一致时返回 HTTP 409 和 `draft_version_conflict`。
+
+`model`、`effort` 可选，只覆盖本次 TaskSpec 解析，不修改 TaskSession 默认值。
 
 ### 3.3 确认并自动执行
 
@@ -158,7 +171,9 @@ POST /via-gateway/v1/task-sessions/{task_id}/confirm
   "user_id": "user_001",
   "req_id": "via-20260716-000123",
   "idempotency_key": "confirm-via-20260716-000123",
-  "draft_version": 2
+  "draft_version": 2,
+  "model": "codex-medium",
+  "effort": "high"
 }
 ```
 
@@ -168,6 +183,14 @@ Ripple 冻结当前草稿为 `confirmed_task`，创建 `current_execution`，然
 - 未授权：返回 `waiting_user`、`waiting_reason = connector_auth` 和 `required_action.auth_url`。
 
 授权完成后继续使用同一个 `execution_id`，不再次确认。
+
+`model`、`effort` 可选，只覆盖本次任务执行。执行配置优先级如下：
+
+1. 当前 `confirm` 请求中的 `model`、`effort`。
+2. 创建 TaskSession 时保存的默认 `model`、`effort`。
+3. Ripple 服务端默认模型及对应 preset 的默认 effort。
+
+如果只覆盖 `model` 而没有传 `effort`，优先使用 TaskSession 默认 effort；TaskSession 也没有默认 effort 时，使用该模型 preset 的默认 effort。
 
 ### 3.4 查询任务
 

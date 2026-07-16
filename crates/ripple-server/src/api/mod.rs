@@ -548,6 +548,24 @@ mod tests {
         gogcli_cli_install_root: Option<std::path::PathBuf>,
         nsjail_path: Option<std::path::PathBuf>,
     ) -> AppState {
+        test_state_from_root_with_codex_executable(
+            api_keys,
+            shared_dirs,
+            root,
+            gogcli_cli_install_root,
+            nsjail_path,
+            "codex".to_string(),
+        )
+    }
+
+    fn test_state_from_root_with_codex_executable(
+        api_keys: Vec<String>,
+        shared_dirs: Vec<String>,
+        root: std::path::PathBuf,
+        gogcli_cli_install_root: Option<std::path::PathBuf>,
+        nsjail_path: Option<std::path::PathBuf>,
+        codex_executable: String,
+    ) -> AppState {
         AppState::new(AppConfig {
             repo_root: root.clone(),
             host: "127.0.0.1".to_string(),
@@ -587,7 +605,7 @@ mod tests {
             },
             codex: CodexConfig {
                 enabled: true,
-                codex_executable: "codex".to_string(),
+                codex_executable,
                 app_server_args: Vec::new(),
                 codex_home: None,
                 approval_policy: serde_json::json!("never"),
@@ -902,12 +920,16 @@ mod tests {
             "ripple-api-health-ready-paths-{}",
             uuid::Uuid::new_v4()
         ));
-        let state = test_state_from_root(
+        let state = test_state_from_root_with_codex_executable(
             vec!["service-key".to_string()],
             Vec::new(),
             root.clone(),
             None,
             None,
+            std::env::current_exe()
+                .expect("current test executable")
+                .to_string_lossy()
+                .to_string(),
         );
 
         let (status, body) = request_json(

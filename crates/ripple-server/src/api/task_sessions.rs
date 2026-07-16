@@ -11,6 +11,7 @@ use tokio::time::{sleep, Duration};
 use tracing::warn;
 use uuid::Uuid;
 
+use crate::api::connectors::{connector_auth_start_action, connector_status_value};
 use crate::api::users::assert_can_create_run;
 use crate::api::{paginate, ApiError, ListQuery};
 use crate::auth::now_iso;
@@ -18,6 +19,13 @@ use crate::jobs::{AgentRunCreateRequest, AgentRunInfo};
 use crate::state::AppState;
 use crate::storage::Storage;
 use crate::user::user_id_from_headers;
+
+#[derive(Debug, Deserialize, Default)]
+pub struct TaskSessionListQuery {
+    pub limit: Option<usize>,
+    pub cursor: Option<String>,
+    pub req_id: Option<String>,
+}
 
 const TASK_SESSION_STATUSES: &[&str] = &[
     "pending_confirm",
@@ -69,15 +77,31 @@ const RIPPLE_EXECUTORS: &[&str] = &["ripple", "vitana", "ripple_vitana"];
 pub async fn list_task_sessions(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Query(query): Query<ListQuery>,
+    Query(query): Query<TaskSessionListQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
-    let records = state.storage.list_task_sessions(&user_id).await?;
-    let total = records.len();
-    let (sessions, next_cursor) = paginate(records, &query)?;
+    let records = state
+        .storage
+        .list_task_sessions(&user_id)
+        .await?
+        .into_iter()
+        .filter(|session| {
+            query.req_id.as_deref().map_or(true, |req_id| {
+                session.get("req_id").and_then(Value::as_str) == Some(req_id)
+            })
+        })
+        .collect::<Vec<_>>();
+    let query_page = ListQuery {
+        limit: query.limit,
+        cursor: query.cursor,
+    };
+    let (records, next_cursor) = paginate(records, &query_page)?;
+    let mut items = Vec::with_capacity(records.len());
+    for session in records {
+        items.push(simple_task_session_from_record(&state.storage, &user_id, session).await?);
+    }
     Ok(Json(json!({
-        "task_sessions": sessions,
-        "count": total,
+        "items": items,
         "next_cursor": next_cursor
     })))
 }
@@ -103,6 +127,13 @@ pub async fn create_task_session(
     Json(input): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
+    if let Some(response) =
+        load_task_command_replay(&state.storage, &user_id, "create", &input).await?
+    {
+        return Ok(Json(response));
+    }
+    let _ = required_str(&input, "req_id")?;
+    let _ = required_str(&input, "idempotency_key")?;
     let now = now_iso();
     let mut session = task_session_from_payload(&input, &user_id, &now)?;
     let session_id = required_str(&session, "session_id")?.to_string();
@@ -114,8 +145,9 @@ pub async fn create_task_session(
     let initial_message = input
         .get("initial_message")
         .or_else(|| input.get("message"))
+        .or_else(|| input.get("content"))
         .cloned();
-    if let Some(message) = initial_message {
+    if let Some(message) = initial_message.as_ref() {
         let event = event_record(
             &user_id,
             &session_id,
@@ -139,6 +171,7 @@ pub async fn create_task_session(
         );
         set_field(&mut session, "status", json!("pending_confirm"));
         set_field(&mut session, "needs_user_action", json!(true));
+        set_field(&mut session, "draft_version", json!(1));
         set_field(&mut session, "updated_at", json!(now.clone()));
         state
             .storage
@@ -168,10 +201,39 @@ pub async fn create_task_session(
         .await?;
     }
 
-    Ok(Json(json!({
-        "task_session": session,
-        "task_spec": created_spec
-    })))
+    let mut assistant_message = None;
+    if created_spec.is_none() {
+        if let Some(message) = initial_message.as_ref().and_then(Value::as_str) {
+            let extraction = extract_task_spec_turn_with_codex(
+                &state,
+                &user_id,
+                &session_id,
+                &session,
+                None,
+                &input,
+                message,
+            )
+            .await?;
+            let projection = persist_task_spec_turn_projection(
+                &state.storage,
+                &user_id,
+                &session_id,
+                &session,
+                None,
+                extraction,
+            )
+            .await?;
+            assistant_message = Some(projection.assistant_message);
+        }
+    }
+    let public_session =
+        simple_task_session_from_storage(&state.storage, &user_id, &session_id).await?;
+    let mut response = json!({"task_session": public_session});
+    if let Some(message) = assistant_message {
+        set_field(&mut response, "assistant_message", json!(message));
+    }
+    save_task_command_response(&state.storage, &user_id, "create", &input, &response).await?;
+    Ok(Json(response))
 }
 
 #[utoipa::path(
@@ -195,9 +257,10 @@ pub async fn get_task_session(
     Path(session_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
-    Ok(Json(
-        task_session_detail(&state.storage, &user_id, &session_id).await?,
-    ))
+    maybe_resume_after_connector_auth(&state, &user_id, &session_id).await?;
+    Ok(Json(json!({
+        "task_session": simple_task_session_from_storage(&state.storage, &user_id, &session_id).await?
+    })))
 }
 
 #[utoipa::path(
@@ -267,46 +330,56 @@ pub async fn append_task_session_message(
     Json(input): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
-    let mut session = load_task_session(&state.storage, &user_id, &session_id).await?;
-    let role = string_field(&input, "role").unwrap_or_else(|| "user".to_string());
-    if !matches!(role.as_str(), "user" | "assistant" | "agent" | "system") {
-        return Err(ApiError::bad_request("message role is invalid"));
+    let action = format!("message:{session_id}");
+    if let Some(response) =
+        load_task_command_replay(&state.storage, &user_id, &action, &input).await?
+    {
+        return Ok(Json(response));
     }
+    let session = load_task_session(&state.storage, &user_id, &session_id).await?;
+    validate_task_req_id(&session, &input)?;
+    validate_expected_draft_version(&session, &input, "expected_draft_version")?;
     let content = string_field(&input, "content")
+        .or_else(|| string_field(&input, "message"))
         .ok_or_else(|| ApiError::bad_request("message content is required"))?;
-    let now = now_iso();
-    let event = event_record(
+    append_task_session_event(
+        &state.storage,
         &user_id,
         &session_id,
         "task_session_message",
         json!({
-            "role": role,
+            "role": "user",
             "content": content,
             "metadata": input.get("metadata").cloned().unwrap_or(Value::Null)
         }),
-        &now,
-    );
-    set_field(&mut session, "latest_message", json!(content));
-    if let Some(status) = string_field(&input, "status") {
-        validate_status(&status, TASK_SESSION_STATUSES, "task session status")?;
-        set_field(&mut session, "status", json!(status));
-    }
-    if let Some(needs_user_action) = input.get("needs_user_action").and_then(Value::as_bool) {
-        set_field(&mut session, "needs_user_action", json!(needs_user_action));
-    }
-    set_field(&mut session, "updated_at", json!(now));
-    state
-        .storage
-        .upsert_task_session_event(&user_id, &session_id, &event)
-        .await?;
-    state
-        .storage
-        .upsert_task_session(&user_id, &session)
-        .await?;
-    Ok(Json(json!({
-        "task_session": session,
-        "event": event
-    })))
+    )
+    .await?;
+    let current_spec = current_task_spec(&state.storage, &user_id, &session_id, &session).await?;
+    let extraction = extract_task_spec_turn_with_codex(
+        &state,
+        &user_id,
+        &session_id,
+        &session,
+        current_spec.as_ref(),
+        &input,
+        &content,
+    )
+    .await?;
+    let projection = persist_task_spec_turn_projection(
+        &state.storage,
+        &user_id,
+        &session_id,
+        &session,
+        current_spec,
+        extraction,
+    )
+    .await?;
+    let response = json!({
+        "task_session": simple_task_session_from_storage(&state.storage, &user_id, &session_id).await?,
+        "assistant_message": projection.assistant_message
+    });
+    save_task_command_response(&state.storage, &user_id, &action, &input, &response).await?;
+    Ok(Json(response))
 }
 
 #[utoipa::path(
@@ -582,6 +655,266 @@ pub async fn confirm_task_spec(
 
 #[utoipa::path(
     post,
+    path = "/task-sessions/{task_id}/confirm",
+    tag = "task-sessions",
+    params(("task_id" = String, Path, description = "Task session id")),
+    request_body = crate::api::openapi::GenericJsonObject,
+    responses(
+        (status = 200, description = "Confirmed task and started execution", body = serde_json::Value),
+        (status = 400, description = "Invalid confirmation", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 409, description = "Draft version conflict", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(("bearerAuth" = []), ("apiKeyAuth" = []))
+)]
+pub async fn confirm_task_session(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(session_id): Path<String>,
+    Json(input): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
+    let action = format!("confirm:{session_id}");
+    if let Some(response) =
+        load_task_command_replay(&state.storage, &user_id, &action, &input).await?
+    {
+        return Ok(Json(response));
+    }
+    let session = load_task_session(&state.storage, &user_id, &session_id).await?;
+    validate_task_req_id(&session, &input)?;
+    let spec = current_task_spec(&state.storage, &user_id, &session_id, &session)
+        .await?
+        .ok_or_else(|| {
+            ApiError::conflict(json!({
+                "code": "task_draft_not_ready",
+                "message": "任务草稿尚未准备完成。",
+                "task_id": session_id,
+                "req_id": input.get("req_id").cloned().unwrap_or(Value::Null)
+            }))
+        })?;
+    let now = now_iso();
+    let (confirmed_session, confirmed_spec) =
+        freeze_task_confirmation(&session, &spec, &input, &now)?;
+    state
+        .storage
+        .upsert_task_session_spec(&user_id, &session_id, &confirmed_spec)
+        .await?;
+    state
+        .storage
+        .upsert_task_session(&user_id, &confirmed_session)
+        .await?;
+    append_task_session_event(
+        &state.storage,
+        &user_id,
+        &session_id,
+        "task_spec_confirmed",
+        json!({
+            "task_spec_id": confirmed_spec.get("task_spec_id").cloned().unwrap_or(Value::Null),
+            "draft_version": confirmed_session.get("draft_version").cloned().unwrap_or(Value::Null)
+        }),
+    )
+    .await?;
+
+    let task_spec_id = required_str(&confirmed_spec, "task_spec_id")?.to_string();
+    let mut execution_input = input.clone();
+    set_field(&mut execution_input, "auto_execute", json!(true));
+    set_field(&mut execution_input, "executor", json!("ripple"));
+    let mut run = create_task_run_record(
+        &state.storage,
+        &user_id,
+        &session_id,
+        &task_spec_id,
+        &execution_input,
+    )
+    .await?;
+
+    let missing_connector = first_missing_connector(&state, &user_id, &confirmed_spec).await?;
+    if let Some(connector) = missing_connector {
+        let auth = connector_auth_start_action(
+            &state,
+            &user_id,
+            &connector,
+            &json!({
+                "task_id": session_id,
+                "execution_id": run.get("run_id").cloned().unwrap_or(Value::Null)
+            }),
+            None,
+        )
+        .await?
+        .0;
+        set_field(&mut run, "status", json!("waiting_user"));
+        set_field(&mut run, "updated_at", json!(now_iso()));
+        persist_task_run_status_projection(&state.storage, &user_id, &session_id, &run).await?;
+        let mut waiting_session = load_task_session(&state.storage, &user_id, &session_id).await?;
+        let auth_url = auth
+            .pointer("/data/oauth_url")
+            .or_else(|| auth.pointer("/data/auth_url"))
+            .or_else(|| auth.get("oauth_url"))
+            .or_else(|| auth.get("auth_url"))
+            .cloned()
+            .unwrap_or(Value::Null);
+        let mut required_action = json!({
+            "type": "connector_auth",
+            "message": format!("需要完成 {connector} 授权后继续执行。"),
+            "connector": connector,
+            "auth_url": auth_url
+        });
+        if let Some(expires) = auth
+            .pointer("/data/expires_at")
+            .or_else(|| auth.pointer("/data/expires_in_seconds"))
+        {
+            set_field(&mut required_action, "expires_at", expires.clone());
+        }
+        set_field(
+            &mut waiting_session,
+            "waiting_reason",
+            json!("connector_auth"),
+        );
+        set_field(&mut waiting_session, "required_action", required_action);
+        set_field(&mut waiting_session, "needs_user_action", json!(true));
+        set_field(&mut waiting_session, "updated_at", json!(now_iso()));
+        state
+            .storage
+            .upsert_task_session(&user_id, &waiting_session)
+            .await?;
+    } else {
+        maybe_start_ripple_task_execution(
+            state.clone(),
+            user_id.clone(),
+            session_id.clone(),
+            run,
+            confirmed_spec,
+            &execution_input,
+        );
+    }
+
+    let response = json!({
+        "task_session": simple_task_session_from_storage(&state.storage, &user_id, &session_id).await?
+    });
+    save_task_command_response(&state.storage, &user_id, &action, &input, &response).await?;
+    Ok(Json(response))
+}
+
+fn freeze_task_confirmation(
+    session: &Value,
+    spec: &Value,
+    input: &Value,
+    now: &str,
+) -> Result<(Value, Value), ApiError> {
+    validate_task_req_id(session, input)?;
+    let version = validate_expected_draft_version(session, input, "draft_version")?;
+    if session.get("status").and_then(Value::as_str) != Some("pending_confirm") {
+        return Err(ApiError::conflict(json!({
+            "code": "task_not_pending_confirmation",
+            "message": "任务当前不在待确认状态。",
+            "task_id": session.get("session_id").cloned().unwrap_or(Value::Null),
+            "req_id": input.get("req_id").cloned().unwrap_or(Value::Null)
+        })));
+    }
+    let mut next_session = session.clone();
+    set_field(&mut next_session, "status", json!("in_progress"));
+    set_field(&mut next_session, "needs_user_action", json!(false));
+    set_field(&mut next_session, "confirmed_version", json!(version));
+    set_field(&mut next_session, "waiting_reason", Value::Null);
+    set_field(&mut next_session, "required_action", Value::Null);
+    set_field(&mut next_session, "updated_at", json!(now));
+    let mut next_spec = spec.clone();
+    set_field(&mut next_spec, "status", json!("confirmed"));
+    set_field(&mut next_spec, "confirmed_at", json!(now));
+    set_field(&mut next_spec, "updated_at", json!(now));
+    Ok((next_session, next_spec))
+}
+
+async fn first_missing_connector(
+    state: &AppState,
+    user_id: &str,
+    spec: &Value,
+) -> Result<Option<String>, ApiError> {
+    let draft = simple_task_draft(spec);
+    let connectors = draft
+        .get("required_connectors")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    for connector in connectors {
+        let Some(connector) = connector.as_str() else {
+            continue;
+        };
+        let status = connector_status_value(state, user_id, connector).await?;
+        if status.get("connected").and_then(Value::as_bool) != Some(true) {
+            return Ok(Some(connector.to_string()));
+        }
+    }
+    Ok(None)
+}
+
+fn waiting_connector_name(session: &Value) -> Option<&str> {
+    if session.get("status").and_then(Value::as_str) != Some("waiting_user")
+        || session.get("waiting_reason").and_then(Value::as_str) != Some("connector_auth")
+        || session
+            .pointer("/required_action/type")
+            .and_then(Value::as_str)
+            != Some("connector_auth")
+    {
+        return None;
+    }
+    session
+        .pointer("/required_action/connector")
+        .and_then(Value::as_str)
+}
+
+async fn maybe_resume_after_connector_auth(
+    state: &AppState,
+    user_id: &str,
+    session_id: &str,
+) -> Result<(), ApiError> {
+    let session = load_task_session(&state.storage, user_id, session_id).await?;
+    let Some(connector) = waiting_connector_name(&session) else {
+        return Ok(());
+    };
+    let status = connector_status_value(state, user_id, connector).await?;
+    if status.get("connected").and_then(Value::as_bool) != Some(true) {
+        return Ok(());
+    }
+    let Some(mut run) = current_task_run(&state.storage, user_id, session_id, &session).await?
+    else {
+        return Ok(());
+    };
+    if run.get("status").and_then(Value::as_str) != Some("waiting_user") {
+        return Ok(());
+    }
+    let Some(spec) = current_task_spec(&state.storage, user_id, session_id, &session).await? else {
+        return Ok(());
+    };
+    set_field(&mut run, "status", json!("in_progress"));
+    set_field(&mut run, "updated_at", json!(now_iso()));
+    persist_task_run_status_projection(&state.storage, user_id, session_id, &run).await?;
+    let mut resumed_session = load_task_session(&state.storage, user_id, session_id).await?;
+    set_field(&mut resumed_session, "waiting_reason", Value::Null);
+    set_field(&mut resumed_session, "required_action", Value::Null);
+    set_field(&mut resumed_session, "needs_user_action", json!(false));
+    set_field(&mut resumed_session, "updated_at", json!(now_iso()));
+    state
+        .storage
+        .upsert_task_session(user_id, &resumed_session)
+        .await?;
+    let execution_input = json!({
+        "auto_execute": true,
+        "executor": "ripple",
+        "req_id": session.get("req_id").cloned().unwrap_or(Value::Null)
+    });
+    maybe_start_ripple_task_execution(
+        state.clone(),
+        user_id.to_string(),
+        session_id.to_string(),
+        run,
+        spec,
+        &execution_input,
+    );
+    Ok(())
+}
+
+#[utoipa::path(
+    post,
     path = "/task-sessions/{session_id}/task-specs/{task_spec_id}/runs",
     tag = "task-sessions",
     params(
@@ -712,6 +1045,104 @@ pub async fn cancel_task_run(
         "run": run,
         "detail": task_session_detail(&state.storage, &user_id, &session_id).await?
     })))
+}
+
+#[utoipa::path(
+    post,
+    path = "/task-sessions/{task_id}/cancel",
+    tag = "task-sessions",
+    params(("task_id" = String, Path, description = "Task session id")),
+    request_body = crate::api::openapi::GenericJsonObject,
+    responses(
+        (status = 200, description = "Cancelled task", body = serde_json::Value),
+        (status = 400, description = "Invalid cancellation", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 409, description = "Task is already terminal", body = crate::api::openapi::ApiErrorEnvelope)
+    ),
+    security(("bearerAuth" = []), ("apiKeyAuth" = []))
+)]
+pub async fn cancel_task_session(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(session_id): Path<String>,
+    Json(input): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
+    let action = format!("cancel:{session_id}");
+    if let Some(response) =
+        load_task_command_replay(&state.storage, &user_id, &action, &input).await?
+    {
+        return Ok(Json(response));
+    }
+    let session = load_task_session(&state.storage, &user_id, &session_id).await?;
+    let run = current_task_run(&state.storage, &user_id, &session_id, &session).await?;
+    let (cancelled_session, cancelled_run) =
+        cancel_task_records(&session, run.as_ref(), &input, &now_iso())?;
+    if let Some(run) = cancelled_run.as_ref() {
+        persist_task_run_status_projection(&state.storage, &user_id, &session_id, run).await?;
+    } else if session.get("status").and_then(Value::as_str) != Some("cancelled") {
+        append_task_session_event(
+            &state.storage,
+            &user_id,
+            &session_id,
+            "task_run_cancelled",
+            json!({
+                "reason": input.get("reason").cloned().unwrap_or_else(|| json!("cancelled_by_user"))
+            }),
+        )
+        .await?;
+    }
+    state
+        .storage
+        .upsert_task_session(&user_id, &cancelled_session)
+        .await?;
+    let response = json!({
+        "task_session": simple_task_session_from_storage(&state.storage, &user_id, &session_id).await?
+    });
+    save_task_command_response(&state.storage, &user_id, &action, &input, &response).await?;
+    Ok(Json(response))
+}
+
+fn cancel_task_records(
+    session: &Value,
+    run: Option<&Value>,
+    input: &Value,
+    now: &str,
+) -> Result<(Value, Option<Value>), ApiError> {
+    validate_task_req_id(session, input)?;
+    let status = session
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or("waiting_user");
+    if matches!(status, "completed" | "failed") {
+        return Err(ApiError::conflict(json!({
+            "code": "task_already_terminal",
+            "message": "已经结束的任务不能取消。",
+            "task_id": session.get("session_id").cloned().unwrap_or(Value::Null),
+            "req_id": input.get("req_id").cloned().unwrap_or(Value::Null)
+        })));
+    }
+    if status == "cancelled" {
+        return Ok((session.clone(), run.cloned()));
+    }
+    let reason = input
+        .get("reason")
+        .cloned()
+        .unwrap_or_else(|| json!("cancelled_by_user"));
+    let mut cancelled_session = session.clone();
+    set_field(&mut cancelled_session, "status", json!("cancelled"));
+    set_field(&mut cancelled_session, "needs_user_action", json!(false));
+    set_field(&mut cancelled_session, "waiting_reason", Value::Null);
+    set_field(&mut cancelled_session, "required_action", Value::Null);
+    set_field(&mut cancelled_session, "updated_at", json!(now));
+    let cancelled_run = run.map(|run| {
+        let mut run = run.clone();
+        set_field(&mut run, "status", json!("cancelled"));
+        set_field(&mut run, "cancelled_at", json!(now));
+        set_field(&mut run, "cancellation_reason", reason);
+        set_field(&mut run, "updated_at", json!(now));
+        run
+    });
+    Ok((cancelled_session, cancelled_run))
 }
 
 #[utoipa::path(
@@ -1116,6 +1547,360 @@ async fn task_session_detail(
     }))
 }
 
+fn simple_task_session_view(session: &Value, spec: Option<&Value>, run: Option<&Value>) -> Value {
+    let internal_status = session
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or("waiting_user");
+    let run_status = run
+        .and_then(|value| value.get("status"))
+        .and_then(Value::as_str);
+    let status = simple_task_status(internal_status, spec, run_status);
+    let phase = simple_task_phase(&status, spec, run);
+
+    let mut view = Map::new();
+    view.insert(
+        "task_id".to_string(),
+        session.get("session_id").cloned().unwrap_or(Value::Null),
+    );
+    for key in [
+        "req_id",
+        "title",
+        "waiting_reason",
+        "needs_user_action",
+        "draft_version",
+        "latest_message",
+        "callback_url",
+    ] {
+        copy_optional_field(&mut view, key, session, key);
+    }
+    view.insert("status".to_string(), json!(status));
+    view.insert("phase".to_string(), json!(phase));
+    copy_optional_field(&mut view, "created_at", session, "created_at");
+    copy_optional_field(&mut view, "updated_at", session, "updated_at");
+
+    if let Some(spec) = spec {
+        let draft = simple_task_draft(spec);
+        view.insert("task_draft".to_string(), draft.clone());
+        if task_spec_is_confirmed(spec) {
+            let mut confirmed = draft.as_object().cloned().unwrap_or_default();
+            confirmed.insert(
+                "confirmed_version".to_string(),
+                session
+                    .get("draft_version")
+                    .cloned()
+                    .or_else(|| spec.get("version").cloned())
+                    .unwrap_or_else(|| json!(1)),
+            );
+            if let Some(confirmed_at) = spec.get("confirmed_at") {
+                confirmed.insert("confirmed_at".to_string(), confirmed_at.clone());
+            }
+            view.insert("confirmed_task".to_string(), Value::Object(confirmed));
+        }
+    }
+
+    if let Some(run) = run {
+        view.insert("current_execution".to_string(), simple_execution_view(run));
+    }
+    if let Some(required_action) = simple_required_action(session, &status) {
+        view.insert("required_action".to_string(), required_action);
+    }
+    Value::Object(view)
+}
+
+fn simple_task_status(
+    session_status: &str,
+    spec: Option<&Value>,
+    run_status: Option<&str>,
+) -> &'static str {
+    match run_status.unwrap_or(session_status) {
+        "in_progress" => "running",
+        "completed" => "completed",
+        "cancelled" => "cancelled",
+        "failed" => "failed",
+        "pending_confirm" => "pending_confirmation",
+        "waiting_user" if run_status.is_some() => "waiting_user",
+        "waiting_user"
+            if spec
+                .and_then(|value| value.get("status"))
+                .and_then(Value::as_str)
+                == Some("pending_confirm") =>
+        {
+            "pending_confirmation"
+        }
+        "waiting_user" => "waiting_user",
+        "queued" => "queued",
+        "analyzing" => "analyzing",
+        _ => "waiting_user",
+    }
+}
+
+fn simple_task_phase(status: &str, spec: Option<&Value>, run: Option<&Value>) -> &'static str {
+    match status {
+        "pending_confirmation" => "confirmation",
+        "queued" | "running" => "execution",
+        "waiting_user" if run.is_some() => "execution",
+        "completed" | "cancelled" | "failed" => "terminal",
+        _ if run.is_some() => "execution",
+        _ if spec.is_some() => "draft",
+        _ => "draft",
+    }
+}
+
+fn simple_task_draft(spec: &Value) -> Value {
+    let required_fields = spec
+        .get("parameters")
+        .or_else(|| spec.get("required_fields"))
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let connector = spec
+        .get("connector")
+        .and_then(Value::as_str)
+        .or_else(|| required_fields.get("connector").and_then(Value::as_str))
+        .or_else(|| required_fields.get("channel").and_then(Value::as_str))
+        .map(str::to_string);
+    let action = spec
+        .get("action")
+        .and_then(Value::as_str)
+        .or_else(|| spec.get("task_type").and_then(Value::as_str));
+    let summary = spec
+        .get("summary")
+        .and_then(Value::as_str)
+        .or_else(|| spec.get("impact_summary").and_then(Value::as_str))
+        .or_else(|| spec.get("goal").and_then(Value::as_str));
+
+    let mut draft = Map::new();
+    if let Some(action) = action {
+        draft.insert("action".to_string(), json!(action));
+    }
+    if let Some(connector) = connector.as_deref() {
+        draft.insert("connector".to_string(), json!(connector));
+    }
+    if let Some(summary) = summary {
+        draft.insert("summary".to_string(), json!(summary));
+    }
+    draft.insert("parameters".to_string(), required_fields);
+    if let Some(required_connectors) = spec.get("required_connectors") {
+        draft.insert(
+            "required_connectors".to_string(),
+            required_connectors.clone(),
+        );
+    } else if let Some(connector) = connector.as_deref() {
+        draft.insert("required_connectors".to_string(), json!([connector]));
+    }
+    Value::Object(draft)
+}
+
+fn simple_execution_view(run: &Value) -> Value {
+    let mut execution = Map::new();
+    execution.insert(
+        "execution_id".to_string(),
+        run.get("run_id").cloned().unwrap_or(Value::Null),
+    );
+    let status = run
+        .get("status")
+        .and_then(Value::as_str)
+        .map(|value| simple_task_status(value, None, Some(value)))
+        .unwrap_or("running");
+    execution.insert("status".to_string(), json!(status));
+    for key in [
+        "external_run_id",
+        "started_at",
+        "completed_at",
+        "result_summary",
+        "result",
+        "failure_reason",
+        "cancellation_reason",
+    ] {
+        copy_optional_field(&mut execution, key, run, key);
+    }
+    Value::Object(execution)
+}
+
+fn simple_required_action(session: &Value, status: &str) -> Option<Value> {
+    if let Some(action) = session
+        .get("required_action")
+        .filter(|value| value.is_object())
+    {
+        return Some(action.clone());
+    }
+    match status {
+        "waiting_user" => Some(json!({
+            "type": "reply",
+            "message": session.get("latest_message").cloned().unwrap_or_else(|| json!("请补充任务信息。"))
+        })),
+        "pending_confirmation" => Some(json!({
+            "type": "confirm",
+            "message": "任务信息已完整，请确认。",
+            "draft_version": session.get("draft_version").cloned().unwrap_or_else(|| json!(1))
+        })),
+        _ => None,
+    }
+}
+
+fn task_spec_is_confirmed(spec: &Value) -> bool {
+    matches!(
+        spec.get("status").and_then(Value::as_str),
+        Some("confirmed" | "in_progress" | "waiting_user" | "completed" | "cancelled" | "failed")
+    )
+}
+
+fn copy_optional_field(
+    target: &mut Map<String, Value>,
+    target_key: &str,
+    source: &Value,
+    source_key: &str,
+) {
+    if let Some(value) = source.get(source_key).filter(|value| !value.is_null()) {
+        target.insert(target_key.to_string(), value.clone());
+    }
+}
+
+async fn load_task_command_replay(
+    storage: &Storage,
+    user_id: &str,
+    action: &str,
+    input: &Value,
+) -> Result<Option<Value>, ApiError> {
+    let req_id = required_str(input, "req_id")?;
+    let idempotency_key = required_str(input, "idempotency_key")?;
+    let Some(stored) = storage
+        .get_task_session_idempotency(user_id, action, idempotency_key)
+        .await?
+    else {
+        return Ok(None);
+    };
+    if stored.get("request") != Some(input) {
+        return Err(ApiError::conflict(json!({
+            "code": "idempotency_conflict",
+            "message": "同一个幂等键不能用于不同的请求。",
+            "task_id": input.get("task_id").cloned().unwrap_or(Value::Null),
+            "req_id": req_id
+        })));
+    }
+    Ok(stored.get("response").cloned())
+}
+
+async fn save_task_command_response(
+    storage: &Storage,
+    user_id: &str,
+    action: &str,
+    input: &Value,
+    response: &Value,
+) -> Result<(), ApiError> {
+    let idempotency_key = required_str(input, "idempotency_key")?;
+    let inserted = storage
+        .save_task_session_idempotency(
+            user_id,
+            action,
+            idempotency_key,
+            input,
+            response,
+            &now_iso(),
+        )
+        .await?;
+    if inserted {
+        return Ok(());
+    }
+    let replay = load_task_command_replay(storage, user_id, action, input).await?;
+    if replay.as_ref() == Some(response) {
+        Ok(())
+    } else {
+        Err(ApiError::conflict(json!({
+            "code": "idempotency_conflict",
+            "message": "幂等请求已经由另一个操作处理。",
+            "req_id": input.get("req_id").cloned().unwrap_or(Value::Null)
+        })))
+    }
+}
+
+fn validate_expected_draft_version(
+    session: &Value,
+    input: &Value,
+    field: &str,
+) -> Result<u64, ApiError> {
+    let expected = input.get(field).and_then(Value::as_u64).ok_or_else(|| {
+        ApiError::bad_request(json!({
+            "code": "missing_draft_version",
+            "message": format!("{field} is required")
+        }))
+    })?;
+    let current = session
+        .get("draft_version")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    if expected != current {
+        return Err(ApiError::conflict(json!({
+            "code": "draft_version_conflict",
+            "message": "任务草稿已经更新，请刷新后重新确认。",
+            "task_id": session.get("session_id").cloned().unwrap_or(Value::Null),
+            "req_id": input.get("req_id").cloned().unwrap_or(Value::Null)
+        })));
+    }
+    Ok(current)
+}
+
+fn validate_task_req_id(session: &Value, input: &Value) -> Result<(), ApiError> {
+    let req_id = required_str(input, "req_id")?;
+    if session.get("req_id").and_then(Value::as_str) != Some(req_id) {
+        return Err(ApiError::conflict(json!({
+            "code": "req_id_conflict",
+            "message": "req_id 与任务创建时不一致。",
+            "task_id": session.get("session_id").cloned().unwrap_or(Value::Null),
+            "req_id": req_id
+        })));
+    }
+    Ok(())
+}
+
+async fn simple_task_session_from_storage(
+    storage: &Storage,
+    user_id: &str,
+    session_id: &str,
+) -> Result<Value, ApiError> {
+    let session = load_task_session(storage, user_id, session_id).await?;
+    simple_task_session_from_record(storage, user_id, session).await
+}
+
+async fn simple_task_session_from_record(
+    storage: &Storage,
+    user_id: &str,
+    session: Value,
+) -> Result<Value, ApiError> {
+    let session_id = required_str(&session, "session_id")?;
+    let spec = current_task_spec(storage, user_id, session_id, &session).await?;
+    let run = current_task_run(storage, user_id, session_id, &session).await?;
+    Ok(simple_task_session_view(
+        &session,
+        spec.as_ref(),
+        run.as_ref(),
+    ))
+}
+
+async fn current_task_run(
+    storage: &Storage,
+    user_id: &str,
+    session_id: &str,
+    session: &Value,
+) -> Result<Option<Value>, ApiError> {
+    let run_id = session
+        .get("current_run_id")
+        .or_else(|| session.get("latest_run_id"))
+        .and_then(Value::as_str);
+    if let Some(run_id) = run_id {
+        storage
+            .get_task_session_run(user_id, session_id, run_id)
+            .await
+            .map_err(ApiError::from)
+    } else {
+        Ok(storage
+            .list_task_session_runs(user_id, session_id)
+            .await?
+            .into_iter()
+            .last())
+    }
+}
+
 async fn load_task_session(
     storage: &Storage,
     user_id: &str,
@@ -1183,6 +1968,9 @@ fn task_session_from_payload(payload: &Value, user_id: &str, now: &str) -> Resul
     record.remove("task_spec");
     record.remove("initial_message");
     record.remove("message");
+    record.remove("content");
+    record.remove("idempotency_key");
+    record.remove("expected_draft_version");
     record.insert("user_id".to_string(), json!(user_id));
     record.insert("session_id".to_string(), json!(session_id));
     record.insert("title".to_string(), json!(title));
@@ -1200,6 +1988,9 @@ fn task_session_from_payload(payload: &Value, user_id: &str, now: &str) -> Resul
         .or_insert_with(|| json!("vitana"));
     record.insert("status".to_string(), json!(status));
     record.insert("needs_user_action".to_string(), json!(needs_user_action));
+    record
+        .entry("draft_version".to_string())
+        .or_insert_with(|| json!(0));
     let latest_message = record
         .get("goal")
         .and_then(Value::as_str)
@@ -1589,6 +2380,9 @@ async fn run_ripple_task_execution(
         .get_task_session_run(&user_id, &session_id, &run_id)
         .await?
         .unwrap_or(run);
+    if !should_apply_execution_result(&updated_run) {
+        return Ok(());
+    }
 
     match info {
         Ok(info) if info.status == "completed" => {
@@ -1629,6 +2423,10 @@ async fn run_ripple_task_execution(
 
     set_field(&mut updated_run, "task_spec_id", json!(task_spec_id));
     persist_task_run_status_projection(&state.storage, &user_id, &session_id, &updated_run).await
+}
+
+fn should_apply_execution_result(run: &Value) -> bool {
+    run.get("status").and_then(Value::as_str) != Some("cancelled")
 }
 
 struct TaskExecutionResult {
@@ -1831,6 +2629,12 @@ async fn persist_task_spec_turn_projection(
         "latest_message",
         json!(assistant_message.clone()),
     );
+    let draft_version = session
+        .get("draft_version")
+        .and_then(Value::as_u64)
+        .unwrap_or(0)
+        .saturating_add(1);
+    set_field(&mut next_session, "draft_version", json!(draft_version));
     set_field(&mut next_session, "updated_at", json!(now.clone()));
 
     let mut saved_spec = Value::Null;
@@ -2228,11 +3032,20 @@ async fn post_task_session_callback(
         .map_err(|err| format!("{err:?}"))?;
     let body = json!({
         "event": "task.status",
-        "id": data.get("sse_id").cloned().unwrap_or(Value::Null),
+        "id": data.get("seq").cloned().unwrap_or(Value::Null),
         "data": data
     });
-    let response = reqwest::Client::new()
-        .post(callback_url.as_str())
+    let mut request = reqwest::Client::new().post(callback_url.as_str());
+    if let Some(event_id) = body.pointer("/data/event_id").and_then(Value::as_str) {
+        request = request.header("X-Ripple-Event-Id", event_id);
+    }
+    if let Some(task_id) = body.pointer("/data/task_id").and_then(Value::as_str) {
+        request = request.header("X-Ripple-Task-Id", task_id);
+    }
+    if let Some(req_id) = body.pointer("/data/req_id").and_then(Value::as_str) {
+        request = request.header("X-Ripple-Req-Id", req_id);
+    }
+    let response = request
         .json(&body)
         .send()
         .await
@@ -2392,11 +3205,6 @@ async fn task_status_sse_payload(
         .or_else(|| session.get("current_run_id").and_then(Value::as_str))
         .or_else(|| session.get("latest_run_id").and_then(Value::as_str))
         .map(str::to_string);
-    let confirmation_id = event_payload
-        .get("confirmation_id")
-        .and_then(Value::as_str)
-        .map(str::to_string);
-
     let run = match run_id.as_deref() {
         Some(run_id) => {
             storage
@@ -2413,68 +3221,43 @@ async fn task_status_sse_payload(
         }
         None => None,
     };
-    let confirmation = match confirmation_id.as_deref() {
-        Some(confirmation_id) => {
-            storage
-                .get_task_session_confirmation(user_id, session_id, confirmation_id)
-                .await?
-        }
-        None => None,
-    };
-
-    let task_status = task_status_for_sse_event(event_type, &event_payload, &session);
+    let internal_status = task_status_for_sse_event(event_type, &event_payload, &session);
     let run_status = run
         .as_ref()
         .and_then(|run| run.get("status"))
         .and_then(Value::as_str)
         .or_else(|| event_payload.get("status").and_then(Value::as_str))
         .filter(|status| TASK_RUN_STATUSES.contains(status));
-    let task_spec_status = spec
-        .as_ref()
-        .and_then(|spec| spec.get("status"))
-        .and_then(Value::as_str);
-    let confirmation_status = confirmation
-        .as_ref()
-        .and_then(|confirmation| confirmation.get("status"))
-        .and_then(Value::as_str)
-        .or_else(|| {
-            if event_type == "task_confirmation_responded" {
-                event_payload.get("status").and_then(Value::as_str)
-            } else {
-                None
-            }
-        });
+    let task_status = simple_task_status(&internal_status, spec.as_ref(), run_status);
+    let phase = simple_task_phase(task_status, spec.as_ref(), run.as_ref());
     let needs_user_action = session
         .get("needs_user_action")
         .and_then(Value::as_bool)
-        .unwrap_or(task_status == "pending_confirm" || task_status == "waiting_user");
+        .unwrap_or(task_status == "pending_confirmation" || task_status == "waiting_user");
+    let action = spec
+        .as_ref()
+        .map(simple_task_draft)
+        .and_then(|draft| draft.get("action").cloned())
+        .unwrap_or(Value::Null);
 
     Ok(json!({
-        "type": "task_status",
-        "event_version": 1,
         "event_id": event.and_then(|event| event.get("event_id")).cloned().unwrap_or(Value::Null),
-        "sse_id": event.and_then(|event| event.get("seq")).cloned().unwrap_or(Value::Null),
+        "seq": event.and_then(|event| event.get("seq")).cloned().unwrap_or(Value::Null),
         "created_at": event
             .and_then(|event| event.get("created_at"))
             .and_then(Value::as_str)
             .map(str::to_string)
             .unwrap_or_else(now_iso),
-        "task_session_id": session_id,
-        "session_id": session_id,
+        "task_id": session_id,
+        "req_id": session.get("req_id").cloned().unwrap_or(Value::Null),
         "event_type": event_type,
         "task_status": task_status,
+        "phase": phase,
+        "waiting_reason": session.get("waiting_reason").cloned().unwrap_or(Value::Null),
         "needs_user_action": needs_user_action,
-        "task_spec_id": task_spec_id,
-        "task_spec_status": task_spec_status,
-        "run_id": run_id,
-        "run_status": run_status,
-        "external_run_id": run
-            .as_ref()
-            .and_then(|run| run.get("external_run_id"))
-            .cloned()
-            .unwrap_or(Value::Null),
-        "confirmation_id": confirmation_id,
-        "confirmation_status": confirmation_status,
+        "required_action": session.get("required_action").cloned().unwrap_or(Value::Null),
+        "execution_id": run_id,
+        "action": action,
         "latest_message": session.get("latest_message").cloned().unwrap_or(Value::Null),
         "result_summary": run
             .as_ref()
@@ -2493,9 +3276,7 @@ async fn task_status_sse_payload(
                     .or_else(|| run.get("cancellation_reason"))
             })
             .cloned()
-            .unwrap_or(Value::Null),
-        "task_session": task_session_sse_summary(&session),
-        "payload": event_payload
+            .unwrap_or(Value::Null)
     }))
 }
 
@@ -2516,30 +3297,6 @@ fn task_status_for_sse_event(event_type: &str, payload: &Value, session: &Value)
         _ => session.get("status").and_then(Value::as_str),
     };
     status.unwrap_or("in_progress").to_string()
-}
-
-fn task_session_sse_summary(session: &Value) -> Value {
-    let mut summary = Map::new();
-    for key in [
-        "session_id",
-        "title",
-        "status",
-        "needs_user_action",
-        "source_surface",
-        "source_id",
-        "task_type",
-        "goal",
-        "current_task_spec_id",
-        "current_run_id",
-        "latest_run_id",
-        "latest_message",
-        "updated_at",
-    ] {
-        if let Some(value) = session.get(key) {
-            summary.insert(key.to_string(), value.clone());
-        }
-    }
-    Value::Object(summary)
 }
 
 fn is_terminal_task_session_status(status: &str) -> bool {
@@ -2736,5 +3493,444 @@ mod tests {
             "2026-07-08T00:00:00Z",
         );
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn simple_task_session_projection_hides_private_spec_and_run_fields() {
+        let session = json!({
+            "session_id": "task-test",
+            "title": "给张三发消息",
+            "status": "in_progress",
+            "draft_version": 2,
+            "created_at": "2026-07-16T00:00:00Z",
+            "updated_at": "2026-07-16T00:01:00Z"
+        });
+        let spec = json!({
+            "task_spec_id": "spec-test",
+            "status": "confirmed",
+            "task_type": "send_message",
+            "goal": "把项目进展发给张三",
+            "required_fields": {
+                "connector": "feishu",
+                "recipient": {"id": "ou_123", "display_name": "张三"},
+                "content": "项目已经进入联调阶段"
+            },
+            "required_connectors": ["feishu"],
+            "impact_summary": "将通过飞书给张三发送消息",
+            "confirmed_at": "2026-07-16T00:00:30Z"
+        });
+        let run = json!({
+            "run_id": "execution-test",
+            "status": "in_progress",
+            "external_run_id": "job-test",
+            "started_at": "2026-07-16T00:00:31Z"
+        });
+
+        let view = simple_task_session_view(&session, Some(&spec), Some(&run));
+
+        assert_eq!(
+            view.pointer("/task_id").and_then(Value::as_str),
+            Some("task-test")
+        );
+        assert_eq!(
+            view.pointer("/status").and_then(Value::as_str),
+            Some("running")
+        );
+        assert_eq!(
+            view.pointer("/phase").and_then(Value::as_str),
+            Some("execution")
+        );
+        assert_eq!(
+            view.pointer("/task_draft/action").and_then(Value::as_str),
+            Some("send_message")
+        );
+        assert_eq!(
+            view.pointer("/task_draft/connector")
+                .and_then(Value::as_str),
+            Some("feishu")
+        );
+        assert_eq!(
+            view.pointer("/confirmed_task/confirmed_version")
+                .and_then(Value::as_u64),
+            Some(2)
+        );
+        assert_eq!(
+            view.pointer("/current_execution/execution_id")
+                .and_then(Value::as_str),
+            Some("execution-test")
+        );
+        assert!(view.get("session_id").is_none());
+        assert!(view.pointer("/task_draft/task_spec_id").is_none());
+        assert!(view.pointer("/current_execution/run_id").is_none());
+    }
+
+    #[tokio::test]
+    async fn task_session_idempotency_preserves_first_request_and_response() -> anyhow::Result<()> {
+        let (storage, root) = temp_storage()?;
+        let first_request = json!({"content": "第一次请求"});
+        let first_response = json!({"task_session": {"task_id": "task-test"}});
+
+        let inserted = storage
+            .save_task_session_idempotency(
+                "alice",
+                "create",
+                "via-20260716-000123",
+                &first_request,
+                &first_response,
+                "2026-07-16T00:00:00Z",
+            )
+            .await?;
+        assert!(inserted);
+
+        let duplicate = storage
+            .save_task_session_idempotency(
+                "alice",
+                "create",
+                "via-20260716-000123",
+                &json!({"content": "不同请求"}),
+                &json!({"task_session": {"task_id": "task-other"}}),
+                "2026-07-16T00:00:01Z",
+            )
+            .await?;
+        assert!(!duplicate);
+
+        let stored = storage
+            .get_task_session_idempotency("alice", "create", "via-20260716-000123")
+            .await?
+            .expect("idempotency record should exist");
+        assert_eq!(stored.pointer("/request"), Some(&first_request));
+        assert_eq!(stored.pointer("/response"), Some(&first_response));
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn task_spec_turn_increments_public_draft_version() -> anyhow::Result<()> {
+        let (storage, root) = temp_storage()?;
+        let session = task_session_from_payload(
+            &json!({
+                "session_id": "task-version",
+                "req_id": "via-20260716-000123",
+                "draft_version": 1,
+                "goal": "给张三发送会议通知"
+            }),
+            "alice",
+            "2026-07-16T00:00:00Z",
+        )
+        .expect("task session payload should be valid");
+        storage.upsert_task_session("alice", &session).await?;
+
+        let projection = persist_task_spec_turn_projection(
+            &storage,
+            "alice",
+            "task-version",
+            &session,
+            None,
+            TaskSpecTurnExtractionResult {
+                assistant_message: Some("任务信息已完整，请确认。".to_string()),
+                ready_to_confirm: true,
+                missing_fields: Vec::new(),
+                task_spec: Some(json!({
+                    "task_type": "send_message",
+                    "goal": "给张三发送会议通知",
+                    "required_fields": {"connector": "feishu", "recipient": {"id": "ou_123", "display_name": "张三"}}
+                })),
+                extraction_run_id: None,
+            },
+        )
+        .await
+        .expect("task spec projection should persist");
+        let stored_session = storage
+            .get_task_session("alice", "task-version")
+            .await?
+            .expect("task session should exist");
+        let view = simple_task_session_view(&stored_session, Some(&projection.task_spec), None);
+
+        assert_eq!(
+            view.pointer("/draft_version").and_then(Value::as_u64),
+            Some(2)
+        );
+        assert_eq!(
+            view.pointer("/status").and_then(Value::as_str),
+            Some("pending_confirmation")
+        );
+        assert_eq!(
+            view.pointer("/phase").and_then(Value::as_str),
+            Some("confirmation")
+        );
+        assert_eq!(
+            view.pointer("/required_action/type")
+                .and_then(Value::as_str),
+            Some("confirm")
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn command_replay_rejects_a_reused_key_with_different_input() -> anyhow::Result<()> {
+        let (storage, root) = temp_storage()?;
+        let original = json!({
+            "req_id": "via-20260716-000123",
+            "idempotency_key": "create-123",
+            "content": "创建任务"
+        });
+        storage
+            .save_task_session_idempotency(
+                "alice",
+                "create",
+                "create-123",
+                &original,
+                &json!({"task_session": {"task_id": "task-test"}}),
+                "2026-07-16T00:00:00Z",
+            )
+            .await?;
+
+        let replay = load_task_command_replay(&storage, "alice", "create", &original)
+            .await
+            .expect("same request should replay")
+            .expect("replay response should exist");
+        assert_eq!(
+            replay
+                .pointer("/task_session/task_id")
+                .and_then(Value::as_str),
+            Some("task-test")
+        );
+
+        let conflict = load_task_command_replay(
+            &storage,
+            "alice",
+            "create",
+            &json!({
+                "req_id": "via-20260716-000123",
+                "idempotency_key": "create-123",
+                "content": "不同任务"
+            }),
+        )
+        .await
+        .expect_err("different request must conflict");
+        assert_eq!(conflict.status, axum::http::StatusCode::CONFLICT);
+        assert_eq!(
+            conflict.detail.get("code").and_then(Value::as_str),
+            Some("idempotency_conflict")
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
+
+    #[test]
+    fn stale_draft_version_returns_contract_error() {
+        let error = validate_expected_draft_version(
+            &json!({"session_id": "task-test", "draft_version": 3}),
+            &json!({"req_id": "via-20260716-000123", "expected_draft_version": 2}),
+            "expected_draft_version",
+        )
+        .expect_err("stale version must be rejected");
+
+        assert_eq!(error.status, axum::http::StatusCode::CONFLICT);
+        assert_eq!(
+            error.detail.get("code").and_then(Value::as_str),
+            Some("draft_version_conflict")
+        );
+        assert_eq!(
+            error.detail.get("task_id").and_then(Value::as_str),
+            Some("task-test")
+        );
+    }
+
+    #[test]
+    fn confirmation_freezes_the_current_draft_version() {
+        let (session, spec) = freeze_task_confirmation(
+            &json!({
+                "session_id": "task-test",
+                "req_id": "via-20260716-000123",
+                "status": "pending_confirm",
+                "draft_version": 2
+            }),
+            &json!({
+                "task_spec_id": "spec-test",
+                "status": "pending_confirm",
+                "task_type": "send_message",
+                "required_fields": {"connector": "feishu"}
+            }),
+            &json!({
+                "req_id": "via-20260716-000123",
+                "draft_version": 2
+            }),
+            "2026-07-16T00:00:30Z",
+        )
+        .expect("confirmation should succeed");
+
+        assert_eq!(
+            session.get("confirmed_version").and_then(Value::as_u64),
+            Some(2)
+        );
+        assert_eq!(
+            session.get("status").and_then(Value::as_str),
+            Some("in_progress")
+        );
+        assert_eq!(
+            spec.get("status").and_then(Value::as_str),
+            Some("confirmed")
+        );
+        assert_eq!(
+            spec.get("confirmed_at").and_then(Value::as_str),
+            Some("2026-07-16T00:00:30Z")
+        );
+    }
+
+    #[test]
+    fn cancellation_marks_both_task_and_execution_terminal() {
+        let (session, run) = cancel_task_records(
+            &json!({
+                "session_id": "task-test",
+                "req_id": "via-20260716-000123",
+                "status": "in_progress"
+            }),
+            Some(&json!({"run_id": "execution-test", "status": "in_progress"})),
+            &json!({
+                "req_id": "via-20260716-000123",
+                "reason": "cancelled_by_user"
+            }),
+            "2026-07-16T00:01:00Z",
+        )
+        .expect("cancellation should succeed");
+
+        assert_eq!(
+            session.get("status").and_then(Value::as_str),
+            Some("cancelled")
+        );
+        assert_eq!(
+            run.as_ref()
+                .and_then(|value| value.get("status"))
+                .and_then(Value::as_str),
+            Some("cancelled")
+        );
+        assert_eq!(
+            run.as_ref()
+                .and_then(|value| value.get("cancellation_reason"))
+                .and_then(Value::as_str),
+            Some("cancelled_by_user")
+        );
+    }
+
+    #[tokio::test]
+    async fn callback_payload_uses_only_simplified_public_ids() -> anyhow::Result<()> {
+        let (storage, root) = temp_storage()?;
+        storage
+            .upsert_task_session(
+                "alice",
+                &json!({
+                    "user_id": "alice",
+                    "session_id": "task-test",
+                    "req_id": "via-20260716-000123",
+                    "status": "completed",
+                    "needs_user_action": false,
+                    "current_task_spec_id": "spec-test",
+                    "latest_run_id": "execution-test",
+                    "updated_at": "2026-07-16T00:02:00Z"
+                }),
+            )
+            .await?;
+        storage
+            .upsert_task_session_spec(
+                "alice",
+                "task-test",
+                &json!({
+                    "task_spec_id": "spec-test",
+                    "status": "completed",
+                    "task_type": "send_message",
+                    "updated_at": "2026-07-16T00:02:00Z"
+                }),
+            )
+            .await?;
+        storage
+            .upsert_task_session_run(
+                "alice",
+                "task-test",
+                &json!({
+                    "run_id": "execution-test",
+                    "task_spec_id": "spec-test",
+                    "status": "completed",
+                    "result_summary": "消息已发送",
+                    "updated_at": "2026-07-16T00:02:00Z"
+                }),
+            )
+            .await?;
+        let event = append_task_session_event(
+            &storage,
+            "alice",
+            "task-test",
+            "task_run_completed",
+            json!({"run_id": "execution-test", "task_spec_id": "spec-test"}),
+        )
+        .await
+        .expect("callback event should persist");
+
+        let payload = task_status_sse_payload(&storage, "alice", "task-test", Some(&event))
+            .await
+            .expect("callback payload should build");
+        assert_eq!(
+            payload.get("task_id").and_then(Value::as_str),
+            Some("task-test")
+        );
+        assert_eq!(
+            payload.get("req_id").and_then(Value::as_str),
+            Some("via-20260716-000123")
+        );
+        assert_eq!(
+            payload.get("execution_id").and_then(Value::as_str),
+            Some("execution-test")
+        );
+        assert_eq!(
+            payload.get("task_status").and_then(Value::as_str),
+            Some("completed")
+        );
+        assert_eq!(
+            payload.get("phase").and_then(Value::as_str),
+            Some("terminal")
+        );
+        for private_field in ["task_session_id", "session_id", "task_spec_id", "run_id"] {
+            assert!(
+                payload.get(private_field).is_none(),
+                "{private_field} leaked"
+            );
+        }
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
+
+    #[test]
+    fn connector_auth_resume_requires_the_waiting_execution_state() {
+        assert_eq!(
+            waiting_connector_name(&json!({
+                "status": "waiting_user",
+                "waiting_reason": "connector_auth",
+                "required_action": {"type": "connector_auth", "connector": "feishu"}
+            })),
+            Some("feishu")
+        );
+        assert_eq!(
+            waiting_connector_name(&json!({
+                "status": "in_progress",
+                "waiting_reason": "connector_auth",
+                "required_action": {"type": "connector_auth", "connector": "feishu"}
+            })),
+            None
+        );
+    }
+
+    #[test]
+    fn cancelled_execution_does_not_accept_a_late_result() {
+        assert!(!should_apply_execution_result(
+            &json!({"status": "cancelled"})
+        ));
+        assert!(should_apply_execution_result(
+            &json!({"status": "in_progress"})
+        ));
     }
 }

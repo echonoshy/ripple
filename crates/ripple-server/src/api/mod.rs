@@ -170,28 +170,12 @@ pub fn router(state: AppState) -> Router {
             task_sessions::list_task_sessions,
             task_sessions::create_task_session
         ))
-        .routes(utoipa_axum::routes!(
-            task_sessions::get_task_session,
-            task_sessions::update_task_session
-        ))
+        .routes(utoipa_axum::routes!(task_sessions::get_task_session))
         .routes(utoipa_axum::routes!(
             task_sessions::append_task_session_message
         ))
-        .routes(utoipa_axum::routes!(task_sessions::process_task_spec_turn))
-        .routes(utoipa_axum::routes!(task_sessions::create_task_spec))
-        .routes(utoipa_axum::routes!(task_sessions::update_task_spec))
-        .routes(utoipa_axum::routes!(task_sessions::confirm_task_spec))
-        .routes(utoipa_axum::routes!(task_sessions::start_task_run))
-        .routes(utoipa_axum::routes!(task_sessions::update_task_run))
-        .routes(utoipa_axum::routes!(task_sessions::cancel_task_run))
-        .routes(utoipa_axum::routes!(
-            task_sessions::list_task_session_events
-        ))
-        .routes(utoipa_axum::routes!(
-            task_sessions::stream_task_session_events
-        ))
-        .routes(utoipa_axum::routes!(task_sessions::create_confirmation))
-        .routes(utoipa_axum::routes!(task_sessions::respond_confirmation))
+        .routes(utoipa_axum::routes!(task_sessions::confirm_task_session))
+        .routes(utoipa_axum::routes!(task_sessions::cancel_task_session))
         .routes(utoipa_axum::routes!(chat::create_response))
         .routes(utoipa_axum::routes!(health::ready))
         .routes(utoipa_axum::routes!(health::doctor))

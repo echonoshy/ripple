@@ -4,6 +4,64 @@ use sqlx::Row;
 use super::{json_from_text, json_text, record_str, Storage};
 
 impl Storage {
+    pub async fn save_task_session_idempotency(
+        &self,
+        user_id: &str,
+        action: &str,
+        idempotency_key: &str,
+        request: &Value,
+        response: &Value,
+        created_at: &str,
+    ) -> anyhow::Result<bool> {
+        self.initialize().await?;
+        let result = sqlx::query(
+            r#"
+            INSERT OR IGNORE INTO task_session_idempotency (
+                user_id, action, idempotency_key, request_json, response_json, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(user_id)
+        .bind(action)
+        .bind(idempotency_key)
+        .bind(json_text(request)?)
+        .bind(json_text(response)?)
+        .bind(created_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() == 1)
+    }
+
+    pub async fn get_task_session_idempotency(
+        &self,
+        user_id: &str,
+        action: &str,
+        idempotency_key: &str,
+    ) -> anyhow::Result<Option<Value>> {
+        self.initialize().await?;
+        let row = sqlx::query(
+            r#"
+            SELECT request_json, response_json, created_at
+            FROM task_session_idempotency
+            WHERE user_id = ? AND action = ? AND idempotency_key = ?
+            "#,
+        )
+        .bind(user_id)
+        .bind(action)
+        .bind(idempotency_key)
+        .fetch_optional(&self.pool)
+        .await?;
+        row.map(|row| {
+            Ok(json!({
+                "request": json_from_text(row.get::<String, _>("request_json").as_str())?,
+                "response": json_from_text(row.get::<String, _>("response_json").as_str())?,
+                "created_at": row.get::<String, _>("created_at")
+            }))
+        })
+        .transpose()
+    }
+
     pub async fn upsert_task_session(&self, user_id: &str, record: &Value) -> anyhow::Result<()> {
         self.initialize().await?;
         let Some(session_id) = record.get("session_id").and_then(Value::as_str) else {

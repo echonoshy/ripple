@@ -1,7 +1,7 @@
 use serde_json::Value;
 use sqlx::{Row, SqlitePool};
 
-pub const CURRENT_SCHEMA_VERSION: i64 = 13;
+pub const CURRENT_SCHEMA_VERSION: i64 = 14;
 
 const SCHEMA_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS sessions (
@@ -153,6 +153,16 @@ CREATE TABLE IF NOT EXISTS task_session_confirmations (
     updated_at TEXT NOT NULL,
     record_json TEXT NOT NULL,
     PRIMARY KEY (user_id, session_id, confirmation_id)
+);
+
+CREATE TABLE IF NOT EXISTS task_session_idempotency (
+    user_id TEXT NOT NULL,
+    action TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL,
+    request_json TEXT NOT NULL,
+    response_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, action, idempotency_key)
 );
 
 CREATE TABLE IF NOT EXISTS documents (
@@ -597,6 +607,7 @@ async fn ensure_schema_migrations(pool: &SqlitePool) -> anyhow::Result<()> {
         (11_i64, "task_sessions_v1"),
         (12_i64, "task_session_event_stream_ids"),
         (13_i64, "codex_message_sync_watermark"),
+        (14_i64, "task_session_idempotency"),
     ] {
         sqlx::query("INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (?, ?)")
             .bind(version)

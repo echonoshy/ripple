@@ -1,23 +1,24 @@
-# via-gateway 任务中心接口文档
-本文档定义服务端与 `via-gateway` 之间的任务中心接口协议。
+# Via-Gateway 任务中心接口（精简版）
 
-约定：
+本文档定义业务服务端通过 `via-gateway` 调用 Ripple 任务中心的最小可用协议。
 
-- gateway 对服务端响应统一包一层 `{ "code": 0, "message": "success", "data": ... }`。
-- 服务端请求 body 里传 `user_id`，gateway 使用它处理用户上下文，并在调用 Ripple 时转换为 Ripple 需要的用户隔离信息。
-- 除上面两点外，任务中心接口的请求字段、返回字段和状态事件按 Ripple 当前 `/v1/task-sessions` 方案透传。
-## 1. 公共说明
+主流程：创建任务 → 补充信息 → 确认 → Connector 授权（如需要）→ 自动执行 → Callback。
+
+## 1. 公共约定
+
 ### 1.1 Base Path
+
+业务服务端调用：
+
 ```text
 /via-gateway/v1
 ```
-gateway 转发到 Ripple 时，路径去掉 `/via-gateway` 前缀：
 
-```text
-/via-gateway/v1/task-sessions -> /v1/task-sessions
-```
-### 1.2 公共响应结构
-gateway 返回给服务端的业务响应统一为：
+gateway 转发到 Ripple 时去掉 `/via-gateway` 前缀。
+
+### 1.2 响应包装
+
+成功响应：
 
 ```json
 {
@@ -26,471 +27,221 @@ gateway 返回给服务端的业务响应统一为：
   "data": {}
 }
 ```
-`data` 内部是 Ripple 对应接口的原始返回。
-### 1.3 ID 约定
-按 Ripple 当前方案：
 
-- `session_id`：TaskSession ID，路径里的 `{session_id}` 指任务会话 ID。
-- `task_spec_id`：TaskSpec ID。
-- `run_id`：TaskRun ID。
-
-不要把来源 Chat 会话 ID 当作 TaskSession 的 `session_id` 传给任务接口。创建 TaskSession 时通常不传 `session_id`，让 Ripple 自动生成。
-### 1.4 状态枚举
-TaskSession 状态：
-
-```text
-waiting_user
-pending_confirm
-in_progress
-completed
-failed
-cancelled
-```
-TaskSpec 状态：
-
-```text
-pending_confirm
-confirmed
-in_progress
-waiting_user
-completed
-failed
-cancelled
-```
-TaskRun 状态：
-
-```text
-in_progress
-waiting_user
-completed
-failed
-cancelled
-```
-### 1.5 context 约定
-服务端可传：
+错误响应：
 
 ```json
 {
-  "context": {
-    "space_id": "space_001",
-    "doc_id": "doc_001"
+  "code": -1,
+  "message": "draft_version_conflict",
+  "error": {
+    "code": "draft_version_conflict",
+    "message": "任务草稿已经更新，请刷新后重新确认。",
+    "task_id": "task_xxx",
+    "req_id": "via-20260716-000123"
   }
 }
 ```
-只保留 `context.space_id` 和 `context.doc_id`。gateway 和 Ripple 可把 `context` 当普通扩展对象保存或处理。
-## 2. 创建 TaskSession
-- Method: `POST`
-- Path: `/via-gateway/v1/task-sessions`
-### 请求
-```json
-{
-  "user_id": "user_001",
-  "req_id": "req_001",
-  "title": "吾日三省吾身",
-  "task_type": "self_reflection",
-  "goal": "生成今日复盘",
-  "executor": "vitana",
-  "callback_url": "https://server.example.com/task-status",
-  "initial_message": "生成今日复盘",
-  "context": {
-    "space_id": "space_001",
-    "doc_id": "doc_001"
-  }
-}
-```
-| 字段 | 类型 | 必填 | 说明 |
-| --- | --- | --- | --- |
-| `user_id` | string | 是 | 用户唯一标识，gateway 处理。 |
-| `req_id` | string | 是 | 单次请求唯一 ID，用于幂等和排查。 |
-| `title` | string | 是 | 任务标题。 |
-| `task_type` | string | 是 | 任务类型，如 `self_reflection`、`solution`、`todo`。 |
-| `goal` | string | 否 | 用户初始任务目标。 |
-| `executor` | string | 否 | 执行器，按 Ripple 字段透传；不传时 Ripple 默认 `vitana`。 |
-| `callback_url` | string | 是 | 服务端接收任务状态 callback 的 POST 地址。 |
-| `initial_message` | string | 否 | 创建时写入 TaskSession timeline 的用户消息。 |
-| `context` | object | 否 | 任务上下文，只保留 `space_id`、`doc_id`。 |
 
-如果已经有结构化 TaskSpec，也可以创建时内联传入 `task_spec`：
+`via-gateway` 负责包装 `code`、`message` 和 `error`；Ripple 返回业务数据和业务错误。HTTP 状态码仍需保留。
+
+### 1.3 用户隔离和 ID
+
+- POST 请求在 body 中传 `user_id`；GET 请求在 query 中传 `user_id`。
+- gateway 把 `user_id` 转换为 Ripple 的用户隔离信息，不继续放进 Ripple body。
+- `task_id` 贯穿任务完整生命周期。
+- `req_id` 在创建时确定，后续命令必须传同一个值。
+- `execution_id` 表示一次执行。
+- `event_id` 用于 Callback 幂等，`seq` 用于同一任务内排序。
+
+### 1.4 写操作幂等
+
+创建、补充消息、确认、取消都必须传 `idempotency_key`。
+
+- 相同 key、相同请求：返回第一次结果。
+- 相同 key、不同请求：HTTP 409，错误码 `idempotency_conflict`。
+- `req_id` 不代替 `idempotency_key`。
+
+## 2. TaskSession
+
+TaskSession 是唯一对外任务对象。`TaskSpec` 和 `TaskRun` 仅作为 Ripple 内部存储，不通过 gateway 暴露。
 
 ```json
 {
-  "user_id": "user_001",
-  "req_id": "req_001",
-  "title": "吾日三省吾身",
-  "task_type": "self_reflection",
-  "goal": "生成今日复盘",
-  "callback_url": "https://server.example.com/task-status",
-  "task_spec": {
-    "task_type": "self_reflection",
-    "goal": "生成今日复盘",
-    "risk_level": "low",
-    "impact_summary": "确认后会生成今日复盘。"
-  }
-}
-```
-### 响应
-```json
-{
-  "code": 0,
-  "message": "success",
-  "data": {
-    "task_session": {
-      "session_id": "ts_xxx",
-      "title": "吾日三省吾身",
-      "task_type": "self_reflection",
-      "goal": "生成今日复盘",
-      "executor": "vitana",
-      "callback_url": "https://server.example.com/task-status",
-      "status": "waiting_user",
-      "needs_user_action": true,
-      "latest_message": "生成今日复盘",
-      "current_task_spec_id": null,
-      "current_run_id": null,
-      "latest_run_id": null,
-      "created_at": "2026-07-08T08:00:00Z",
-      "updated_at": "2026-07-08T08:00:00Z"
+  "task_id": "task_xxx",
+  "req_id": "via-20260716-000123",
+  "title": "发送会议通知",
+  "status": "pending_confirmation",
+  "phase": "confirmation",
+  "waiting_reason": null,
+  "needs_user_action": true,
+  "draft_version": 2,
+  "task_draft": {
+    "action": "send_message",
+    "connector": "feishu",
+    "summary": "通过飞书给张三发送会议通知",
+    "parameters": {
+      "recipient": {"id": "ou_xxx", "display_name": "张三"},
+      "content": "明天下午三点开会"
     },
-    "task_spec": null
-  }
+    "required_connectors": ["feishu"]
+  },
+  "confirmed_task": null,
+  "current_execution": null,
+  "required_action": {
+    "type": "confirm",
+    "message": "任务信息已完整，请确认。",
+    "draft_version": 2
+  },
+  "latest_message": "任务信息已完整，请确认。",
+  "created_at": "2026-07-16T10:00:00Z",
+  "updated_at": "2026-07-16T10:01:00Z"
 }
 ```
-创建时带 `task_spec` 时，`data.task_spec` 返回创建后的 TaskSpec，TaskSession 通常进入 `pending_confirm`。
-## 3. 任务对话补齐或修改 TaskSpec
-- Method: `POST`
-- Path: `/via-gateway/v1/task-sessions/{session_id}/spec-turns`
 
-`session_id` 是 TaskSession ID。
-### 请求
-```json
-{
-  "user_id": "user_001",
-  "req_id": "req_002",
-  "message": "发给张三，用飞书",
-  "context": {
-    "space_id": "space_001",
-    "doc_id": "doc_001"
-  }
-}
-```
-| 字段 | 类型 | 必填 | 说明 |
-| --- | --- | --- | --- |
-| `user_id` | string | 是 | 用户唯一标识，gateway 处理。 |
-| `req_id` | string | 是 | 单次请求唯一 ID。 |
-| `message` | string | 是 | 用户本轮补充信息或修改 TaskSpec 的自然语言指令。 |
-| `context` | object | 否 | 本轮上下文，只保留 `space_id`、`doc_id`。 |
-### 响应：信息不足
-```json
-{
-  "code": 0,
-  "message": "success",
-  "data": {
-    "task_session": {
-      "session_id": "ts_xxx",
-      "status": "waiting_user",
-      "needs_user_action": true,
-      "latest_message": "还需要补充收件人是谁。"
-    },
-    "assistant_message": "还需要补充收件人是谁。",
-    "missing_fields": ["recipient"],
-    "ready_to_confirm": false
-  }
-}
-```
-### 响应：信息足够
-```json
-{
-  "code": 0,
-  "message": "success",
-  "data": {
-    "task_session": {
-      "session_id": "ts_xxx",
-      "status": "pending_confirm",
-      "needs_user_action": true,
-      "latest_message": "TaskSpec 已生成，请确认后开始执行。",
-      "current_task_spec_id": "spec_xxx"
-    },
-    "task_spec": {
-      "task_spec_id": "spec_xxx",
-      "session_id": "ts_xxx",
-      "status": "pending_confirm",
-      "task_type": "todo",
-      "goal": "给张三发送会议通知",
-      "required_fields": {
-        "recipient": "张三",
-        "channel": "feishu",
-        "content": "明天下午三点开会"
-      },
-      "risk_level": "medium",
-      "impact_summary": "确认后会通过飞书给张三发送会议通知。"
-    },
-    "assistant_message": "TaskSpec 已生成，请确认后开始执行。",
-    "missing_fields": [],
-    "ready_to_confirm": true
-  }
-}
-```
-服务端以 `ready_to_confirm: true` 作为展示 TaskSpec 并让用户确认的条件。
-### 追问补齐机制
-追问用户补充信息不是单独接口，而是 `spec-turns` 的返回结果驱动。
+状态：`analyzing`、`waiting_user`、`pending_confirmation`、`queued`、`running`、`completed`、`failed`、`cancelled`。
 
-当任务信息不足时，Ripple 会把 TaskSession 投影为 `waiting_user`，并返回要展示给用户的问题：
+阶段：`draft`、`confirmation`、`execution`、`terminal`。
 
-```json
-{
-  "code": 0,
-  "message": "success",
-  "data": {
-    "task_session": {
-      "session_id": "ts_xxx",
-      "status": "waiting_user",
-      "needs_user_action": true,
-      "latest_message": "请补充收件人是谁。"
-    },
-    "assistant_message": "请补充收件人是谁。",
-    "missing_fields": ["recipient"],
-    "ready_to_confirm": false
-  }
-}
-```
-服务端处理规则：
+当前只支持两种等待原因：`missing_info`、`connector_auth`。
 
-1. 当 `data.task_session.status == "waiting_user"` 且 `data.ready_to_confirm == false` 时，展示 `data.assistant_message` 给用户。
-2. 用户回答后，服务端继续调用同一个 `spec-turns` 接口，把用户回答放到 `message` 字段。
-3. 如果仍缺信息，gateway/Ripple 继续返回新的 `assistant_message`、`missing_fields` 和 `ready_to_confirm: false`。
-4. 如果信息已经足够，返回 `ready_to_confirm: true`、`status: "pending_confirm"` 和完整 `task_spec`。
-5. 服务端此时停止追问，展示 `task_spec` 给用户确认。
+当前只支持三种 `required_action.type`：`reply`、`confirm`、`connector_auth`。
 
-示例：用户回答追问后继续补齐。
+## 3. 接口
+
+### 3.1 创建任务
 
 ```http
-POST /via-gateway/v1/task-sessions/ts_xxx/spec-turns
-Content-Type: application/json
+POST /via-gateway/v1/task-sessions
 ```
-```json
-{
-  "user_id": "user_001",
-  "req_id": "req_003",
-  "message": "发给张三，用飞书"
-}
-```
-如果还缺内容，继续返回：
-
-```json
-{
-  "code": 0,
-  "message": "success",
-  "data": {
-    "task_session": {
-      "session_id": "ts_xxx",
-      "status": "waiting_user",
-      "needs_user_action": true,
-      "latest_message": "请补充要发送的具体通知内容。"
-    },
-    "assistant_message": "请补充要发送的具体通知内容。",
-    "missing_fields": ["content"],
-    "ready_to_confirm": false
-  }
-}
-```
-用户继续回答：
 
 ```json
 {
   "user_id": "user_001",
-  "req_id": "req_004",
-  "message": "明天下午三点开会，请准时参加。"
+  "req_id": "via-20260716-000123",
+  "idempotency_key": "create-via-20260716-000123",
+  "title": "发送会议通知",
+  "content": "用飞书通知张三明天下午三点开会",
+  "callback_url": "https://server.example.com/task-status",
+  "context": {"space_id": "space_001", "doc_id": "doc_001"}
 }
 ```
-信息足够后返回：
 
-```json
-{
-  "code": 0,
-  "message": "success",
-  "data": {
-    "task_session": {
-      "session_id": "ts_xxx",
-      "status": "pending_confirm",
-      "needs_user_action": true,
-      "current_task_spec_id": "spec_xxx",
-      "latest_message": "TaskSpec 已生成，请确认后开始执行。"
-    },
-    "task_spec": {
-      "task_spec_id": "spec_xxx",
-      "session_id": "ts_xxx",
-      "status": "pending_confirm",
-      "goal": "给张三发送会议通知",
-      "required_fields": {
-        "recipient": "张三",
-        "channel": "feishu",
-        "content": "明天下午三点开会，请准时参加。"
-      },
-      "risk_level": "medium",
-      "impact_summary": "确认后会通过飞书给张三发送会议通知。"
-    },
-    "assistant_message": "TaskSpec 已生成，请确认后开始执行。",
-    "missing_fields": [],
-    "ready_to_confirm": true
-  }
-}
+响应 `data.task_session`。信息不足时状态为 `waiting_user`，并返回 `required_action.type = reply`；信息完整时状态为 `pending_confirmation`。
+
+### 3.2 补充或修改任务
+
+```http
+POST /via-gateway/v1/task-sessions/{task_id}/messages
 ```
-字段含义：
 
-| 字段 | 说明 |
-| --- | --- |
-| `assistant_message` | 服务端展示给用户的问题或提示。 |
-| `missing_fields` | 当前仍缺失的字段列表。 |
-| `ready_to_confirm` | 是否已可展示 TaskSpec 并进入用户确认。 |
-| `task_session.latest_message` | 任务列表或会话摘要可展示的最新文案。 |
-| `task_spec` | `ready_to_confirm: true` 时需要展示给用户确认的 TaskSpec。 |
-
-服务端不需要自己推断缺哪些字段，以 `assistant_message` 和 `ready_to_confirm` 驱动交互即可。
-## 4. 用户确认并执行任务
-- Method: `POST`
-- Path: `/via-gateway/v1/task-sessions/{session_id}/task-specs/{task_spec_id}/confirm`
-
-`session_id` 是 TaskSession ID。
-### 请求
 ```json
 {
   "user_id": "user_001",
-  "req_id": "req_003",
-  "start_run": true,
-  "executor": "vitana"
+  "req_id": "via-20260716-000123",
+  "idempotency_key": "message-via-20260716-000123-1",
+  "expected_draft_version": 1,
+  "content": "收件人是张三，内容是明天下午三点开会"
 }
 ```
-| 字段 | 类型 | 必填 | 说明 |
-| --- | --- | --- | --- |
-| `user_id` | string | 是 | 用户唯一标识，gateway 处理。 |
-| `req_id` | string | 是 | 单次请求唯一 ID。 |
-| `start_run` | boolean | 是 | 确认后是否创建 TaskRun。确认并执行时传 `true`。 |
-| `executor` | string | 否 | 执行器。传 `ripple`、`vitana` 或 `ripple_vitana` 会触发 Ripple 内部执行器。 |
-| `auto_execute` | boolean | 否 | 传 `true` 也会触发 Ripple 内部执行器。 |
-| `callback_url` | string | 否 | 本次执行的状态回调地址；不传则继续使用创建 TaskSession 时保存的地址。 |
 
-说明：
+每次有效更新后 `draft_version + 1`。版本不一致时返回 HTTP 409 和 `draft_version_conflict`。
 
-- 只确认、不创建 TaskRun 时，可传 `start_run: false`。
-- 确认并执行时，必须传 `start_run: true`。
-- 如果要启动 Ripple 内部执行器，需要传 `executor: "ripple"` / `"vitana"` / `"ripple_vitana"`，或传 `auto_execute: true`。
-### 响应
+### 3.3 确认并自动执行
+
+```http
+POST /via-gateway/v1/task-sessions/{task_id}/confirm
+```
+
 ```json
 {
-  "code": 0,
-  "message": "success",
-  "data": {
-    "task_session": {
-      "session_id": "ts_xxx",
-      "status": "in_progress",
-      "needs_user_action": false,
-      "current_task_spec_id": "spec_xxx",
-      "current_run_id": "run_xxx",
-      "latest_run_id": "run_xxx"
-    },
-    "task_spec": {
-      "task_spec_id": "spec_xxx",
-      "session_id": "ts_xxx",
-      "status": "in_progress",
-      "confirmed_at": "2026-07-08T08:10:00Z"
-    },
-    "run": {
-      "run_id": "run_xxx",
-      "session_id": "ts_xxx",
-      "task_spec_id": "spec_xxx",
-      "status": "in_progress",
-      "executor": "vitana",
-      "callback_url": "https://server.example.com/task-status",
-      "started_at": "2026-07-08T08:10:00Z"
-    }
-  }
+  "user_id": "user_001",
+  "req_id": "via-20260716-000123",
+  "idempotency_key": "confirm-via-20260716-000123",
+  "draft_version": 2
 }
 ```
-`start_run: false` 时，`data.run` 为 `null`。
-## 5. 任务状态 callback
-任务状态 callback 是任务状态变化后向服务端提供的 `callback_url` 发送的 HTTP POST。
-### 请求
+
+Ripple 冻结当前草稿为 `confirmed_task`，创建 `current_execution`，然后检查 Connector：
+
+- 已授权：直接开始执行。
+- 未授权：返回 `waiting_user`、`waiting_reason = connector_auth` 和 `required_action.auth_url`。
+
+授权完成后继续使用同一个 `execution_id`，不再次确认。
+
+### 3.4 查询任务
+
+```http
+GET /via-gateway/v1/task-sessions/{task_id}?user_id=user_001
+GET /via-gateway/v1/task-sessions?user_id=user_001&req_id=via-20260716-000123
+```
+
+详情响应放在 `data.task_session`；列表响应使用 `data.items` 和 `data.next_cursor`。
+
+### 3.5 取消任务
+
+```http
+POST /via-gateway/v1/task-sessions/{task_id}/cancel
+```
+
+```json
+{
+  "user_id": "user_001",
+  "req_id": "via-20260716-000123",
+  "idempotency_key": "cancel-via-20260716-000123",
+  "reason": "cancelled_by_user"
+}
+```
+
+已取消任务重复取消时返回当前状态。已完成或已失败任务不能取消。
+
+## 4. Callback
+
 ```http
 POST https://server.example.com/task-status
-Content-Type: application/json
+X-Ripple-Event-Id: evt_xxx
+X-Ripple-Task-Id: task_xxx
+X-Ripple-Req-Id: via-20260716-000123
 ```
-callback payload 按 Ripple 当前 `task.status` 格式：
 
 ```json
 {
   "event": "task.status",
-  "id": 15,
+  "id": 18,
   "data": {
     "event_id": "evt_xxx",
-    "task_session_id": "ts_xxx",
+    "seq": 18,
+    "event_type": "task_run_completed",
+    "task_id": "task_xxx",
+    "req_id": "via-20260716-000123",
+    "execution_id": "execution_xxx",
     "task_status": "completed",
+    "phase": "terminal",
+    "waiting_reason": null,
     "needs_user_action": false,
-    "task_spec_id": "spec_xxx",
-    "run_id": "run_xxx",
-    "latest_message": "任务已完成。",
-    "result_summary": "已生成今日复盘。",
-    "result": {
-      "content": "..."
-    },
-    "failure_reason": null
+    "required_action": null,
+    "action": "send_message",
+    "latest_message": "飞书消息已发送给张三。",
+    "result_summary": "飞书消息已发送给张三。",
+    "result": {"message_id": "om_xxx"},
+    "failure_reason": null,
+    "created_at": "2026-07-16T10:06:00Z"
   }
 }
 ```
-### 字段说明
-| 字段 | 类型 | 说明 |
+
+业务服务端必须用 `event_id` 去重，并按 `seq` 更新状态。`task_status` 的位置固定为 `data.task_status`。
+
+## 5. 错误码
+
+| HTTP | error.code | 说明 |
 | --- | --- | --- |
-| `event` | string | 固定为 `task.status`。 |
-| `id` | integer/string/null | 事件序号，可用于幂等或排序。 |
-| `data.event_id` | string | 事件 ID，可用于幂等。 |
-| `data.task_session_id` | string | TaskSession ID。 |
-| `data.task_status` | string | 任务整体状态。服务端主要看该字段。 |
-| `data.needs_user_action` | boolean | 是否需要用户补充、确认或授权。 |
-| `data.task_spec_id` | string/null | 相关 TaskSpec ID。 |
-| `data.run_id` | string/null | 相关 TaskRun ID。 |
-| `data.latest_message` | string | 可展示给用户的最新文案。 |
-| `data.result_summary` | string | 任务完成摘要。 |
-| `data.result` | object/null | 任务完成结果。 |
-| `data.failure_reason` | string | 失败或取消原因。 |
-服务端主流程只依赖上面这些字段。Ripple callback 可能额外带 `type`、`event_version`、`sse_id`、`created_at`、`session_id`、`event_type`、`task_spec_status`、`run_status`、`external_run_id`、`confirmation_id`、`confirmation_status`、`task_session`、`payload` 等字段；服务端可以忽略。
-### callback 约束
-- 服务端返回 HTTP `2xx` 表示接收成功。
-- 服务端应使用 `data.event_id` 或顶层 `id` 做幂等处理。
-- 服务端只用 `data.task_status` 判断任务整体状态。
-- 终态为 `completed`、`failed`、`cancelled`。
-- 服务端应忽略未知字段。
-## 6. 错误处理
-gateway 可继续用统一结构返回错误：
+| 400 | `bad_request` | 请求字段错误 |
+| 404 | `not_found` | 任务不存在或不属于当前用户 |
+| 409 | `draft_version_conflict` | 草稿版本冲突 |
+| 409 | `idempotency_conflict` | 幂等键复用且请求内容不同 |
+| 409 | `req_id_conflict` | req_id 与创建任务时不一致 |
+| 409 | `task_not_pending_confirmation` | 当前状态不能确认 |
+| 409 | `task_already_terminal` | 终态任务不能取消 |
 
-```json
-{
-  "code": 40001,
-  "message": "task_spec_confirmation_required",
-  "data": {
-    "detail": {
-      "code": "task_spec_confirmation_required",
-      "message": "TaskSpec must be confirmed before it can run.",
-      "task_spec_id": "spec_xxx"
-    }
-  }
-}
-```
-常见 HTTP 状态码：
-
-| HTTP | 场景 |
-| --- | --- |
-| `400` | 请求参数错误。 |
-| `401` | 调用方身份无效。 |
-| `404` | TaskSession、TaskSpec 或 TaskRun 不存在。 |
-| `409` | 当前任务状态不允许该操作。 |
-| `500` | gateway 或能力侧内部错误。 |
-## 7. 服务端接入清单
-- 创建任务调用 `POST /via-gateway/v1/task-sessions`。
-- 创建时保存 `data.task_session.session_id`，后续路径使用该 ID。
-- 不把来源 Chat 会话 ID 当作 TaskSession `session_id` 传入。
-- 用户每次补充信息时调用 `spec-turns`。
-- `ready_to_confirm: true` 后展示 TaskSpec 给用户确认。
-- 用户确认并执行时调用 confirm，传 `start_run: true`。
-- 需要 Ripple 内部执行时，传 `executor` 或 `auto_execute: true`。
-- 通过 callback 接收任务状态。
-- 只用 callback 的 `data.task_status` 判断任务整体状态。
-- 用 `data.event_id` 或顶层 `id` 做幂等。
-- 忽略未知字段。
+未列出的扩展字段和交互类型暂不纳入当前版本。

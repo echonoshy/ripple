@@ -95,9 +95,6 @@ docs/_build/
 # Local/historical agent planning artifacts
 docs/superpowers/
 
-# Local isolated development worktrees
-.worktrees/
-
 # PyBuilder
 .pybuilder/
 target/

@@ -22,6 +22,7 @@ pub struct JobManager {
     provider: Arc<CodexAppServerProvider>,
     storage: Storage,
     jobs: Arc<RwLock<HashMap<String, Arc<RwLock<ExternalAgentJob>>>>>,
+    replays: Arc<RwLock<HashMap<String, StoredJobReplay>>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
@@ -126,6 +127,7 @@ impl JobManager {
             provider: Arc::new(CodexAppServerProvider::new(config, storage.clone())),
             storage,
             jobs: Arc::new(RwLock::new(HashMap::new())),
+            replays: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -179,6 +181,11 @@ impl JobManager {
         let job_id = format!("agent-{}", &Uuid::new_v4().simple().to_string()[..8]);
         let job_dir = runtime_dir.join("external-agents").join(&job_id);
         let events_file = job_dir.join("events.jsonl");
+        let replay = StoredJobReplay::new(
+            &create,
+            workspace_root.clone(),
+            runtime_dir.clone(),
+        )?;
         let now = now_iso();
         let mut metadata = json!({
             "job_id": job_id,
@@ -241,10 +248,16 @@ impl JobManager {
             error: None,
         }));
         self.jobs.write().await.insert(job_id.clone(), job.clone());
+        self.replays
+            .write()
+            .await
+            .insert(job_id.clone(), replay.clone());
         self.save_job_record(&*job.read().await).await?;
 
         let provider = self.provider.clone();
         let storage = self.storage.clone();
+        let replays = self.replays.clone();
+        let spawned_job_id = job_id.clone();
         let max_runtime_seconds = create.max_runtime_seconds.clamp(1, 86_400);
         let request = AgentRunnerRequest {
             provider: "codex".to_string(),
@@ -265,22 +278,28 @@ impl JobManager {
             metadata,
         };
         tokio::spawn(async move {
+            let mut replay = replay;
+            replay.attempt = replay.attempt.saturating_add(1);
+            replays
+                .write()
+                .await
+                .insert(spawned_job_id, replay.clone());
             {
                 let mut job = job.write().await;
                 if job.status == AgentRunnerStatus::Cancelled {
                     job.updated_at = now_iso();
-                    let _ = save_job_record_to_storage(&storage, &job).await;
+                    let _ = save_job_record_to_storage(&storage, &job, Some(&replay)).await;
                     return;
                 }
                 job.status = AgentRunnerStatus::Running;
                 job.updated_at = now_iso();
-                let _ = save_job_record_to_storage(&storage, &job).await;
+                let _ = save_job_record_to_storage(&storage, &job, Some(&replay)).await;
             }
             let result = provider.run(request, job_dir).await;
             let mut job = job.write().await;
             if job.status == AgentRunnerStatus::Cancelled {
                 job.updated_at = now_iso();
-                let _ = save_job_record_to_storage(&storage, &job).await;
+                let _ = save_job_record_to_storage(&storage, &job, Some(&replay)).await;
                 return;
             }
             match result {
@@ -302,7 +321,7 @@ impl JobManager {
             job.updated_at = now_iso();
             let usage_snapshot = JobTokenUsageSnapshot::from_job(&job);
             let _ = record_job_token_usage_events(&storage, usage_snapshot).await;
-            let _ = save_job_record_to_storage(&storage, &job).await;
+            let _ = save_job_record_to_storage(&storage, &job, Some(&replay)).await;
         });
 
         self.info(&job_id)
@@ -831,7 +850,8 @@ impl JobManager {
     }
 
     async fn save_job_record(&self, job: &ExternalAgentJob) -> anyhow::Result<()> {
-        save_job_record_to_storage(&self.storage, job).await
+        let replay = self.replays.read().await.get(&job.job_id).cloned();
+        save_job_record_to_storage(&self.storage, job, replay.as_ref()).await
     }
 }
 
@@ -1101,12 +1121,104 @@ fn is_terminal_run_status(status: &str) -> bool {
 async fn save_job_record_to_storage(
     storage: &Storage,
     job: &ExternalAgentJob,
+    replay: Option<&StoredJobReplay>,
 ) -> anyhow::Result<()> {
-    storage.upsert_job(&StoredJobRecord::from_job(job)).await
+    storage
+        .upsert_job(&StoredJobRecord::from_job_with_replay(job, replay))
+        .await
 }
 
 fn info_from_record(record: &Value) -> Option<AgentRunInfo> {
     StoredJobRecord::to_info(record)
+}
+
+#[derive(Debug, Clone)]
+struct StoredJobReplay {
+    request_json: Value,
+    workspace_root: PathBuf,
+    runtime_dir: PathBuf,
+    attempt: u64,
+    max_attempts: u64,
+}
+
+impl StoredJobReplay {
+    fn new(
+        request: &AgentRunCreateRequest,
+        workspace_root: PathBuf,
+        runtime_dir: PathBuf,
+    ) -> anyhow::Result<Self> {
+        let mut request_json = serde_json::to_value(request)?;
+        if let Some(client_context) = &request.client_context {
+            if let Some(object) = request_json.as_object_mut() {
+                object.insert("client_context".to_string(), json!(client_context));
+            }
+        }
+        Ok(Self {
+            request_json,
+            workspace_root,
+            runtime_dir,
+            attempt: 0,
+            max_attempts: 2,
+        })
+    }
+
+    fn request(&self) -> anyhow::Result<AgentRunCreateRequest> {
+        let client_context = self
+            .request_json
+            .get("client_context")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        let mut request = serde_json::from_value::<AgentRunCreateRequest>(
+            self.request_json.clone(),
+        )?;
+        request.client_context = client_context;
+        Ok(request)
+    }
+
+    fn record_fields(&self) -> Value {
+        json!({
+            "request": self.request_json,
+            "workspace_root": self.workspace_root,
+            "runtime_dir": self.runtime_dir,
+            "attempt": self.attempt,
+            "max_attempts": self.max_attempts,
+        })
+    }
+
+    fn from_record(record: &Value) -> anyhow::Result<Self> {
+        let request_json = record
+            .get("request")
+            .filter(|value| value.is_object())
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("stored job missing replay request"))?;
+        let workspace_root = record
+            .get("workspace_root")
+            .and_then(Value::as_str)
+            .map(PathBuf::from)
+            .ok_or_else(|| anyhow::anyhow!("stored job missing workspace_root"))?;
+        let runtime_dir = record
+            .get("runtime_dir")
+            .and_then(Value::as_str)
+            .map(PathBuf::from)
+            .ok_or_else(|| anyhow::anyhow!("stored job missing runtime_dir"))?;
+        Ok(Self {
+            request_json,
+            workspace_root,
+            runtime_dir,
+            attempt: record.get("attempt").and_then(Value::as_u64).unwrap_or(0),
+            max_attempts: record
+                .get("max_attempts")
+                .and_then(Value::as_u64)
+                .unwrap_or(1)
+                .max(1),
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReplayDecision {
+    Queued,
+    Failed,
 }
 
 struct StoredJobRecord;
@@ -1165,6 +1277,22 @@ impl StoredJobRecord {
         record
     }
 
+    fn from_job_with_replay(job: &ExternalAgentJob, replay: Option<&StoredJobReplay>) -> Value {
+        let mut record = Self::from_job(job);
+        let Some(replay) = replay else {
+            return record;
+        };
+        if let (Some(record_object), Some(replay_object)) =
+            (record.as_object_mut(), replay.record_fields().as_object())
+        {
+            record_object.insert("version".to_string(), json!(2));
+            for (key, value) in replay_object {
+                record_object.insert(key.clone(), value.clone());
+            }
+        }
+        record
+    }
+
     fn to_info(record: &Value) -> Option<AgentRunInfo> {
         let job_id = record.get("job_id")?.as_str()?.to_string();
         Some(AgentRunInfo {
@@ -1213,6 +1341,50 @@ impl StoredJobRecord {
                 json!("interrupted_by_restart"),
             );
         }
+    }
+
+    fn requeue_after_restart(record: &mut Value) -> ReplayDecision {
+        let replayable = record.get("request").is_some_and(Value::is_object)
+            && record.get("workspace_root").and_then(Value::as_str).is_some()
+            && record.get("runtime_dir").and_then(Value::as_str).is_some();
+        if !replayable {
+            Self::mark_interrupted(record);
+            return ReplayDecision::Failed;
+        }
+
+        let attempt = record.get("attempt").and_then(Value::as_u64).unwrap_or(0);
+        let max_attempts = record
+            .get("max_attempts")
+            .and_then(Value::as_u64)
+            .unwrap_or(1)
+            .max(1);
+        if attempt >= max_attempts {
+            if let Some(object) = record.as_object_mut() {
+                object.insert("status".to_string(), json!("failed"));
+                object.insert("updated_at".to_string(), json!(now_iso()));
+                object.insert(
+                    "error".to_string(),
+                    json!("retry_limit_exhausted: automatic restart retry limit reached"),
+                );
+                object.insert(
+                    "failure_reason".to_string(),
+                    json!("retry_limit_exhausted"),
+                );
+            }
+            return ReplayDecision::Failed;
+        }
+
+        if let Some(object) = record.as_object_mut() {
+            object.insert("status".to_string(), json!("queued"));
+            object.insert("updated_at".to_string(), json!(now_iso()));
+            object.insert(
+                "recovery_reason".to_string(),
+                json!("interrupted_by_restart"),
+            );
+            object.remove("error");
+            object.remove("failure_reason");
+        }
+        ReplayDecision::Queued
     }
 
     fn str(record: &Value, key: &str) -> String {
@@ -1359,7 +1531,8 @@ mod tests {
     use crate::codex::app_server::AgentRunnerStatus;
 
     use super::{
-        resolve_workspace_cwd, user_requested_image_generation, ExternalAgentJob, StoredJobRecord,
+        resolve_workspace_cwd, user_requested_image_generation, AgentRunCreateRequest,
+        ExternalAgentJob, ReplayDecision, StoredJobRecord, StoredJobReplay,
     };
 
     #[test]
@@ -1439,5 +1612,175 @@ mod tests {
                 .and_then(serde_json::Value::as_str),
             Some("6a4b7ac03606b62950699ae6")
         );
+    }
+
+    fn replayable_record(status: &str, attempt: u64, max_attempts: u64) -> serde_json::Value {
+        json!({
+            "version": 2,
+            "job_id": "agent-replay",
+            "provider": "codex",
+            "user_id": "user-1",
+            "session_id": "session-1",
+            "status": status,
+            "created_at": "2026-07-16T00:00:00Z",
+            "updated_at": "2026-07-16T00:00:01Z",
+            "attempt": attempt,
+            "max_attempts": max_attempts,
+            "request": {
+                "prompt": "resume this task",
+                "provider": "codex"
+            },
+            "workspace_root": "/tmp/ripple-workspace",
+            "runtime_dir": "/tmp/ripple-runtime"
+        })
+    }
+
+    #[test]
+    fn restart_requeues_replayable_running_job() {
+        let mut record = replayable_record("running", 1, 2);
+
+        assert_eq!(
+            StoredJobRecord::requeue_after_restart(&mut record),
+            ReplayDecision::Queued
+        );
+        assert_eq!(record.get("status").and_then(serde_json::Value::as_str), Some("queued"));
+        assert_eq!(record.get("attempt").and_then(serde_json::Value::as_u64), Some(1));
+        assert_eq!(
+            record
+                .get("recovery_reason")
+                .and_then(serde_json::Value::as_str),
+            Some("interrupted_by_restart")
+        );
+    }
+
+    #[test]
+    fn restart_rejects_legacy_job_without_replay_request() {
+        let mut record = replayable_record("running", 1, 2);
+        record.as_object_mut().unwrap().remove("request");
+
+        assert_eq!(
+            StoredJobRecord::requeue_after_restart(&mut record),
+            ReplayDecision::Failed
+        );
+        assert_eq!(record.get("status").and_then(serde_json::Value::as_str), Some("failed"));
+        assert_eq!(
+            record.get("failure_reason").and_then(serde_json::Value::as_str),
+            Some("interrupted_by_restart")
+        );
+    }
+
+    #[test]
+    fn restart_rejects_job_after_retry_limit() {
+        let mut record = replayable_record("running", 2, 2);
+
+        assert_eq!(
+            StoredJobRecord::requeue_after_restart(&mut record),
+            ReplayDecision::Failed
+        );
+        assert_eq!(record.get("status").and_then(serde_json::Value::as_str), Some("failed"));
+        assert_eq!(
+            record.get("failure_reason").and_then(serde_json::Value::as_str),
+            Some("retry_limit_exhausted")
+        );
+    }
+
+    #[test]
+    fn stored_job_replay_round_trips_internal_client_context() {
+        let request = AgentRunCreateRequest {
+            prompt: "resume this task".to_string(),
+            provider: "codex".to_string(),
+            base_instructions: Some("base".to_string()),
+            turn_context: Some("turn".to_string()),
+            client_context: Some("screen context".to_string()),
+            input_items: Vec::new(),
+            cwd: Some("/workspace".to_string()),
+            model: None,
+            effort: None,
+            summary: None,
+            output_schema: None,
+            max_runtime_seconds: 30,
+            task_trigger_id: None,
+            task_trigger_title: None,
+            task_trigger_reason: None,
+            codex_thread_id: None,
+            codex_persistent_thread: false,
+            client_request_id: Some("request-1".to_string()),
+            chat_user_input: None,
+            chat_user_content: None,
+        };
+        let replay = StoredJobReplay::new(
+            &request,
+            "/tmp/ripple-workspace".into(),
+            "/tmp/ripple-runtime".into(),
+        )
+        .expect("serialize replay");
+        let record = replay.record_fields();
+        let restored = StoredJobReplay::from_record(&record).expect("restore replay");
+        let restored_request = restored.request().expect("restore request");
+
+        assert_eq!(restored_request.prompt, "resume this task");
+        assert_eq!(
+            restored_request.client_context.as_deref(),
+            Some("screen context")
+        );
+        assert_eq!(restored.attempt, 0);
+        assert_eq!(restored.max_attempts, 2);
+    }
+
+    #[test]
+    fn stored_job_record_includes_replay_fields() {
+        let workspace = std::path::PathBuf::from("/tmp/ripple-workspace");
+        let request = AgentRunCreateRequest {
+            prompt: "persist me".to_string(),
+            provider: "codex".to_string(),
+            base_instructions: None,
+            turn_context: None,
+            client_context: None,
+            input_items: Vec::new(),
+            cwd: Some("/workspace".to_string()),
+            model: None,
+            effort: None,
+            summary: None,
+            output_schema: None,
+            max_runtime_seconds: 30,
+            task_trigger_id: None,
+            task_trigger_title: None,
+            task_trigger_reason: None,
+            codex_thread_id: None,
+            codex_persistent_thread: false,
+            client_request_id: None,
+            chat_user_input: None,
+            chat_user_content: None,
+        };
+        let replay = StoredJobReplay::new(
+            &request,
+            workspace.clone(),
+            "/tmp/ripple-runtime".into(),
+        )
+        .expect("serialize replay");
+        let job = ExternalAgentJob {
+            job_id: "agent-replay".to_string(),
+            provider: "codex".to_string(),
+            prompt: request.prompt.clone(),
+            cwd: workspace.clone(),
+            user_id: Some("user-1".to_string()),
+            session_id: Some("session-1".to_string()),
+            metadata: json!({"sandbox_cwd": "/workspace"}),
+            status: AgentRunnerStatus::Queued,
+            created_at: "2026-07-16T00:00:00Z".to_string(),
+            updated_at: "2026-07-16T00:00:01Z".to_string(),
+            events_file: Some(workspace.join("events.jsonl")),
+            output_file: None,
+            exit_code: None,
+            stdout_tail: String::new(),
+            stderr_tail: String::new(),
+            error: None,
+        };
+
+        let record = StoredJobRecord::from_job_with_replay(&job, Some(&replay));
+
+        assert_eq!(record.pointer("/request/prompt").and_then(serde_json::Value::as_str), Some("persist me"));
+        assert_eq!(record.get("attempt").and_then(serde_json::Value::as_u64), Some(0));
+        assert_eq!(record.get("max_attempts").and_then(serde_json::Value::as_u64), Some(2));
     }
 }

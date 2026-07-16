@@ -801,6 +801,7 @@ mod tests {
             host: "127.0.0.1".to_string(),
             port: 8810,
             api_keys: Vec::new(),
+            enabled_connectors: crate::config::default_enabled_connectors(),
             security: SecurityConfig::default(),
             user_auth: crate::config::UserAuthConfig::default(),
             api_docs: crate::config::ApiDocsConfig::default(),

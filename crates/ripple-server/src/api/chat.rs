@@ -2393,6 +2393,7 @@ mod tests {
             host: "127.0.0.1".to_string(),
             port: 0,
             api_keys: vec!["test-key".to_string()],
+            enabled_connectors: crate::config::default_enabled_connectors(),
             security: SecurityConfig::default(),
             user_auth: UserAuthConfig::default(),
             api_docs: crate::config::ApiDocsConfig::default(),

@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
@@ -9,6 +9,7 @@ pub const DEFAULT_CODEX_MAX_TOTAL_POOL_WORKERS: usize = 256;
 pub const DEFAULT_CODEX_RUNTIME_LOG_RETENTION_SECONDS: u64 = 24 * 60 * 60;
 pub const DEFAULT_CODEX_RUNTIME_LOG_MAX_MB: u64 = 64;
 pub const DEFAULT_CODEX_RUNTIME_LOG_CLEANUP_INTERVAL_SECONDS: u64 = 60 * 60;
+pub const USER_CONNECTOR_NAMES: &[&str] = &["google_workspace", "notion", "feishu", "bilibili"];
 
 #[derive(Clone, Debug)]
 pub struct AppConfig {
@@ -19,6 +20,7 @@ pub struct AppConfig {
     pub security: SecurityConfig,
     pub user_auth: UserAuthConfig,
     pub api_docs: ApiDocsConfig,
+    pub enabled_connectors: BTreeSet<String>,
     pub cors: CorsConfig,
     pub default_model: String,
     pub model_presets: BTreeMap<String, ModelPreset>,
@@ -215,6 +217,7 @@ struct RawServer {
     security: Option<RawSecurity>,
     user_auth: Option<RawUserAuth>,
     api_docs: Option<RawApiDocs>,
+    enabled_connectors: Option<Vec<String>>,
     cors: Option<RawCors>,
     sandbox: Option<RawSandbox>,
     codex_chat: Option<RawCodexChat>,
@@ -394,7 +397,8 @@ impl AppConfig {
             RawConfig::default()
         };
 
-        let server = raw.server.unwrap_or_default();
+        let mut server = raw.server.unwrap_or_default();
+        let enabled_connectors = parse_enabled_connectors(server.enabled_connectors.take())?;
         let security = server.security.unwrap_or_default();
         let user_auth = server.user_auth.unwrap_or_default();
         let api_docs = server.api_docs.unwrap_or_default();
@@ -444,6 +448,33 @@ impl AppConfig {
             .as_deref()
             .map(|value| resolve_path(&repo_root, value))
             .unwrap_or_else(|| sandbox_caches_root.join("uv-cache"));
+        let lark_cli_install_root = if enabled_connectors.contains("feishu") {
+            sandbox
+                .lark_cli_install_root
+                .as_deref()
+                .map(|value| resolve_path(&repo_root, value))
+                .or_else(|| discover_vendor_root(&repo_root, "lark-cli", "lark-cli"))
+        } else {
+            None
+        };
+        let notion_cli_install_root = if enabled_connectors.contains("notion") {
+            sandbox
+                .notion_cli_install_root
+                .as_deref()
+                .map(|value| resolve_path(&repo_root, value))
+                .or_else(|| discover_vendor_root(&repo_root, "notion-cli", "ntn"))
+        } else {
+            None
+        };
+        let gogcli_cli_install_root = if enabled_connectors.contains("google_workspace") {
+            sandbox
+                .gogcli_cli_install_root
+                .as_deref()
+                .map(|value| resolve_path(&repo_root, value))
+                .or_else(|| discover_vendor_root(&repo_root, "gogcli-cli", "gog"))
+        } else {
+            None
+        };
 
         let config = Self {
             repo_root: repo_root.clone(),
@@ -473,6 +504,7 @@ impl AppConfig {
                     .try_it_out_enabled
                     .unwrap_or_else(|| ApiDocsConfig::default().try_it_out_enabled),
             },
+            enabled_connectors,
             cors: CorsConfig {
                 allowed_origins: cors
                     .allowed_origins
@@ -508,18 +540,9 @@ impl AppConfig {
                     .node_dir
                     .map(|value| resolve_path(&repo_root, &value))
                     .or_else(discover_node_dir),
-                lark_cli_install_root: sandbox
-                    .lark_cli_install_root
-                    .map(|value| resolve_path(&repo_root, &value))
-                    .or_else(|| discover_vendor_root(&repo_root, "lark-cli", "lark-cli")),
-                notion_cli_install_root: sandbox
-                    .notion_cli_install_root
-                    .map(|value| resolve_path(&repo_root, &value))
-                    .or_else(|| discover_vendor_root(&repo_root, "notion-cli", "ntn")),
-                gogcli_cli_install_root: sandbox
-                    .gogcli_cli_install_root
-                    .map(|value| resolve_path(&repo_root, &value))
-                    .or_else(|| discover_vendor_root(&repo_root, "gogcli-cli", "gog")),
+                lark_cli_install_root,
+                notion_cli_install_root,
+                gogcli_cli_install_root,
                 cli_tools: parse_cli_tools(&repo_root, sandbox.cli_tools)?,
                 pypi_mirror_url: sandbox.pypi_mirror_url,
                 npm_registry_url: sandbox.npm_registry_url,
@@ -613,6 +636,10 @@ impl AppConfig {
         Ok(config)
     }
 
+    pub fn connector_enabled(&self, name: &str) -> bool {
+        self.enabled_connectors.contains(name)
+    }
+
     pub fn resolve_model(&self, selected: Option<&str>) -> (String, Option<String>) {
         let alias = selected.unwrap_or(&self.default_model);
         if let Some(preset) = self.model_presets.get(alias) {
@@ -631,6 +658,34 @@ impl AppConfig {
     pub fn tracing_filter(&self) -> String {
         tracing_filter_for_level(&self.logging.level)
     }
+}
+
+fn parse_enabled_connectors(raw: Option<Vec<String>>) -> anyhow::Result<BTreeSet<String>> {
+    let connectors = raw.unwrap_or_else(|| default_enabled_connectors().into_iter().collect());
+    let enabled = connectors
+        .into_iter()
+        .filter_map(|name| clean_config_string(Some(&name)))
+        .map(|name| name.to_ascii_lowercase())
+        .collect::<BTreeSet<_>>();
+    let unknown = enabled
+        .iter()
+        .filter(|name| !USER_CONNECTOR_NAMES.contains(&name.as_str()))
+        .cloned()
+        .collect::<Vec<_>>();
+    if !unknown.is_empty() {
+        anyhow::bail!(
+            "server.enabled_connectors contains unknown connector(s): {}",
+            unknown.join(", ")
+        );
+    }
+    Ok(enabled)
+}
+
+pub fn default_enabled_connectors() -> BTreeSet<String> {
+    USER_CONNECTOR_NAMES
+        .iter()
+        .map(|name| (*name).to_string())
+        .collect()
 }
 
 fn validate_runtime_config(config: &AppConfig) -> anyhow::Result<()> {
@@ -914,6 +969,74 @@ mod tests {
 
         let config = loaded.expect("load default config");
         assert_eq!(config.skills.shared_dirs, vec!["skills/*".to_string()]);
+    }
+
+    #[test]
+    fn parses_enabled_connectors_allowlist() {
+        let config = with_temp_config(
+            "enabled-connectors",
+            "server:\n  api_keys: [test-key]\n  enabled_connectors: [feishu]\n",
+            AppConfig::load,
+        )
+        .expect("load config");
+
+        assert!(config.connector_enabled("feishu"));
+        assert!(!config.connector_enabled("google_workspace"));
+        assert!(!config.connector_enabled("notion"));
+        assert!(!config.connector_enabled("bilibili"));
+    }
+
+    #[test]
+    fn enabled_connectors_default_to_all_user_connectors() {
+        let config = with_temp_config(
+            "default-enabled-connectors",
+            "server:\n  api_keys: [test-key]\n",
+            AppConfig::load,
+        )
+        .expect("load config");
+
+        for connector in ["google_workspace", "notion", "feishu", "bilibili"] {
+            assert!(config.connector_enabled(connector), "{connector}");
+        }
+    }
+
+    #[test]
+    fn rejects_unknown_enabled_connector() {
+        let error = with_temp_config(
+            "unknown-enabled-connector",
+            "server:\n  api_keys: [test-key]\n  enabled_connectors: [unknown]\n",
+            AppConfig::load,
+        )
+        .expect_err("unknown connector must fail");
+
+        assert!(error
+            .to_string()
+            .contains("server.enabled_connectors contains unknown connector"));
+    }
+
+    #[test]
+    fn disabled_connectors_do_not_resolve_configured_cli_roots() {
+        let config = with_temp_config(
+            "disabled-connector-cli-roots",
+            r#"
+server:
+  api_keys: [test-key]
+  enabled_connectors: [feishu]
+  sandbox:
+    lark_cli_install_root: /tmp/test-lark-cli
+    notion_cli_install_root: /tmp/test-notion-cli
+    gogcli_cli_install_root: /tmp/test-gogcli-cli
+"#,
+            AppConfig::load,
+        )
+        .expect("load config");
+
+        assert_eq!(
+            config.sandbox.lark_cli_install_root,
+            Some(std::path::PathBuf::from("/tmp/test-lark-cli"))
+        );
+        assert!(config.sandbox.notion_cli_install_root.is_none());
+        assert!(config.sandbox.gogcli_cli_install_root.is_none());
     }
 
     #[test]

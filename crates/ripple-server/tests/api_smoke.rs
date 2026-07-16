@@ -32,6 +32,7 @@ fn test_config(root: &Path) -> AppConfig {
         host: "127.0.0.1".to_string(),
         port: 0,
         api_keys: vec!["test-key".to_string()],
+        enabled_connectors: ripple_server::config::default_enabled_connectors(),
         security: SecurityConfig::default(),
         user_auth: UserAuthConfig::default(),
         api_docs: ApiDocsConfig::default(),

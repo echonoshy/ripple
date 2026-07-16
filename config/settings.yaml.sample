@@ -79,6 +79,10 @@ logging:
 server:
   host: "0.0.0.0"
   port: 8810
+  # 用户 connector 暴露 allowlist。省略时为兼容旧配置，会启用全部内置 connector。
+  # 下例只暴露飞书；运行时 Codex 能力不受此列表影响。
+  enabled_connectors:
+    - "feishu"
   security:
     # v1 推荐单机 trusted-proxy 部署：浏览器只访问上游 Web/proxy，
     # proxy 完成用户认证后注入 X-Ripple-User-Id，并剥离客户端伪造 header。
@@ -199,8 +203,12 @@ server:
     # PyPI 镜像 URL（设置为空字符串则使用官方源）
     pypi_mirror_url: "https://pypi.tuna.tsinghua.edu.cn/simple"
 
+    # 特殊 connector CLI 仅在对应 connector 启用时挂载。
+    lark_cli_install_root: "vendor/lark-cli"
+
     # 通用 skill + bin 工具。每个工具以只读方式挂载进 sandbox，并把 bin_dirs 加入 PATH。
     # 后续新增 youtube-cli 等工具时，只需放置二进制并新增一段配置。
+    cli_tools: []
     # cli_tools:
     #   - name: bilibili
     #     install_root: "vendor/bilibili-cli"
@@ -219,4 +227,4 @@ skills:
   # 支持 glob：skills/* 会展开为所有顶层子目录；也可写具体路径如 skills/lark
   # 路径相对于项目根目录，或使用 ~ 展开为绝对路径
   shared_dirs:
-    - "skills/*"
+    - "skills/lark"

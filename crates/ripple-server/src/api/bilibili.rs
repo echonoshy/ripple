@@ -1,13 +1,15 @@
 use std::io::Cursor;
 
 use axum::body::Body;
-use axum::extract::Query;
+use axum::extract::{Query, State};
 use axum::http::{header, HeaderValue, Response, StatusCode};
 use image::{DynamicImage, ImageFormat, Luma};
 use qrcode::QrCode;
 use serde::Deserialize;
 
+use crate::api::connectors::ensure_connector_enabled;
 use crate::api::ApiError;
+use crate::state::AppState;
 
 #[derive(Debug, Deserialize, utoipa::IntoParams)]
 #[into_params(parameter_in = Query)]
@@ -25,7 +27,11 @@ pub struct QrcodeQuery {
         (status = 400, description = "Invalid QR content", body = crate::api::openapi::ApiErrorEnvelope)
     )
 )]
-pub async fn qrcode_png(Query(query): Query<QrcodeQuery>) -> Result<Response<Body>, ApiError> {
+pub async fn qrcode_png(
+    State(state): State<AppState>,
+    Query(query): Query<QrcodeQuery>,
+) -> Result<Response<Body>, ApiError> {
+    ensure_connector_enabled(&state, "bilibili")?;
     let content = query.content.trim();
     if content.is_empty() || content.len() > 2048 {
         return Err(ApiError::bad_request("content must be 1 to 2048 bytes"));

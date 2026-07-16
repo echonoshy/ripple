@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 use url::{form_urlencoded, Url};
 
 use crate::api::{audit_event, require_confirm, ApiError};
-use crate::capabilities::{connector_definition, connector_definitions, connector_info};
+use crate::capabilities::{connector_definition, connector_info, enabled_connector_definitions};
 use crate::connector_runtime::PendingBilibiliQr;
 use crate::redaction::{redact_text, redact_value};
 use crate::state::AppState;
@@ -45,9 +45,9 @@ const BILIBILI_PENDING_TTL_SECONDS: u64 = 600;
         ("apiKeyAuth" = [])
     )
 )]
-pub async fn list_connectors() -> Json<Value> {
+pub async fn list_connectors(State(state): State<AppState>) -> Json<Value> {
     Json(json!({
-        "connectors": connector_definitions().iter().map(connector_info).collect::<Vec<_>>()
+        "connectors": enabled_connector_definitions(&state.config).into_iter().map(connector_info).collect::<Vec<_>>()
     }))
 }
 
@@ -83,6 +83,7 @@ pub(crate) async fn connector_status_value(
     user_id: &str,
     connector_name: &str,
 ) -> Result<Value, ApiError> {
+    ensure_connector_enabled(state, connector_name)?;
     let workspace = state.sandboxes.workspace_dir(user_id)?;
     let credentials = state.sandboxes.credentials_dir(user_id)?;
     let mut status = match connector_name {
@@ -225,6 +226,7 @@ pub(crate) async fn connector_auth_start_action(
     payload: &Value,
     request_base_url: Option<&str>,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_connector_enabled(state, connector_name)?;
     state.sandboxes.ensure_sandbox(user_id)?;
     match connector_name {
         "notion" => notion_auth_start(state, user_id, payload).await,
@@ -276,6 +278,7 @@ pub(crate) async fn connector_auth_complete_action(
     connector_name: &str,
     payload: &Value,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_connector_enabled(state, connector_name)?;
     state.sandboxes.ensure_sandbox(user_id)?;
     match connector_name {
         "google_workspace" => google_workspace::auth_complete(state, user_id, payload).await,
@@ -313,6 +316,7 @@ pub async fn connector_auth_cancel(
     Path(connector_name): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
+    ensure_connector_enabled(&state, &connector_name)?;
     state.sandboxes.ensure_sandbox(&user_id)?;
     let Some(definition) = connector_definition(&connector_name) else {
         return Err(ApiError::not_found(format!(
@@ -357,6 +361,7 @@ pub async fn connector_disconnect(
     body: Option<Json<Value>>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
+    ensure_connector_enabled(&state, &connector_name)?;
     state.sandboxes.ensure_sandbox(&user_id)?;
     let payload = body.map(|Json(value)| value).unwrap_or_else(|| json!({}));
     if state.config.security.require_confirm_for_risky_api {
@@ -413,6 +418,7 @@ pub async fn connector_accounts(
     Query(query): Query<AccountsQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
+    ensure_connector_enabled(&state, &connector_name)?;
     ensure_sandbox_exists(&state, &user_id)?;
     if connector_name != "google_workspace" {
         return Err(ApiError::new(
@@ -433,6 +439,23 @@ fn ensure_sandbox_exists(state: &AppState, user_id: &str) -> Result<(), ApiError
     }
 }
 
+pub(crate) fn ensure_connector_enabled(
+    state: &AppState,
+    connector_name: &str,
+) -> Result<(), ApiError> {
+    let Some(definition) = connector_definition(connector_name) else {
+        return Err(ApiError::not_found(format!(
+            "Connector {connector_name:?} not found"
+        )));
+    };
+    if definition.kind == "user_connector" && !state.config.connector_enabled(connector_name) {
+        return Err(ApiError::not_found(format!(
+            "Connector {connector_name:?} not found"
+        )));
+    }
+    Ok(())
+}
+
 async fn restart_codex_runtime_for_credential_change(
     state: &AppState,
     user_id: &str,
@@ -446,6 +469,7 @@ async fn cancel_connector_auth_state(
     user_id: &str,
     connector_name: &str,
 ) -> Result<bool, ApiError> {
+    ensure_connector_enabled(state, connector_name)?;
     let sessions = state
         .sessions
         .cancel_pending_connector_auth(user_id, connector_name)

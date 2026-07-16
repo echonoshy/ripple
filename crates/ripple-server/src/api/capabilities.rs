@@ -13,7 +13,7 @@ use crate::api::skills::{
 };
 use crate::api::ApiError;
 use crate::capabilities::{
-    connector_definitions, connector_info, related_connector_for_skill,
+    connector_info, enabled_connector_definitions, related_connector_for_skill,
     related_skills_for_connector,
 };
 use crate::codex::runtime_metadata::runtime_capability_metadata;
@@ -117,7 +117,7 @@ async fn capability_catalog(state: &AppState, user_id: &str) -> Result<Vec<Value
     let (options, skills) = catalog_skill_manifest_for_user(state, user_id).await?;
     let connector_statuses = options.connector_statuses.clone();
     let mut capabilities = Vec::new();
-    for connector in connector_definitions() {
+    for connector in enabled_connector_definitions(&state.config) {
         let connected = connector_statuses
             .get(connector.name)
             .copied()
@@ -179,7 +179,7 @@ async fn catalog_connector_statuses(
     user_id: &str,
 ) -> Result<BTreeMap<String, bool>, ApiError> {
     let started = Instant::now();
-    let definitions = connector_definitions();
+    let definitions = enabled_connector_definitions(&state.config);
     let mut pending = tokio::task::JoinSet::new();
     let mut results = (0..definitions.len())
         .map(|_| None)
@@ -305,22 +305,30 @@ pub(crate) fn lightweight_connector_statuses(
     let workspace = state.sandboxes.workspace_dir(user_id)?;
     let credentials = state.sandboxes.credentials_dir(user_id)?;
     let mut statuses = BTreeMap::new();
-    statuses.insert(
-        "google_workspace".to_string(),
-        workspace.join(".config/gogcli/keyring").exists(),
-    );
-    statuses.insert(
-        "notion".to_string(),
-        read_json_string_field(&credentials.join("notion.json"), "api_token").is_some(),
-    );
-    statuses.insert(
-        "feishu".to_string(),
-        workspace.join(".lark-cli/config.json").is_file(),
-    );
-    statuses.insert(
-        "bilibili".to_string(),
-        read_valid_bilibili_credential_file(&credentials.join("bilibili.json")).is_some(),
-    );
+    if state.config.connector_enabled("google_workspace") {
+        statuses.insert(
+            "google_workspace".to_string(),
+            workspace.join(".config/gogcli/keyring").exists(),
+        );
+    }
+    if state.config.connector_enabled("notion") {
+        statuses.insert(
+            "notion".to_string(),
+            read_json_string_field(&credentials.join("notion.json"), "api_token").is_some(),
+        );
+    }
+    if state.config.connector_enabled("feishu") {
+        statuses.insert(
+            "feishu".to_string(),
+            workspace.join(".lark-cli/config.json").is_file(),
+        );
+    }
+    if state.config.connector_enabled("bilibili") {
+        statuses.insert(
+            "bilibili".to_string(),
+            read_valid_bilibili_credential_file(&credentials.join("bilibili.json")).is_some(),
+        );
+    }
     statuses.insert("openai_codex".to_string(), true);
     statuses.insert("codex_image_generation".to_string(), true);
     statuses.insert("codex_image_input".to_string(), true);

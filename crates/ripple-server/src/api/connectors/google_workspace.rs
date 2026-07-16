@@ -441,6 +441,7 @@ pub(crate) async fn gogcli_accounts_alias(
     headers: HeaderMap,
     Query(query): Query<AccountsQuery>,
 ) -> Result<Json<Value>, ApiError> {
+    super::ensure_connector_enabled(&state, "google_workspace")?;
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
     ensure_sandbox_exists(&state, &user_id)?;
     accounts(&state, &user_id, query.check.unwrap_or(false)).await
@@ -458,6 +459,9 @@ pub(crate) async fn gogcli_oauth_callback(
     OriginalUri(uri): OriginalUri,
     Query(query): Query<GogcliCallbackQuery>,
 ) -> Response {
+    if let Err(error) = super::ensure_connector_enabled(&state, "google_workspace") {
+        return error.into_response();
+    }
     let oauth_state = query.state.as_deref().unwrap_or("").trim().to_string();
     if oauth_state.is_empty() {
         return oauth_html(

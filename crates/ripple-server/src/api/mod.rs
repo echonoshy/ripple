@@ -502,7 +502,7 @@ impl From<std::io::Error> for ApiError {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, BTreeSet};
 
     use axum::body::{to_bytes, Body};
     use axum::http::{header, Method, Request, StatusCode};
@@ -522,6 +522,26 @@ mod tests {
         let root =
             std::env::temp_dir().join(format!("ripple-api-auth-test-{}", uuid::Uuid::new_v4()));
         test_state_from_root(api_keys, shared_dirs, root, None, None)
+    }
+
+    fn test_state_with_enabled_connectors(
+        api_keys: Vec<String>,
+        enabled_connectors: &[&str],
+    ) -> AppState {
+        let root =
+            std::env::temp_dir().join(format!("ripple-api-auth-test-{}", uuid::Uuid::new_v4()));
+        test_state_from_root_with_enabled_connectors(
+            api_keys,
+            Vec::new(),
+            root,
+            None,
+            None,
+            "codex".to_string(),
+            enabled_connectors
+                .iter()
+                .map(|name| (*name).to_string())
+                .collect(),
+        )
     }
 
     fn test_state_with_shared_dirs_and_google_cli(
@@ -566,12 +586,32 @@ mod tests {
         nsjail_path: Option<std::path::PathBuf>,
         codex_executable: String,
     ) -> AppState {
+        test_state_from_root_with_enabled_connectors(
+            api_keys,
+            shared_dirs,
+            root,
+            gogcli_cli_install_root,
+            nsjail_path,
+            codex_executable,
+            crate::config::default_enabled_connectors(),
+        )
+    }
+
+    fn test_state_from_root_with_enabled_connectors(
+        api_keys: Vec<String>,
+        shared_dirs: Vec<String>,
+        root: std::path::PathBuf,
+        gogcli_cli_install_root: Option<std::path::PathBuf>,
+        nsjail_path: Option<std::path::PathBuf>,
+        codex_executable: String,
+        enabled_connectors: BTreeSet<String>,
+    ) -> AppState {
         AppState::new(AppConfig {
             repo_root: root.clone(),
             host: "127.0.0.1".to_string(),
             port: 0,
             api_keys,
-            enabled_connectors: crate::config::default_enabled_connectors(),
+            enabled_connectors,
             security: SecurityConfig::default(),
             user_auth: UserAuthConfig::default(),
             api_docs: crate::config::ApiDocsConfig::default(),
@@ -979,6 +1019,133 @@ mod tests {
         assert!(body_text.contains("/sandbox") || body_text.contains("/cache"));
 
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn connectors_route_only_lists_enabled_user_connectors_and_runtime_capabilities() {
+        let state =
+            test_state_with_enabled_connectors(vec!["service-key".to_string()], &["feishu"]);
+
+        let (status, body) = request_json(
+            state,
+            Method::GET,
+            "/v1/connectors",
+            "service-key",
+            Some("connector-user"),
+            None,
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        let names = body
+            .get("connectors")
+            .and_then(Value::as_array)
+            .expect("connectors array")
+            .iter()
+            .filter_map(|entry| entry.get("name").and_then(Value::as_str))
+            .collect::<Vec<_>>();
+        assert!(names.contains(&"feishu"));
+        assert!(names.contains(&"openai_codex"));
+        assert!(!names.contains(&"google_workspace"));
+        assert!(!names.contains(&"notion"));
+        assert!(!names.contains(&"bilibili"));
+    }
+
+    #[tokio::test]
+    async fn disabled_connector_routes_return_not_found() {
+        let state =
+            test_state_with_enabled_connectors(vec!["service-key".to_string()], &["feishu"]);
+        state.sandboxes.ensure_sandbox("connector-user").unwrap();
+
+        let (status, _) = request_json(
+            state,
+            Method::POST,
+            "/v1/connectors/google_workspace/auth/start",
+            "service-key",
+            Some("connector-user"),
+            Some(json!({})),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn disabled_google_legacy_routes_return_not_found() {
+        let state =
+            test_state_with_enabled_connectors(vec!["service-key".to_string()], &["feishu"]);
+
+        let (alias_status, _) = request_json(
+            state.clone(),
+            Method::GET,
+            "/v1/sandboxes/gogcli-accounts",
+            "service-key",
+            Some("connector-user"),
+            None,
+        )
+        .await;
+        let (callback_status, _, _) = request_bytes(
+            state,
+            Method::GET,
+            "/v1/sandboxes/gogcli/oauth/callback?state=missing",
+            "service-key",
+            None,
+            None,
+            Vec::new(),
+        )
+        .await;
+
+        assert_eq!(alias_status, StatusCode::NOT_FOUND);
+        assert_eq!(callback_status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn disabled_bilibili_qrcode_route_returns_not_found() {
+        let state =
+            test_state_with_enabled_connectors(vec!["service-key".to_string()], &["feishu"]);
+
+        let (status, _, _) = request_bytes(
+            state,
+            Method::GET,
+            "/v1/bilibili/qrcode.png?content=hello",
+            "service-key",
+            None,
+            None,
+            Vec::new(),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn capabilities_route_hides_disabled_connectors_but_keeps_runtime_capabilities() {
+        let state =
+            test_state_with_enabled_connectors(vec!["service-key".to_string()], &["feishu"]);
+
+        let (status, body) = request_json(
+            state,
+            Method::GET,
+            "/v1/capabilities",
+            "service-key",
+            Some("capability-user"),
+            None,
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        let ids = body
+            .get("capabilities")
+            .and_then(Value::as_array)
+            .expect("capabilities array")
+            .iter()
+            .filter_map(|entry| entry.get("id").and_then(Value::as_str))
+            .collect::<Vec<_>>();
+        assert!(ids.contains(&"connector:feishu"));
+        assert!(ids.contains(&"runtime:openai_codex"));
+        assert!(!ids.contains(&"connector:google_workspace"));
+        assert!(!ids.contains(&"connector:notion"));
+        assert!(!ids.contains(&"connector:bilibili"));
     }
 
     #[tokio::test]

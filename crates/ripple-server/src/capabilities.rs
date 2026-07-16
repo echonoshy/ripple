@@ -1,5 +1,6 @@
 use serde_json::{json, Value};
 
+use crate::config::AppConfig;
 use crate::skills::SkillManifestEntry;
 
 #[derive(Clone, Copy)]
@@ -166,6 +167,17 @@ pub fn connector_definition(name: &str) -> Option<&'static ConnectorDefinition> 
     connector_definitions()
         .iter()
         .find(|connector| connector.name == name)
+}
+
+pub fn connector_is_enabled(config: &AppConfig, connector: &ConnectorDefinition) -> bool {
+    connector.kind == "runtime_capability" || config.connector_enabled(connector.name)
+}
+
+pub fn enabled_connector_definitions(config: &AppConfig) -> Vec<&'static ConnectorDefinition> {
+    connector_definitions()
+        .iter()
+        .filter(|connector| connector_is_enabled(config, connector))
+        .collect()
 }
 
 pub fn connector_path(name: &str, suffix: &str) -> Value {

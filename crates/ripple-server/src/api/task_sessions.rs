@@ -897,11 +897,16 @@ async fn maybe_resume_after_connector_auth(
         .storage
         .upsert_task_session(user_id, &resumed_session)
         .await?;
-    let execution_input = json!({
+    let mut execution_input = json!({
         "auto_execute": true,
         "executor": "ripple",
         "req_id": session.get("req_id").cloned().unwrap_or(Value::Null)
     });
+    for key in ["model", "effort"] {
+        if let Some(value) = run.get(key) {
+            set_field(&mut execution_input, key, value.clone());
+        }
+    }
     maybe_start_ripple_task_execution(
         state.clone(),
         user_id.to_string(),
@@ -1566,6 +1571,8 @@ fn simple_task_session_view(session: &Value, spec: Option<&Value>, run: Option<&
     for key in [
         "req_id",
         "title",
+        "model",
+        "effort",
         "waiting_reason",
         "needs_user_action",
         "draft_version",
@@ -2127,6 +2134,11 @@ async fn create_task_run_record(
     if let Some(value) = payload.get("metadata") {
         record.insert("metadata".to_string(), value.clone());
     }
+    for key in ["model", "effort"] {
+        if let Some(value) = payload.get(key) {
+            record.insert(key.to_string(), value.clone());
+        }
+    }
     copy_callback_fields(&mut record, &session);
     copy_callback_fields(&mut record, payload);
     record.insert("started_at".to_string(), json!(now.clone()));
@@ -2339,6 +2351,7 @@ async fn run_ripple_task_execution(
     };
 
     let session = load_task_session(&state.storage, &user_id, &session_id).await?;
+    let (model, effort) = resolve_task_model_effort(&state, &session, &input);
     let prompt = build_ripple_task_execution_prompt(&session, &task_spec, &run);
     let create = AgentRunCreateRequest {
         prompt: prompt.clone(),
@@ -2348,8 +2361,8 @@ async fn run_ripple_task_execution(
         client_context: None,
         cwd: Some("/workspace".to_string()),
         input_items: vec![json!({"type": "text", "text": prompt})],
-        model: string_field(&input, "model").or_else(|| Some(state.config.default_model.clone())),
-        effort: string_field(&input, "effort"),
+        model: Some(model),
+        effort,
         summary: None,
         output_schema: None,
         max_runtime_seconds,
@@ -2611,8 +2624,7 @@ async fn extract_task_spec_turn_with_codex(
         .clamp(1, 600);
     assert_can_create_run(state, user_id, max_runtime_seconds).await?;
 
-    let model = string_field(input, "model").unwrap_or_else(|| state.config.default_model.clone());
-    let effort = string_field(input, "effort");
+    let (model, effort) = resolve_task_model_effort(state, session, input);
     let prompt = build_task_spec_turn_prompt(
         session,
         current_spec,
@@ -3456,6 +3468,17 @@ fn string_field(value: &Value, key: &str) -> Option<String> {
         .map(str::to_string)
 }
 
+fn resolve_task_model_effort(
+    state: &AppState,
+    session: &Value,
+    input: &Value,
+) -> (String, Option<String>) {
+    let selected_model = string_field(input, "model").or_else(|| string_field(session, "model"));
+    let selected_effort = string_field(input, "effort").or_else(|| string_field(session, "effort"));
+    let (model, preset_effort) = state.config.resolve_model(selected_model.as_deref());
+    (model, selected_effort.or(preset_effort))
+}
+
 fn set_field(value: &mut Value, key: &str, next: Value) {
     if let Some(object) = value.as_object_mut() {
         object.insert(key.to_string(), next);
@@ -3554,6 +3577,52 @@ mod tests {
             .get("events")
             .and_then(Value::as_array)
             .is_some_and(|events| events.len() >= 2));
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn task_session_model_effort_is_persisted_on_run_for_auth_resume() -> anyhow::Result<()> {
+        let (storage, root) = temp_storage()?;
+        let user_id = "alice";
+        let now = "2026-07-16T00:00:00Z";
+        let session = task_session_from_payload(
+            &json!({"session_id": "ts-model-resume", "title": "模型恢复测试"}),
+            user_id,
+            now,
+        )
+        .expect("task session payload should be valid");
+        storage.upsert_task_session(user_id, &session).await?;
+        let spec = task_spec_from_payload(
+            &json!({
+                "task_spec_id": "spec-model-resume",
+                "task_type": "todo",
+                "goal": "验证授权恢复时保留模型参数"
+            }),
+            user_id,
+            "ts-model-resume",
+            now,
+        )
+        .expect("task spec payload should be valid");
+        storage
+            .upsert_task_session_spec(user_id, "ts-model-resume", &spec)
+            .await?;
+
+        let run = create_task_run_record(
+            &storage,
+            user_id,
+            "ts-model-resume",
+            "spec-model-resume",
+            &json!({"model": "codex-request", "effort": "high"}),
+        )
+        .await
+        .expect("task run should be created");
+        assert_eq!(
+            run.get("model").and_then(Value::as_str),
+            Some("codex-request")
+        );
+        assert_eq!(run.get("effort").and_then(Value::as_str), Some("high"));
 
         let _ = std::fs::remove_dir_all(root);
         Ok(())

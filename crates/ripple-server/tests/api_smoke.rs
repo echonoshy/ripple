@@ -668,6 +668,16 @@ fn main() {
                     title_generation_text().to_string()
                 } else if line.contains("\"outputSchema\"") {
                     if line.contains("strict TaskSpec turn extractor")
+                        && line.contains("[task-model-effort-check]")
+                    {
+                        let message = format!(
+                            "model seen: {request_model}; effort seen: {request_effort}"
+                        );
+                        format!(
+                            "{{\"assistant_message\":{},\"ready_to_confirm\":false,\"missing_fields\":[\"recipient\"],\"task_spec\":null}}",
+                            json_string(&message)
+                        )
+                    } else if line.contains("strict TaskSpec turn extractor")
                         && line.contains("[task-spec-ready]")
                     {
                         task_spec_turn_ready_text().to_string()
@@ -1418,15 +1428,19 @@ async fn router_serves_core_control_plane_routes() {
 }
 
 #[tokio::test]
-async fn task_session_sse_stream_replays_task_status_events() {
+async fn task_session_removed_sse_stream_is_not_found() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
-    let (_state, app) = test_state_and_app(&root);
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (_state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
 
     let (status, created) = call(
         app.clone(),
         Method::POST,
         "/v1/task-sessions",
         json!({
+            "req_id": "req-ts-sse",
+            "idempotency_key": "idem-ts-sse-create",
             "session_id": "ts-sse",
             "title": "发送客户跟进",
             "goal": "把客户跟进消息发给销售",
@@ -1439,24 +1453,39 @@ async fn task_session_sse_stream_replays_task_status_events() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{created}");
+    let draft_version = created
+        .pointer("/task_session/draft_version")
+        .and_then(Value::as_u64)
+        .expect("draft version");
 
     let (status, confirmed) = call(
         app.clone(),
         Method::POST,
-        "/v1/task-sessions/ts-sse/task-specs/spec-sse/confirm",
-        json!({"start_run": true, "run_id": "run-sse"}),
+        "/v1/task-sessions/ts-sse/confirm",
+        json!({
+            "req_id": "req-ts-sse",
+            "idempotency_key": "idem-ts-sse-confirm",
+            "draft_version": draft_version,
+            "max_runtime_seconds": 5
+        }),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{confirmed}");
 
-    let (status, completed) = call(
-        app.clone(),
-        Method::PATCH,
-        "/v1/task-sessions/ts-sse/runs/run-sse",
-        json!({"status": "completed", "result_summary": "客户跟进消息已发送"}),
-    )
+    let completed = wait_for_get_json(app.clone(), "/v1/task-sessions/ts-sse", |detail| {
+        detail
+            .pointer("/task_session/current_execution/status")
+            .and_then(Value::as_str)
+            == Some("completed")
+    })
     .await;
-    assert_eq!(status, StatusCode::OK, "{completed}");
+    assert_eq!(
+        completed
+            .pointer("/task_session/current_execution/status")
+            .and_then(Value::as_str),
+        Some("completed"),
+        "{completed}"
+    );
 
     let response = app
         .oneshot(request(
@@ -1467,27 +1496,7 @@ async fn task_session_sse_stream_replays_task_status_events() {
         ))
         .await
         .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-    assert_eq!(
-        response
-            .headers()
-            .get(header::CONTENT_TYPE)
-            .and_then(|value| value.to_str().ok()),
-        Some("text/event-stream")
-    );
-    let stream = response_text(response).await;
-    assert!(stream.contains("event: task.status"), "{stream}");
-    assert!(stream.contains("id: "), "{stream}");
-    assert!(stream.contains("\"type\":\"task_status\""), "{stream}");
-    assert!(stream.contains("\"event_version\":1"), "{stream}");
-    assert!(
-        stream.contains("\"task_session_id\":\"ts-sse\""),
-        "{stream}"
-    );
-    assert!(stream.contains("\"task_status\":\"completed\""), "{stream}");
-    assert!(stream.contains("\"run_status\":\"completed\""), "{stream}");
-    assert!(stream.contains("\"needs_user_action\":false"), "{stream}");
-    assert!(stream.contains("data: [DONE]"), "{stream}");
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
 
     let _ = std::fs::remove_dir_all(root);
 }
@@ -1504,6 +1513,8 @@ async fn task_session_spec_turns_collect_missing_info_before_confirmation() {
         Method::POST,
         "/v1/task-sessions",
         json!({
+            "req_id": "req-ts-dialog",
+            "idempotency_key": "idem-ts-dialog-create",
             "session_id": "ts-dialog",
             "title": "发送会议通知",
             "task_type": "send_message",
@@ -1524,8 +1535,13 @@ async fn task_session_spec_turns_collect_missing_info_before_confirmation() {
     let (status, first_turn) = call(
         app.clone(),
         Method::POST,
-        "/v1/task-sessions/ts-dialog/spec-turns",
-        json!({"message": "[task-spec-clarify] 明天下午三点开会"}),
+        "/v1/task-sessions/ts-dialog/messages",
+        json!({
+            "req_id": "req-ts-dialog",
+            "idempotency_key": "idem-ts-dialog-message-1",
+            "expected_draft_version": 0,
+            "content": "[task-spec-clarify] 明天下午三点开会"
+        }),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{first_turn}");
@@ -1538,31 +1554,26 @@ async fn task_session_spec_turns_collect_missing_info_before_confirmation() {
     );
     assert_eq!(
         first_turn
-            .pointer("/missing_fields/0")
+            .pointer("/task_session/required_action/type")
             .and_then(Value::as_str),
-        Some("recipient"),
+        Some("reply"),
         "{first_turn}"
     );
-    assert_eq!(
-        first_turn
-            .pointer("/task_spec/status")
-            .and_then(Value::as_str),
-        Some("waiting_user"),
-        "{first_turn}"
-    );
-    assert_eq!(
-        first_turn
-            .pointer("/ready_to_confirm")
-            .and_then(Value::as_bool),
-        Some(false),
-        "{first_turn}"
-    );
+    let draft_version = first_turn
+        .pointer("/task_session/draft_version")
+        .and_then(Value::as_u64)
+        .expect("draft version");
 
     let (status, second_turn) = call(
         app.clone(),
         Method::POST,
-        "/v1/task-sessions/ts-dialog/spec-turns",
-        json!({"message": "[task-spec-ready] 发给张三，用飞书"}),
+        "/v1/task-sessions/ts-dialog/messages",
+        json!({
+            "req_id": "req-ts-dialog",
+            "idempotency_key": "idem-ts-dialog-message-2",
+            "expected_draft_version": draft_version,
+            "content": "[task-spec-ready] 发给张三，用飞书"
+        }),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{second_turn}");
@@ -1570,36 +1581,191 @@ async fn task_session_spec_turns_collect_missing_info_before_confirmation() {
         second_turn
             .pointer("/task_session/status")
             .and_then(Value::as_str),
-        Some("pending_confirm"),
+        Some("pending_confirmation"),
         "{second_turn}"
     );
     assert_eq!(
         second_turn
-            .pointer("/ready_to_confirm")
-            .and_then(Value::as_bool),
-        Some(true),
+            .pointer("/task_session/required_action/type")
+            .and_then(Value::as_str),
+        Some("confirm"),
         "{second_turn}"
     );
     assert_eq!(
         second_turn
-            .pointer("/task_spec/required_fields/recipient")
+            .pointer("/task_session/task_draft/parameters/recipient")
             .and_then(Value::as_str),
         Some("张三"),
         "{second_turn}"
     );
-    assert_eq!(
-        second_turn
-            .pointer("/detail/events")
-            .and_then(Value::as_array)
-            .is_some_and(|events| {
-                events.iter().any(|event| {
-                    event.get("event_type").and_then(Value::as_str)
-                        == Some("task_spec_ready_for_confirmation")
-                })
-            }),
-        true,
-        "{second_turn}"
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn task_session_model_effort_resolves_for_spec_turns() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let mut config = test_config_with_codex_executable(&root, fake_codex);
+    config.model_presets.insert(
+        "codex-session".to_string(),
+        ModelPreset {
+            model: "gpt-session-test".to_string(),
+            reasoning_effort: Some("low".to_string()),
+        },
     );
+    config.model_presets.insert(
+        "codex-request".to_string(),
+        ModelPreset {
+            model: "gpt-request-test".to_string(),
+            reasoning_effort: Some("medium".to_string()),
+        },
+    );
+    let (_state, app) = test_state_and_app_with_config(config);
+
+    let (status, created) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/task-sessions",
+        json!({
+            "req_id": "req-task-model-spec",
+            "idempotency_key": "idem-task-model-spec-create",
+            "session_id": "ts-model-spec",
+            "title": "检查任务模型参数",
+            "content": "[task-model-effort-check] 创建任务",
+            "model": "codex-session"
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+    assert_eq!(
+        created.get("assistant_message").and_then(Value::as_str),
+        Some("model seen: gpt-session-test; effort seen: low"),
+        "{created}"
+    );
+    assert_eq!(
+        created
+            .pointer("/task_session/model")
+            .and_then(Value::as_str),
+        Some("codex-session"),
+        "{created}"
+    );
+
+    let draft_version = created
+        .pointer("/task_session/draft_version")
+        .and_then(Value::as_u64)
+        .expect("draft version");
+    let (status, updated) = call(
+        app,
+        Method::POST,
+        "/v1/task-sessions/ts-model-spec/messages",
+        json!({
+            "req_id": "req-task-model-spec",
+            "idempotency_key": "idem-task-model-spec-message",
+            "expected_draft_version": draft_version,
+            "content": "[task-model-effort-check] 补充任务",
+            "model": "codex-request",
+            "effort": "high"
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{updated}");
+    assert_eq!(
+        updated.get("assistant_message").and_then(Value::as_str),
+        Some("model seen: gpt-request-test; effort seen: high"),
+        "{updated}"
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn task_session_model_effort_resolves_for_execution() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let mut config = test_config_with_codex_executable(&root, fake_codex);
+    config.model_presets.insert(
+        "codex-session".to_string(),
+        ModelPreset {
+            model: "gpt-session-test".to_string(),
+            reasoning_effort: Some("low".to_string()),
+        },
+    );
+    config.model_presets.insert(
+        "codex-request".to_string(),
+        ModelPreset {
+            model: "gpt-request-test".to_string(),
+            reasoning_effort: Some("medium".to_string()),
+        },
+    );
+    let (_state, app) = test_state_and_app_with_config(config);
+
+    let (status, created) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/task-sessions",
+        json!({
+            "req_id": "req-task-model-run",
+            "idempotency_key": "idem-task-model-run-create",
+            "session_id": "ts-model-run",
+            "title": "检查任务执行模型",
+            "model": "codex-session",
+            "effort": "low",
+            "task_spec": {
+                "task_spec_id": "spec-model-run",
+                "task_type": "todo",
+                "goal": "[model-alias-check] 检查任务执行模型",
+                "required_fields": {},
+                "impact_summary": "确认后检查模型参数。"
+            }
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+    assert_eq!(
+        created
+            .pointer("/task_session/effort")
+            .and_then(Value::as_str),
+        Some("low"),
+        "{created}"
+    );
+    let draft_version = created
+        .pointer("/task_session/draft_version")
+        .and_then(Value::as_u64)
+        .expect("draft version");
+
+    let (status, confirmed) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/task-sessions/ts-model-run/confirm",
+        json!({
+            "req_id": "req-task-model-run",
+            "idempotency_key": "idem-task-model-run-confirm",
+            "draft_version": draft_version,
+            "model": "codex-request",
+            "effort": "high",
+            "max_runtime_seconds": 5
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{confirmed}");
+
+    let detail = wait_for_get_json(app, "/v1/task-sessions/ts-model-run", |detail| {
+        detail
+            .pointer("/task_session/current_execution/result_summary")
+            .and_then(Value::as_str)
+            .is_some_and(|summary| {
+                summary.contains("model seen: gpt-request-test")
+                    && summary.contains("effort seen: high")
+            })
+    })
+    .await;
+    let summary = detail
+        .pointer("/task_session/current_execution/result_summary")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    assert!(summary.contains("model seen: gpt-request-test"), "{detail}");
+    assert!(summary.contains("effort seen: high"), "{detail}");
 
     let _ = std::fs::remove_dir_all(root);
 }

@@ -4,6 +4,7 @@ use std::path::Path as FsPath;
 
 use serde_json::Value;
 
+use crate::config::{AppConfig, USER_CONNECTOR_NAMES};
 #[cfg(test)]
 use crate::skills::render_skill_manifest_with_options;
 use crate::skills::SkillManifestOptions;
@@ -19,7 +20,27 @@ pub(crate) struct RequiredSkillContext {
     pub content: String,
 }
 
-pub(crate) fn build_codex_chat_base_instructions() -> String {
+pub(crate) fn build_codex_chat_base_instructions(config: &AppConfig) -> String {
+    let enabled_connectors = USER_CONNECTOR_NAMES
+        .iter()
+        .copied()
+        .filter(|name| config.connector_enabled(name))
+        .collect::<Vec<_>>();
+    let connector_auth_instructions = if let Some(example) = enabled_connectors.first() {
+        let mut instructions = format!(
+            "- Do not collect connector credentials inside Codex. If an enabled connector is required and its status is not_connected, your final answer must contain only this internal control-plane request. The connector must be one of: {}.\n  <ripple_connector_auth_request>{{\"connector\":\"{example}\",\"force_reauth\":false,\"reason\":\"connector access is required\"}}</ripple_connector_auth_request>",
+            enabled_connectors.join(", ")
+        );
+        if config.connector_enabled("bilibili") {
+            instructions.push_str(
+                "\n- For Bilibili tasks, follow the `bilibili` CLI workflow documented by the Bilibili skills.",
+            );
+        }
+        instructions
+    } else {
+        "- No user-authorizable connectors are exposed in this deployment. Do not request connector authorization."
+            .to_string()
+    };
     "You are Codex, running as Ripple's trusted execution plane.\n\
 Ripple is the control plane: it owns user identity, sandbox isolation, connector state, permissions, and API/session lifecycle. Do the real work inside the current user's workspace.\n\n\
 ## Execution Environment Guardrails\n\
@@ -28,9 +49,7 @@ Ripple is the control plane: it owns user identity, sandbox isolation, connector
 - Required Skills are explicit client or user selections for the current turn. If present, treat their SKILL.md content as mandatory workflow instructions before considering Available Skills. If a required skill clearly does not match the user's request or provided screen context, say that instead of forcing an unsupported answer.\n\
 - Use Available Skills and Connector Status from the per-turn Ripple context to decide whether a skill or connector is needed. For product, company, support, or shared-knowledge questions, read the matching Available Skill before web_search. Only use web_search first when the user explicitly asks for online, latest, or official-current information, or when no relevant skill is listed. Do not infer connector use from keywords alone.\n\
 - Do not assume an uploaded screenshot is Ripple UI just because Ripple UI skills are available. Treat it as Ripple UI only when Screen Context says `app: ripple`, when the user explicitly selected a Ripple UI skill, or when the screenshot itself gives strong Ripple-specific evidence; otherwise state the uncertainty.\n\
-- Do not collect connector credentials inside Codex. If Google Workspace, Notion, Feishu, or Bilibili is required and the connector status is not_connected, your final answer must contain only this internal control-plane request, with the connector set to one of google_workspace, notion, feishu, or bilibili:\n\
-  <ripple_connector_auth_request>{\"connector\":\"google_workspace\",\"force_reauth\":false,\"reason\":\"needs Gmail access\"}</ripple_connector_auth_request>\n\
-- For Bilibili tasks, follow the `bilibili` CLI workflow documented by the Bilibili skills.\n\
+__RIPPLE_CONNECTOR_AUTH_INSTRUCTIONS__\n\
 - For risky connector writes, ask a clear confirmation question and stop. Continue only after the user's next message explicitly approves the specific action.\n\n\
 - Ripple uses Tasks as the durable follow-up model. Tasks capture user goals, obligations, deliverables, or multi-step work items that may outlive the current chat. Task actions may have triggers for future or recurring execution; time-based scheduling is just one task-trigger driver. Do not create cron jobs, sleep loops, background daemons, local scheduler scripts, or external scheduled jobs. Do not call Ripple HTTP APIs from Codex to create tasks or triggers; Ripple validates, stores, confirms, and triggers these control-plane records.\n\
 - When the user states a durable goal, deliverable, obligation, or multi-step work item that should be tracked beyond the immediate answer, call `codex_app.task_update` with `target=\"task\"` only after the durable objective and at least one concrete next action are clear. Use `mode=\"propose\"` when the task is inferred but clear enough to review; use `mode=\"create\"` only when the user clearly asks to track/create the task. The task captures the durable objective; task actions capture concrete next steps.\n\
@@ -47,7 +66,10 @@ Ripple is the control plane: it owns user identity, sandbox isolation, connector
 - Always write temporary analysis, render, OCR, conversion, and inspection artifacts to $TMPDIR first. `/workspace/.tmp` is a reserved runtime scratch exception and may be outside the selected context folder; use it only when $TMPDIR is unsuitable. Do not write derived inspection files into /workspace root unless the user explicitly asks for those files as deliverables; keep final or user-requested outputs under the selected context folder or another appropriate workspace path.\n\n\
 - For temporary Python dependencies, use `python --with <package> -- ...` so Ripple can reuse shared read-only package environments. Do not install temporary Python packages with pip install --target or workspace-local tool directories.\n\
 - For temporary Node dependencies, keep installs out of /workspace: use `npm install --prefix \"$RIPPLE_NODE_PREFIX\" <package>` and import from `$RIPPLE_NODE_MODULES` when a one-off package is unavoidable. Do not create node_modules under /workspace or /workspace/.tmp.\n"
-        .to_string()
+        .replace(
+            "__RIPPLE_CONNECTOR_AUTH_INSTRUCTIONS__",
+            &connector_auth_instructions,
+        )
 }
 
 #[cfg(test)]
@@ -524,18 +546,20 @@ fn connector_manifest(skill_options: &SkillManifestOptions) -> String {
                 .unwrap_or(false),
         )
     };
-    [
-        ("google_workspace", connector("google_workspace")),
-        ("notion", connector("notion")),
-        ("feishu", connector("feishu")),
-        ("bilibili", connector("bilibili")),
+    let mut entries = USER_CONNECTOR_NAMES
+        .iter()
+        .filter(|name| skill_options.connector_statuses.contains_key(**name))
+        .map(|name| (*name, connector(name)))
+        .collect::<Vec<_>>();
+    entries.extend([
         ("openai_codex", "connected"),
         ("codex_image_generation", "disabled_by_default"),
         ("codex_image_input", "connected"),
         ("codex_web_search", "connected"),
-    ]
-    .into_iter()
-    .map(|(name, status)| format!("- {name}: {status}"))
-    .collect::<Vec<_>>()
-    .join("\n")
+    ]);
+    entries
+        .into_iter()
+        .map(|(name, status)| format!("- {name}: {status}"))
+        .collect::<Vec<_>>()
+        .join("\n")
 }

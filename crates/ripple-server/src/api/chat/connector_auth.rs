@@ -5,6 +5,7 @@ use time::OffsetDateTime;
 
 use crate::api::connectors::{
     connector_auth_complete_action, connector_auth_start_action, connector_status_value,
+    ensure_connector_enabled,
 };
 use crate::api::ApiError;
 use crate::sessions::SessionRecord;
@@ -129,6 +130,10 @@ pub(crate) async fn continue_pending_connector_auth(
         .unwrap_or("")
         .to_string();
     if connector.is_empty() {
+        return Ok(None);
+    }
+    if ensure_connector_enabled(state, &connector).is_err() {
+        session.pending_connector_auth = None;
         return Ok(None);
     }
     if connector_is_connected(state, user_id, &connector).await? {

@@ -477,6 +477,11 @@ fn load_skill_file(
     let requires = nested_mapping(&metadata, "requires");
     let requires_bins = string_list_field(requires, "bins");
     let requires_connectors = canonical_connector_list(string_list_field(requires, "connectors"));
+    if requires_connectors.iter().any(|connector| {
+        KNOWN_CONNECTORS.contains(&connector.as_str()) && !config.connector_enabled(connector)
+    }) {
+        return None;
+    }
     let python_packages = string_list_field_candidates(
         requires,
         &["python_packages", "python-packages", "python_packages"],
@@ -944,6 +949,44 @@ mod tests {
                 client: None,
             },
         }
+    }
+
+    #[test]
+    fn disabled_connector_skills_are_omitted_from_manifest() {
+        let root = std::env::temp_dir().join(format!(
+            "ripple-skill-connector-filter-test-{}",
+            Uuid::new_v4()
+        ));
+        let shared = root.join("skills");
+        for (directory, name, connector) in [
+            ("lark", "lark-demo", "feishu"),
+            ("gog", "gog-demo", "google_workspace"),
+            ("notion", "notion-demo", "notion"),
+            ("bilibili", "bilibili-demo", "bilibili"),
+        ] {
+            let path = shared.join(directory).join("SKILL.md");
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(
+                path,
+                format!(
+                    "---\nname: {name}\ndescription: test\nmetadata:\n  requires:\n    connectors: [{connector}]\n---\n# Test\n"
+                ),
+            )
+            .unwrap();
+        }
+        let mut config = test_config(&root, vec![shared.to_string_lossy().to_string()]);
+        config.enabled_connectors = ["feishu".to_string()].into_iter().collect();
+
+        let names = build_skill_manifest(&config, None)
+            .into_iter()
+            .map(|entry| entry.name)
+            .collect::<Vec<_>>();
+
+        assert!(names.contains(&"lark-demo".to_string()));
+        assert!(!names.contains(&"gog-demo".to_string()));
+        assert!(!names.contains(&"notion-demo".to_string()));
+        assert!(!names.contains(&"bilibili-demo".to_string()));
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     fn write_skill(path: &Path, frontmatter: &str) {

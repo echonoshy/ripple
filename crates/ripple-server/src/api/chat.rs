@@ -861,7 +861,7 @@ async fn create_codex_chat_run(args: &CodexChatStart) -> Result<AgentRunInfo, Ap
     );
     let recent_task_triggers_context =
         recent_task_triggers_context(&args.state, &args.user_id).await?;
-    let base_instructions = build_codex_chat_base_instructions();
+    let base_instructions = build_codex_chat_base_instructions(&args.state.config);
     let rendered_client_context = render_client_context(effective_client_context(&args.request));
     let turn_context = args.request.temporary.then(|| {
         build_codex_chat_turn_context_with_available_skills(
@@ -2507,7 +2507,7 @@ mod tests {
             .ensure_sandbox("alice")
             .expect("create sandbox");
 
-        let base_instructions = build_codex_chat_base_instructions();
+        let base_instructions = build_codex_chat_base_instructions(&state.config);
         let turn_context = build_codex_chat_turn_context(
             &state,
             "alice",
@@ -2580,6 +2580,45 @@ mod tests {
         ));
 
         cleanup_test_root(&root).expect("cleanup test root");
+    }
+
+    #[tokio::test]
+    async fn codex_chat_prompt_only_exposes_enabled_connector_context() {
+        let root = std::env::temp_dir().join(format!("ripple-chat-test-{}", Uuid::new_v4()));
+        let mut config = test_config(&root);
+        config.enabled_connectors = ["feishu".to_string()].into_iter().collect();
+        let state = AppState::new(config);
+        let mut skill_options = crate::skills::SkillManifestOptions::default();
+        skill_options
+            .connector_statuses
+            .insert("feishu".to_string(), false);
+
+        let base_instructions = build_codex_chat_base_instructions(&state.config);
+        let turn_context = build_codex_chat_turn_context_with_available_skills(
+            "alice",
+            "session-1",
+            None,
+            false,
+            None,
+            None,
+            None,
+            &skill_options,
+            &[],
+            None,
+            &[],
+            None,
+            "- ripple:lark-im: Feishu messaging via lark-cli",
+        );
+        let prompt = format!("{base_instructions}\n{turn_context}");
+
+        assert!(prompt.contains("- feishu: not_connected"));
+        assert!(prompt.contains("lark-cli"));
+        assert!(!prompt.contains("google_workspace"));
+        assert!(!prompt.contains("Google Workspace"));
+        assert!(!prompt.contains("notion"));
+        assert!(!prompt.contains("Notion"));
+        assert!(!prompt.contains("bilibili"));
+        assert!(!prompt.contains("Bilibili"));
     }
 
     #[tokio::test]

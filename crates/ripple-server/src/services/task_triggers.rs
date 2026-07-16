@@ -9,6 +9,9 @@ pub async fn task_trigger_loop(state: AppState) {
     ));
     loop {
         interval.tick().await;
+        if state.jobs.is_draining() {
+            continue;
+        }
         let _ = trigger_due_task_triggers(&state).await;
     }
 }

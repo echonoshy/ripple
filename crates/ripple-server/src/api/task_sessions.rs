@@ -2366,7 +2366,7 @@ async fn run_ripple_task_execution(
 
     let info = state
         .jobs
-        .run_internal(
+        .start(
             create,
             user_id.clone(),
             Some(session_id.clone()),
@@ -2375,31 +2375,86 @@ async fn run_ripple_task_execution(
         )
         .await;
 
-    let mut updated_run = state
-        .storage
-        .get_task_session_run(&user_id, &session_id, &run_id)
-        .await?
-        .unwrap_or(run);
-    if !should_apply_execution_result(&updated_run) {
-        return Ok(());
-    }
-
     match info {
-        Ok(info) if info.status == "completed" => {
-            let output = read_agent_run_output(&info).await;
-            let execution_result = task_execution_result_from_output(&output);
-            set_field(&mut updated_run, "status", json!("completed"));
+        Ok(info) => {
+            let mut updated_run = state
+                .storage
+                .get_task_session_run(&user_id, &session_id, &run_id)
+                .await?
+                .unwrap_or(run);
             set_field(&mut updated_run, "external_run_id", json!(info.job_id));
+            set_field(&mut updated_run, "task_spec_id", json!(task_spec_id));
+            set_field(&mut updated_run, "updated_at", json!(now_iso()));
+            state
+                .storage
+                .upsert_task_session_run(&user_id, &session_id, &updated_run)
+                .await?;
+            monitor_task_execution_job(state, user_id, session_id, run_id, info.job_id).await?;
+        }
+        Err(err) => {
+            let mut updated_run = state
+                .storage
+                .get_task_session_run(&user_id, &session_id, &run_id)
+                .await?
+                .unwrap_or(run);
+            if !should_apply_execution_result(&updated_run) {
+                return Ok(());
+            }
+            set_field(&mut updated_run, "status", json!("failed"));
             set_field(
                 &mut updated_run,
+                "failure_reason",
+                json!(format!("Ripple executor failed: {err}")),
+            );
+            set_field(&mut updated_run, "task_spec_id", json!(task_spec_id));
+            persist_task_run_status_projection(&state.storage, &user_id, &session_id, &updated_run)
+                .await?;
+        }
+    }
+    Ok(())
+}
+
+async fn monitor_task_execution_job(
+    state: AppState,
+    user_id: String,
+    session_id: String,
+    run_id: String,
+    job_id: String,
+) -> Result<(), ApiError> {
+    loop {
+        let Some(info) = state.jobs.info_for_user(&job_id, &user_id).await? else {
+            return Ok(());
+        };
+        if matches!(info.status.as_str(), "queued" | "running") {
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+            continue;
+        }
+        let Some(mut run) = state
+            .storage
+            .get_task_session_run(&user_id, &session_id, &run_id)
+            .await?
+        else {
+            return Ok(());
+        };
+        if matches!(
+            run.get("status").and_then(Value::as_str),
+            Some("completed" | "failed" | "cancelled")
+        ) {
+            return Ok(());
+        }
+        if info.status == "completed" {
+            let output = read_agent_run_output(&info).await;
+            let execution_result = task_execution_result_from_output(&output);
+            set_field(&mut run, "status", json!("completed"));
+            set_field(
+                &mut run,
                 "result_summary",
                 json!(execution_result.result_summary),
             );
             if let Some(result) = execution_result.result {
-                set_field(&mut updated_run, "result", result);
+                set_field(&mut run, "result", result);
             }
-        }
-        Ok(info) => {
+        } else {
             let reason = info
                 .error
                 .or_else(|| {
@@ -2407,22 +2462,41 @@ async fn run_ripple_task_execution(
                     (!tail.is_empty()).then(|| tail.to_string())
                 })
                 .unwrap_or_else(|| format!("Ripple executor finished with status {}", info.status));
-            set_field(&mut updated_run, "status", json!("failed"));
-            set_field(&mut updated_run, "external_run_id", json!(info.job_id));
-            set_field(&mut updated_run, "failure_reason", json!(reason));
+            set_field(&mut run, "status", json!("failed"));
+            set_field(&mut run, "failure_reason", json!(reason));
         }
-        Err(err) => {
-            set_field(&mut updated_run, "status", json!("failed"));
-            set_field(
-                &mut updated_run,
-                "failure_reason",
-                json!(format!("Ripple executor failed: {err}")),
-            );
-        }
+        persist_task_run_status_projection(&state.storage, &user_id, &session_id, &run).await?;
+        return Ok(());
     }
+}
 
-    set_field(&mut updated_run, "task_spec_id", json!(task_spec_id));
-    persist_task_run_status_projection(&state.storage, &user_id, &session_id, &updated_run).await
+pub async fn reconcile_recoverable_task_session_runs(state: AppState) -> anyhow::Result<usize> {
+    let runs = state.storage.list_active_task_session_runs().await?;
+    let mut reconciled = 0;
+    for run in runs {
+        let Some(user_id) = string_field(&run, "user_id") else {
+            continue;
+        };
+        let Some(session_id) = string_field(&run, "session_id") else {
+            continue;
+        };
+        let Some(run_id) = string_field(&run, "run_id") else {
+            continue;
+        };
+        let Some(job_id) = string_field(&run, "external_run_id") else {
+            continue;
+        };
+        let monitor_state = state.clone();
+        tokio::spawn(async move {
+            if let Err(err) =
+                monitor_task_execution_job(monitor_state, user_id, session_id, run_id, job_id).await
+            {
+                warn!(error = ?err, "failed to reconcile recovered TaskSession run");
+            }
+        });
+        reconciled += 1;
+    }
+    Ok(reconciled)
 }
 
 fn should_apply_execution_result(run: &Value) -> bool {

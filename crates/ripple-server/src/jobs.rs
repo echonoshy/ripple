@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -23,6 +24,7 @@ pub struct JobManager {
     storage: Storage,
     jobs: Arc<RwLock<HashMap<String, Arc<RwLock<ExternalAgentJob>>>>>,
     replays: Arc<RwLock<HashMap<String, StoredJobReplay>>>,
+    draining: Arc<AtomicBool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
@@ -128,6 +130,7 @@ impl JobManager {
             storage,
             jobs: Arc::new(RwLock::new(HashMap::new())),
             replays: Arc::new(RwLock::new(HashMap::new())),
+            draining: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -181,11 +184,9 @@ impl JobManager {
         let job_id = format!("agent-{}", &Uuid::new_v4().simple().to_string()[..8]);
         let job_dir = runtime_dir.join("external-agents").join(&job_id);
         let events_file = job_dir.join("events.jsonl");
-        let replay = StoredJobReplay::new(
-            &create,
-            workspace_root.clone(),
-            runtime_dir.clone(),
-        )?;
+        let mut replay =
+            StoredJobReplay::new(&create, workspace_root.clone(), runtime_dir.clone())?;
+        replay.additional_context = additional_context;
         let now = now_iso();
         let mut metadata = json!({
             "job_id": job_id,
@@ -253,76 +254,9 @@ impl JobManager {
             .await
             .insert(job_id.clone(), replay.clone());
         self.save_job_record(&*job.read().await).await?;
-
-        let provider = self.provider.clone();
-        let storage = self.storage.clone();
-        let replays = self.replays.clone();
-        let spawned_job_id = job_id.clone();
-        let max_runtime_seconds = create.max_runtime_seconds.clamp(1, 86_400);
-        let request = AgentRunnerRequest {
-            provider: "codex".to_string(),
-            prompt,
-            base_instructions: create.base_instructions,
-            turn_context: create.turn_context,
-            client_context: create.client_context,
-            additional_context,
-            cwd,
-            input_items: create.input_items,
-            model: create.model,
-            effort: create.effort,
-            summary: create.summary,
-            output_schema: create.output_schema,
-            max_runtime_seconds,
-            user_id: Some(user_id),
-            session_id,
-            metadata,
-        };
-        tokio::spawn(async move {
-            let mut replay = replay;
-            replay.attempt = replay.attempt.saturating_add(1);
-            replays
-                .write()
-                .await
-                .insert(spawned_job_id, replay.clone());
-            {
-                let mut job = job.write().await;
-                if job.status == AgentRunnerStatus::Cancelled {
-                    job.updated_at = now_iso();
-                    let _ = save_job_record_to_storage(&storage, &job, Some(&replay)).await;
-                    return;
-                }
-                job.status = AgentRunnerStatus::Running;
-                job.updated_at = now_iso();
-                let _ = save_job_record_to_storage(&storage, &job, Some(&replay)).await;
-            }
-            let result = provider.run(request, job_dir).await;
-            let mut job = job.write().await;
-            if job.status == AgentRunnerStatus::Cancelled {
-                job.updated_at = now_iso();
-                let _ = save_job_record_to_storage(&storage, &job, Some(&replay)).await;
-                return;
-            }
-            match result {
-                Ok(result) => {
-                    job.status = result.status;
-                    job.events_file = Some(result.events_file);
-                    job.output_file = result.output_file;
-                    job.exit_code = result.exit_code;
-                    job.stdout_tail = result.stdout_tail;
-                    job.stderr_tail = result.stderr_tail;
-                    job.error = result.error;
-                    job.metadata = merge_metadata(job.metadata.clone(), result.metadata);
-                }
-                Err(err) => {
-                    job.status = AgentRunnerStatus::Failed;
-                    job.error = Some(err.to_string());
-                }
-            }
-            job.updated_at = now_iso();
-            let usage_snapshot = JobTokenUsageSnapshot::from_job(&job);
-            let _ = record_job_token_usage_events(&storage, usage_snapshot).await;
-            let _ = save_job_record_to_storage(&storage, &job, Some(&replay)).await;
-        });
+        if !self.is_draining() {
+            self.dispatch_job(&job_id).await?;
+        }
 
         self.info(&job_id)
             .await?
@@ -498,11 +432,166 @@ impl JobManager {
     pub async fn recover_interrupted_stored_runs(&self) -> anyhow::Result<usize> {
         let mut recovered = 0;
         for mut record in self.storage.list_active_jobs().await? {
-            StoredJobRecord::mark_interrupted(&mut record);
+            let decision = StoredJobRecord::requeue_after_restart(&mut record);
             self.storage.upsert_job(&record).await?;
-            recovered += 1;
+            if decision == ReplayDecision::Queued {
+                let replay = StoredJobReplay::from_record(&record)?;
+                let job = StoredJobRecord::to_job(&record, &replay)?;
+                let job_id = job.job_id.clone();
+                self.jobs
+                    .write()
+                    .await
+                    .insert(job_id.clone(), Arc::new(RwLock::new(job)));
+                self.replays.write().await.insert(job_id, replay);
+                recovered += 1;
+            }
         }
         Ok(recovered)
+    }
+
+    pub fn begin_drain(&self) {
+        self.draining.store(true, Ordering::SeqCst);
+    }
+
+    pub fn end_drain(&self) {
+        self.draining.store(false, Ordering::SeqCst);
+    }
+
+    pub fn is_draining(&self) -> bool {
+        self.draining.load(Ordering::SeqCst)
+    }
+
+    pub async fn active_count(&self) -> usize {
+        let jobs = self.jobs.read().await;
+        let mut active = 0;
+        for job in jobs.values() {
+            if job.read().await.status == AgentRunnerStatus::Running {
+                active += 1;
+            }
+        }
+        active
+    }
+
+    pub async fn wait_for_idle(&self, timeout: std::time::Duration) -> bool {
+        let deadline = tokio::time::Instant::now() + timeout;
+        loop {
+            if self.active_count().await == 0 {
+                return true;
+            }
+            if tokio::time::Instant::now() >= deadline {
+                return false;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+    }
+
+    pub async fn dispatch_queued(&self) -> anyhow::Result<usize> {
+        if self.is_draining() {
+            return Ok(0);
+        }
+        let job_ids = {
+            let jobs = self.jobs.read().await;
+            let mut queued = Vec::new();
+            for (job_id, job) in jobs.iter() {
+                if job.read().await.status == AgentRunnerStatus::Queued {
+                    queued.push(job_id.clone());
+                }
+            }
+            queued
+        };
+        let mut dispatched = 0;
+        for job_id in job_ids {
+            if self.dispatch_job(&job_id).await? {
+                dispatched += 1;
+            }
+        }
+        Ok(dispatched)
+    }
+
+    async fn dispatch_job(&self, job_id: &str) -> anyhow::Result<bool> {
+        if self.is_draining() {
+            return Ok(false);
+        }
+        let job = {
+            let jobs = self.jobs.read().await;
+            jobs.get(job_id).cloned()
+        }
+        .ok_or_else(|| anyhow::anyhow!("queued job disappeared before dispatch"))?;
+        let mut replay = self
+            .replays
+            .read()
+            .await
+            .get(job_id)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("queued job missing replay envelope"))?;
+        let create = replay.request()?;
+        let (request, job_dir) = {
+            let mut job_state = job.write().await;
+            if job_state.status != AgentRunnerStatus::Queued || self.is_draining() {
+                return Ok(false);
+            }
+            replay.attempt = replay.attempt.saturating_add(1);
+            self.replays
+                .write()
+                .await
+                .insert(job_id.to_string(), replay.clone());
+            job_state.status = AgentRunnerStatus::Running;
+            job_state.updated_at = now_iso();
+            save_job_record_to_storage(&self.storage, &job_state, Some(&replay)).await?;
+            let request = AgentRunnerRequest {
+                provider: "codex".to_string(),
+                prompt: job_state.prompt.clone(),
+                base_instructions: create.base_instructions,
+                turn_context: create.turn_context,
+                client_context: create.client_context,
+                additional_context: replay.additional_context.clone(),
+                cwd: job_state.cwd.clone(),
+                input_items: create.input_items,
+                model: create.model,
+                effort: create.effort,
+                summary: create.summary,
+                output_schema: create.output_schema,
+                max_runtime_seconds: create.max_runtime_seconds.clamp(1, 86_400),
+                user_id: job_state.user_id.clone(),
+                session_id: job_state.session_id.clone(),
+                metadata: job_state.metadata.clone(),
+            };
+            let job_dir = replay.runtime_dir.join("external-agents").join(job_id);
+            (request, job_dir)
+        };
+
+        let provider = self.provider.clone();
+        let storage = self.storage.clone();
+        tokio::spawn(async move {
+            let result = provider.run(request, job_dir).await;
+            let mut job = job.write().await;
+            if job.status == AgentRunnerStatus::Cancelled {
+                job.updated_at = now_iso();
+                let _ = save_job_record_to_storage(&storage, &job, Some(&replay)).await;
+                return;
+            }
+            match result {
+                Ok(result) => {
+                    job.status = result.status;
+                    job.events_file = Some(result.events_file);
+                    job.output_file = result.output_file;
+                    job.exit_code = result.exit_code;
+                    job.stdout_tail = result.stdout_tail;
+                    job.stderr_tail = result.stderr_tail;
+                    job.error = result.error;
+                    job.metadata = merge_metadata(job.metadata.clone(), result.metadata);
+                }
+                Err(err) => {
+                    job.status = AgentRunnerStatus::Failed;
+                    job.error = Some(err.to_string());
+                }
+            }
+            job.updated_at = now_iso();
+            let usage_snapshot = JobTokenUsageSnapshot::from_job(&job);
+            let _ = record_job_token_usage_events(&storage, usage_snapshot).await;
+            let _ = save_job_record_to_storage(&storage, &job, Some(&replay)).await;
+        });
+        Ok(true)
     }
 
     pub async fn info(&self, job_id: &str) -> anyhow::Result<Option<AgentRunInfo>> {
@@ -1137,6 +1226,7 @@ struct StoredJobReplay {
     request_json: Value,
     workspace_root: PathBuf,
     runtime_dir: PathBuf,
+    additional_context: BTreeMap<String, String>,
     attempt: u64,
     max_attempts: u64,
 }
@@ -1157,6 +1247,7 @@ impl StoredJobReplay {
             request_json,
             workspace_root,
             runtime_dir,
+            additional_context: BTreeMap::new(),
             attempt: 0,
             max_attempts: 2,
         })
@@ -1168,9 +1259,8 @@ impl StoredJobReplay {
             .get("client_context")
             .and_then(Value::as_str)
             .map(str::to_string);
-        let mut request = serde_json::from_value::<AgentRunCreateRequest>(
-            self.request_json.clone(),
-        )?;
+        let mut request =
+            serde_json::from_value::<AgentRunCreateRequest>(self.request_json.clone())?;
         request.client_context = client_context;
         Ok(request)
     }
@@ -1180,6 +1270,7 @@ impl StoredJobReplay {
             "request": self.request_json,
             "workspace_root": self.workspace_root,
             "runtime_dir": self.runtime_dir,
+            "additional_context": self.additional_context,
             "attempt": self.attempt,
             "max_attempts": self.max_attempts,
         })
@@ -1205,6 +1296,12 @@ impl StoredJobReplay {
             request_json,
             workspace_root,
             runtime_dir,
+            additional_context: record
+                .get("additional_context")
+                .cloned()
+                .map(serde_json::from_value)
+                .transpose()?
+                .unwrap_or_default(),
             attempt: record.get("attempt").and_then(Value::as_u64).unwrap_or(0),
             max_attempts: record
                 .get("max_attempts")
@@ -1320,6 +1417,86 @@ impl StoredJobRecord {
         })
     }
 
+    fn to_job(record: &Value, replay: &StoredJobReplay) -> anyhow::Result<ExternalAgentJob> {
+        let create = replay.request()?;
+        let job_id = record
+            .get("job_id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow::anyhow!("stored job missing job_id"))?
+            .to_string();
+        let cwd = record
+            .get("cwd")
+            .and_then(Value::as_str)
+            .map(PathBuf::from)
+            .unwrap_or_else(|| replay.workspace_root.clone());
+        let user_id = record
+            .get("user_id")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        let session_id = record
+            .get("session_id")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        let mut metadata = json!({
+            "job_id": job_id,
+            "route": "agent_runner",
+            "signals": [],
+            "sandbox_cwd": record.get("sandbox_cwd").cloned().unwrap_or(Value::Null),
+            "workspace_root": replay.workspace_root,
+            "permission_root": cwd,
+            "image_generation_enabled": user_requested_image_generation(
+                create.chat_user_input.as_deref().unwrap_or(create.prompt.as_str())
+            )
+        });
+        if let Some(object) = metadata.as_object_mut() {
+            if let Some(session_id) = &session_id {
+                object.insert("session_id".to_string(), json!(session_id));
+            }
+            for key in [
+                "task_trigger_id",
+                "task_trigger_title",
+                "task_trigger_reason",
+                "codex_thread_id",
+                "req_id",
+                "client_req_id",
+                "chat_user_input",
+                "chat_user_content",
+            ] {
+                if let Some(value) = record.get(key) {
+                    object.insert(key.to_string(), value.clone());
+                }
+            }
+            if record
+                .get("codex_persistent_thread")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+            {
+                object.insert("codex_persistent_thread".to_string(), json!(true));
+            }
+        }
+        Ok(ExternalAgentJob {
+            job_id,
+            provider: "codex".to_string(),
+            prompt: create.prompt,
+            cwd,
+            user_id,
+            session_id,
+            metadata,
+            status: AgentRunnerStatus::Queued,
+            created_at: Self::str(record, "created_at"),
+            updated_at: Self::str(record, "updated_at"),
+            events_file: Self::opt_str(record, "events_file").map(PathBuf::from),
+            output_file: Self::opt_str(record, "output_file").map(PathBuf::from),
+            exit_code: record
+                .get("exit_code")
+                .and_then(Value::as_i64)
+                .and_then(|value| i32::try_from(value).ok()),
+            stdout_tail: Self::str(record, "stdout_tail"),
+            stderr_tail: Self::str(record, "stderr_tail"),
+            error: None,
+        })
+    }
+
     fn session_id(record: &Value) -> Option<&str> {
         record.get("session_id").and_then(Value::as_str)
     }
@@ -1345,7 +1522,10 @@ impl StoredJobRecord {
 
     fn requeue_after_restart(record: &mut Value) -> ReplayDecision {
         let replayable = record.get("request").is_some_and(Value::is_object)
-            && record.get("workspace_root").and_then(Value::as_str).is_some()
+            && record
+                .get("workspace_root")
+                .and_then(Value::as_str)
+                .is_some()
             && record.get("runtime_dir").and_then(Value::as_str).is_some();
         if !replayable {
             Self::mark_interrupted(record);
@@ -1366,10 +1546,7 @@ impl StoredJobRecord {
                     "error".to_string(),
                     json!("retry_limit_exhausted: automatic restart retry limit reached"),
                 );
-                object.insert(
-                    "failure_reason".to_string(),
-                    json!("retry_limit_exhausted"),
-                );
+                object.insert("failure_reason".to_string(), json!("retry_limit_exhausted"));
             }
             return ReplayDecision::Failed;
         }
@@ -1643,8 +1820,14 @@ mod tests {
             StoredJobRecord::requeue_after_restart(&mut record),
             ReplayDecision::Queued
         );
-        assert_eq!(record.get("status").and_then(serde_json::Value::as_str), Some("queued"));
-        assert_eq!(record.get("attempt").and_then(serde_json::Value::as_u64), Some(1));
+        assert_eq!(
+            record.get("status").and_then(serde_json::Value::as_str),
+            Some("queued")
+        );
+        assert_eq!(
+            record.get("attempt").and_then(serde_json::Value::as_u64),
+            Some(1)
+        );
         assert_eq!(
             record
                 .get("recovery_reason")
@@ -1662,9 +1845,14 @@ mod tests {
             StoredJobRecord::requeue_after_restart(&mut record),
             ReplayDecision::Failed
         );
-        assert_eq!(record.get("status").and_then(serde_json::Value::as_str), Some("failed"));
         assert_eq!(
-            record.get("failure_reason").and_then(serde_json::Value::as_str),
+            record.get("status").and_then(serde_json::Value::as_str),
+            Some("failed")
+        );
+        assert_eq!(
+            record
+                .get("failure_reason")
+                .and_then(serde_json::Value::as_str),
             Some("interrupted_by_restart")
         );
     }
@@ -1677,9 +1865,14 @@ mod tests {
             StoredJobRecord::requeue_after_restart(&mut record),
             ReplayDecision::Failed
         );
-        assert_eq!(record.get("status").and_then(serde_json::Value::as_str), Some("failed"));
         assert_eq!(
-            record.get("failure_reason").and_then(serde_json::Value::as_str),
+            record.get("status").and_then(serde_json::Value::as_str),
+            Some("failed")
+        );
+        assert_eq!(
+            record
+                .get("failure_reason")
+                .and_then(serde_json::Value::as_str),
             Some("retry_limit_exhausted")
         );
     }
@@ -1752,12 +1945,9 @@ mod tests {
             chat_user_input: None,
             chat_user_content: None,
         };
-        let replay = StoredJobReplay::new(
-            &request,
-            workspace.clone(),
-            "/tmp/ripple-runtime".into(),
-        )
-        .expect("serialize replay");
+        let replay =
+            StoredJobReplay::new(&request, workspace.clone(), "/tmp/ripple-runtime".into())
+                .expect("serialize replay");
         let job = ExternalAgentJob {
             job_id: "agent-replay".to_string(),
             provider: "codex".to_string(),
@@ -1779,8 +1969,21 @@ mod tests {
 
         let record = StoredJobRecord::from_job_with_replay(&job, Some(&replay));
 
-        assert_eq!(record.pointer("/request/prompt").and_then(serde_json::Value::as_str), Some("persist me"));
-        assert_eq!(record.get("attempt").and_then(serde_json::Value::as_u64), Some(0));
-        assert_eq!(record.get("max_attempts").and_then(serde_json::Value::as_u64), Some(2));
+        assert_eq!(
+            record
+                .pointer("/request/prompt")
+                .and_then(serde_json::Value::as_str),
+            Some("persist me")
+        );
+        assert_eq!(
+            record.get("attempt").and_then(serde_json::Value::as_u64),
+            Some(0)
+        );
+        assert_eq!(
+            record
+                .get("max_attempts")
+                .and_then(serde_json::Value::as_u64),
+            Some(2)
+        );
     }
 }

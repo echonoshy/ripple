@@ -31,7 +31,7 @@
 
 - [ ] **Step 1: 写恢复状态机失败测试**
 
-新增测试：完整 replay envelope 的 `running` job 应变为 `queued` 并增加 attempt；缺少 `request` 的历史 job 应变为 `failed`；达到 `max_attempts` 的 job 应变为 `failed/retry_limit_exhausted`。
+新增测试：完整 replay envelope 的 `running` job 应变为 `queued` 并保留 attempt，真正再次派发时才增加；缺少 `request` 的历史 job 应变为 `failed`；达到 `max_attempts` 的 job 应变为 `failed/retry_limit_exhausted`。
 
 ```rust
 #[test]
@@ -42,7 +42,7 @@ fn restart_requeues_replayable_running_job() {
         ReplayDecision::Queued
     );
     assert_eq!(record["status"], "queued");
-    assert_eq!(record["attempt"], 2);
+    assert_eq!(record["attempt"], 1);
 }
 ```
 

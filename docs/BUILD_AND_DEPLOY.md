@@ -909,7 +909,37 @@ server:
 
 - `/nas/ripple-data/sandboxes-cache`
 
-升级前先备份，再替换 `/opt/ripple/ripple-server` 和配置。服务启动时，旧的 `queued/running` jobs 会标记为 `interrupted_by_restart`，客户端可重试。Run output 下载使用 `/v1/runs/:job_id/output`，不要依赖 host path。
+升级前先备份，再替换 `/opt/ripple/ripple-server` 和配置。当前版本会把可重放的 `queued/running` job 保存在原 SQLite 中；新进程启动时自动恢复并重新派发，最多自动重试一次。旧版本生成、缺少 replay envelope 的运行中记录仍会标记为 `interrupted_by_restart`。Run output 下载使用 `/v1/runs/:job_id/output`，不要依赖 host path。
+
+单实例不停任务升级按下面顺序执行。该流程不会搬迁或复制 NAS 数据，也不能同时启动两个写同一 SQLite 的 `ripple-server`：
+
+```bash
+# 1. 先把新二进制放到临时名称
+install -m 0755 ./target/release/ripple-server /opt/ripple/ripple-server.next
+
+# 2. 旧进程进入 drain：新任务只入 queued，定时任务停止派发，readiness 返回 503
+curl -fsS -X POST \
+  -H "Authorization: Bearer <RIPPLE_SERVER_API_KEY>" \
+  http://127.0.0.1:8810/v1/internal/drain
+
+# 3. 查看运行中任务；active_jobs 归零后切换最快
+curl -fsS \
+  -H "Authorization: Bearer <RIPPLE_SERVER_API_KEY>" \
+  http://127.0.0.1:8810/v1/internal/drain/status
+
+# 4. 保持单实例，停止旧进程、替换二进制、启动新进程
+systemctl stop ripple-server
+install -m 0755 /opt/ripple/ripple-server.next /opt/ripple/ripple-server
+systemctl start ripple-server
+
+# 5. 验收新进程
+curl -fsS http://127.0.0.1:8810/health
+curl -fsS \
+  -H "Authorization: Bearer <RIPPLE_SERVER_API_KEY>" \
+  http://127.0.0.1:8810/v1/health/ready
+```
+
+如果 30 秒内仍有运行中 job，服务会退出，但其执行参数和 attempt 已持久化；新进程会从 NAS 上的同一 SQLite 恢复。这个方案提供的是“任务不丢、允许最多一次重放”，不是任意外部副作用的 exactly-once 保证。
 
 如果使用仓库内的每日 NAS 镜像脚本，先确认 `ops/systemd/ripple-runtime-backup.service` 和 `scripts/backup-ripple-runtime-to-nas.sh` 中的源路径已经改成当前部署路径；旧开发机路径不能直接用于生产。
 

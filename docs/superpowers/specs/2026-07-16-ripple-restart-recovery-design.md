@@ -44,7 +44,7 @@
 
 ### 异常重启
 
-启动时不再把遗留 job 统一标记为 `failed/interrupted_by_restart`。可重放 job 转为 `queued`、增加 `attempt`，然后重新派发。缺少完整重放请求的历史 job 仍标记为失败，避免用不完整输入误执行。
+启动时不再把遗留 job 统一标记为 `failed/interrupted_by_restart`。可重放 job 转为 `queued`，真正再次派发时才增加 `attempt`。缺少完整重放请求的历史 job 仍标记为失败，避免用不完整输入误执行。
 
 恢复属于 at-least-once：任务可能从头重新执行。调用外部非幂等操作的任务需要调用方提供 `client_request_id` / `idempotency_key`，或在后续版本增加安全检查点。
 

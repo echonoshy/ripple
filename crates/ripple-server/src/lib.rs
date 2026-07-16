@@ -30,7 +30,7 @@ use std::future::Future;
 use tokio::net::TcpListener;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::api::router;
 use crate::config::{default_tracing_filter, AppConfig};
@@ -65,23 +65,46 @@ where
     let recovered = state.jobs.recover_interrupted_stored_runs().await?;
     if recovered > 0 {
         info!(
-            "marked {} queued/running job(s) as interrupted_by_restart",
+            "requeued {} interrupted job(s) for restart recovery",
             recovered
         );
+    }
+    let dispatched = state.jobs.dispatch_queued().await?;
+    if dispatched > 0 {
+        info!("dispatched {} recovered job(s)", dispatched);
+    }
+    let reconciled =
+        api::task_sessions::reconcile_recoverable_task_session_runs(state.clone()).await?;
+    if reconciled > 0 {
+        info!("reconciled {} recoverable TaskSession run(s)", reconciled);
     }
     let task_trigger_task = tokio::spawn(services::task_triggers::task_trigger_loop(state.clone()));
     let task_action_task = tokio::spawn(services::tasks::task_action_trigger_loop(state.clone()));
     let session_maintenance_task = tokio::spawn(state.sessions.clone().maintenance_loop());
     let codex_log_cleanup_task =
         tokio::spawn(codex::log_cleanup::maintenance_loop(state.config.clone()));
-    let app = router(state)
+    let app = router(state.clone())
         .layer(cors_layer(&config))
         .layer(TraceLayer::new_for_http());
 
     info!("Ripple Rust server listening on http://{}", addr);
+    let shutdown_state = state.clone();
+    let draining_shutdown = async move {
+        shutdown.await;
+        shutdown_state.jobs.begin_drain();
+    };
     let result = axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown)
+        .with_graceful_shutdown(draining_shutdown)
         .await;
+    if !state
+        .jobs
+        .wait_for_idle(std::time::Duration::from_secs(30))
+        .await
+    {
+        warn!(
+            "graceful drain timed out; active jobs remain durable and will be replayed on restart"
+        );
+    }
     task_trigger_task.abort();
     task_action_task.abort();
     session_maintenance_task.abort();

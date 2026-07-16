@@ -5,6 +5,7 @@ pub mod chat;
 pub mod connectors;
 pub mod documents;
 pub mod health;
+pub mod internal;
 pub mod models;
 pub mod openapi;
 pub(crate) mod run_public;
@@ -179,6 +180,10 @@ pub fn router(state: AppState) -> Router {
         .routes(utoipa_axum::routes!(chat::create_response))
         .routes(utoipa_axum::routes!(health::ready))
         .routes(utoipa_axum::routes!(health::doctor))
+        .routes(utoipa_axum::routes!(
+            internal::begin_drain,
+            internal::drain_status
+        ))
         .routes(utoipa_axum::routes!(users::current_user_profile))
         .routes(utoipa_axum::routes!(users::update_current_user_profile))
         .merge(

@@ -1617,6 +1617,8 @@ async fn task_session_ripple_executor_posts_callback_status() {
         Method::POST,
         "/v1/task-sessions",
         json!({
+            "req_id": "req-ts-callback",
+            "idempotency_key": "idem-ts-callback-create",
             "session_id": "ts-callback",
             "title": "执行回调任务",
             "task_type": "todo",
@@ -1635,15 +1637,19 @@ async fn task_session_ripple_executor_posts_callback_status() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{created}");
+    let draft_version = created
+        .pointer("/task_session/draft_version")
+        .and_then(Value::as_u64)
+        .expect("draft version");
 
     let (status, confirmed) = call(
         app.clone(),
         Method::POST,
-        "/v1/task-sessions/ts-callback/task-specs/spec-callback/confirm",
+        "/v1/task-sessions/ts-callback/confirm",
         json!({
-            "start_run": true,
-            "run_id": "run-callback",
-            "executor": "ripple",
+            "req_id": "req-ts-callback",
+            "idempotency_key": "idem-ts-callback-confirm",
+            "draft_version": draft_version,
             "max_runtime_seconds": 5
         }),
     )
@@ -1661,7 +1667,7 @@ async fn task_session_ripple_executor_posts_callback_status() {
         .await;
         assert_eq!(status, StatusCode::OK, "{detail}");
         if detail
-            .pointer("/task_session/status")
+            .pointer("/task_session/current_execution/status")
             .and_then(Value::as_str)
             == Some("completed")
         {
@@ -1672,14 +1678,14 @@ async fn task_session_ripple_executor_posts_callback_status() {
     }
     assert_eq!(
         completed_detail
-            .pointer("/runs/0/status")
+            .pointer("/task_session/current_execution/status")
             .and_then(Value::as_str),
         Some("completed"),
         "{completed_detail}"
     );
     assert_eq!(
         completed_detail
-            .pointer("/runs/0/result_summary")
+            .pointer("/task_session/current_execution/result_summary")
             .and_then(Value::as_str),
         Some("fake codex completed"),
         "{completed_detail}"
@@ -1708,6 +1714,78 @@ async fn task_session_ripple_executor_posts_callback_status() {
         Some("fake codex completed"),
         "{completed_callback}"
     );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn task_session_ripple_executor_persists_queued_run_while_draining() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+    state.jobs.begin_drain();
+
+    let (status, created) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/task-sessions",
+        json!({
+            "req_id": "req-ts-drain",
+            "idempotency_key": "idem-ts-drain-create",
+            "session_id": "ts-drain",
+            "title": "排空期间持久化任务",
+            "task_type": "todo",
+            "goal": "重启后继续执行",
+            "task_spec": {
+                "task_spec_id": "spec-drain",
+                "task_type": "todo",
+                "goal": "重启后继续执行",
+                "required_fields": {},
+                "impact_summary": "确认后由 Ripple 执行。"
+            }
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+    let draft_version = created
+        .pointer("/task_session/draft_version")
+        .and_then(Value::as_u64)
+        .expect("draft version");
+
+    let (status, confirmed) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/task-sessions/ts-drain/confirm",
+        json!({
+            "req_id": "req-ts-drain",
+            "idempotency_key": "idem-ts-drain-confirm",
+            "draft_version": draft_version,
+            "max_runtime_seconds": 5
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{confirmed}");
+
+    let detail = wait_for_get_json(app, "/v1/task-sessions/ts-drain", |detail| {
+        detail
+            .pointer("/task_session/current_execution/external_run_id")
+            .is_some()
+    })
+    .await;
+    assert_eq!(
+        detail
+            .pointer("/task_session/current_execution/status")
+            .and_then(Value::as_str),
+        Some("running"),
+        "{detail}"
+    );
+    let job_id = detail
+        .pointer("/task_session/current_execution/external_run_id")
+        .and_then(Value::as_str)
+        .expect("external run id");
+    let job = state.jobs.info(job_id).await.unwrap().expect("durable job");
+    assert_eq!(job.status, "queued");
 
     let _ = std::fs::remove_dir_all(root);
 }
@@ -6461,6 +6539,125 @@ async fn runs_route_completes_with_fake_codex_app_server() {
     assert!(events.contains("\"type\":\"codex.notification\""));
     assert!(events.contains("\"type\":\"runner.completed\""));
     assert!(events.contains("data: [DONE]"));
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn draining_keeps_new_runs_queued_until_dispatch_resumes() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+
+    state.jobs.begin_drain();
+    let (status, created) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/runs",
+        json!({
+            "prompt": "wait for the replacement process",
+            "model": "codex-test",
+            "max_runtime_seconds": 5
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+    let job_id = created
+        .get("job_id")
+        .and_then(Value::as_str)
+        .expect("job id")
+        .to_string();
+
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let queued = state.jobs.info(&job_id).await.unwrap().expect("queued run");
+    assert_eq!(queued.status, "queued");
+    assert_eq!(state.jobs.active_count().await, 0);
+
+    state.jobs.end_drain();
+    assert_eq!(state.jobs.dispatch_queued().await.unwrap(), 1);
+    let final_run = wait_for_completed_run(app, &job_id).await;
+    assert_eq!(
+        final_run.get("status").and_then(Value::as_str),
+        Some("completed")
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn internal_drain_marks_readiness_unavailable() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let (state, app) = test_state_and_app(&root);
+
+    let (status, drain) = call(app.clone(), Method::POST, "/v1/internal/drain", Value::Null).await;
+    assert_eq!(status, StatusCode::OK, "{drain}");
+    assert_eq!(drain.get("draining").and_then(Value::as_bool), Some(true));
+    assert!(state.jobs.is_draining());
+
+    let (status, drain_status) = call(
+        app.clone(),
+        Method::GET,
+        "/v1/internal/drain/status",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{drain_status}");
+    assert_eq!(
+        drain_status.get("draining").and_then(Value::as_bool),
+        Some(true)
+    );
+
+    let (status, ready) = call(app, Method::GET, "/v1/health/ready", Value::Null).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{ready}");
+    assert_eq!(ready.get("draining").and_then(Value::as_bool), Some(true));
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn queued_run_is_recovered_and_dispatched_after_restart() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let config = test_config_with_codex_executable(&root, fake_codex);
+    let (old_state, old_app) = test_state_and_app_with_config(config.clone());
+    old_state.jobs.begin_drain();
+
+    let (status, created) = call(
+        old_app,
+        Method::POST,
+        "/v1/runs",
+        json!({
+            "prompt": "recover me after restart",
+            "model": "codex-test",
+            "max_runtime_seconds": 5
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+    let job_id = created
+        .get("job_id")
+        .and_then(Value::as_str)
+        .expect("job id")
+        .to_string();
+    drop(old_state);
+
+    let (new_state, new_app) = test_state_and_app_with_config(config);
+    assert_eq!(
+        new_state
+            .jobs
+            .recover_interrupted_stored_runs()
+            .await
+            .unwrap(),
+        1
+    );
+    assert_eq!(new_state.jobs.dispatch_queued().await.unwrap(), 1);
+    let final_run = wait_for_completed_run(new_app, &job_id).await;
+    assert_eq!(
+        final_run.get("status").and_then(Value::as_str),
+        Some("completed"),
+        "{final_run}"
+    );
 
     let _ = std::fs::remove_dir_all(root);
 }

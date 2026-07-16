@@ -325,6 +325,22 @@ impl Storage {
             .collect()
     }
 
+    pub async fn list_active_task_session_runs(&self) -> anyhow::Result<Vec<Value>> {
+        self.initialize().await?;
+        let rows = sqlx::query(
+            r#"
+            SELECT record_json FROM task_session_runs
+            WHERE status IN ('in_progress', 'waiting_user')
+            ORDER BY updated_at ASC
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter()
+            .map(|row| json_from_text(row.get::<String, _>("record_json").as_str()))
+            .collect()
+    }
+
     pub async fn upsert_task_session_event(
         &self,
         user_id: &str,

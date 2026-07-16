@@ -33,7 +33,17 @@ pub async fn health() -> Json<Value> {
     )
 )]
 pub async fn ready(State(state): State<AppState>) -> (StatusCode, Json<Value>) {
-    let report = crate::diagnostics::readiness_report(&state.config).await;
+    let mut report = crate::diagnostics::readiness_report(&state.config).await;
+    if state.jobs.is_draining() {
+        if let Some(object) = report.as_object_mut() {
+            object.insert("status".to_string(), json!("not_ready"));
+            object.insert("draining".to_string(), json!(true));
+            object.insert(
+                "active_runs".to_string(),
+                json!(state.jobs.active_count().await),
+            );
+        }
+    }
     let status = if report.get("status").and_then(Value::as_str) == Some("not_ready") {
         StatusCode::SERVICE_UNAVAILABLE
     } else {

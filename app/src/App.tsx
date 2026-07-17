@@ -77,7 +77,6 @@ import {
   useSessionRail,
 } from "@/hooks/workbenchLayout";
 
-const TasksPage = lazy(() => import("@/components/workbench/TasksPage"));
 const FilesPage = lazy(() => import("@/components/workbench/FilesPage"));
 const InspectorPanel = lazy(() => import("@/components/workbench/InspectorPanel"));
 const SettingsPage = lazy(() => import("@/components/workbench/SettingsPage"));
@@ -1019,20 +1018,6 @@ export default function Home() {
     [activeContextFolderPath, selectedWorkbenchSession, sessionId, updateSessionById]
   );
 
-  const handleOpenTaskSession = useCallback(
-    (targetSessionId: string) => {
-      setPendingMobileSession(null);
-      mobileSessionSelectionRequestRef.current += 1;
-      setMobileFilesReturnToChat(false);
-      setPendingWorkspaceFileOpen(null);
-      setActiveView("sessions");
-      setMobileMotionDirection(1);
-      setMobileSessionMode("chat");
-      void handleSwitchSession(targetSessionId);
-    },
-    [handleSwitchSession]
-  );
-
   const renderSessionPage = () => (
     <SessionPage
       userId={userId}
@@ -1122,13 +1107,6 @@ export default function Home() {
         onBack={mobileFilesReturnToChat ? handleReturnFromMobileFiles : undefined}
         openFileRequest={pendingWorkspaceFileOpen}
         onOpenFileRequestConsumed={handlePendingWorkspaceFileOpenConsumed}
-      />
-    ) : activeView === "tasks" ? (
-      <TasksPage
-        key={`tasks:${userId}`}
-        userId={userId}
-        onAuthExpired={handleAuthExpired}
-        onOpenSession={handleOpenTaskSession}
       />
     ) : activeView === "skills" ? (
       <SkillsPage

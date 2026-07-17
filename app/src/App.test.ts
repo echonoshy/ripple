@@ -276,16 +276,11 @@ function testAutomationsPageIsNotAWorkspaceView() {
   assert.doesNotMatch(source, /activeView === "automations"/);
 }
 
-function testTasksPageIsAFirstClassWorkspaceView() {
+function testLegacyTasksPageIsNotAWorkspaceView() {
   const source = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
 
-  assert.match(
-    source,
-    /const TasksPage = lazy\(\(\) => import\("@\/components\/workbench\/TasksPage"\)\)/
-  );
-  assert.match(source, /activeView === "tasks"/);
-  assert.match(source, /<TasksPage[\s\S]*userId=\{userId\}/);
-  assert.doesNotMatch(source, /activeView === "tasks" \|\| activeView === "connectors"/);
+  assert.doesNotMatch(source, /TasksPage/);
+  assert.doesNotMatch(source, /activeView === "tasks"/);
 }
 
 function testConnectorsPageIsNotAWorkspaceView() {
@@ -320,7 +315,7 @@ testDesktopSessionRailCanResizeAndCollapse();
 testCollapsedSessionRailUsesEdgeHandle();
 testAndroidBackGestureExclusionAppliesToMobileSwipeBackSurfaces();
 testAutomationsPageIsNotAWorkspaceView();
-testTasksPageIsAFirstClassWorkspaceView();
+testLegacyTasksPageIsNotAWorkspaceView();
 testConnectorsPageIsNotAWorkspaceView();
 
 console.log("app tests passed");

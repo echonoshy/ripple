@@ -12,28 +12,27 @@ import {
 function testMainNavItemsExposeDesktopProductTabs() {
   assert.deepEqual(
     mainNavItems.map((item) => item.id),
-    ["sessions", "tasks", "files", "skills"]
+    ["sessions", "files", "skills"]
   );
 }
 
 function testMobileNavKeepsSettingsEntry() {
   assert.deepEqual(
     mobileNavItems.map((item) => item.id),
-    ["sessions", "tasks", "files", "skills", "home"]
+    ["sessions", "files", "skills", "home"]
   );
 }
 
 function testViewTitlesAreHumanReadable() {
   assert.equal(viewTitle("home"), "Settings");
   assert.equal(viewTitle("sessions"), "Sessions");
-  assert.equal(viewTitle("tasks"), "Tasks");
   assert.equal(viewTitle("files"), "Files");
   assert.equal(viewTitle("skills"), "Skills");
 }
 
 function testWorkspaceViewsExposeEveryPrimaryView() {
   const navIds = new Set(mainNavItems.map((item) => item.id));
-  const primaryViews: WorkspaceView[] = ["sessions", "tasks", "files", "skills"];
+  const primaryViews: WorkspaceView[] = ["sessions", "files", "skills"];
 
   for (const view of primaryViews) {
     assert.equal(navIds.has(view), true, `${view} is reachable from primary navigation`);
@@ -45,7 +44,6 @@ function testWorkspaceViewsExposeEveryPrimaryView() {
 function testInspectorOnlyAppearsForSessionWorkbench() {
   assert.equal(shouldShowInspector("sessions"), true);
   assert.equal(shouldShowInspector("home"), false);
-  assert.equal(shouldShowInspector("tasks"), false);
   assert.equal(shouldShowInspector("files"), false);
   assert.equal(shouldShowInspector("skills"), false);
 }

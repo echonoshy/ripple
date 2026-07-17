@@ -28,11 +28,9 @@ function testDesktopProductTabsExcludeSettings() {
 
   assert.match(html, /data-ripple-product-top-bar="true"/);
   assert.match(html, />Sessions</);
-  assert.match(html, />Tasks</);
   assert.match(html, />Files</);
   assert.match(html, />Skills</);
   assert.match(html, /data-ripple-top-tab="sessions"/);
-  assert.match(html, /data-ripple-top-tab="tasks"/);
   assert.match(html, /data-ripple-top-tab="files"/);
   assert.match(html, /data-ripple-top-tab="skills"/);
   assert.doesNotMatch(html, />Connectors</);
@@ -105,7 +103,7 @@ function testDesktopProductTabsUseEqualWidths() {
     (match) => match[0]
   );
 
-  assert.equal(tabButtons.length, 4);
+  assert.equal(tabButtons.length, 3);
   for (const button of tabButtons) {
     assert.match(button, /w-\[132px\]/);
     assert.match(button, /justify-center/);
@@ -117,14 +115,13 @@ function testDesktopProductTabIconsDoNotShrink() {
   const html = renderProductTopBar();
   const icons = [...html.matchAll(/<svg[^>]*class="[^"]*h-4 w-4 shrink-0[^"]*"[^>]*>/g)];
 
-  assert.equal(icons.length, 4);
+  assert.equal(icons.length, 3);
 }
 
 function testDesktopProductTabsRenderChineseLabels() {
   const html = renderProductTopBar("zh-CN");
 
   assert.match(html, />会话</);
-  assert.match(html, />任务</);
   assert.match(html, />文件</);
   assert.match(html, />能力</);
   assert.doesNotMatch(html, />连接</);

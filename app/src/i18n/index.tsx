@@ -11,7 +11,6 @@ export const LOCALE_PREFERENCE_STORAGE_KEY = "ripple.app.localePreference";
 const zhMessages = {
   nav: {
     sessions: "会话",
-    tasks: "任务",
     files: "文件",
     skills: "能力",
     automations: "自动化",
@@ -777,7 +776,6 @@ type Messages = StringLeafSchema<typeof zhMessages>;
 const enMessages = {
   nav: {
     sessions: "Sessions",
-    tasks: "Tasks",
     files: "Files",
     skills: "Skills",
     automations: "Autos",

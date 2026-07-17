@@ -97,6 +97,20 @@ enum TaskTriggerExtractionError {
     Runtime,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum PendingTaskTriggerState {
+    Draft,
+    Confirmation,
+}
+
+fn pending_task_trigger_state(pending: &Value) -> Option<PendingTaskTriggerState> {
+    match pending.get("type").and_then(Value::as_str) {
+        Some("task_trigger_draft") => Some(PendingTaskTriggerState::Draft),
+        Some(_) => None,
+        None => Some(PendingTaskTriggerState::Confirmation),
+    }
+}
+
 pub(crate) async fn maybe_handle_task_trigger_chat(
     state: &AppState,
     user_id: &str,
@@ -111,23 +125,28 @@ pub(crate) async fn maybe_handle_task_trigger_chat(
         .as_ref()
         .filter(|value| value.is_object())
     {
-        if pending.get("type").and_then(Value::as_str) == Some("task_trigger_draft") {
-            return handle_pending_task_trigger_draft(
-                state,
-                user_id,
-                session,
-                workspace_root,
-                pending,
-                user_input,
-                model,
-                effort,
-            )
-            .await;
-        }
-        return handle_pending_task_trigger_confirmation(
-            state, user_id, session, pending, user_input,
-        )
-        .await;
+        return match pending_task_trigger_state(pending) {
+            Some(PendingTaskTriggerState::Draft) => {
+                handle_pending_task_trigger_draft(
+                    state,
+                    user_id,
+                    session,
+                    workspace_root,
+                    pending,
+                    user_input,
+                    model,
+                    effort,
+                )
+                .await
+            }
+            Some(PendingTaskTriggerState::Confirmation) => {
+                handle_pending_task_trigger_confirmation(
+                    state, user_id, session, pending, user_input,
+                )
+                .await
+            }
+            None => Ok(None),
+        };
     }
 
     if !is_task_trigger_intent(user_input) {
@@ -1583,6 +1602,34 @@ mod tests {
         assert!(!is_task_trigger_intent("帮我检查构建"));
         assert!(is_task_trigger_confirmation("确认创建"));
         assert!(is_task_trigger_cancellation("取消。"));
+    }
+
+    #[test]
+    fn only_claims_pending_control_requests_owned_by_task_triggers() {
+        assert_eq!(
+            pending_task_trigger_state(&json!({"type": "task_trigger_draft"})),
+            Some(PendingTaskTriggerState::Draft)
+        );
+        assert_eq!(
+            pending_task_trigger_state(&json!({
+                "title": "Check build",
+                "prompt": "Check the build status",
+                "kind": "interval"
+            })),
+            Some(PendingTaskTriggerState::Confirmation)
+        );
+        assert_eq!(
+            pending_task_trigger_state(&json!({
+                "type": "task_execution",
+                "active": true,
+                "req_id": "req-1"
+            })),
+            None
+        );
+        assert_eq!(
+            pending_task_trigger_state(&json!({"type": "future_control_state"})),
+            None
+        );
     }
 
     #[test]

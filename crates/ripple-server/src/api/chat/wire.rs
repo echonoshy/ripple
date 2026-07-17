@@ -279,6 +279,10 @@ pub(crate) fn task_output_text_delta_sse(delta: &str) -> Bytes {
     sse_named_json("response.output_text.delta", &json!({"delta": delta}))
 }
 
+pub(crate) fn task_status_sse(status: &Value) -> Bytes {
+    sse_named_json("task.status", status)
+}
+
 pub(crate) fn task_error_sse(message: &str, code: &str) -> Bytes {
     sse_named_json("error", &json!({"code": code, "message": message}))
 }

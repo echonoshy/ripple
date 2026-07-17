@@ -81,6 +81,7 @@ use wire::{
     control_plane_event_response, event_message, event_options, public_control_plane_event,
     response_created_sse, response_id_for_session, responses_payload_with_changed_files,
     sse_for_event, sse_json, stream_error, task_error_sse, task_output_text_delta_sse,
+    task_status_sse,
 };
 
 const TERMINAL_STATUSES: &[&str] = &["completed", "failed", "cancelled"];
@@ -740,6 +741,7 @@ fn task_status_data(
     error: Option<Value>,
 ) -> Value {
     let mut data = json!({
+        "event": "task.status",
         "task_id": task_id,
         "status": status,
         "content": content
@@ -766,13 +768,10 @@ fn task_execution_active(session: &SessionRecord) -> bool {
         == Some("task_execution")
 }
 
-fn dispatch_task_callback(session: &SessionRecord, mut status_data: Value) {
+fn dispatch_task_callback(session: &SessionRecord, status_data: Value) {
     let Some(callback_url) = session.task_callback_url.clone() else {
         return;
     };
-    if let Some(object) = status_data.as_object_mut() {
-        object.insert("event".to_string(), json!("task.status"));
-    }
     tokio::spawn(async move {
         let client = match reqwest::Client::builder()
             .timeout(Duration::from_secs(5))
@@ -829,6 +828,18 @@ fn task_control_event_response(
     let mut body = Vec::new();
     if !task_execution_active(session) && !output_text.is_empty() {
         body.extend_from_slice(&task_output_text_delta_sse(&output_text));
+    }
+    if !task_execution_active(session)
+        && event.get("type").and_then(Value::as_str) == Some("connector_auth_required")
+    {
+        body.extend_from_slice(&task_status_sse(&task_status_data(
+            task_id,
+            req_id,
+            "waiting_user",
+            json!(output_text),
+            Some(task_connector_required_action(event)),
+            None,
+        )));
     }
     body.extend_from_slice(b"data: [DONE]\n\n");
     let mut response = Response::new(Body::from(body));
@@ -2265,6 +2276,15 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
                                             None,
                                         ),
                                     );
+                                } else {
+                                    emit!(task_status_sse(&task_status_data(
+                                        &task_id,
+                                        task_req_id.as_deref(),
+                                        "waiting_user",
+                                        json!(message.clone()),
+                                        Some(task_connector_required_action(&public_event)),
+                                        None,
+                                    )));
                                 }
                             } else {
                                 emit!(assistant_done_sse(
@@ -3053,6 +3073,82 @@ mod tests {
         assert_eq!(first, second);
         assert!(first.starts_with("task-"));
         assert!(!first.contains("caller"));
+    }
+
+    #[tokio::test]
+    async fn task_connector_auth_before_execution_emits_waiting_user_status() {
+        let now = now_iso();
+        let session = SessionRecord {
+            session_id: "task-session".to_string(),
+            user_id: "alice".to_string(),
+            title: String::new(),
+            pinned: false,
+            context_folder_path: None,
+            model: "codex-test".to_string(),
+            max_turns: 200,
+            caller_system_prompt: None,
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+            last_input_tokens: 0,
+            created_at: now.clone(),
+            last_active: now,
+            status: "awaiting_user_input".to_string(),
+            message_count: 0,
+            messages: Vec::new(),
+            pending_question: None,
+            pending_options: None,
+            pending_permission_request: None,
+            pending_connector_auth: Some(json!({"connector": "feishu"})),
+            pending_control_request: None,
+            codex_thread_id: None,
+            codex_synced_message_count: 0,
+            memory_disabled: false,
+            plan_steps: Vec::new(),
+            plan_progress: None,
+            task_callback_url: Some("https://callback.example/task-status".to_string()),
+        };
+        let event = json!({
+            "type": "connector_auth_required",
+            "connector": "feishu",
+            "message": "需要完成飞书授权后继续执行。",
+            "action": {
+                "data": {
+                    "oauth_url": "https://accounts.feishu.cn/device"
+                }
+            }
+        });
+
+        let response = task_control_event_response(&session, "task-001", Some("req-001"), &event);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("read SSE body");
+        let body = String::from_utf8(body.to_vec()).expect("UTF-8 SSE body");
+
+        assert!(body.contains("event: response.output_text.delta"));
+        assert!(body.contains("event: task.status"));
+        let status_data = body
+            .split("event: task.status\n")
+            .nth(1)
+            .and_then(|event| event.lines().next())
+            .and_then(|line| line.strip_prefix("data: "))
+            .expect("task.status data");
+        let status: Value = serde_json::from_str(status_data).expect("task.status JSON");
+        assert_eq!(
+            status,
+            json!({
+                "event": "task.status",
+                "task_id": "task-001",
+                "req_id": "req-001",
+                "status": "waiting_user",
+                "content": "需要完成飞书授权后继续执行。",
+                "required_action": {
+                    "type": "connector_auth",
+                    "connector": "feishu",
+                    "auth_url": "https://accounts.feishu.cn/device"
+                }
+            })
+        );
+        assert!(body.ends_with("data: [DONE]\n\n"));
     }
     use std::collections::BTreeMap;
 

@@ -275,6 +275,14 @@ pub(crate) fn response_created_sse(response_id: &str, model: &str, session_id: &
     )
 }
 
+pub(crate) fn task_output_text_delta_sse(delta: &str) -> Bytes {
+    sse_named_json("response.output_text.delta", &json!({"delta": delta}))
+}
+
+pub(crate) fn task_error_sse(message: &str, code: &str) -> Bytes {
+    sse_named_json("error", &json!({"code": code, "message": message}))
+}
+
 pub(crate) fn response_output_text_delta_sse(
     response_id: &str,
     item_id: &str,

@@ -61,6 +61,8 @@ pub struct SessionRecord {
     pub memory_disabled: bool,
     pub plan_steps: Vec<Value>,
     pub plan_progress: Option<Value>,
+    #[serde(default)]
+    pub task_callback_url: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -289,6 +291,7 @@ impl SessionManager {
             memory_disabled: false,
             plan_steps: Vec::new(),
             plan_progress: None,
+            task_callback_url: None,
         };
         self.persist(&session).await?;
         self.active

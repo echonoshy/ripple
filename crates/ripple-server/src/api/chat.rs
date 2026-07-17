@@ -5,12 +5,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use async_stream::stream;
 use axum::body::{Body, Bytes};
-use axum::extract::{Path, State};
+use axum::extract::{rejection::JsonRejection, Path, State};
 use axum::http::{header, HeaderMap, HeaderValue, Response, StatusCode};
 use axum::response::IntoResponse;
 use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 use tokio::time::{sleep, Duration, Instant};
@@ -79,10 +80,19 @@ use wire::{
     connector_auth_event_response, connector_auth_event_response_with_message,
     control_plane_event_response, event_message, event_options, public_control_plane_event,
     response_created_sse, response_id_for_session, responses_payload_with_changed_files,
-    sse_for_event, sse_json, stream_error,
+    sse_for_event, sse_json, stream_error, task_error_sse, task_output_text_delta_sse,
 };
 
 const TERMINAL_STATUSES: &[&str] = &["completed", "failed", "cancelled"];
+const TASK_SESSION_EXECUTION_INSTRUCTIONS: &str = r#"
+
+## Task Session Confirmation Boundary
+- This is a task-session conversation. Before executing the task, gather all required information, summarize the exact action, and ask whether the user confirms starting execution.
+- Do not write files, call connectors, run commands that perform the task, or take any other task action before the user explicitly confirms the current task content.
+- Use semantic judgment, not keyword matching. A modification, follow-up question, or ambiguous acknowledgment is not confirmation; continue the dialogue and ask again.
+- Only when the current user message clearly confirms starting the current task, call `codex_app.task_execution_confirmed` exactly once before taking the first task action. The tool call is internal and must not be mentioned to the user.
+- After that tool succeeds, execute the task normally and return a concise user-facing result.
+"#;
 
 #[derive(Debug, Deserialize)]
 pub struct InternalChatRequest {
@@ -105,6 +115,14 @@ pub struct InternalChatRequest {
     pub summary: Option<String>,
     #[serde(rename = "outputSchema")]
     pub output_schema: Option<Value>,
+    #[serde(default)]
+    pub task_callback_url: Option<String>,
+    #[serde(default)]
+    pub task_req_id: Option<String>,
+    #[serde(default)]
+    pub task_id: Option<String>,
+    #[serde(default)]
+    pub task_response: bool,
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
@@ -120,6 +138,41 @@ pub struct ResponsesCreateRequest {
     #[serde(default)]
     pub think_level: Option<String>,
     pub text: Option<Value>,
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct TaskSessionResponsesCreateRequest {
+    pub model: Option<String>,
+    pub input: Value,
+    pub instructions: Option<String>,
+    pub previous_response_id: Option<String>,
+    pub metadata: Option<Value>,
+    pub store: Option<bool>,
+    pub reasoning: Option<Value>,
+    #[serde(default)]
+    pub think_level: Option<String>,
+    pub text: Option<Value>,
+    pub task_id: String,
+    pub req_id: Option<String>,
+    pub callback_url: Option<String>,
+}
+
+impl TaskSessionResponsesCreateRequest {
+    fn into_chat_request(self) -> Result<InternalChatRequest, ApiError> {
+        ResponsesCreateRequest {
+            model: self.model,
+            input: self.input,
+            instructions: self.instructions,
+            stream: Some(true),
+            previous_response_id: self.previous_response_id,
+            metadata: self.metadata,
+            store: self.store,
+            reasoning: self.reasoning,
+            think_level: self.think_level,
+            text: self.text,
+        }
+        .into_chat_request()
+    }
 }
 
 impl ResponsesCreateRequest {
@@ -161,6 +214,10 @@ impl ResponsesCreateRequest {
             effort,
             summary,
             output_schema,
+            task_callback_url: None,
+            task_req_id: None,
+            task_id: None,
+            task_response: false,
         })
     }
 }
@@ -484,6 +541,9 @@ struct CodexChatStream {
     prefix_event: Option<Value>,
     folder_context_event: Option<Value>,
     request_base_url: Option<String>,
+    task_response: bool,
+    task_id: Option<String>,
+    task_req_id: Option<String>,
 }
 
 struct ChatRunFinal {
@@ -604,6 +664,196 @@ pub async fn create_response(
     handle_chat_request(state, headers, request).await
 }
 
+#[utoipa::path(
+    post,
+    path = "/task-sessions/responses",
+    tag = "task-sessions",
+    request_body = TaskSessionResponsesCreateRequest,
+    responses(
+        (status = 200, description = "Task session SSE stream", body = crate::api::openapi::SseEvent, content_type = "text/event-stream"),
+        (status = 400, description = "Invalid task session request", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 409, description = "Task session conflict", body = crate::api::openapi::ApiErrorEnvelope)
+    )
+)]
+pub async fn create_task_session_response(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    request: Result<Json<TaskSessionResponsesCreateRequest>, JsonRejection>,
+) -> Result<Response<Body>, ApiError> {
+    let Json(request) = request.map_err(|error| ApiError::bad_request(error.body_text()))?;
+    let task_id = validate_external_task_id(&request.task_id)?;
+    let session_id = task_session_id_for_external_task(&task_id);
+    let callback_url = request.callback_url.clone();
+    let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
+    let existing_callback_url = state
+        .sessions
+        .load(&user_id, &session_id)
+        .await?
+        .and_then(|session| session.task_callback_url);
+    if callback_url
+        .as_deref()
+        .or(existing_callback_url.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_none()
+    {
+        return Err(ApiError::bad_request(
+            "callback_url is required for a new task session",
+        ));
+    }
+    let req_id = request.req_id.clone();
+    let mut chat = request.into_chat_request()?;
+    chat.task_response = true;
+    chat.session_id = Some(session_id);
+    chat.task_callback_url = callback_url;
+    chat.task_req_id = req_id;
+    chat.task_id = Some(task_id);
+    handle_chat_request(state, headers, chat).await
+}
+
+fn validate_external_task_id(task_id: &str) -> Result<String, ApiError> {
+    let task_id = task_id.trim();
+    if task_id.is_empty() {
+        return Err(ApiError::bad_request("task_id cannot be empty"));
+    }
+    if task_id.len() > 256 {
+        return Err(ApiError::bad_request("task_id must not exceed 256 bytes"));
+    }
+    Ok(task_id.to_string())
+}
+
+fn task_session_id_for_external_task(task_id: &str) -> String {
+    let digest = Sha256::digest(task_id.as_bytes());
+    let suffix = digest[..16]
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    format!("task-{suffix}")
+}
+
+fn task_status_data(
+    task_id: &str,
+    req_id: Option<&str>,
+    status: &str,
+    content: Value,
+    required_action: Option<Value>,
+    error: Option<Value>,
+) -> Value {
+    let mut data = json!({
+        "task_id": task_id,
+        "status": status,
+        "content": content
+    });
+    let object = data.as_object_mut().expect("task status data is an object");
+    if let Some(req_id) = req_id {
+        object.insert("req_id".to_string(), json!(req_id));
+    }
+    if let Some(required_action) = required_action {
+        object.insert("required_action".to_string(), required_action);
+    }
+    if let Some(error) = error {
+        object.insert("error".to_string(), error);
+    }
+    data
+}
+
+fn task_execution_active(session: &SessionRecord) -> bool {
+    session
+        .pending_control_request
+        .as_ref()
+        .and_then(|value| value.get("type"))
+        .and_then(Value::as_str)
+        == Some("task_execution")
+}
+
+fn dispatch_task_callback(session: &SessionRecord, mut status_data: Value) {
+    let Some(callback_url) = session.task_callback_url.clone() else {
+        return;
+    };
+    if let Some(object) = status_data.as_object_mut() {
+        object.insert("event".to_string(), json!("task.status"));
+    }
+    tokio::spawn(async move {
+        let client = match reqwest::Client::builder()
+            .timeout(Duration::from_secs(5))
+            .build()
+        {
+            Ok(client) => client,
+            Err(error) => {
+                tracing::warn!(%error, "failed to build task callback client");
+                return;
+            }
+        };
+        for attempt in 1..=2 {
+            match client.post(&callback_url).json(&status_data).send().await {
+                Ok(response) if response.status().is_success() => return,
+                Ok(response) => {
+                    tracing::warn!(
+                        callback_url,
+                        attempt,
+                        status = %response.status(),
+                        "task callback returned unsuccessful status"
+                    );
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        callback_url,
+                        attempt,
+                        %error,
+                        "task callback delivery failed"
+                    );
+                }
+            }
+        }
+    });
+}
+
+fn task_control_event_response(
+    session: &SessionRecord,
+    task_id: &str,
+    req_id: Option<&str>,
+    event: &Value,
+) -> Response<Body> {
+    let output_text = event_message(event);
+    if task_execution_active(session) {
+        let status_data = task_status_data(
+            task_id,
+            req_id,
+            "waiting_user",
+            json!(output_text.clone()),
+            Some(task_connector_required_action(event)),
+            None,
+        );
+        dispatch_task_callback(session, status_data);
+    }
+    let mut body = Vec::new();
+    if !task_execution_active(session) && !output_text.is_empty() {
+        body.extend_from_slice(&task_output_text_delta_sse(&output_text));
+    }
+    body.extend_from_slice(b"data: [DONE]\n\n");
+    let mut response = Response::new(Body::from(body));
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/event-stream"),
+    );
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+    response
+}
+
+fn task_connector_required_action(event: &Value) -> Value {
+    json!({
+        "type": "connector_auth",
+        "connector": event.get("connector").cloned().unwrap_or(Value::Null),
+        "auth_url": event
+            .pointer("/action/data/oauth_url")
+            .or_else(|| event.pointer("/action/data/setup_url"))
+            .cloned()
+            .unwrap_or(Value::Null)
+    })
+}
+
 async fn handle_chat_request(
     state: AppState,
     headers: HeaderMap,
@@ -644,6 +894,20 @@ async fn handle_chat_request(
         None => None,
     };
     let mut session = load_or_create_session(&state, &user_id, &request).await?;
+    if request.task_callback_url.is_some() {
+        if let (Some(existing), Some(incoming)) = (
+            session.task_callback_url.as_deref(),
+            request.task_callback_url.as_deref(),
+        ) {
+            if existing != incoming {
+                return Err(ApiError::conflict("task callback_url cannot be changed"));
+            }
+        }
+        if let Some(callback_url) = request.task_callback_url.clone() {
+            session.task_callback_url = Some(callback_url);
+        }
+        state.sessions.save_record(session.clone()).await?;
+    }
     let effective_caller_system_prompt = caller_system_prompt
         .clone()
         .or_else(|| session.caller_system_prompt.clone());
@@ -675,6 +939,14 @@ async fn handle_chat_request(
             &decision.event,
         )
         .await?;
+        if request.task_response {
+            return Ok(task_control_event_response(
+                &session,
+                request.task_id.as_deref().unwrap_or_default(),
+                request.task_req_id.as_deref(),
+                &public_connector_auth_event(&decision.event),
+            ));
+        }
         return Ok(connector_auth_event_response(
             &model,
             &session.session_id,
@@ -691,6 +963,14 @@ async fn handle_chat_request(
             &decision,
         )
         .await?;
+        if request.task_response {
+            return Ok(task_control_event_response(
+                &session,
+                request.task_id.as_deref().unwrap_or_default(),
+                request.task_req_id.as_deref(),
+                &public_event,
+            ));
+        }
         return Ok(control_plane_event_response(
             &model,
             &session.session_id,
@@ -717,6 +997,14 @@ async fn handle_chat_request(
             &decision,
         )
         .await?;
+        if request.task_response {
+            return Ok(task_control_event_response(
+                &session,
+                request.task_id.as_deref().unwrap_or_default(),
+                request.task_req_id.as_deref(),
+                &public_event,
+            ));
+        }
         return Ok(control_plane_event_response(
             &model,
             &session.session_id,
@@ -727,7 +1015,9 @@ async fn handle_chat_request(
     session.pending_permission_request = None;
     session.pending_question = None;
     session.pending_options = None;
-    session.pending_control_request = None;
+    if !request.task_response || !task_execution_active(&session) {
+        session.pending_control_request = None;
+    }
     clear_session_plan(&mut session);
 
     if let Some(decision) = maybe_handle_connector_auth(
@@ -736,6 +1026,7 @@ async fn handle_chat_request(
         &mut session,
         &user_input,
         request_base_url.as_deref(),
+        request.task_response,
     )
     .await?
     {
@@ -797,6 +1088,14 @@ async fn handle_chat_request(
             &decision.event,
         )
         .await?;
+        if request.task_response {
+            return Ok(task_control_event_response(
+                &session,
+                request.task_id.as_deref().unwrap_or_default(),
+                request.task_req_id.as_deref(),
+                &public_connector_auth_event(&decision.event),
+            ));
+        }
         return Ok(connector_auth_event_response(
             &model,
             &session.session_id,
@@ -861,7 +1160,10 @@ async fn create_codex_chat_run(args: &CodexChatStart) -> Result<AgentRunInfo, Ap
     );
     let recent_task_triggers_context =
         recent_task_triggers_context(&args.state, &args.user_id).await?;
-    let base_instructions = build_codex_chat_base_instructions(&args.state.config);
+    let mut base_instructions = build_codex_chat_base_instructions(&args.state.config);
+    if args.request.task_response {
+        base_instructions.push_str(TASK_SESSION_EXECUTION_INSTRUCTIONS);
+    }
     let rendered_client_context = render_client_context(effective_client_context(&args.request));
     let turn_context = args.request.temporary.then(|| {
         build_codex_chat_turn_context_with_available_skills(
@@ -935,6 +1237,7 @@ async fn create_codex_chat_run(args: &CodexChatStart) -> Result<AgentRunInfo, Ap
         client_request_id: args.request.client_request_id.clone(),
         chat_user_input: Some(args.user_input.clone()),
         chat_user_content: Some(args.user_content.clone()),
+        task_response: args.request.task_response,
     };
     ensure_workspace_change_baseline(&args.state, &args.user_id, &args.workspace_root).await;
     let context_elapsed_ms = context_started.elapsed().as_millis() as u64;
@@ -1068,7 +1371,6 @@ async fn finish_codex_chat_response(
         required_skills: _,
         available_skills: _,
     } = args;
-
     if request.stream.unwrap_or(false) {
         return Ok(stream_chat_response(CodexChatStream {
             state,
@@ -1083,6 +1385,9 @@ async fn finish_codex_chat_response(
             prefix_event,
             folder_context_event,
             request_base_url,
+            task_response: request.task_response,
+            task_id: request.task_id,
+            task_req_id: request.task_req_id,
         }));
     }
 
@@ -1109,6 +1414,11 @@ async fn finish_codex_chat_response(
         ));
     }
     let output_text = read_run_output(&state, &user_id, &final_info).await;
+    // Dynamic tools can persist session state while this run is active. Reload before
+    // finalizing so a structured request for user input is not overwritten by idle.
+    if let Some(persisted) = state.sessions.load(&user_id, &session.session_id).await? {
+        session = persisted;
+    }
     record_codex_thread(&mut session, &final_info);
     record_usage(&mut session, &usage);
     clear_session_plan(&mut session);
@@ -1121,6 +1431,7 @@ async fn finish_codex_chat_response(
         &output_text,
         request_base_url.as_deref(),
         &final_info,
+        request.task_response,
     )
     .await?
     {
@@ -1141,10 +1452,12 @@ async fn finish_codex_chat_response(
         &image_events,
     );
     mark_codex_messages_synced(&mut session, &final_info);
-    session.set_status(SessionStatus::Idle);
-    session.pending_permission_request = None;
-    session.pending_question = None;
-    session.pending_options = None;
+    if !session.status_kind().is_waiting_for_user() {
+        session.set_status(SessionStatus::Idle);
+        session.pending_permission_request = None;
+        session.pending_question = None;
+        session.pending_options = None;
+    }
     let _ = state
         .sessions
         .save_record_if_exists(session.clone())
@@ -1194,6 +1507,7 @@ async fn maybe_persist_model_connector_auth_request(
     output_text: &str,
     request_base_url: Option<&str>,
     info: &AgentRunInfo,
+    resume_after_auth: bool,
 ) -> Result<Option<Value>, ApiError> {
     let Some(request) = parse_model_connector_auth_request(output_text) else {
         return Ok(None);
@@ -1205,6 +1519,7 @@ async fn maybe_persist_model_connector_auth_request(
         &request,
         user_input,
         request_base_url,
+        resume_after_auth,
     )
     .await?;
     let event = decision.event;
@@ -1284,7 +1599,8 @@ pub async fn poll_session_connector_auth(
 
     let (model, preset_effort) = state.config.resolve_model(request.model.as_deref());
     let effort = request.effort.clone().or(preset_effort);
-    let decision = continue_pending_connector_auth(&state, &user_id, &mut session, "").await?;
+    let decision =
+        continue_pending_connector_auth(&state, &user_id, &mut session, "", false).await?;
     apply_requested_chat_model(
         &mut session,
         request.model.as_deref(),
@@ -1317,6 +1633,10 @@ pub async fn poll_session_connector_auth(
             effort: request.effort,
             summary: None,
             output_schema: None,
+            task_callback_url: None,
+            task_req_id: None,
+            task_id: None,
+            task_response: false,
         };
         let user_input = chat_request
             .messages
@@ -1600,25 +1920,48 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
         prefix_event,
         folder_context_event,
         request_base_url,
+        task_response,
+        task_id,
+        task_req_id,
     } = args;
+    let task_id = task_id.unwrap_or_default();
     let session_id = session.session_id.clone();
     let header_session_id = session_id.clone();
     let response_id = response_id_for_session(&session_id);
     let response_item_id = format!("msg_{}", &Uuid::new_v4().simple().to_string()[..24]);
     let events_file = info.events_file.as_ref().map(std::path::PathBuf::from);
     let job_id = info.job_id.clone();
-    let stream = stream! {
-        yield Ok::<Bytes, Infallible>(response_created_sse(&response_id, &model, &session_id));
+    let (stream_tx, mut stream_rx) = tokio::sync::mpsc::channel::<Bytes>(128);
+    tokio::spawn(async move {
+        macro_rules! emit {
+            ($chunk:expr) => {
+                let _ = stream_tx.send($chunk).await;
+            };
+        }
+        if !task_response {
+            emit!(response_created_sse(&response_id, &model, &session_id));
+        }
         if let Some(event) = prefix_event {
-            yield Ok::<Bytes, Infallible>(sse_for_event(&event));
+            if !task_response {
+                emit!(sse_for_event(&event));
+            }
             let message = event_message(&event);
-            if !message.is_empty() {
-                yield Ok::<Bytes, Infallible>(assistant_delta_sse(&response_id, &response_item_id, &format!("{message}\n\n")));
-                yield Ok::<Bytes, Infallible>(sse_for_event(&json!({"type": "new_turn"})));
+            if !message.is_empty() && (!task_response || !task_execution_active(&session)) {
+                emit!(chat_output_delta_sse(
+                    task_response,
+                    &response_id,
+                    &response_item_id,
+                    &format!("{message}\n\n")
+                ));
+                if !task_response {
+                    emit!(sse_for_event(&json!({"type": "new_turn"})));
+                }
             }
         }
-        if let Some(event) = folder_context_event {
-            yield Ok::<Bytes, Infallible>(sse_for_event(&event));
+        if !task_response {
+            if let Some(event) = folder_context_event {
+                emit!(sse_for_event(&event));
+            }
         }
         let mut offset = 0_usize;
         let mut emitted = String::new();
@@ -1626,6 +1969,8 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
         let mut latest_usage = empty_usage();
         let mut agent_messages = AgentMessageTracker::default();
         let mut model_connector_auth_buffer: Option<String> = None;
+        let mut task_execution_started = task_response && task_execution_active(&session);
+        let mut task_running_callback_sent = task_execution_started;
         let mut last_emit = now_epoch_seconds();
         loop {
             if let Some(events_file) = events_file.as_deref() {
@@ -1638,7 +1983,9 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
                         extract_image_event(&state, &user_id, &event, &workspace_root).await
                     {
                         image_events.push(image_event.clone());
-                        yield Ok::<Bytes, Infallible>(sse_for_event(&image_event));
+                        if !task_response {
+                            emit!(sse_for_event(&image_event));
+                        }
                         last_emit = now_epoch_seconds();
                         continue;
                     }
@@ -1647,22 +1994,58 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
                             sanitize_user_visible_value(&state, &user_id, &plan_event);
                         record_session_plan_update(&mut session, &public_plan_event);
                         let _ = state.sessions.save_record_if_exists(session.clone()).await;
-                        yield Ok::<Bytes, Infallible>(sse_for_event(&public_plan_event));
+                        if !task_response {
+                            emit!(sse_for_event(&public_plan_event));
+                        }
                         last_emit = now_epoch_seconds();
                         continue;
                     }
                     if let Some(runtime_event) = extract_codex_runtime_event(&event) {
-                        let public_runtime_event = sanitize_user_visible_value(&state, &user_id, &runtime_event);
+                        let public_runtime_event =
+                            sanitize_user_visible_value(&state, &user_id, &runtime_event);
                         if record_session_runtime_event(&mut session, &public_runtime_event) {
                             let _ = state.sessions.save_record_if_exists(session.clone()).await;
                         }
-                        yield Ok::<Bytes, Infallible>(sse_for_event(&public_runtime_event));
+                        if !task_response {
+                            emit!(sse_for_event(&public_runtime_event));
+                        }
                         last_emit = now_epoch_seconds();
                         continue;
                     }
                     if let Some(tool_event) = extract_tool_event(&event) {
-                        let public_tool_event = sanitize_user_visible_value(&state, &user_id, &tool_event);
-                        yield Ok::<Bytes, Infallible>(sse_for_event(&public_tool_event));
+                        let public_tool_event =
+                            sanitize_user_visible_value(&state, &user_id, &tool_event);
+                        if task_response
+                            && public_tool_event.get("type").and_then(Value::as_str)
+                                == Some("tool_call")
+                            && public_tool_event.get("name").and_then(Value::as_str)
+                                == Some("codex_app.task_execution_confirmed")
+                        {
+                            task_execution_started = true;
+                            session.pending_control_request = Some(json!({
+                                "type": "task_execution",
+                                "active": true,
+                                "req_id": task_req_id.clone()
+                            }));
+                            let _ = state.sessions.save_record_if_exists(session.clone()).await;
+                            if !task_running_callback_sent {
+                                dispatch_task_callback(
+                                    &session,
+                                    task_status_data(
+                                        &task_id,
+                                        task_req_id.as_deref(),
+                                        "running",
+                                        json!("任务已开始执行。"),
+                                        None,
+                                        None,
+                                    ),
+                                );
+                                task_running_callback_sent = true;
+                            }
+                        }
+                        if !task_response {
+                            emit!(sse_for_event(&public_tool_event));
+                        }
                         last_emit = now_epoch_seconds();
                         continue;
                     }
@@ -1674,7 +2057,14 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
                             delta,
                         ) {
                             emitted.push_str(&delta);
-                            yield Ok::<Bytes, Infallible>(assistant_delta_sse(&response_id, &response_item_id, &delta));
+                            if !task_response || !task_execution_started {
+                                emit!(chat_output_delta_sse(
+                                    task_response,
+                                    &response_id,
+                                    &response_item_id,
+                                    &delta,
+                                ));
+                            }
                             last_emit = now_epoch_seconds();
                         }
                         continue;
@@ -1687,7 +2077,14 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
                             text,
                         ) {
                             emitted.push_str(&text);
-                            yield Ok::<Bytes, Infallible>(assistant_delta_sse(&response_id, &response_item_id, &text));
+                            if !task_response || !task_execution_started {
+                                emit!(chat_output_delta_sse(
+                                    task_response,
+                                    &response_id,
+                                    &response_item_id,
+                                    &text,
+                                ));
+                            }
                             last_emit = now_epoch_seconds();
                         }
                         continue;
@@ -1701,7 +2098,11 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
                 .ok()
                 .flatten();
             let Some(info) = info else {
-                yield Ok::<Bytes, Infallible>(sse_json(&stream_error("Agent run not found", "server_error")));
+                emit!(chat_stream_error_sse(
+                    task_response,
+                    "Agent run not found",
+                    "server_error",
+                ));
                 break;
             };
             if let Some(approval) = info.pending_approval.clone() {
@@ -1709,16 +2110,108 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
                 let public_approval = sanitize_user_visible_value(&state, &user_id, &approval);
                 session.pending_permission_request = Some(public_approval.clone());
                 let _ = state.sessions.save_record_if_exists(session.clone()).await;
-                yield Ok::<Bytes, Infallible>(sse_for_event(&json!({"type": "approval_required", "approval": public_approval})));
-                yield Ok::<Bytes, Infallible>(assistant_done_sse(&model, &response_id, &session_id, emitted.clone(), latest_usage.clone()));
+                if !task_response {
+                    emit!(sse_for_event(
+                        &json!({"type": "approval_required", "approval": public_approval})
+                    ));
+                }
+                if task_response {
+                    if task_execution_started {
+                        dispatch_task_callback(
+                            &session,
+                            task_status_data(
+                                &task_id,
+                                task_req_id.as_deref(),
+                                "waiting_user",
+                                json!(emitted.clone()),
+                                Some(json!({
+                                    "type": "confirm",
+                                    "approval": public_approval
+                                })),
+                                None,
+                            ),
+                        );
+                    }
+                } else {
+                    emit!(assistant_done_sse(
+                        &model,
+                        &response_id,
+                        &session_id,
+                        emitted.clone(),
+                        latest_usage.clone()
+                    ));
+                }
                 break;
             }
-            if let Some(user_input) = info.pending_user_input.clone() {
-                let public_user_input = sanitize_user_visible_value(&state, &user_id, &user_input);
+            if let Some(pending_user_input) = info.pending_user_input.clone() {
+                let public_user_input =
+                    sanitize_user_visible_value(&state, &user_id, &pending_user_input);
                 record_session_pending_user_input(&mut session, &public_user_input);
+                let question = user_input_question(&public_user_input).unwrap_or_default();
+                let assistant_text = if emitted.trim().is_empty() {
+                    question
+                } else {
+                    emitted.clone()
+                };
+                let title_fallback = append_chat_messages(
+                    &mut session,
+                    user_content.clone(),
+                    &user_input,
+                    &assistant_text,
+                );
+                record_codex_thread(&mut session, &info);
+                mark_codex_messages_synced(&mut session, &info);
                 let _ = state.sessions.save_record_if_exists(session.clone()).await;
-                yield Ok::<Bytes, Infallible>(sse_for_event(&json!({"type": "user_input_required", "user_input": public_user_input})));
-                yield Ok::<Bytes, Infallible>(assistant_done_sse(&model, &response_id, &session_id, emitted.clone(), latest_usage.clone()));
+                if let Some(fallback_title) = title_fallback {
+                    spawn_session_title_generation(
+                        state.clone(),
+                        user_id.clone(),
+                        workspace_root.clone(),
+                        session.session_id.clone(),
+                        fallback_title,
+                        user_input.clone(),
+                        assistant_text.clone(),
+                        model.clone(),
+                        effort.clone(),
+                    );
+                }
+                if !task_response {
+                    emit!(sse_for_event(
+                        &json!({"type": "user_input_required", "user_input": public_user_input})
+                    ));
+                }
+                if task_response {
+                    if !task_execution_started
+                        && emitted.trim().is_empty()
+                        && !assistant_text.is_empty()
+                    {
+                        emit!(task_output_text_delta_sse(&assistant_text));
+                    }
+                    if task_execution_started {
+                        dispatch_task_callback(
+                            &session,
+                            task_status_data(
+                                &task_id,
+                                task_req_id.as_deref(),
+                                "waiting_user",
+                                json!(assistant_text.clone()),
+                                Some(json!({
+                                    "type": "reply",
+                                    "message": assistant_text
+                                })),
+                                None,
+                            ),
+                        );
+                    }
+                } else {
+                    emit!(assistant_done_sse(
+                        &model,
+                        &response_id,
+                        &session_id,
+                        assistant_text,
+                        latest_usage.clone()
+                    ));
+                }
                 break;
             }
             if TERMINAL_STATUSES.contains(&info.status.as_str()) {
@@ -1741,28 +2234,71 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
                         auth_output_text,
                         request_base_url.as_deref(),
                         &info,
+                        task_response,
                     )
                     .await
                     {
                         Ok(Some(event)) => {
                             let public_event = public_connector_auth_event(&event);
-                            yield Ok::<Bytes, Infallible>(sse_for_event(&public_event));
-                            let message = event_message(&event);
-                            if !message.is_empty() {
-                                yield Ok::<Bytes, Infallible>(assistant_delta_sse(&response_id, &response_item_id, &message));
+                            if !task_response {
+                                emit!(sse_for_event(&public_event));
                             }
-                            yield Ok::<Bytes, Infallible>(assistant_done_sse(&model, &response_id, &session_id, message, latest_usage.clone()));
+                            let message = event_message(&event);
+                            if !message.is_empty() && (!task_response || !task_execution_started) {
+                                emit!(chat_output_delta_sse(
+                                    task_response,
+                                    &response_id,
+                                    &response_item_id,
+                                    &message
+                                ));
+                            }
+                            if task_response {
+                                if task_execution_started {
+                                    dispatch_task_callback(
+                                        &session,
+                                        task_status_data(
+                                            &task_id,
+                                            task_req_id.as_deref(),
+                                            "waiting_user",
+                                            json!(message.clone()),
+                                            Some(task_connector_required_action(&public_event)),
+                                            None,
+                                        ),
+                                    );
+                                }
+                            } else {
+                                emit!(assistant_done_sse(
+                                    &model,
+                                    &response_id,
+                                    &session_id,
+                                    message,
+                                    latest_usage.clone()
+                                ));
+                            }
                             break;
                         }
                         Ok(None) => {}
                         Err(err) => {
-                        yield Ok::<Bytes, Infallible>(sse_json(&stream_error_for_user(&state, &user_id, &format!("{err:?}"), "server_error")));
+                            let message =
+                                sanitize_user_visible_text(&state, &user_id, &format!("{err:?}"));
+                            emit!(chat_stream_error_sse(
+                                task_response,
+                                &message,
+                                "server_error",
+                            ));
                             break;
                         }
                     }
                     if emitted.is_empty() && !output_text.is_empty() {
                         emitted = output_text.clone();
-                        yield Ok::<Bytes, Infallible>(assistant_delta_sse(&response_id, &response_item_id, &output_text));
+                        if !task_response || !task_execution_started {
+                            emit!(chat_output_delta_sse(
+                                task_response,
+                                &response_id,
+                                &response_item_id,
+                                &output_text
+                            ));
+                        }
                     }
                     let title_fallback = append_chat_messages_with_images(
                         &mut session,
@@ -1772,10 +2308,12 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
                         &image_events,
                     );
                     mark_codex_messages_synced(&mut session, &info);
-                    session.set_status(SessionStatus::Idle);
-                    session.pending_permission_request = None;
-                    session.pending_question = None;
-                    session.pending_options = None;
+                    if !session.status_kind().is_waiting_for_user() {
+                        session.set_status(SessionStatus::Idle);
+                        session.pending_permission_request = None;
+                        session.pending_question = None;
+                        session.pending_options = None;
+                    }
                     let _ = state.sessions.save_record_if_exists(session.clone()).await;
                     if let Some(fallback_title) = title_fallback {
                         spawn_session_title_generation(
@@ -1790,11 +2328,63 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
                             effort.clone(),
                         );
                     }
-                    let changed_files = ripple_changed_files(&state, &user_id, &workspace_root).await;
-                    if usage_total_tokens(&latest_usage) > 0 {
-                        yield Ok::<Bytes, Infallible>(sse_for_event(&json!({"type": "usage", "usage": latest_usage})));
+                    let changed_files =
+                        ripple_changed_files(&state, &user_id, &workspace_root).await;
+                    if !task_response && usage_total_tokens(&latest_usage) > 0 {
+                        emit!(sse_for_event(
+                            &json!({"type": "usage", "usage": latest_usage})
+                        ));
                     }
-                    yield Ok::<Bytes, Infallible>(assistant_done_sse_with_changed_files(&model, &response_id, &session_id, emitted.clone(), latest_usage.clone(), changed_files));
+                    if task_response {
+                        if !task_execution_started {
+                            if let Ok(Some(persisted)) =
+                                state.storage.load_session(&user_id, &session_id).await
+                            {
+                                if task_execution_active(&persisted) {
+                                    task_execution_started = true;
+                                    session.pending_control_request =
+                                        persisted.pending_control_request;
+                                }
+                            }
+                        }
+                        if task_execution_started {
+                            if !task_running_callback_sent {
+                                dispatch_task_callback(
+                                    &session,
+                                    task_status_data(
+                                        &task_id,
+                                        task_req_id.as_deref(),
+                                        "running",
+                                        json!("任务已开始执行。"),
+                                        None,
+                                        None,
+                                    ),
+                                );
+                            }
+                            dispatch_task_callback(
+                                &session,
+                                task_status_data(
+                                    &task_id,
+                                    task_req_id.as_deref(),
+                                    "completed",
+                                    json!(emitted.clone()),
+                                    None,
+                                    None,
+                                ),
+                            );
+                            session.pending_control_request = None;
+                            let _ = state.sessions.save_record_if_exists(session.clone()).await;
+                        }
+                    } else {
+                        emit!(assistant_done_sse_with_changed_files(
+                            &model,
+                            &response_id,
+                            &session_id,
+                            emitted.clone(),
+                            latest_usage.clone(),
+                            changed_files
+                        ));
+                    }
                 } else {
                     session.status = if info.status == "cancelled" {
                         SessionStatus::Cancelled.as_str().to_string()
@@ -1805,19 +2395,67 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
                     session.pending_question = None;
                     session.pending_options = None;
                     let _ = state.sessions.save_record_if_exists(session.clone()).await;
-                    let error_type = if info.status == "cancelled" { "cancelled" } else { "server_error" };
-                    yield Ok::<Bytes, Infallible>(sse_json(&stream_error_for_user(&state, &user_id, &info.error.unwrap_or_else(|| "Codex run failed".to_string()), error_type)));
+                    let error_type = if info.status == "cancelled" {
+                        "cancelled"
+                    } else {
+                        "server_error"
+                    };
+                    let error_message = sanitize_user_visible_text(
+                        &state,
+                        &user_id,
+                        &info.error.unwrap_or_else(|| "Codex run failed".to_string()),
+                    );
+                    if task_response {
+                        if !task_execution_started {
+                            if let Ok(Some(persisted)) =
+                                state.storage.load_session(&user_id, &session_id).await
+                            {
+                                task_execution_started = task_execution_active(&persisted);
+                                if task_execution_started {
+                                    session.pending_control_request =
+                                        persisted.pending_control_request;
+                                }
+                            }
+                        }
+                        if task_execution_started {
+                            dispatch_task_callback(
+                                &session,
+                                task_status_data(
+                                    &task_id,
+                                    task_req_id.as_deref(),
+                                    "failed",
+                                    json!(error_message.clone()),
+                                    None,
+                                    Some(json!({
+                                        "code": error_type,
+                                        "message": error_message.clone()
+                                    })),
+                                ),
+                            );
+                            session.pending_control_request = None;
+                            let _ = state.sessions.save_record_if_exists(session.clone()).await;
+                        } else {
+                            emit!(chat_stream_error_sse(true, &error_message, error_type,));
+                        }
+                    } else {
+                        emit!(chat_stream_error_sse(false, &error_message, error_type,));
+                    }
                 }
                 break;
             }
             let now = now_epoch_seconds();
-            if now.saturating_sub(last_emit) >= 8 {
-                yield Ok::<Bytes, Infallible>(sse_for_event(&json!({"type": "heartbeat", "ts": now})));
+            if !task_response && now.saturating_sub(last_emit) >= 8 {
+                emit!(sse_for_event(&json!({"type": "heartbeat", "ts": now})));
                 last_emit = now;
             }
             sleep(Duration::from_millis(50)).await;
         }
-        yield Ok::<Bytes, Infallible>(Bytes::from_static(b"data: [DONE]\n\n"));
+        emit!(Bytes::from_static(b"data: [DONE]\n\n"));
+    });
+    let stream = stream! {
+        while let Some(chunk) = stream_rx.recv().await {
+            yield Ok::<Bytes, Infallible>(chunk);
+        }
     };
     let mut response = Response::new(Body::from_stream(stream));
     response.headers_mut().insert(
@@ -1827,11 +2465,35 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
     response
         .headers_mut()
         .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
-    response.headers_mut().insert(
-        "x-ripple-session-id",
-        HeaderValue::from_str(&header_session_id).unwrap_or_else(|_| HeaderValue::from_static("")),
-    );
+    if !task_response {
+        response.headers_mut().insert(
+            "x-ripple-session-id",
+            HeaderValue::from_str(&header_session_id)
+                .unwrap_or_else(|_| HeaderValue::from_static("")),
+        );
+    }
     response
+}
+
+fn chat_output_delta_sse(
+    task_response: bool,
+    response_id: &str,
+    item_id: &str,
+    delta: &str,
+) -> Bytes {
+    if task_response {
+        task_output_text_delta_sse(delta)
+    } else {
+        assistant_delta_sse(response_id, item_id, delta)
+    }
+}
+
+fn chat_stream_error_sse(task_response: bool, message: &str, code: &str) -> Bytes {
+    if task_response {
+        task_error_sse(message, code)
+    } else {
+        sse_json(&stream_error(message, code))
+    }
 }
 
 fn record_codex_thread(session: &mut SessionRecord, info: &AgentRunInfo) {
@@ -2211,6 +2873,7 @@ async fn read_run_output(state: &AppState, user_id: &str, info: &AgentRunInfo) -
     sanitize_user_visible_text(state, user_id, &text)
 }
 
+#[cfg(test)]
 fn stream_error_for_user(
     state: &AppState,
     user_id: &str,
@@ -2380,6 +3043,17 @@ fn now_epoch_seconds() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn caller_task_id_maps_to_stable_opaque_session_id() {
+        let task_id = validate_external_task_id("  caller/task:001  ").unwrap();
+        assert_eq!(task_id, "caller/task:001");
+        let first = task_session_id_for_external_task(&task_id);
+        let second = task_session_id_for_external_task(&task_id);
+        assert_eq!(first, second);
+        assert!(first.starts_with("task-"));
+        assert!(!first.contains("caller"));
+    }
     use std::collections::BTreeMap;
 
     use crate::config::{
@@ -2976,6 +3650,10 @@ mod tests {
             effort: None,
             summary: None,
             output_schema: None,
+            task_callback_url: None,
+            task_req_id: None,
+            task_id: None,
+            task_response: false,
         };
 
         assert_eq!(
@@ -3023,6 +3701,10 @@ mod tests {
             effort: None,
             summary: None,
             output_schema: None,
+            task_callback_url: None,
+            task_req_id: None,
+            task_id: None,
+            task_response: false,
         };
 
         assert_eq!(
@@ -3321,6 +4003,7 @@ mod tests {
             memory_disabled: false,
             plan_steps: Vec::new(),
             plan_progress: None,
+            task_callback_url: None,
         };
 
         apply_requested_chat_model(&mut session, Some("codex-high"), "codex-medium");
@@ -3457,6 +4140,7 @@ mod tests {
             memory_disabled: false,
             plan_steps: Vec::new(),
             plan_progress: None,
+            task_callback_url: None,
         };
 
         let decision = decision_from_action(
@@ -3470,6 +4154,7 @@ mod tests {
                 "data": {}
             }),
             "继续发飞书消息".to_string(),
+            false,
         )
         .expect("decision");
 

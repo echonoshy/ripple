@@ -46,6 +46,7 @@ pub(crate) async fn handle_session_control_action(
                 &request,
                 "",
                 request_base_url,
+                false,
             )
             .await
         }

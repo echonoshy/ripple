@@ -16,7 +16,6 @@ use crate::sessions::SessionRecord;
 mod auth;
 mod jobs;
 mod schema;
-mod task_sessions;
 mod task_triggers;
 mod tasks;
 
@@ -192,9 +191,9 @@ impl Storage {
                 pending_question, pending_options_json, pending_permission_request_json,
                 pending_connector_auth_json, pending_control_request_json, codex_thread_id,
                 codex_synced_message_count,
-                memory_disabled, plan_steps_json, plan_progress_json
+                memory_disabled, plan_steps_json, plan_progress_json, task_callback_url
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(user_id, session_id) DO UPDATE SET
                 title = excluded.title,
                 pinned = excluded.pinned,
@@ -218,7 +217,8 @@ impl Storage {
                 codex_synced_message_count = excluded.codex_synced_message_count,
                 memory_disabled = excluded.memory_disabled,
                 plan_steps_json = excluded.plan_steps_json,
-                plan_progress_json = excluded.plan_progress_json
+                plan_progress_json = excluded.plan_progress_json,
+                task_callback_url = excluded.task_callback_url
             "#,
         )
         .bind(&record.user_id)
@@ -250,6 +250,7 @@ impl Storage {
         .bind(if record.memory_disabled { 1_i64 } else { 0_i64 })
         .bind(json_serialize_text(&record.plan_steps)?)
         .bind(json_option_text(record.plan_progress.as_ref())?)
+        .bind(&record.task_callback_url)
         .execute(&mut *tx)
         .await?;
 
@@ -292,7 +293,7 @@ impl Storage {
                    pending_question, pending_options_json, pending_permission_request_json,
                    pending_connector_auth_json, pending_control_request_json, codex_thread_id,
                    codex_synced_message_count,
-                   memory_disabled, plan_steps_json, plan_progress_json
+                   memory_disabled, plan_steps_json, plan_progress_json, task_callback_url
             FROM sessions
             WHERE user_id = ? AND session_id = ?
             "#,
@@ -319,7 +320,7 @@ impl Storage {
                    pending_question, pending_options_json, pending_permission_request_json,
                    pending_connector_auth_json, pending_control_request_json, codex_thread_id,
                    codex_synced_message_count,
-                   memory_disabled, plan_steps_json, plan_progress_json
+                   memory_disabled, plan_steps_json, plan_progress_json, task_callback_url
             FROM sessions
             WHERE user_id = ?
             ORDER BY last_active DESC
@@ -564,11 +565,6 @@ impl Storage {
             "sessions",
             "jobs",
             "task_triggers",
-            "task_session_confirmations",
-            "task_session_events",
-            "task_session_runs",
-            "task_session_specs",
-            "task_sessions",
             "task_events",
             "task_actions",
             "tasks",
@@ -837,6 +833,7 @@ impl Storage {
             plan_progress: json_option_from_text(
                 row.get::<Option<String>, _>("plan_progress_json"),
             )?,
+            task_callback_url: row.get("task_callback_url"),
         })
     }
 }
@@ -986,6 +983,7 @@ mod tests {
             memory_disabled: false,
             plan_steps: Vec::new(),
             plan_progress: None,
+            task_callback_url: None,
         };
 
         storage.save_session(&record).await?;
@@ -1039,6 +1037,7 @@ mod tests {
             memory_disabled: false,
             plan_steps: Vec::new(),
             plan_progress: None,
+            task_callback_url: None,
         };
         storage.save_session(&record).await?;
         record.session_id = "srv-token-b".to_string();
@@ -1088,6 +1087,7 @@ mod tests {
             memory_disabled: false,
             plan_steps: Vec::new(),
             plan_progress: None,
+            task_callback_url: None,
         };
         storage.save_session(&record).await?;
         storage
@@ -1156,6 +1156,7 @@ mod tests {
             memory_disabled: false,
             plan_steps: Vec::new(),
             plan_progress: None,
+            task_callback_url: None,
         };
         storage.save_session(&record).await?;
 
@@ -1219,6 +1220,7 @@ mod tests {
             codex_synced_message_count: 0,
             memory_disabled: false,
             plan_steps: Vec::new(),
+            task_callback_url: None,
             plan_progress: None,
         };
         storage.save_session(&record).await?;
@@ -1330,49 +1332,26 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn migrates_task_session_events_to_sequence_ids() -> anyhow::Result<()> {
+    async fn new_schema_does_not_create_legacy_task_session_tables() -> anyhow::Result<()> {
         let root =
             std::env::temp_dir().join(format!("ripple-storage-test-{}", uuid::Uuid::new_v4()));
-        let db_path = root.join(".ripple/ripple.sqlite");
-        if let Some(parent) = db_path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        {
-            let options = SqliteConnectOptions::new()
-                .filename(&db_path)
-                .create_if_missing(true);
-            let pool = SqlitePoolOptions::new()
-                .max_connections(1)
-                .connect_lazy_with(options);
-            sqlx::query(
-                r#"
-                CREATE TABLE task_session_events (
-                    user_id TEXT NOT NULL,
-                    session_id TEXT NOT NULL,
-                    event_id TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    record_json TEXT NOT NULL,
-                    PRIMARY KEY (user_id, session_id, event_id)
-                )
-                "#,
-            )
-            .execute(&pool)
-            .await?;
-            sqlx::query(
-                r#"
-                INSERT INTO task_session_events (user_id, session_id, event_id, created_at, record_json)
-                VALUES ('alice', 'ts-old', 'evt-old', '2026-07-08T00:00:00Z', '{"event_id":"evt-old","session_id":"ts-old","event_type":"task_session_created","payload":{},"created_at":"2026-07-08T00:00:00Z"}')
-                "#,
-            )
-            .execute(&pool)
-            .await?;
-            pool.close().await;
-        }
+        let storage = Storage::open(root.join(".ripple/ripple.sqlite"))?;
+        storage.initialize().await?;
 
-        let storage = Storage::open(&db_path)?;
-        let events = storage.list_task_session_events("alice", "ts-old").await?;
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].get("seq").and_then(Value::as_i64), Some(1));
+        for table in [
+            "task_sessions",
+            "task_session_specs",
+            "task_session_runs",
+            "task_session_events",
+            "task_session_confirmations",
+        ] {
+            let found =
+                sqlx::query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?")
+                    .bind(table)
+                    .fetch_optional(&storage.pool)
+                    .await?;
+            assert!(found.is_none(), "legacy table {table} must not be created");
+        }
 
         let _ = std::fs::remove_dir_all(root);
         Ok(())
@@ -1411,6 +1390,7 @@ mod tests {
             memory_disabled: false,
             plan_steps: Vec::new(),
             plan_progress: None,
+            task_callback_url: None,
         };
         storage.save_session(&record).await?;
         for statement in [

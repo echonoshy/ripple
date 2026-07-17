@@ -14,7 +14,6 @@ pub mod sandboxes;
 pub mod sessions;
 pub mod skill_chat;
 pub mod skills;
-pub mod task_sessions;
 pub mod task_trigger_chat;
 pub mod task_triggers;
 pub mod tasks;
@@ -167,17 +166,8 @@ pub fn router(state: AppState) -> Router {
         .routes(utoipa_axum::routes!(models::list_models))
         .routes(utoipa_axum::routes!(models::codex_runtime_info))
         .routes(utoipa_axum::routes!(models::system_info))
-        .routes(utoipa_axum::routes!(
-            task_sessions::list_task_sessions,
-            task_sessions::create_task_session
-        ))
-        .routes(utoipa_axum::routes!(task_sessions::get_task_session))
-        .routes(utoipa_axum::routes!(
-            task_sessions::append_task_session_message
-        ))
-        .routes(utoipa_axum::routes!(task_sessions::confirm_task_session))
-        .routes(utoipa_axum::routes!(task_sessions::cancel_task_session))
         .routes(utoipa_axum::routes!(chat::create_response))
+        .routes(utoipa_axum::routes!(chat::create_task_session_response))
         .routes(utoipa_axum::routes!(health::ready))
         .routes(utoipa_axum::routes!(health::doctor))
         .routes(utoipa_axum::routes!(

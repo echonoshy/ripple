@@ -29,7 +29,7 @@ use utoipa_swagger_ui::{Config, SwaggerUi, Url};
         (name = "models", description = "Model and runtime metadata"),
         (name = "chat", description = "OpenAI-compatible chat bridge"),
         (name = "sessions", description = "Ripple session lifecycle endpoints"),
-        (name = "task-sessions", description = "Task Session, TaskSpec, confirmation, and task run endpoints"),
+        (name = "task-sessions", description = "Task-session dialogue and callback execution endpoint"),
         (name = "tasks", description = "Legacy session-linked task read projection; /v1/tasks is not registered"),
         (name = "runs", description = "Codex run lifecycle endpoints"),
         (name = "users", description = "Current user profile and usage endpoints"),

@@ -371,7 +371,7 @@ clone_newuts: true
 clone_newnet: false
 hostname: "sandbox"
 cwd: "/workspace"
-time_limit: 120
+time_limit: 600
 rlimit_as_type: INF
 rlimit_cpu_type: SOFT
 rlimit_fsize: 1024
@@ -994,6 +994,7 @@ mod tests {
         assert!(cfg.contains("clone_newipc: true"));
         assert!(cfg.contains("clone_newuts: true"));
         assert!(cfg.contains("clone_newnet: false"));
+        assert!(cfg.contains("time_limit: 600"));
         assert!(cfg.contains("disable_no_new_privs: false"));
         assert!(cfg.contains("fstype: \"proc\""));
         assert!(cfg.contains("dst: \"/proc\""));

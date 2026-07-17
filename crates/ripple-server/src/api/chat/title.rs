@@ -79,6 +79,7 @@ async fn generate_and_apply_session_title(
         client_request_id: None,
         chat_user_input: None,
         chat_user_content: None,
+        task_response: false,
     };
     let info = state
         .jobs

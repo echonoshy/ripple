@@ -29,6 +29,21 @@ fn thread_permission_config_with_user(
 ) -> Value {
     let mut filesystem = serde_json::Map::new();
     filesystem.insert(":minimal".to_string(), json!("read"));
+    // On systemd-resolved hosts, /etc/resolv.conf commonly points through the
+    // logical /var/run path. Preserve that exact target inside the split
+    // filesystem sandbox; mounting only its canonical /run target still leaves
+    // the absolute symlink dangling.
+    if let Ok(target) = std::fs::read_link("/etc/resolv.conf") {
+        let target = if target.is_absolute() {
+            target
+        } else {
+            Path::new("/etc").join(target)
+        };
+        filesystem.insert(target.to_string_lossy().to_string(), json!("read"));
+    }
+    if let Ok(resolver) = std::fs::canonicalize("/etc/resolv.conf") {
+        filesystem.insert(resolver.to_string_lossy().to_string(), json!("read"));
+    }
     filesystem.insert(
         config.sandbox.sandboxes_root.to_string_lossy().to_string(),
         json!("none"),
@@ -440,6 +455,41 @@ mod tests {
             permissions.get("features.image_generation"),
             Some(&json!(false))
         );
+
+        let _ = std::fs::remove_dir_all(workspace);
+    }
+
+    #[test]
+    fn profile_allows_the_resolved_system_dns_configuration() {
+        let Ok(link_target) = std::fs::read_link("/etc/resolv.conf") else {
+            return;
+        };
+        let link_target = if link_target.is_absolute() {
+            link_target
+        } else {
+            std::path::Path::new("/etc").join(link_target)
+        };
+        let workspace =
+            std::env::temp_dir().join(format!("ripple-permissions-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&workspace).expect("create workspace");
+        let config = test_config();
+
+        let permissions = thread_permission_config(&workspace, &config);
+        let filesystem = permissions
+            .pointer("/permissions/ripple_workspace/filesystem")
+            .and_then(Value::as_object)
+            .expect("filesystem rules");
+
+        assert_eq!(
+            filesystem.get(link_target.to_string_lossy().as_ref()),
+            Some(&json!("read"))
+        );
+        if let Ok(resolver) = std::fs::canonicalize("/etc/resolv.conf") {
+            assert_eq!(
+                filesystem.get(resolver.to_string_lossy().as_ref()),
+                Some(&json!("read"))
+            );
+        }
 
         let _ = std::fs::remove_dir_all(workspace);
     }

@@ -69,6 +69,8 @@ pub struct AgentRunCreateRequest {
     pub chat_user_input: Option<String>,
     #[serde(default, skip_deserializing)]
     pub chat_user_content: Option<Value>,
+    #[serde(default, skip_deserializing)]
+    pub task_response: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
@@ -228,6 +230,9 @@ impl JobManager {
             }
             if let Some(chat_user_content) = &create.chat_user_content {
                 object.insert("chat_user_content".to_string(), chat_user_content.clone());
+            }
+            if create.task_response {
+                object.insert("task_response".to_string(), json!(true));
             }
         }
         let job = Arc::new(RwLock::new(ExternalAgentJob {
@@ -1461,6 +1466,7 @@ impl StoredJobRecord {
                 "client_req_id",
                 "chat_user_input",
                 "chat_user_content",
+                "task_response",
             ] {
                 if let Some(value) = record.get(key) {
                     object.insert(key.to_string(), value.clone());
@@ -1900,6 +1906,7 @@ mod tests {
             client_request_id: Some("request-1".to_string()),
             chat_user_input: None,
             chat_user_content: None,
+            task_response: false,
         };
         let replay = StoredJobReplay::new(
             &request,
@@ -1944,6 +1951,7 @@ mod tests {
             client_request_id: None,
             chat_user_input: None,
             chat_user_content: None,
+            task_response: false,
         };
         let replay =
             StoredJobReplay::new(&request, workspace.clone(), "/tmp/ripple-runtime".into())

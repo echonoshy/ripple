@@ -73,11 +73,6 @@ where
     if dispatched > 0 {
         info!("dispatched {} recovered job(s)", dispatched);
     }
-    let reconciled =
-        api::task_sessions::reconcile_recoverable_task_session_runs(state.clone()).await?;
-    if reconciled > 0 {
-        info!("reconciled {} recoverable TaskSession run(s)", reconciled);
-    }
     let task_trigger_task = tokio::spawn(services::task_triggers::task_trigger_loop(state.clone()));
     let task_action_task = tokio::spawn(services::tasks::task_action_trigger_loop(state.clone()));
     let session_maintenance_task = tokio::spawn(state.sessions.clone().maintenance_loop());

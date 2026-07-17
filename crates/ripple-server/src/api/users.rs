@@ -717,6 +717,7 @@ mod tests {
             memory_disabled: false,
             plan_steps: Vec::new(),
             plan_progress: None,
+            task_callback_url: None,
         };
         state.storage.save_session(&record).await?;
 

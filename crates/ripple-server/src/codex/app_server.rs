@@ -29,6 +29,7 @@ use crate::config::AppConfig;
 use crate::python_env::ensure_ripple_py_wrapper;
 use crate::redaction::redact_text;
 use crate::sandbox::SandboxManager;
+use crate::sessions::SessionStatus;
 use crate::storage::Storage;
 use event_log::append_event;
 use pool::{pool_generation, PoolKey, PoolState, PoolWorker, IDLE_REAPER_INTERVAL_SECONDS};
@@ -985,6 +986,51 @@ impl CodexAppServerProvider {
                     user_id,
                     request.session_id.as_deref(),
                     &arguments,
+                )
+                .await
+                {
+                    Ok(output) => (
+                        true,
+                        serde_json::to_string(&output)
+                            .unwrap_or_else(|_| "{\"ok\":true}".to_string()),
+                    ),
+                    Err(err) => (false, format!("{err:?}")),
+                }
+            }
+        } else if namespace == "codex_app" && tool == "session_wait_user" {
+            let user_id = request.user_id.as_deref().unwrap_or("default");
+            match persist_session_wait_user(
+                &self.storage,
+                user_id,
+                request.session_id.as_deref(),
+                &arguments,
+            )
+            .await
+            {
+                Ok(output) => (
+                    true,
+                    serde_json::to_string(&output).unwrap_or_else(|_| "{\"ok\":true}".to_string()),
+                ),
+                Err(err) => (false, format!("{err:?}")),
+            }
+        } else if namespace == "codex_app" && tool == "task_execution_confirmed" {
+            if request
+                .metadata
+                .get("task_response")
+                .and_then(Value::as_bool)
+                != Some(true)
+            {
+                (
+                    false,
+                    "task_execution_confirmed is only available in task sessions".to_string(),
+                )
+            } else {
+                let user_id = request.user_id.as_deref().unwrap_or("default");
+                match persist_task_execution_confirmed(
+                    &self.storage,
+                    user_id,
+                    request.session_id.as_deref(),
+                    request.metadata.get("req_id").and_then(Value::as_str),
                 )
                 .await
                 {
@@ -1975,18 +2021,41 @@ fn add_task_dynamic_tools(params: &mut Value, request: &AgentRunnerRequest) {
         return;
     }
     if let Some(object) = params.as_object_mut() {
-        object.insert(
-            "dynamicTools".to_string(),
-            json!([
-                {
-                    "namespace": "codex_app",
-                    "name": "task_update",
-                    "description": "Create or propose durable Ripple tasks and task actions from the current conversation.",
-                    "inputSchema": task_update_input_schema(),
-                    "deferLoading": true
-                }
-            ]),
-        );
+        let mut tools = vec![
+            json!({
+                "namespace": "codex_app",
+                "name": "task_update",
+                "description": "Create or propose durable Ripple tasks and task actions from the current conversation.",
+                "inputSchema": task_update_input_schema(),
+                "deferLoading": true
+            }),
+            json!({
+                "namespace": "codex_app",
+                "name": "session_wait_user",
+                "description": "Record one concise question that must be answered before this conversation can continue.",
+                "inputSchema": session_wait_user_input_schema(),
+                "deferLoading": true
+            }),
+        ];
+        if request
+            .metadata
+            .get("task_response")
+            .and_then(Value::as_bool)
+            == Some(true)
+        {
+            tools.push(json!({
+                "namespace": "codex_app",
+                "name": "task_execution_confirmed",
+                "description": "Mark that the user explicitly confirmed starting the current task. Call this exactly once before performing any task action.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": false
+                },
+                "deferLoading": false
+            }));
+        }
+        object.insert("dynamicTools".to_string(), Value::Array(tools));
     }
 }
 
@@ -2053,6 +2122,85 @@ fn task_update_input_schema() -> Value {
         "required": ["mode", "target"],
         "additionalProperties": true
     })
+}
+
+fn session_wait_user_input_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "question": { "type": "string" },
+            "options": {
+                "type": "array",
+                "items": { "type": "string" }
+            }
+        },
+        "required": ["question"],
+        "additionalProperties": false
+    })
+}
+
+async fn persist_session_wait_user(
+    storage: &Storage,
+    user_id: &str,
+    session_id: Option<&str>,
+    arguments: &Value,
+) -> anyhow::Result<Value> {
+    let session_id = session_id.context("session_wait_user requires a Ripple session")?;
+    let question = arguments
+        .get("question")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .context("session_wait_user requires a non-empty question")?
+        .to_string();
+    let options = arguments
+        .get("options")
+        .and_then(Value::as_array)
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        });
+    let Some(mut session) = storage.load_session(user_id, session_id).await? else {
+        anyhow::bail!("Ripple session not found");
+    };
+    session.set_status(SessionStatus::AwaitingUserInput);
+    session.pending_question = Some(question.clone());
+    session.pending_options = options.filter(|values| !values.is_empty());
+    storage.save_session(&session).await?;
+    Ok(json!({"ok": true, "question": question, "options": session.pending_options}))
+}
+
+async fn persist_task_execution_confirmed(
+    storage: &Storage,
+    user_id: &str,
+    session_id: Option<&str>,
+    req_id: Option<&str>,
+) -> anyhow::Result<Value> {
+    let session_id = session_id.context("task_execution_confirmed requires a Ripple session")?;
+    let Some(mut session) = storage.load_session(user_id, session_id).await? else {
+        anyhow::bail!("Ripple session not found");
+    };
+    if session
+        .task_callback_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_none()
+    {
+        anyhow::bail!("task execution requires callback_url");
+    }
+    session.pending_control_request = Some(json!({
+        "type": "task_execution",
+        "active": true,
+        "req_id": req_id
+    }));
+    storage.save_session(&session).await?;
+    Ok(json!({"ok": true}))
 }
 
 fn image_generation_enabled_for_request(request: &AgentRunnerRequest) -> bool {
@@ -2463,7 +2611,7 @@ mod tests {
             .get("dynamicTools")
             .and_then(Value::as_array)
             .expect("dynamic task tools");
-        assert_eq!(tools.len(), 1);
+        assert_eq!(tools.len(), 2);
         let tool = &tools[0];
         assert_eq!(
             tool.get("namespace").and_then(Value::as_str),
@@ -2481,6 +2629,25 @@ mod tests {
             .is_some());
         assert!(tool.get("tools").is_none());
         assert!(tool.get("type").is_none());
+        let wait_tool = tools
+            .iter()
+            .find(|tool| tool.get("name").and_then(Value::as_str) == Some("session_wait_user"))
+            .expect("session wait user tool");
+        assert!(wait_tool
+            .pointer("/inputSchema/properties/question")
+            .is_some());
+
+        let mut task_request = request;
+        task_request.metadata["task_response"] = json!(true);
+        let mut task_params = json!({});
+        add_task_dynamic_tools(&mut task_params, &task_request);
+        let task_tools = task_params["dynamicTools"]
+            .as_array()
+            .expect("task session dynamic tools");
+        assert_eq!(task_tools.len(), 3);
+        assert!(task_tools.iter().any(|tool| {
+            tool.get("name").and_then(Value::as_str) == Some("task_execution_confirmed")
+        }));
     }
 
     #[test]

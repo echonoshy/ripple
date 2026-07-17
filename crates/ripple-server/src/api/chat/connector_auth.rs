@@ -52,9 +52,17 @@ pub(crate) async fn maybe_handle_connector_auth(
     session: &mut SessionRecord,
     user_input: &str,
     _request_base_url: Option<&str>,
+    resume_after_auth: bool,
 ) -> Result<Option<ConnectorAuthDecision>, ApiError> {
     if session.pending_connector_auth.is_some() {
-        return continue_pending_connector_auth(state, user_id, session, user_input).await;
+        return continue_pending_connector_auth(
+            state,
+            user_id,
+            session,
+            user_input,
+            resume_after_auth,
+        )
+        .await;
     }
     Ok(None)
 }
@@ -101,6 +109,7 @@ pub(crate) async fn start_model_connector_auth_for_chat(
     request: &ModelConnectorAuthRequest,
     user_input: &str,
     request_base_url: Option<&str>,
+    resume_after_auth: bool,
 ) -> Result<ConnectorAuthDecision, ApiError> {
     start_connector_auth_for_chat(
         state,
@@ -111,6 +120,7 @@ pub(crate) async fn start_model_connector_auth_for_chat(
         request_base_url,
         request.force_reauth,
         request.source.as_deref().unwrap_or("session_skill"),
+        resume_after_auth,
     )
     .await
 }
@@ -120,6 +130,7 @@ pub(crate) async fn continue_pending_connector_auth(
     user_id: &str,
     session: &mut SessionRecord,
     user_input: &str,
+    resume_after_auth: bool,
 ) -> Result<Option<ConnectorAuthDecision>, ApiError> {
     let Some(pending) = session.pending_connector_auth.clone() else {
         return Ok(None);
@@ -150,6 +161,7 @@ pub(crate) async fn continue_pending_connector_auth(
             resume_user_input: connector_resume_user_input(
                 &connector,
                 pending_resume_user_input(&pending).unwrap_or_default(),
+                resume_after_auth && pending_auth_source(&pending) != "connectors_page",
             ),
         }));
     }
@@ -168,9 +180,39 @@ pub(crate) async fn continue_pending_connector_auth(
                 resume_user_input: None,
             }))
         }
-        "feishu" => continue_feishu_auth(state, user_id, session, &pending, user_input).await,
-        "bilibili" => continue_bilibili_auth(state, user_id, session, &pending, user_input).await,
-        "notion" => continue_notion_auth(state, user_id, session, &pending, user_input).await,
+        "feishu" => {
+            continue_feishu_auth(
+                state,
+                user_id,
+                session,
+                &pending,
+                user_input,
+                resume_after_auth,
+            )
+            .await
+        }
+        "bilibili" => {
+            continue_bilibili_auth(
+                state,
+                user_id,
+                session,
+                &pending,
+                user_input,
+                resume_after_auth,
+            )
+            .await
+        }
+        "notion" => {
+            continue_notion_auth(
+                state,
+                user_id,
+                session,
+                &pending,
+                user_input,
+                resume_after_auth,
+            )
+            .await
+        }
         _ => Ok(None),
     }
 }
@@ -184,6 +226,7 @@ async fn start_connector_auth_for_chat(
     request_base_url: Option<&str>,
     force_reauth: bool,
     source: &str,
+    resume_after_auth: bool,
 ) -> Result<ConnectorAuthDecision, ApiError> {
     let payload = match connector {
         "notion" => extract_notion_token(user_input)
@@ -218,14 +261,20 @@ async fn start_connector_auth_for_chat(
             .await?
             .0;
     annotate_connector_auth_source(&mut action, source);
-    let resume_user_input = if connector == "notion" || connector == "feishu" {
+    let resume_user_input = if connector == "notion" {
         String::new()
     } else if source == "connectors_page" {
         String::new()
     } else {
         user_input.to_string()
     };
-    decision_from_action(session, connector, action, resume_user_input)
+    decision_from_action(
+        session,
+        connector,
+        action,
+        resume_user_input,
+        resume_after_auth,
+    )
 }
 
 async fn continue_notion_auth(
@@ -234,6 +283,7 @@ async fn continue_notion_auth(
     session: &mut SessionRecord,
     pending: &Value,
     user_input: &str,
+    resume_after_auth: bool,
 ) -> Result<Option<ConnectorAuthDecision>, ApiError> {
     let Some(token) = extract_notion_token(user_input) else {
         let event = connector_auth_event(
@@ -258,6 +308,7 @@ async fn continue_notion_auth(
         "notion",
         action,
         String::new(),
+        resume_after_auth,
     )?))
 }
 
@@ -267,6 +318,7 @@ async fn continue_feishu_auth(
     session: &mut SessionRecord,
     pending: &Value,
     user_input: &str,
+    resume_after_auth: bool,
 ) -> Result<Option<ConnectorAuthDecision>, ApiError> {
     if pending
         .get("device_code_finalized")
@@ -302,6 +354,7 @@ async fn continue_feishu_auth(
             "feishu",
             action,
             pending_resume_user_input(pending).unwrap_or_else(|| user_input.to_string()),
+            resume_after_auth,
         )?));
     }
     let device_code = pending
@@ -329,6 +382,7 @@ async fn continue_feishu_auth(
         "feishu",
         action,
         pending_resume_user_input(pending).unwrap_or_else(|| user_input.to_string()),
+        resume_after_auth,
     )?))
 }
 
@@ -338,6 +392,7 @@ async fn continue_bilibili_auth(
     session: &mut SessionRecord,
     pending: &Value,
     user_input: &str,
+    resume_after_auth: bool,
 ) -> Result<Option<ConnectorAuthDecision>, ApiError> {
     if !is_done_signal(user_input) {
         let event = connector_auth_event(
@@ -384,6 +439,7 @@ async fn continue_bilibili_auth(
         "bilibili",
         action,
         pending_resume_user_input(pending).unwrap_or_else(|| user_input.to_string()),
+        resume_after_auth,
     )?))
 }
 
@@ -392,6 +448,7 @@ pub(crate) fn decision_from_action(
     connector: &str,
     action: Value,
     resume_user_input: String,
+    resume_after_auth: bool,
 ) -> Result<ConnectorAuthDecision, ApiError> {
     let stage = action
         .get("stage")
@@ -404,6 +461,8 @@ pub(crate) fn decision_from_action(
         "connector_auth_required"
     };
     let message = connector_auth_message(connector, &action);
+    let resume_after_auth =
+        resume_after_auth && connector_auth_source(&action) != "connectors_page";
     let skip_pending_for_connect_flow =
         connector == "google_workspace" && connector_auth_source(&action) == "connectors_page";
     let mut event = connector_auth_event(connector, event_type, &stage, &message, Some(action));
@@ -414,7 +473,11 @@ pub(crate) fn decision_from_action(
         session.pending_connector_auth = None;
         Ok(ConnectorAuthDecision {
             event,
-            resume_user_input: connector_resume_user_input(connector, resume_user_input),
+            resume_user_input: connector_resume_user_input(
+                connector,
+                resume_user_input,
+                resume_after_auth,
+            ),
         })
     } else if is_terminal_connector_auth_stage(&stage) {
         session.pending_connector_auth = None;
@@ -816,11 +879,16 @@ fn connector_auth_source_suffix(source: &str) -> &'static str {
     }
 }
 
-fn connector_resume_user_input(connector: &str, resume_user_input: String) -> Option<String> {
-    if connector == "feishu"
-        || connector == "google_workspace"
-        || connector == "bilibili"
-        || connector == "notion"
+fn connector_resume_user_input(
+    connector: &str,
+    resume_user_input: String,
+    resume_after_auth: bool,
+) -> Option<String> {
+    if !resume_after_auth
+        && (connector == "feishu"
+            || connector == "google_workspace"
+            || connector == "bilibili"
+            || connector == "notion")
     {
         return None;
     }
@@ -1073,6 +1141,7 @@ mod tests {
                 }
             }),
             String::new(),
+            false,
         )
         .expect("decision");
 
@@ -1120,10 +1189,30 @@ mod tests {
             "feishu",
             json!({"stage": "authorized", "detail": "ok", "data": {}}),
             "列出我的飞书日程".to_string(),
+            false,
         )
         .expect("decision");
 
         assert!(decision.resume_user_input.is_none());
+        assert!(session.pending_connector_auth.is_none());
+    }
+
+    #[test]
+    fn task_session_feishu_authorized_decision_resumes_saved_task() {
+        let mut session = test_session_record();
+        let decision = decision_from_action(
+            &mut session,
+            "feishu",
+            json!({"stage": "authorized", "detail": "ok", "data": {}}),
+            "列出我的飞书日程".to_string(),
+            true,
+        )
+        .expect("decision");
+
+        assert_eq!(
+            decision.resume_user_input.as_deref(),
+            Some("列出我的飞书日程")
+        );
         assert!(session.pending_connector_auth.is_none());
     }
 
@@ -1135,6 +1224,7 @@ mod tests {
             "google_workspace",
             json!({"stage": "authorized", "detail": "ok", "data": {}}),
             "列出我的 Gmail 邮件".to_string(),
+            false,
         )
         .expect("decision");
 
@@ -1155,6 +1245,7 @@ mod tests {
                 "data": {"oauth_url": "https://accounts.google.com/o/oauth2/auth?state=abc"}
             }),
             "Connect Google Workspace".to_string(),
+            false,
         )
         .expect("decision");
 
@@ -1179,6 +1270,7 @@ mod tests {
                 "data": {"oauth_url": "https://accounts.google.com/o/oauth2/auth?state=abc"}
             }),
             "Connect Google Workspace".to_string(),
+            false,
         )
         .expect("decision");
 
@@ -1194,6 +1286,7 @@ mod tests {
             "notion",
             json!({"stage": "authorized", "source": "connectors_page", "detail": "ok", "data": {}}),
             "Connect Notion".to_string(),
+            false,
         )
         .expect("decision");
 
@@ -1213,6 +1306,7 @@ mod tests {
             "bilibili",
             json!({"stage": "authorized", "detail": "ok", "data": {}}),
             "总结 BV1xx411c7mD".to_string(),
+            false,
         )
         .expect("decision");
 
@@ -1248,6 +1342,7 @@ mod tests {
             memory_disabled: false,
             plan_steps: Vec::<Value>::new(),
             plan_progress: None,
+            task_callback_url: None,
         }
     }
 }

@@ -31,7 +31,7 @@ crates/ripple-server/
 - Responses-style subset `/v1/responses` 非流式和 SSE 响应、Codex event 映射、token usage 持久化、workspace attachment 和 image 事件导入。
 - 模型厂商兼容不在 Ripple 内实现 OpenAI-compatible proxy 或厂商 adapter；该边界由 Codex app-server 的 `model_provider` / Responses API 支持负责。
 - Codex approval bridge、session stop/delete/context clear/suspend/resume、sandbox teardown cancellation。
-- Task Sessions 产品层 API，覆盖任务会话列表/详情、TaskSpec、TaskRun、确认卡和会话事件流。
+- Task Sessions 对外入口 `POST /v1/task-sessions/responses`，确认前使用 SSE 对话，确认后通过 callback 返回执行状态和结果。
 - 内部 Tasks / TaskActions 状态、task event/progress、due time trigger loop，以及 chat-side `codex_app.task_update` 动态工具；旧 `/v1/tasks` / Task Trigger HTTP API 不再公开注册，`/v1/sessions/:session_id/tasks` 只作为 session 兼容读接口保留。
 - Chat-side task-trigger proposal/confirmation 只创建 Task + Task Trigger；旧 standalone schedule API 和 `/v1/schedules` 已移除。
 - Codex managed permissions profile、目录级 `request_permissions` approval bridge、服务端 Codex auth deny-read、skill manifest rendering、runtime capability catalog。

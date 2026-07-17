@@ -49,11 +49,10 @@
 
 ## Pagination
 
-列表接口开始支持 `limit` 和 `cursor`。Sessions、runs 和 task sessions 返回 `count`、`total` 或 `next_cursor`：
+列表接口开始支持 `limit` 和 `cursor`。Sessions 和 runs 返回 `count`、`total` 或 `next_cursor`：
 
 - `GET /v1/sessions?limit=50&cursor=50`
 - `GET /v1/runs?limit=50&cursor=50`
-- `GET /v1/task-sessions?limit=50&cursor=50`
 
 `cursor` 当前是稳定的 offset 字符串，客户端应只把它当 opaque token 传回。
 
@@ -158,40 +157,14 @@
 
 ## Task Sessions
 
-Task Sessions 是 Vitana/Ripple 任务中心的产品层主 API。它把任务中心建模为可持续对话的任务会话，而不是静态任务表单或旧 task/action 管理台。
+Task Sessions 对外只保留 `POST /v1/task-sessions/responses`。完整协议见 [VIA_GATEWAY_TASK_CENTER_API.md](VIA_GATEWAY_TASK_CENTER_API.md)。
 
-面向客户端、上游业务系统和外部执行器的完整接入流程见 [TASK_CENTER_API.md](TASK_CENTER_API.md)。
-
-- `GET /v1/task-sessions` 列出当前 user 的任务会话历史，按 `updated_at` 倒序返回 `task_sessions`、`count` 和 `next_cursor`。
-- `POST /v1/task-sessions` 创建任务会话。可带 `source_surface`、`source_id`、`task_type`、`goal`、`executor`、`initial_message` 和可选 `task_spec`。
-- `GET /v1/task-sessions/:session_id` 返回会话详情，包括 `task_session`、`task_specs`、`runs`、`events` 和 `confirmations`。
-- `PATCH /v1/task-sessions/:session_id` 更新会话摘要字段，例如 `title`、`status`、`latest_message`、`needs_user_action`、`current_task_spec_id` 和 `current_run_id`。
-- `POST /v1/task-sessions/:session_id/messages` 向会话流写入用户或 Agent 消息，并更新会话摘要。
-- `POST /v1/task-sessions/:session_id/spec-turns` 处理一轮自然语言 TaskSpec 补齐。后端会保存用户消息，调用 Agent 判断缺失字段，创建或更新 TaskSpec；信息不足时投影为 `waiting_user` 并返回追问，信息足够时投影为 `pending_confirm` 等待用户确认。
-- `POST /v1/task-sessions/:session_id/task-specs` 在会话中创建 TaskSpec 草稿。TaskSpec 支持 `task_type`、`goal`、`required_fields`、`source_refs`、`risk_level`、`impact_summary` 和扩展字段。
-- `PATCH /v1/task-sessions/:session_id/task-specs/:task_spec_id` 更新 TaskSpec。
-- `POST /v1/task-sessions/:session_id/task-specs/:task_spec_id/confirm` 确认 TaskSpec，可带 `start_run: true` 同步创建一次 TaskRun 投影。
-- `POST /v1/task-sessions/:session_id/task-specs/:task_spec_id/runs` 基于已确认 TaskSpec 创建一次 TaskRun。未确认 TaskSpec 默认返回 `409 task_spec_confirmation_required`，除非 body 带 `confirm: true`。当请求显式传 `executor: "ripple"` / `"vitana"` 或 `auto_execute: true` 时，Ripple 会启动内部执行器并自动回写 TaskRun。
-- `PATCH /v1/task-sessions/:session_id/runs/:run_id` 更新 TaskRun 状态、结果摘要或失败原因，并同步投影到 TaskSession/TaskSpec 状态。
-- `POST /v1/task-sessions/:session_id/runs/:run_id/cancel` 取消当前 TaskRun；取消的是本次执行，不物理关闭 TaskSession。
-- `GET /v1/task-sessions/:session_id/events` 返回会话时间线。
-- `GET /v1/task-sessions/:session_id/events/stream` 返回任务状态 SSE。事件名为 `task.status`，`data.type` 固定为 `task_status`，并区分 `task_status`、`run_status`、`task_spec_status` 和 `confirmation_status`。支持 `from_start`、`follow`、`close_on_terminal`、`heartbeat_seconds`、`after_seq` 和 `Last-Event-ID` 续传。
-- 如果 TaskSession 或 TaskRun 带 `callback_url` / `callback.url`，Ripple 会把同一份 `task.status` 数据主动 POST 到该地址。
-- `POST /v1/task-sessions/:session_id/confirmations` 创建统一确认卡，适用于授权、手动输入、单选/多选、内容审核和异常恢复。
-- `POST /v1/task-sessions/:session_id/confirmations/:confirmation_id/respond` 记录确认卡响应。拒绝关键确认会把会话状态投影为 `cancelled`，非关键确认可回到 `in_progress`。
-
-TaskSession 对外状态只暴露产品层六态：
-
-```text
-pending_confirm
-in_progress
-waiting_user
-completed
-cancelled
-failed
-```
-
-前端任务中心只消费 `/v1/task-sessions`。旧 `/v1/tasks`、task actions 和 task triggers 不再注册为公开 `/v1` HTTP API。
+- 调用方用稳定的 `task_id` 复用同一任务会话；`req_id` 用于追踪当前请求。
+- 新任务首轮必须提供 `callback_url`，后续回合可以省略且不能更换地址。
+- 确认前只通过 SSE 返回 `response.output_text.delta` 和 `[DONE]`，不发送 callback。
+- 模型内部判断用户是否明确确认；没有公开 TaskSpec、confirm 或 run 资源接口。
+- 确认后停止向 SSE 发送执行文本，通过 callback 返回 `running`、`waiting_user`、`completed` 或 `failed`。
+- callback 首次失败后立即重试一次；第二次仍失败只记录日志。
 
 ## Tasks
 
@@ -200,11 +173,11 @@ Tasks 是当前持久 follow-up、多步执行和 time trigger 的内部执行�
 - `/v1/tasks`、`/v1/tasks/:task_id/*` 和 `/v1/task-triggers` 已从路由注册中移除。
 - `/v1/sessions` 原有 session 生命周期接口不依赖旧 task HTTP API，保持原 response shape。
 - `GET /v1/sessions/:session_id/tasks` 作为 session 只读兼容投影保留，避免影响原 session API；新任务中心不要使用它构建主体验。
-- 需要面向产品任务中心的客户端能力时，使用 `/v1/task-sessions`。
+- 需要面向任务会话的客户端能力时，使用 `POST /v1/task-sessions/responses`。
 
 Chat 主链路会向 Codex 暴露 `codex_app.task_update` 动态工具。它只写 Ripple 控制面 task/action 状态，不要求 Codex 反向调用 Ripple HTTP API。支持 `propose`、`create`、`update_task`、`create_action`、`update_action`、`start_action`、`complete_action`、`block_action`、`wait_user` 和 `complete_task` 等模式。`wait_user` 会把 `reason`、`clarification_question` 和 `missing_fields` 持久化到 action，并产生 `task_action_waiting_user` event；`complete_task` 会写入 `result_summary` 和 `completed_at`。
 
-旧 standalone schedule API 和 `schedules` 表已移除；time trigger 统一作为 Task Trigger 的一种 driver 存在。Task-linked trigger 到期时会走 TaskAction 执行链路，复用原 session/Codex thread，并把结果写回 task events/actions 和 source session。后续 hook/event/webhook 类触发器也应挂在同一 task trigger 模型下。产品层任务会话、TaskSpec、确认卡和 TaskRun 投影走 `/v1/task-sessions`。
+旧 standalone schedule API 和 `schedules` 表已移除；time trigger 统一作为 Task Trigger 的一种 driver 存在。Task-linked trigger 到期时会走 TaskAction 执行链路，复用原 session/Codex thread，并把结果写回 task events/actions 和 source session。后续 hook/event/webhook 类触发器也应挂在同一 task trigger 模型下。
 
 ## Risk Confirmation
 

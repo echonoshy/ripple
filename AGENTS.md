@@ -45,7 +45,7 @@
 - `/v1/runs`、`/v1/responses`、Codex approval bridge。
 - chat 侧 connector auth 拦截、轮询和授权后自动恢复。
 - schedule CRUD、run history、run-now、后台 due schedule trigger。
-- Task Sessions 产品层 API，覆盖任务会话列表/详情、TaskSpec、TaskRun、确认卡和会话事件；内部 Tasks / TaskActions / due trigger 执行链路和 chat 侧 `codex_app.task_update` 动态工具继续保留。旧 `/v1/tasks` HTTP API 已从公开路由移除；`/v1/sessions/:session_id/tasks` 仅作为 session 兼容读接口保留。
+- Task Sessions 对外只保留 `POST /v1/task-sessions/responses`：确认前通过 SSE 对话，确认后通过 callback 返回执行状态和结果。旧 TaskSpec / TaskRun / confirmation 资源 API 已移除；内部 Tasks / TaskActions / due trigger 执行链路和 chat 侧 `codex_app.task_update` 动态工具继续保留。
 - Codex managed permissions profile、服务端 Codex auth deny-read、skill manifest。
 
 仍需重点补齐：

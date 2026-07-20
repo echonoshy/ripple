@@ -9,6 +9,27 @@
 | `completed` | 执行成功后，通过 Callback 返回 |
 | `failed` | 执行失败或取消后，通过 Callback 返回 |
 
+## SSE 事件约定
+
+确认前的普通对话只发送 `response.output_text.delta` 和 `[DONE]`。Connector 授权是例外：除了用于展示的文本 delta，服务端还会发送结构化 `task.status`，调用方应以其中的 `required_action` 驱动授权流程。
+
+```json
+{
+  "event": "task.status",
+  "task_id": "task_001",
+  "req_id": "req_002",
+  "status": "waiting_user",
+  "content": "需要完成飞书授权后继续执行。",
+  "required_action": {
+    "type": "connector_auth",
+    "connector": "feishu",
+    "auth_url": "https://example.com/auth"
+  }
+}
+```
+
+`required_action.type = "connector_auth"` 时，打开本轮 `auth_url` 完成授权，再以相同 `task_id` 发送下一条输入。飞书等 Connector 的授权可能包含多步；只要下一轮仍返回 `connector_auth`，就继续处理最新的 `auth_url`，不要假设一次“已完成授权”就一定进入确认阶段。
+
 ## 1. 首次请求
 
 ```http
@@ -78,7 +99,7 @@ data: [DONE]
 }
 ```
 
-SSE 回复：
+SSE 回复（Connector 授权的结构化例外）：
 
 ```text
 event: response.output_text.delta
@@ -90,7 +111,7 @@ data: {"event":"task.status","task_id":"task_001","req_id":"req_002","status":"w
 data: [DONE]
 ```
 
-完成授权后的请求：
+完成当前授权步骤后的请求：
 
 ```json
 {
@@ -104,7 +125,7 @@ data: [DONE]
 }
 ```
 
-等待确认时的 SSE 回复：
+如果没有新的 Connector 授权等待，SSE 会回到普通确认对话：
 
 ```text
 event: response.output_text.delta
@@ -224,6 +245,8 @@ data: [DONE]
 }
 ```
 
+Task Session 会根据当前等待态在服务端内部处理这条文本：`允许`、`同意`、`确认`、`允许发送`、`继续` 表示单次允许；`始终允许` 表示本 session 内持续允许；`拒绝`、`不同意`、`取消`、`不要发送` 表示拒绝。调用方不需要调用 Session approval 接口，也不需要知道内部 session id。
+
 SSE 回复：
 
 ```text
@@ -261,6 +284,8 @@ data: [DONE]
   "input": "会议地点是 3 楼会议室"
 }
 ```
+
+如果当前 task 正在等待 Codex 的补充信息，服务端会把 `input` 作为该请求的答案并恢复原 run。调用方仍只使用本接口，不需要调用 Session user-input resolve 接口，也不需要知道内部 session id。
 
 SSE 回复：
 

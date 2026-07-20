@@ -161,7 +161,7 @@ Task Sessions 对外只保留 `POST /v1/task-sessions/responses`。完整协议�
 
 - 调用方用稳定的 `task_id` 复用同一任务会话；`req_id` 用于追踪当前请求。
 - 新任务首轮必须提供 `callback_url`，后续回合可以省略且不能更换地址。
-- 确认前只通过 SSE 返回 `response.output_text.delta` 和 `[DONE]`，不发送 callback。
+- 确认前的普通对话通过 SSE 返回 `response.output_text.delta` 和 `[DONE]`，不发送 callback。Connector 授权是结构化例外：还会发送 `task.status`，其 `status="waiting_user"` 且 `required_action.type="connector_auth"`，调用方使用 `required_action.auth_url` 完成当前授权步骤；同一 Connector 可能连续要求多个授权步骤。
 - 模型内部判断用户是否明确确认；没有公开 TaskSpec、confirm 或 run 资源接口。
 - 确认后停止向 SSE 发送执行文本，通过 callback 返回 `running`、`waiting_user`、`completed` 或 `failed`。
 - callback 首次失败后立即重试一次；第二次仍失败只记录日志。

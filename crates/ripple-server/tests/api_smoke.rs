@@ -1291,6 +1291,163 @@ async fn task_session_callback_retries_once_after_failure() {
 }
 
 #[tokio::test]
+async fn task_session_text_approval_resumes_the_pending_run_and_posts_completion() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+    let (callback_url, mut callbacks) = callback_collector().await;
+
+    let waiting = app
+        .clone()
+        .oneshot(request(
+            Method::POST,
+            "/v1/task-sessions/responses",
+            json!({
+                "task_id": "caller-task-resume-approval-1",
+                "input": "[approval] run a fake command",
+                "req_id": "via-task-approval-1",
+                "callback_url": callback_url
+            }),
+            true,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(waiting.status(), StatusCode::OK);
+    let _ = response_text(waiting).await;
+
+    let session_id = state.sessions.list_sessions("smoke-user").await.unwrap()[0]
+        .session_id
+        .clone();
+    let mut session = state
+        .sessions
+        .load("smoke-user", &session_id)
+        .await
+        .unwrap()
+        .expect("task session");
+    assert!(session.pending_permission_request.is_some());
+    session.pending_control_request = Some(json!({
+        "type": "task_execution",
+        "active": true,
+        "task_id": "caller-task-resume-approval-1",
+        "req_id": "via-task-approval-1"
+    }));
+    state.sessions.save_record(session).await.unwrap();
+
+    let resumed = app
+        .oneshot(request(
+            Method::POST,
+            "/v1/task-sessions/responses",
+            json!({
+                "task_id": "caller-task-resume-approval-1",
+                "input": "允许发送",
+                "req_id": "via-task-approval-2"
+            }),
+            true,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resumed.status(), StatusCode::OK);
+    assert_eq!(response_text(resumed).await, "data: [DONE]\n\n");
+
+    let callback = tokio::time::timeout(Duration::from_secs(2), callbacks.recv())
+        .await
+        .expect("completion callback timeout")
+        .expect("completion callback payload");
+    assert_eq!(
+        callback.get("status").and_then(Value::as_str),
+        Some("completed")
+    );
+    assert_eq!(
+        callback.get("req_id").and_then(Value::as_str),
+        Some("via-task-approval-2")
+    );
+    assert_eq!(
+        callback.get("content").and_then(Value::as_str),
+        Some("fake approval completed")
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn task_session_text_reply_resumes_pending_user_input_and_posts_completion() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+    let (callback_url, mut callbacks) = callback_collector().await;
+
+    let waiting = app
+        .clone()
+        .oneshot(request(
+            Method::POST,
+            "/v1/task-sessions/responses",
+            json!({
+                "task_id": "caller-task-resume-input-1",
+                "input": "[request-user-input] collect budget",
+                "req_id": "via-task-input-1",
+                "callback_url": callback_url
+            }),
+            true,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(waiting.status(), StatusCode::OK);
+    let _ = response_text(waiting).await;
+
+    let session_id = state.sessions.list_sessions("smoke-user").await.unwrap()[0]
+        .session_id
+        .clone();
+    let mut session = state
+        .sessions
+        .load("smoke-user", &session_id)
+        .await
+        .unwrap()
+        .expect("task session");
+    session.pending_control_request = Some(json!({
+        "type": "task_execution",
+        "active": true,
+        "task_id": "caller-task-resume-input-1",
+        "req_id": "via-task-input-1"
+    }));
+    state.sessions.save_record(session).await.unwrap();
+
+    let resumed = app
+        .oneshot(request(
+            Method::POST,
+            "/v1/task-sessions/responses",
+            json!({
+                "task_id": "caller-task-resume-input-1",
+                "input": "客户预算十万元以内",
+                "req_id": "via-task-input-2"
+            }),
+            true,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resumed.status(), StatusCode::OK);
+    assert_eq!(response_text(resumed).await, "data: [DONE]\n\n");
+
+    let callback = tokio::time::timeout(Duration::from_secs(2), callbacks.recv())
+        .await
+        .expect("completion callback timeout")
+        .expect("completion callback payload");
+    assert_eq!(
+        callback.get("status").and_then(Value::as_str),
+        Some("completed")
+    );
+    assert_eq!(
+        callback.get("req_id").and_then(Value::as_str),
+        Some("via-task-input-2")
+    );
+    assert_eq!(
+        callback.get("content").and_then(Value::as_str),
+        Some("user input skipped")
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
 async fn task_session_stream_disconnect_still_finalizes_and_posts_callback() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let fake_codex = write_fake_codex_app_server(&root);

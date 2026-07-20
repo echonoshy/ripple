@@ -768,6 +768,312 @@ fn task_execution_active(session: &SessionRecord) -> bool {
         == Some("task_execution")
 }
 
+fn task_execution_context(
+    session: &mut SessionRecord,
+    task_id: &str,
+    req_id: Option<&str>,
+    waiting_kind: Option<&str>,
+) {
+    let mut context = session
+        .pending_control_request
+        .as_ref()
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    context.insert("type".to_string(), json!("task_execution"));
+    context.insert("active".to_string(), json!(true));
+    context.insert("task_id".to_string(), json!(task_id));
+    if let Some(req_id) = req_id.filter(|value| !value.trim().is_empty()) {
+        context.insert("req_id".to_string(), json!(req_id));
+    }
+    match waiting_kind {
+        Some(waiting_kind) => {
+            context.insert("waiting_kind".to_string(), json!(waiting_kind));
+        }
+        None => {
+            context.remove("waiting_kind");
+        }
+    }
+    session.pending_control_request = Some(Value::Object(context));
+}
+
+fn task_done_response() -> Response<Body> {
+    let mut response = Response::new(Body::from("data: [DONE]\n\n"));
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/event-stream"),
+    );
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+    response
+}
+
+fn task_text_response(message: &str) -> Response<Body> {
+    let mut body = Vec::new();
+    if !message.trim().is_empty() {
+        body.extend_from_slice(&task_output_text_delta_sse(message));
+    }
+    body.extend_from_slice(b"data: [DONE]\n\n");
+    let mut response = Response::new(Body::from(body));
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/event-stream"),
+    );
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+    response
+}
+
+fn task_permission_action(input: &str) -> Option<&'static str> {
+    let normalized = input.trim().to_lowercase();
+    match normalized.as_str() {
+        "允许" | "同意" | "确认" | "允许发送" | "可以" | "继续" | "继续执行" | "allow"
+        | "approve" | "yes" | "y" => Some("allow"),
+        "始终允许" | "总是允许" | "always" => Some("always"),
+        "拒绝" | "不同意" | "取消" | "不要" | "不要发送" | "deny" | "reject" | "no" | "n" => {
+            Some("deny")
+        }
+        _ => None,
+    }
+}
+
+fn task_user_input_answers(pending: &Value, answer: &str) -> Result<Value, ApiError> {
+    let question_id = pending
+        .get("questions")
+        .and_then(Value::as_array)
+        .and_then(|questions| questions.first())
+        .and_then(|question| question.get("id"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            ApiError::bad_request("Pending user input request is missing a question id")
+        })?;
+    let answer = answer.trim();
+    if answer.is_empty() {
+        return Err(ApiError::bad_request("A non-empty answer is required"));
+    }
+    Ok(json!({question_id: {"answers": [answer]}}))
+}
+
+async fn try_resume_task_session(
+    state: &AppState,
+    user_id: &str,
+    session: &mut SessionRecord,
+    request: &InternalChatRequest,
+    user_input: &str,
+) -> Result<Option<Response<Body>>, ApiError> {
+    if !request.task_response || !task_execution_active(session) {
+        return Ok(None);
+    }
+    let task_id = request.task_id.as_deref().unwrap_or_default();
+    let req_id = request.task_req_id.as_deref();
+
+    if let Some(pending) = session.pending_permission_request.clone() {
+        let Some(action) = task_permission_action(user_input) else {
+            return Ok(Some(task_text_response(
+                "当前操作正在等待授权。请明确回复“允许”、“始终允许”或“拒绝”。",
+            )));
+        };
+        let job_id = pending
+            .get("job_id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ApiError::bad_request("Pending permission request is missing job_id"))?;
+        let request_id = pending.get("request_id").cloned().ok_or_else(|| {
+            ApiError::bad_request("Pending permission request is missing request_id")
+        })?;
+        let resolved = state
+            .jobs
+            .resolve_approval_for_user(job_id, user_id, &request_id, action)
+            .await
+            .map_err(|error| ApiError::bad_request(error.to_string()))?;
+        if !resolved {
+            return Err(ApiError::conflict(
+                "Pending permission request is no longer active",
+            ));
+        }
+        session.pending_permission_request = None;
+        session.set_status(SessionStatus::Running);
+        task_execution_context(session, task_id, req_id, None);
+        state.sessions.save_record(session.clone()).await?;
+        spawn_task_session_monitor(
+            state.clone(),
+            user_id.to_string(),
+            session.session_id.clone(),
+            job_id.to_string(),
+            task_id.to_string(),
+            request.task_req_id.clone(),
+        );
+        return Ok(Some(task_done_response()));
+    }
+
+    let Some((job_id, pending)) = state
+        .jobs
+        .pending_user_input_for_session(user_id, &session.session_id)
+        .await
+        .map_err(|error| ApiError::bad_request(error.to_string()))?
+    else {
+        return Ok(None);
+    };
+    let request_id = pending
+        .get("request_id")
+        .cloned()
+        .ok_or_else(|| ApiError::bad_request("Pending user input request is missing request_id"))?;
+    let answers = task_user_input_answers(&pending, user_input)?;
+    let resolved = state
+        .jobs
+        .resolve_user_input_for_user(&job_id, user_id, &request_id, answers)
+        .await
+        .map_err(|error| ApiError::bad_request(error.to_string()))?;
+    if !resolved {
+        return Err(ApiError::conflict(
+            "Pending user input request is no longer active",
+        ));
+    }
+    session.pending_question = None;
+    session.pending_options = None;
+    session.set_status(SessionStatus::Running);
+    task_execution_context(session, task_id, req_id, None);
+    state.sessions.save_record(session.clone()).await?;
+    spawn_task_session_monitor(
+        state.clone(),
+        user_id.to_string(),
+        session.session_id.clone(),
+        job_id,
+        task_id.to_string(),
+        request.task_req_id.clone(),
+    );
+    Ok(Some(task_done_response()))
+}
+
+fn spawn_task_session_monitor(
+    state: AppState,
+    user_id: String,
+    session_id: String,
+    job_id: String,
+    task_id: String,
+    req_id: Option<String>,
+) {
+    tokio::spawn(async move {
+        let deadline =
+            Instant::now() + Duration::from_secs(state.config.codex.max_runtime_seconds.max(1) + 5);
+        loop {
+            let info = state
+                .jobs
+                .info_for_user(&job_id, &user_id)
+                .await
+                .ok()
+                .flatten();
+            let Some(info) = info else {
+                return;
+            };
+            let Some(mut session) = state
+                .sessions
+                .load(&user_id, &session_id)
+                .await
+                .ok()
+                .flatten()
+            else {
+                return;
+            };
+            if let Some(approval) = info.pending_approval.clone() {
+                let approval = sanitize_user_visible_value(&state, &user_id, &approval);
+                session.set_status(SessionStatus::AwaitingPermission);
+                session.pending_permission_request = Some(approval.clone());
+                task_execution_context(&mut session, &task_id, req_id.as_deref(), Some("approval"));
+                if state.sessions.save_record(session.clone()).await.is_ok() {
+                    dispatch_task_callback(
+                        &session,
+                        task_status_data(
+                            &task_id,
+                            req_id.as_deref(),
+                            "waiting_user",
+                            json!("需要你的确认后继续执行。"),
+                            Some(json!({"type": "confirm", "approval": approval})),
+                            None,
+                        ),
+                    );
+                }
+                return;
+            }
+            if let Some(pending) = info.pending_user_input.clone() {
+                let pending = sanitize_user_visible_value(&state, &user_id, &pending);
+                record_session_pending_user_input(&mut session, &pending);
+                let message = user_input_question(&pending)
+                    .unwrap_or_else(|| "请补充继续执行所需的信息。".to_string());
+                task_execution_context(&mut session, &task_id, req_id.as_deref(), Some("reply"));
+                if state.sessions.save_record(session.clone()).await.is_ok() {
+                    dispatch_task_callback(
+                        &session,
+                        task_status_data(
+                            &task_id,
+                            req_id.as_deref(),
+                            "waiting_user",
+                            json!(message.clone()),
+                            Some(json!({"type": "reply", "message": message})),
+                            None,
+                        ),
+                    );
+                }
+                return;
+            }
+            if TERMINAL_STATUSES.contains(&info.status.as_str()) {
+                let output = read_run_output(&state, &user_id, &info).await;
+                let failed = info.status != "completed";
+                let error_message = info
+                    .error
+                    .as_deref()
+                    .map(|message| sanitize_user_visible_text(&state, &user_id, message));
+                let _ = finalize_chat_run_for_session(&state, &user_id, &session_id, &info).await;
+                let Some(mut finalized) = state
+                    .sessions
+                    .load(&user_id, &session_id)
+                    .await
+                    .ok()
+                    .flatten()
+                else {
+                    return;
+                };
+                finalized.pending_control_request = None;
+                let _ = state.sessions.save_record(finalized.clone()).await;
+                if failed {
+                    let message = error_message.unwrap_or_else(|| "任务执行失败。".to_string());
+                    dispatch_task_callback(
+                        &finalized,
+                        task_status_data(
+                            &task_id,
+                            req_id.as_deref(),
+                            "failed",
+                            json!(message.clone()),
+                            None,
+                            Some(json!({"code": info.status, "message": message})),
+                        ),
+                    );
+                } else {
+                    dispatch_task_callback(
+                        &finalized,
+                        task_status_data(
+                            &task_id,
+                            req_id.as_deref(),
+                            "completed",
+                            json!(output),
+                            None,
+                            None,
+                        ),
+                    );
+                }
+                return;
+            }
+            if Instant::now() >= deadline {
+                return;
+            }
+            sleep(Duration::from_millis(50)).await;
+        }
+    });
+}
+
 fn dispatch_task_callback(session: &SessionRecord, status_data: Value) {
     let Some(callback_url) = session.task_callback_url.clone() else {
         return;
@@ -929,6 +1235,11 @@ async fn handle_chat_request(
         request.model.as_deref(),
         &state.config.default_model,
     );
+    if let Some(response) =
+        try_resume_task_session(&state, &user_id, &mut session, &request, &user_input).await?
+    {
+        return Ok(response);
+    }
     if session_has_active_run(&session) {
         return Err(ApiError::conflict("Session already has work in progress"));
     }
@@ -2033,11 +2344,12 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
                                 == Some("codex_app.task_execution_confirmed")
                         {
                             task_execution_started = true;
-                            session.pending_control_request = Some(json!({
-                                "type": "task_execution",
-                                "active": true,
-                                "req_id": task_req_id.clone()
-                            }));
+                            task_execution_context(
+                                &mut session,
+                                &task_id,
+                                task_req_id.as_deref(),
+                                None,
+                            );
                             let _ = state.sessions.save_record_if_exists(session.clone()).await;
                             if !task_running_callback_sent {
                                 dispatch_task_callback(

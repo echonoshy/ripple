@@ -897,7 +897,7 @@ impl SessionManager {
         })
     }
 
-    fn normalize_context_folder_path(
+    pub(crate) fn normalize_context_folder_path(
         &self,
         user_id: &str,
         raw_path: Option<&str>,

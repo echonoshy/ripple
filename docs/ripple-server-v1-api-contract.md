@@ -161,6 +161,7 @@ Task Sessions 对外只保留 `POST /v1/task-sessions/responses`。完整协议�
 
 - 调用方用稳定的 `task_id` 复用同一任务会话；`req_id` 用于追踪当前请求。
 - 新任务首轮必须提供 `callback_url`，后续回合可以省略且不能更换地址。
+- `context_folder_path` 是每轮请求字段，调用方应在每轮传入；非空值必须是当前用户 workspace 内已存在的 `/workspace/...` 目录。为兼容已有调用方，未传、`null` 或空字符串均使用 `/workspace`。确认前该目录只作用于当前轮次；确认执行时会锁定确认轮目录给后台 run，之后的恢复请求会忽略该字段。详细请求、SSE、callback、错误与重试语义以 [VIA_GATEWAY_TASK_CENTER_API.md](VIA_GATEWAY_TASK_CENTER_API.md) 为准。
 - 确认前的普通对话通过 SSE 返回 `response.output_text.delta` 和 `[DONE]`，不发送 callback。Connector 授权是结构化例外：还会发送 `task.status`，其 `status="waiting_user"` 且 `required_action.type="connector_auth"`，调用方使用 `required_action.auth_url` 完成当前授权步骤；同一 Connector 可能连续要求多个授权步骤。
 - 模型内部判断用户是否明确确认；没有公开 TaskSpec、confirm 或 run 资源接口。
 - 确认后停止向 SSE 发送执行文本，通过 callback 返回 `running`、`waiting_user`、`completed` 或 `failed`。

@@ -124,6 +124,8 @@ pub struct InternalChatRequest {
     pub task_id: Option<String>,
     #[serde(default)]
     pub task_response: bool,
+    #[serde(default)]
+    pub task_context_folder_path: Option<String>,
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
@@ -156,11 +158,15 @@ pub struct TaskSessionResponsesCreateRequest {
     pub task_id: String,
     pub req_id: Option<String>,
     pub callback_url: Option<String>,
+    /// The workspace directory used for this task turn. Missing or blank values use `/workspace`.
+    #[serde(default)]
+    pub context_folder_path: Option<String>,
 }
 
 impl TaskSessionResponsesCreateRequest {
     fn into_chat_request(self) -> Result<InternalChatRequest, ApiError> {
-        ResponsesCreateRequest {
+        let context_folder_path = self.context_folder_path;
+        let mut request = ResponsesCreateRequest {
             model: self.model,
             input: self.input,
             instructions: self.instructions,
@@ -172,7 +178,9 @@ impl TaskSessionResponsesCreateRequest {
             think_level: self.think_level,
             text: self.text,
         }
-        .into_chat_request()
+        .into_chat_request()?;
+        request.task_context_folder_path = context_folder_path;
+        Ok(request)
     }
 }
 
@@ -219,6 +227,7 @@ impl ResponsesCreateRequest {
             task_req_id: None,
             task_id: None,
             task_response: false,
+            task_context_folder_path: None,
         })
     }
 }
@@ -519,6 +528,7 @@ struct CodexChatStart {
     user_content: Value,
     attachment_items: Vec<Value>,
     caller_system_prompt: Option<String>,
+    context_folder_path: Option<String>,
     prefix_event: Option<Value>,
     folder_context_evidence: Option<String>,
     folder_context_event: Option<Value>,
@@ -539,6 +549,7 @@ struct CodexChatStream {
     effort: Option<String>,
     user_input: String,
     user_content: Value,
+    context_folder_path: Option<String>,
     prefix_event: Option<Value>,
     folder_context_event: Option<Value>,
     request_base_url: Option<String>,
@@ -773,6 +784,7 @@ fn task_execution_context(
     task_id: &str,
     req_id: Option<&str>,
     waiting_kind: Option<&str>,
+    context_folder_path: Option<Option<&str>>,
 ) {
     let mut context = session
         .pending_control_request
@@ -783,6 +795,12 @@ fn task_execution_context(
     context.insert("type".to_string(), json!("task_execution"));
     context.insert("active".to_string(), json!(true));
     context.insert("task_id".to_string(), json!(task_id));
+    if let Some(context_folder_path) = context_folder_path {
+        context.insert(
+            "context_folder_path".to_string(),
+            context_folder_path.map_or(Value::Null, |path| json!(path)),
+        );
+    }
     if let Some(req_id) = req_id.filter(|value| !value.trim().is_empty()) {
         context.insert("req_id".to_string(), json!(req_id));
     }
@@ -795,6 +813,27 @@ fn task_execution_context(
         }
     }
     session.pending_control_request = Some(Value::Object(context));
+}
+
+fn task_execution_context_folder_path(session: &SessionRecord) -> Option<Option<String>> {
+    let context = session.pending_control_request.as_ref()?.as_object()?;
+    if context.get("type").and_then(Value::as_str) != Some("task_execution") {
+        return None;
+    }
+    context
+        .get("context_folder_path")
+        .map(|value| value.as_str().map(str::to_string))
+}
+
+fn effective_context_folder_path(
+    session: &SessionRecord,
+    request: &InternalChatRequest,
+    task_turn_context_folder_path: Option<String>,
+) -> Option<String> {
+    if !request.task_response {
+        return session.context_folder_path.clone();
+    }
+    task_execution_context_folder_path(session).unwrap_or(task_turn_context_folder_path)
 }
 
 fn task_done_response() -> Response<Body> {
@@ -896,7 +935,7 @@ async fn try_resume_task_session(
         }
         session.pending_permission_request = None;
         session.set_status(SessionStatus::Running);
-        task_execution_context(session, task_id, req_id, None);
+        task_execution_context(session, task_id, req_id, None, None);
         state.sessions.save_record(session.clone()).await?;
         spawn_task_session_monitor(
             state.clone(),
@@ -935,7 +974,7 @@ async fn try_resume_task_session(
     session.pending_question = None;
     session.pending_options = None;
     session.set_status(SessionStatus::Running);
-    task_execution_context(session, task_id, req_id, None);
+    task_execution_context(session, task_id, req_id, None, None);
     state.sessions.save_record(session.clone()).await?;
     spawn_task_session_monitor(
         state.clone(),
@@ -982,7 +1021,13 @@ fn spawn_task_session_monitor(
                 let approval = sanitize_user_visible_value(&state, &user_id, &approval);
                 session.set_status(SessionStatus::AwaitingPermission);
                 session.pending_permission_request = Some(approval.clone());
-                task_execution_context(&mut session, &task_id, req_id.as_deref(), Some("approval"));
+                task_execution_context(
+                    &mut session,
+                    &task_id,
+                    req_id.as_deref(),
+                    Some("approval"),
+                    None,
+                );
                 if state.sessions.save_record(session.clone()).await.is_ok() {
                     dispatch_task_callback(
                         &session,
@@ -1003,7 +1048,13 @@ fn spawn_task_session_monitor(
                 record_session_pending_user_input(&mut session, &pending);
                 let message = user_input_question(&pending)
                     .unwrap_or_else(|| "请补充继续执行所需的信息。".to_string());
-                task_execution_context(&mut session, &task_id, req_id.as_deref(), Some("reply"));
+                task_execution_context(
+                    &mut session,
+                    &task_id,
+                    req_id.as_deref(),
+                    Some("reply"),
+                    None,
+                );
                 if state.sessions.save_record(session.clone()).await.is_ok() {
                     dispatch_task_callback(
                         &session,
@@ -1235,6 +1286,18 @@ async fn handle_chat_request(
         request.model.as_deref(),
         &state.config.default_model,
     );
+    let task_turn_context_folder_path = if request.task_response
+        && task_execution_context_folder_path(&session).is_none()
+    {
+        state
+            .sessions
+            .normalize_context_folder_path(&user_id, request.task_context_folder_path.as_deref())
+            .map_err(|error| ApiError::bad_request(error.to_string()))?
+    } else {
+        None
+    };
+    let context_folder_path =
+        effective_context_folder_path(&session, &request, task_turn_context_folder_path);
     if let Some(response) =
         try_resume_task_session(&state, &user_id, &mut session, &request, &user_input).await?
     {
@@ -1367,7 +1430,7 @@ async fn handle_chat_request(
             state.sessions.save_record(session.clone()).await?;
             let folder_context = collect_folder_context(
                 &workspace_root,
-                session.context_folder_path.as_deref(),
+                context_folder_path.as_deref(),
                 &resume_user_input,
             );
             let (skill_options, required_skills, available_skills) =
@@ -1385,6 +1448,7 @@ async fn handle_chat_request(
                 user_content: json!(resume_user_input),
                 attachment_items: Vec::new(),
                 caller_system_prompt: effective_caller_system_prompt.clone(),
+                context_folder_path: context_folder_path.clone(),
                 prefix_event: Some(public_connector_auth_event(&decision.event)),
                 folder_context_evidence: folder_context
                     .as_ref()
@@ -1430,11 +1494,8 @@ async fn handle_chat_request(
     session.set_status(SessionStatus::Running);
     state.sessions.save_record(session.clone()).await?;
 
-    let folder_context = collect_folder_context(
-        &workspace_root,
-        session.context_folder_path.as_deref(),
-        &user_input,
-    );
+    let folder_context =
+        collect_folder_context(&workspace_root, context_folder_path.as_deref(), &user_input);
     let (skill_options, required_skills, available_skills) =
         prepare_chat_skill_context(&state, &user_id, &workspace_root, &request).await?;
     let start = CodexChatStart {
@@ -1450,6 +1511,7 @@ async fn handle_chat_request(
         user_content,
         attachment_items,
         caller_system_prompt: effective_caller_system_prompt,
+        context_folder_path,
         prefix_event: None,
         folder_context_evidence: folder_context
             .as_ref()
@@ -1470,10 +1532,13 @@ async fn handle_chat_request(
 
 async fn create_codex_chat_run(args: &CodexChatStart) -> Result<AgentRunInfo, ApiError> {
     let context_started = Instant::now();
+    let codex_thread_id = if args.request.task_response && !task_execution_active(&args.session) {
+        None
+    } else {
+        args.session.codex_thread_id.clone()
+    };
     let use_persistent_history_watermark = !args.request.temporary
-        && args
-            .session
-            .codex_thread_id
+        && codex_thread_id
             .as_deref()
             .is_some_and(|thread_id| !thread_id.trim().is_empty());
     let recent_display_context = recent_display_context_since(
@@ -1491,7 +1556,7 @@ async fn create_codex_chat_run(args: &CodexChatStart) -> Result<AgentRunInfo, Ap
         build_codex_chat_turn_context_with_available_skills(
             &args.user_id,
             &args.session.session_id,
-            args.session.context_folder_path.as_deref(),
+            args.context_folder_path.as_deref(),
             args.context_root_read_only,
             args.folder_context_evidence.as_deref(),
             recent_display_context.as_deref(),
@@ -1510,7 +1575,7 @@ async fn create_codex_chat_run(args: &CodexChatStart) -> Result<AgentRunInfo, Ap
         build_codex_chat_additional_context(
             &args.user_id,
             &args.session.session_id,
-            args.session.context_folder_path.as_deref(),
+            args.context_folder_path.as_deref(),
             args.context_root_read_only,
             args.folder_context_evidence.as_deref(),
             recent_display_context.as_deref(),
@@ -1544,7 +1609,9 @@ async fn create_codex_chat_run(args: &CodexChatStart) -> Result<AgentRunInfo, Ap
             .temporary
             .then_some(rendered_client_context)
             .flatten(),
-        cwd: Some(chat_cwd_for_session(&args.session)),
+        cwd: Some(chat_cwd_for_context_folder(
+            args.context_folder_path.as_deref(),
+        )),
         input_items: native_items,
         model: Some(args.model.clone()),
         effort: args.effort.clone(),
@@ -1554,7 +1621,7 @@ async fn create_codex_chat_run(args: &CodexChatStart) -> Result<AgentRunInfo, Ap
         task_trigger_id: None,
         task_trigger_title: None,
         task_trigger_reason: None,
-        codex_thread_id: args.session.codex_thread_id.clone(),
+        codex_thread_id,
         codex_persistent_thread: !args.request.temporary,
         client_request_id: args.request.client_request_id.clone(),
         chat_user_input: Some(args.user_input.clone()),
@@ -1684,6 +1751,7 @@ async fn finish_codex_chat_response(
         user_content,
         attachment_items: _,
         caller_system_prompt: _,
+        context_folder_path,
         prefix_event,
         folder_context_evidence: _,
         folder_context_event,
@@ -1704,6 +1772,7 @@ async fn finish_codex_chat_response(
             effort,
             user_input,
             user_content,
+            context_folder_path,
             prefix_event,
             folder_context_event,
             request_base_url,
@@ -1959,6 +2028,7 @@ pub async fn poll_session_connector_auth(
             task_req_id: None,
             task_id: None,
             task_response: false,
+            task_context_folder_path: None,
         };
         let user_input = chat_request
             .messages
@@ -1968,11 +2038,9 @@ pub async fn poll_session_connector_auth(
             .unwrap_or("")
             .to_string();
         let caller_system_prompt = session.caller_system_prompt.clone();
-        let folder_context = collect_folder_context(
-            &workspace_root,
-            session.context_folder_path.as_deref(),
-            &user_input,
-        );
+        let context_folder_path = session.context_folder_path.clone();
+        let folder_context =
+            collect_folder_context(&workspace_root, context_folder_path.as_deref(), &user_input);
         let (skill_options, required_skills, available_skills) =
             prepare_chat_skill_context(&state, &user_id, &workspace_root, &chat_request).await?;
         let start = CodexChatStart {
@@ -1988,6 +2056,7 @@ pub async fn poll_session_connector_auth(
             user_content: json!(user_input),
             attachment_items: Vec::new(),
             caller_system_prompt,
+            context_folder_path,
             prefix_event: Some(public_connector_auth_event(&decision.event)),
             folder_context_evidence: folder_context
                 .as_ref()
@@ -2050,10 +2119,8 @@ async fn load_or_create_session(
         .await?)
 }
 
-fn chat_cwd_for_session(session: &SessionRecord) -> String {
-    session
-        .context_folder_path
-        .as_deref()
+fn chat_cwd_for_context_folder(context_folder_path: Option<&str>) -> String {
+    context_folder_path
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .unwrap_or("/workspace")
@@ -2239,6 +2306,7 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
         effort,
         user_input,
         user_content,
+        context_folder_path,
         prefix_event,
         folder_context_event,
         request_base_url,
@@ -2349,6 +2417,7 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
                                 &task_id,
                                 task_req_id.as_deref(),
                                 None,
+                                Some(context_folder_path.as_deref()),
                             );
                             let _ = state.sessions.save_record_if_exists(session.clone()).await;
                             if !task_running_callback_sent {
@@ -3387,6 +3456,87 @@ mod tests {
         assert!(!first.contains("caller"));
     }
 
+    #[test]
+    fn task_session_request_forwards_turn_context_folder_path() {
+        let request: TaskSessionResponsesCreateRequest = serde_json::from_value(json!({
+            "task_id": "task-001",
+            "input": "检查项目文件",
+            "context_folder_path": "/workspace/projects/review"
+        }))
+        .expect("task session request");
+
+        let chat = request.into_chat_request().expect("chat request");
+
+        assert_eq!(
+            chat.task_context_folder_path.as_deref(),
+            Some("/workspace/projects/review")
+        );
+    }
+
+    #[test]
+    fn task_execution_context_locks_the_confirmed_turn_folder() {
+        let now = now_iso();
+        let mut session = SessionRecord {
+            session_id: "task-session".to_string(),
+            user_id: "alice".to_string(),
+            title: String::new(),
+            pinned: false,
+            context_folder_path: None,
+            model: "codex-test".to_string(),
+            max_turns: 200,
+            caller_system_prompt: None,
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+            last_input_tokens: 0,
+            created_at: now.clone(),
+            last_active: now,
+            status: "running".to_string(),
+            message_count: 0,
+            messages: Vec::new(),
+            pending_question: None,
+            pending_options: None,
+            pending_permission_request: None,
+            pending_connector_auth: None,
+            pending_control_request: None,
+            codex_thread_id: None,
+            codex_synced_message_count: 0,
+            memory_disabled: false,
+            plan_steps: Vec::new(),
+            plan_progress: None,
+            task_callback_url: None,
+        };
+
+        task_execution_context(
+            &mut session,
+            "task-001",
+            Some("req-001"),
+            None,
+            Some(Some("/workspace/projects/review")),
+        );
+
+        assert_eq!(
+            task_execution_context_folder_path(&session),
+            Some(Some("/workspace/projects/review".to_string()))
+        );
+
+        let request: TaskSessionResponsesCreateRequest = serde_json::from_value(json!({
+            "task_id": "task-001",
+            "input": "已完成授权",
+            "context_folder_path": "/workspace/another-folder"
+        }))
+        .expect("task session request");
+        let mut request = request.into_chat_request().expect("chat request");
+        request.task_response = true;
+        assert_eq!(
+            effective_context_folder_path(
+                &session,
+                &request,
+                Some("/workspace/another-folder".to_string())
+            ),
+            Some("/workspace/projects/review".to_string())
+        );
+    }
+
     #[tokio::test]
     async fn task_connector_auth_before_execution_emits_waiting_user_status() {
         let now = now_iso();
@@ -4062,6 +4212,7 @@ mod tests {
             task_req_id: None,
             task_id: None,
             task_response: false,
+            task_context_folder_path: None,
         };
 
         assert_eq!(
@@ -4113,6 +4264,7 @@ mod tests {
             task_req_id: None,
             task_id: None,
             task_response: false,
+            task_context_folder_path: None,
         };
 
         assert_eq!(

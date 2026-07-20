@@ -987,6 +987,50 @@ async fn task_session_responses_reuses_chat_session_without_pre_execution_status
 }
 
 #[tokio::test]
+async fn task_session_context_folder_is_turn_scoped_without_persisting_to_session() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+    let workspace = state.sandboxes.ensure_sandbox("smoke-user").unwrap();
+    fs::create_dir_all(workspace.join("task-context")).unwrap();
+
+    let response = app
+        .oneshot(request(
+            Method::POST,
+            "/v1/task-sessions/responses",
+            json!({
+                "task_id": "caller-task-context-folder-1",
+                "input": "inspect the selected folder",
+                "callback_url": "http://127.0.0.1:9/task-status",
+                "context_folder_path": "/workspace/task-context"
+            }),
+            true,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let _ = response_text(response).await;
+
+    let runs = state.jobs.list_user("smoke-user").await.unwrap();
+    assert_eq!(runs.len(), 1);
+    assert_eq!(
+        runs[0].sandbox_cwd.as_deref(),
+        Some("/workspace/task-context")
+    );
+
+    let session = state
+        .sessions
+        .list_sessions("smoke-user")
+        .await
+        .unwrap()
+        .pop()
+        .unwrap();
+    assert_eq!(session.context_folder_path, None);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
 async fn task_session_responses_streams_dialogue_without_status_or_callback() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let fake_codex = write_fake_codex_app_server(&root);
@@ -2083,6 +2127,11 @@ async fn openapi_docs_are_public_and_keep_v1_auth_unchanged() {
         .is_some());
     assert!(spec
         .pointer("/components/schemas/TaskSessionResponsesCreateRequest/properties/task_id")
+        .is_some());
+    assert!(spec
+        .pointer(
+            "/components/schemas/TaskSessionResponsesCreateRequest/properties/context_folder_path"
+        )
         .is_some());
     assert!(spec
         .pointer("/components/schemas/TaskSessionResponsesCreateRequest/properties/task_session_id")

@@ -42,6 +42,7 @@ function renderSessionPage({
   isSessionLoading = false,
   isGenerating = false,
   selectedModel = "codex-medium",
+  selectedReasoningEffort = "medium",
   models = [{ id: "codex-medium", owned_by: "ripple" }],
   locale = "en-US",
 }: {
@@ -52,6 +53,7 @@ function renderSessionPage({
   isSessionLoading?: boolean;
   isGenerating?: boolean;
   selectedModel?: string;
+  selectedReasoningEffort?: "none" | "low" | "medium" | "high" | "xhigh" | "max";
   models?: { id: string; owned_by: string }[];
   locale?: LocalePreference;
 } = {}) {
@@ -71,6 +73,7 @@ function renderSessionPage({
         isGenerating={isGenerating}
         focusToken={0}
         selectedModel={selectedModel}
+        selectedReasoningEffort={selectedReasoningEffort}
         models={models}
         isModelDropdownOpen={false}
         isSessionLoading={isSessionLoading}
@@ -426,11 +429,11 @@ function testDesktopHeaderShowsCurrentModelLikeMobile() {
   const html = renderSessionPage();
 
   assert.match(html, /lg:flex/);
-  assert.match(html, /aria-label="Current model: Plus"/);
-  assert.match(html, /title="Current model: Plus"/);
+  assert.match(html, /aria-label="Current model: Plus; reasoning effort: Medium"/);
+  assert.match(html, /title="Current model: Plus; reasoning effort: Medium"/);
 }
 
-function testMobileHeaderModelBadgeIsStaticDisplay() {
+function testMobileHeaderModelBadgeIsTheOnlyModelPicker() {
   const html = renderSessionPage({
     selectedModel: "codex-medium",
     models: [
@@ -440,23 +443,27 @@ function testMobileHeaderModelBadgeIsStaticDisplay() {
     ],
   });
   const headerBadge =
-    html.match(/<span[^>]*data-ripple-current-model-badge="mobile"[\s\S]*?<\/span>/)?.[0] || "";
+    html.match(/<button[^>]*data-ripple-current-model-badge="mobile"[^>]*>/)?.[0] || "";
 
-  assert.match(headerBadge, /aria-label="Current model: Plus"/);
-  assert.match(headerBadge, /title="Current model: Plus"/);
-  assert.match(headerBadge, /lucide-brain-circuit/);
-  assert.doesNotMatch(html, /data-ripple-mobile-model-button="true"/);
-  assert.doesNotMatch(html, /data-ripple-mobile-model-menu="true"/);
+  assert.match(headerBadge, /aria-label="Current model: Plus; reasoning effort: Medium"/);
+  assert.match(headerBadge, /title="Current model: Plus; reasoning effort: Medium"/);
+  assert.match(headerBadge, /aria-haspopup="menu"/);
+  assert.match(headerBadge, /aria-expanded="false"/);
+  assert.match(html, /Plus · Medium/);
+  assert.match(html, /data-ripple-current-model-badge="mobile"[\s\S]{0,1000}lucide-brain-circuit/);
   assert.doesNotMatch(html, /role="menu"/);
-  assert.doesNotMatch(sessionPageSource, /onToggleMobileHeaderModelDropdown/);
-  assert.doesNotMatch(sessionPageSource, /isMobileHeaderModelDropdownOpen/);
+  assert.match(
+    sessionPageSource,
+    /modelMenuAnchorRefs=\{\[mobileModelMenuAnchorRef, desktopModelMenuAnchorRef\]\}/
+  );
+  assert.match(sessionPageSource, /showModelButton=\{false\}/);
 }
 
 function testCurrentModelBadgeUsesModelSwitchIcon() {
   const html = renderSessionPage();
 
   assert.match(html, /data-ripple-current-model-badge="desktop"[\s\S]{0,1000}lucide-brain-circuit/);
-  assert.match(html, /data-ripple-current-model-badge="desktop"[\s\S]{0,1200}bg-\[#22A06B\]/);
+  assert.match(html, /data-ripple-current-model-badge="desktop"[\s\S]{0,1800}bg-\[#22A06B\]/);
   assert.match(html, /data-ripple-current-model-badge="mobile"[\s\S]{0,1000}lucide-brain-circuit/);
   assert.match(html, /data-ripple-current-model-badge="mobile"[\s\S]{0,1800}bg-\[#22A06B\]/);
 }
@@ -494,7 +501,7 @@ function testSessionPageRendersChineseStaticChrome() {
   assert.match(html, /aria-label="新会话"/);
   assert.doesNotMatch(html, /aria-label="会话选项"/);
   assert.match(html, />会话</);
-  assert.match(html, /aria-label="当前模型：Plus"/);
+  assert.match(html, /aria-label="当前模型：Plus；思考深度：中"/);
 }
 
 function testSessionPageDoesNotRenderSmartFollowUps() {
@@ -555,7 +562,7 @@ function testSessionPageShowsCurrentFolderBadge() {
     </I18nProvider>
   );
 
-  assert.match(html, /aria-label="Current model: Plus"/);
+  assert.match(html, /aria-label="Current model: Plus; reasoning effort: Medium"/);
   assert.match(html, /aria-label="Work folder: demo"/);
   assert.match(html, /lucide-folder/);
   assert.doesNotMatch(html, /Plus Focus: demo/);
@@ -1095,7 +1102,7 @@ testSessionPageHandlesDropAcrossWholeChat();
 testMobileHeaderReservesTopSafeArea();
 testMobileHeaderIsOverlayChrome();
 testDesktopHeaderShowsCurrentModelLikeMobile();
-testMobileHeaderModelBadgeIsStaticDisplay();
+testMobileHeaderModelBadgeIsTheOnlyModelPicker();
 testCurrentModelBadgeUsesModelSwitchIcon();
 testMobileRunStatusOnlyLivesInHeaderAndComposer();
 testSessionPageRendersChineseStaticChrome();

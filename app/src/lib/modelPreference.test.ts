@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 
 import {
   getStoredDefaultModel,
+  getStoredReasoningEffort,
   selectPreferredModel,
   setStoredDefaultModel,
+  setStoredReasoningEffort,
 } from "./modelPreference";
 
 function withLocalStorage(run: () => void) {
@@ -46,6 +48,15 @@ function testStoresDefaultModelPerUser() {
   });
 }
 
+function testStoresReasoningEffortPerUser() {
+  withLocalStorage(() => {
+    setStoredReasoningEffort("lake", "xhigh");
+
+    assert.equal(getStoredReasoningEffort("lake"), "xhigh");
+    assert.equal(getStoredReasoningEffort("default"), "medium");
+  });
+}
+
 function testPreferredModelUsesStoredWhenAvailable() {
   assert.equal(
     selectPreferredModel(
@@ -78,6 +89,7 @@ function testPreferredModelFallsBackToMediumThenFirstAvailable() {
 }
 
 testStoresDefaultModelPerUser();
+testStoresReasoningEffortPerUser();
 testPreferredModelUsesStoredWhenAvailable();
 testPreferredModelFallsBackToMediumThenFirstAvailable();
 

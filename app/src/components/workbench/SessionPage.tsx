@@ -40,6 +40,8 @@ import type { FeishuAuthOpenPayload, FeishuAuthWaitingState } from "@/components
 import { useI18n } from "@/i18n";
 import type { ChatFileRef } from "@/lib/chatInput";
 import { formatModelName } from "@/lib/models";
+import type { ModelOption } from "@/lib/models";
+import type { ReasoningEffort } from "@/lib/modelPreference";
 import {
   filesFromDropData,
   partitionTransferFiles,
@@ -266,7 +268,8 @@ interface SessionPageProps {
   isComposerBlocked?: boolean;
   focusToken: number;
   selectedModel: string;
-  models: { id: string; owned_by: string }[];
+  selectedReasoningEffort?: ReasoningEffort;
+  models: ModelOption[];
   isModelDropdownOpen: boolean;
   availableSkills?: SkillInfo[];
   selectedRequiredSkillId?: string | null;
@@ -285,6 +288,7 @@ interface SessionPageProps {
   onToggleModelDropdown: () => void;
   onCloseModelDropdown: () => void;
   onSelectModel: (model: string) => void;
+  onSelectReasoningEffort?: (effort: ReasoningEffort) => void;
   onLoadSkills?: () => void | Promise<void>;
   onSelectRequiredSkill?: (skillId: string | null) => void;
   onSend: () => void;
@@ -528,6 +532,7 @@ export default function SessionPage({
   isComposerBlocked = false,
   focusToken,
   selectedModel,
+  selectedReasoningEffort = "medium",
   models,
   isModelDropdownOpen,
   availableSkills = [],
@@ -547,6 +552,7 @@ export default function SessionPage({
   onToggleModelDropdown,
   onCloseModelDropdown,
   onSelectModel,
+  onSelectReasoningEffort,
   onLoadSkills,
   onSelectRequiredSkill,
   onSend,
@@ -580,6 +586,8 @@ export default function SessionPage({
   const composerFocusedScrollTopRef = useRef<number | null>(null);
   const composerFocusedComposerHeightRef = useRef<number | null>(null);
   const mobileComposerHeightRef = useRef(MOBILE_CHAT_COMPOSER_FALLBACK_HEIGHT_PX);
+  const mobileModelMenuAnchorRef = useRef<HTMLButtonElement | null>(null);
+  const desktopModelMenuAnchorRef = useRef<HTMLButtonElement | null>(null);
   const previousTokenUsageTotalRef = useRef(tokenUsage.total_tokens);
   const previousTokenFooterVisibleRef = useRef<boolean | null>(null);
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
@@ -633,9 +641,32 @@ export default function SessionPage({
   const lastTimelineEvent = timelineEvents[timelineEvents.length - 1] || null;
   const lastTimelineEventId = lastTimelineEvent?.id || "";
   const lastTimelineEventBodyLength = lastTimelineEvent?.body.length || 0;
-  const modelDisplayName = formatModelName(selectedModel);
-  const currentModelLabel = isGenerating ? t("composer.working") : modelDisplayName;
-  const currentModelAccessibleLabel = t("sessions.currentModel", { model: modelDisplayName });
+  const modelDisplayName = formatModelName(
+    models.find((model) => model.id === selectedModel) || selectedModel
+  );
+  const reasoningEffortLabel =
+    selectedReasoningEffort === "none"
+      ? t("composer.reasoningNone")
+      : selectedReasoningEffort === "low"
+        ? t("composer.reasoningLow")
+        : selectedReasoningEffort === "high"
+          ? t("composer.reasoningHigh")
+          : selectedReasoningEffort === "xhigh"
+            ? t("composer.reasoningXhigh")
+            : selectedReasoningEffort === "max"
+              ? t("composer.reasoningMax")
+              : t("composer.reasoningMedium");
+  const currentModelLabel = isGenerating
+    ? t("composer.working")
+    : `${modelDisplayName} · ${reasoningEffortLabel}`;
+  const currentModelAccessibleLabel = t("sessions.currentModelAndReasoning", {
+    model: modelDisplayName,
+    effort: reasoningEffortLabel,
+  });
+  const toggleModelMenu = () => {
+    if (isModelDropdownOpen) onCloseModelDropdown();
+    else onToggleModelDropdown();
+  };
   const modelBadgeIconClass = isGenerating ? "shrink-0 text-[#1456F0]" : "shrink-0 text-[#646A73]";
   const effectiveContextFolderPath = session?.contextFolderPath ?? contextFolderPath ?? null;
   const workspaceScopePath = effectiveContextFolderPath || "/workspace";
@@ -973,11 +1004,18 @@ export default function SessionPage({
           <div
             className={`mt-1 flex min-w-0 items-center justify-center gap-1.5 ${TYPOGRAPHY_MICRO_CLASS} text-[#646A73]`}
           >
-            <span
+            <button
+              ref={mobileModelMenuAnchorRef}
+              type="button"
               data-ripple-current-model-badge="mobile"
               aria-label={currentModelAccessibleLabel}
               title={currentModelAccessibleLabel}
-              className={`inline-flex max-w-[116px] min-w-0 items-center gap-1 rounded-full border border-[#DEE0E3] bg-[#F8F9FA] px-1.5 py-0.5 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} text-[#646A73]`}
+              aria-haspopup="menu"
+              aria-expanded={isModelDropdownOpen}
+              onClick={toggleModelMenu}
+              className={`inline-flex max-w-[176px] min-w-0 items-center gap-1 rounded-full border border-[#DEE0E3] bg-[#F8F9FA] px-1.5 py-0.5 ${TYPOGRAPHY_MICRO_MEDIUM_CLASS} text-[#646A73] transition-colors hover:border-[#BACEFD] hover:bg-[#F0F5FF] hover:text-[#1456F0] ${
+                isModelDropdownOpen ? "border-[#1456F0] bg-[#F0F5FF] text-[#1456F0]" : ""
+              }`}
             >
               <BrainCircuit size={11} className={modelBadgeIconClass} strokeWidth={2.2} />
               <span
@@ -986,7 +1024,7 @@ export default function SessionPage({
                 }`}
               />
               <span className="truncate">{currentModelLabel}</span>
-            </span>
+            </button>
             {focusFolderLabel && focusFolderAccessibleLabel && (
               <button
                 type="button"
@@ -1033,11 +1071,18 @@ export default function SessionPage({
               <span className="truncate">{focusFolderLabel}</span>
             </button>
           )}
-          <span
+          <button
+            ref={desktopModelMenuAnchorRef}
+            type="button"
             data-ripple-current-model-badge="desktop"
             aria-label={currentModelAccessibleLabel}
             title={currentModelAccessibleLabel}
-            className={`inline-flex max-w-[220px] shrink-0 items-center gap-1.5 rounded-full border border-[#DEE0E3] bg-[#F8F9FA] px-3 py-1.5 ${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#2B2F36]`}
+            aria-haspopup="menu"
+            aria-expanded={isModelDropdownOpen}
+            onClick={toggleModelMenu}
+            className={`inline-flex max-w-[244px] shrink-0 items-center gap-1.5 rounded-full border border-[#DEE0E3] bg-[#F8F9FA] px-3 py-1.5 ${TYPOGRAPHY_META_MEDIUM_CLASS} text-[#2B2F36] transition-colors hover:border-[#BACEFD] hover:bg-[#F0F5FF] hover:text-[#1456F0] ${
+              isModelDropdownOpen ? "border-[#1456F0] bg-[#F0F5FF] text-[#1456F0]" : ""
+            }`}
           >
             <BrainCircuit size={13} className={modelBadgeIconClass} strokeWidth={2.2} />
             <span
@@ -1046,7 +1091,7 @@ export default function SessionPage({
               }`}
             />
             <span className="truncate">{currentModelLabel}</span>
-          </span>
+          </button>
         </div>
       </div>
 
@@ -1217,11 +1262,15 @@ export default function SessionPage({
           hasSession={hasMessages || Boolean(session)}
           focusToken={focusToken}
           selectedModel={selectedModel}
+          selectedReasoningEffort={selectedReasoningEffort}
           models={models}
           isModelDropdownOpen={isModelDropdownOpen}
+          showModelButton={false}
+          modelMenuAnchorRefs={[mobileModelMenuAnchorRef, desktopModelMenuAnchorRef]}
           onToggleModelDropdown={onToggleModelDropdown}
           onCloseModelDropdown={onCloseModelDropdown}
           onSelectModel={onSelectModel}
+          onSelectReasoningEffort={onSelectReasoningEffort}
           availableSkills={availableSkills}
           selectedRequiredSkillId={selectedRequiredSkillId}
           isLoadingSkills={isLoadingSkills}

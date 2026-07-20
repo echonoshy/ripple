@@ -45,10 +45,10 @@ import MobileSessionStack from "@/components/workbench/MobileSessionStack";
 import MobileSessionsPage from "@/components/workbench/MobileSessionsPage";
 import MobileTabBar from "@/components/workbench/MobileTabBar";
 import ProductTopBar from "@/components/workbench/ProductTopBar";
+import type { DelegationDraft } from "@/components/workbench/DelegationsPanel";
 import SessionPage from "@/components/workbench/SessionPage";
 import WorkbenchShell from "@/components/workbench/WorkbenchShell";
 import WorkspaceNav from "@/components/workbench/WorkspaceNav";
-import type { ContactDelegationCreateInput } from "@/components/workbench/ContactsPage";
 import {
   mobilePageSwitchTransition,
   mobilePageVariants,
@@ -86,7 +86,6 @@ import type {
   AgentContactRequest,
   AgentDelegation,
   AgentDelegationCreateInput,
-  AgentInvocationCreateInput,
   Conversation,
   ConversationMessage,
   SessionAttention,
@@ -98,11 +97,15 @@ import type {
   WorkbenchSessionSummary,
   WorkspaceFileOpenRequest,
 } from "@/types";
-import { sortModelOptions } from "@/lib/models";
+import { sortModelOptions, type ModelOption } from "@/lib/models";
 import {
   getStoredDefaultModel,
+  getStoredReasoningEffort,
+  REASONING_EFFORTS,
   selectPreferredModel,
   setStoredDefaultModel,
+  setStoredReasoningEffort,
+  type ReasoningEffort,
 } from "@/lib/modelPreference";
 import { getClientStorageItem, setClientStorageItem } from "@/lib/platform";
 import { useI18n } from "@/i18n";
@@ -199,9 +202,10 @@ export default function Home() {
   const [authUserIdError, setAuthUserIdError] = useState<string | null>(null);
 
   // ── Model state ──
-  const [models, setModels] = useState<{ id: string; owned_by: string }[]>([]);
+  const [models, setModels] = useState<ModelOption[]>([]);
   const [selectedModel, setSelectedModel] = useState("codex-medium");
   const [defaultModel, setDefaultModel] = useState("codex-medium");
+  const [selectedReasoningEffort, setSelectedReasoningEffort] = useState<ReasoningEffort>("medium");
   const [openModelDropdown, setOpenModelDropdown] = useState<"composer" | null>(null);
 
   // ── User identity ──
@@ -662,6 +666,7 @@ export default function Home() {
     setSelectedRequiredSkillId,
   } = useChatRun({
     selectedModel,
+    selectedReasoningEffort,
     onSelectedModelChange: handleSessionDetailModelChange,
     onAuthExpired: handleAuthExpired,
     onWorkspaceRefresh: handleWorkspaceRefresh,
@@ -912,6 +917,7 @@ export default function Home() {
           );
           setDefaultModel(preferredModel);
           setSelectedModel(preferredModel);
+          setSelectedReasoningEffort(getStoredReasoningEffort(currentUserId));
         }
         const loadedSessions = await loadSessions();
         if (loadedSessions.length > 0) {
@@ -1137,22 +1143,6 @@ export default function Home() {
     [refreshAgentContacts, runAgentDelegationAction]
   );
 
-  const handleEnsureDirectConversation = useCallback(
-    async (contactUserId: string) => {
-      const nextContactUserId = contactUserId.trim();
-      if (!nextContactUserId) return;
-      await runAgentDelegationAction(`conversation:${nextContactUserId}`, async () => {
-        const conversation = await createDirectConversation(nextContactUserId);
-        setConversationByContactUserId((current) => ({
-          ...current,
-          [nextContactUserId]: conversation,
-        }));
-        await refreshConversationMessages(conversation.conversationId);
-      });
-    },
-    [refreshConversationMessages, runAgentDelegationAction]
-  );
-
   const handleOpenCollaborationChat = useCallback(
     async (contactUserId: string) => {
       const nextContactUserId = contactUserId.trim();
@@ -1173,34 +1163,6 @@ export default function Home() {
         setMobileMotionDirection(1);
         setMobileSessionMode("chat");
         setSessionScrollToBottomRequest((request) => request + 1);
-      });
-    },
-    [refreshConversationMessages, runAgentDelegationAction]
-  );
-
-  const handleSendConversationMessage = useCallback(
-    async (conversationId: string, text: string) => {
-      const nextText = text.trim();
-      if (!conversationId || !nextText) return;
-      await runAgentDelegationAction(`conversation-message:${conversationId}`, async () => {
-        await createConversationMessage(conversationId, nextText);
-        await refreshConversationMessages(conversationId, { markRead: true });
-      });
-    },
-    [refreshConversationMessages, runAgentDelegationAction]
-  );
-
-  const handleCreateAgentInvocation = useCallback(
-    async (conversationId: string, input: AgentInvocationCreateInput) => {
-      const prompt = input.prompt.trim();
-      if (!conversationId || !input.targetUserId.trim() || !prompt) return;
-      await runAgentDelegationAction(`agent-invocation:${conversationId}`, async () => {
-        await createAgentInvocation(conversationId, {
-          ...input,
-          prompt,
-          targetUserId: input.targetUserId.trim(),
-        });
-        await refreshConversationMessages(conversationId, { markRead: true });
       });
     },
     [refreshConversationMessages, runAgentDelegationAction]
@@ -1227,7 +1189,7 @@ export default function Home() {
   );
 
   const handleCreateAgentDelegationFromContacts = useCallback(
-    async (input: ContactDelegationCreateInput) => {
+    async (input: DelegationDraft) => {
       const requesterSession = await createNewSession(defaultModel, activeContextFolderPath, {
         refresh: false,
       });
@@ -1709,6 +1671,21 @@ export default function Home() {
   const shouldPatchSelectedSessionModel = Boolean(sessionId && selectedWorkbenchSession);
   const handleSelectModel = useCallback(
     (model: string) => {
+      const targetModel = models.find((candidate) => candidate.id === model);
+      const supportedEfforts = (targetModel?.supported_reasoning_efforts || []).filter(
+        (effort): effort is ReasoningEffort => REASONING_EFFORTS.includes(effort as ReasoningEffort)
+      );
+      if (supportedEfforts.length > 0 && !supportedEfforts.includes(selectedReasoningEffort)) {
+        const defaultEffort = targetModel?.default_reasoning_effort;
+        const fallbackEffort =
+          defaultEffort && supportedEfforts.includes(defaultEffort as ReasoningEffort)
+            ? (defaultEffort as ReasoningEffort)
+            : supportedEfforts[0];
+        if (fallbackEffort) {
+          setSelectedReasoningEffort(fallbackEffort);
+          setStoredReasoningEffort(userId, fallbackEffort);
+        }
+      }
       setSelectedModel(model);
       rememberSelectedModelOverride(model);
       persistDefaultModel(model);
@@ -1720,9 +1697,12 @@ export default function Home() {
     [
       persistDefaultModel,
       rememberSelectedModelOverride,
+      models,
+      selectedReasoningEffort,
       sessionId,
       shouldPatchSelectedSessionModel,
       updateSessionById,
+      userId,
     ]
   );
   const handleToggleComposerModelDropdown = useCallback(() => {
@@ -1731,6 +1711,14 @@ export default function Home() {
   const handleCloseModelDropdown = useCallback(() => {
     setOpenModelDropdown(null);
   }, []);
+  const handleSelectReasoningEffort = useCallback(
+    (effort: ReasoningEffort) => {
+      setSelectedReasoningEffort(effort);
+      setStoredReasoningEffort(userId, effort);
+      setOpenModelDropdown(null);
+    },
+    [userId]
+  );
   const selectedSessionListItemId = selectedCollaborationSessionId || sessionId;
   const activePendingMobileSession =
     pendingMobileSession && pendingMobileSession.sessionId !== selectedSessionListItemId
@@ -1992,6 +1980,7 @@ export default function Home() {
       isComposerBlocked={isComposerBlocked}
       focusToken={inputFocusToken}
       selectedModel={sessionPageSelectedModel}
+      selectedReasoningEffort={selectedReasoningEffort}
       models={models}
       isModelDropdownOpen={openModelDropdown === "composer"}
       availableSkills={availableSkills}
@@ -2010,6 +1999,7 @@ export default function Home() {
       onToggleModelDropdown={handleToggleComposerModelDropdown}
       onCloseModelDropdown={handleCloseModelDropdown}
       onSelectModel={handleSelectModel}
+      onSelectReasoningEffort={handleSelectReasoningEffort}
       onLoadSkills={loadAvailableSkills}
       onSelectRequiredSkill={setSelectedRequiredSkillId}
       onSend={handleSendSessionPageMessage}
@@ -2085,6 +2075,13 @@ export default function Home() {
         onOpenSession={handleOpenTaskSession}
         onCreateScheduledTaskChat={handleCreateScheduledTaskChat}
         onEditScheduledTaskChat={handleEditScheduledTaskChat}
+        contacts={agentContacts}
+        sentDelegations={sentAgentDelegations}
+        receivedDelegations={receivedAgentDelegations}
+        delegationActionKey={agentDelegationActionKey}
+        onCreateDelegation={handleCreateAgentDelegationFromContacts}
+        onAcceptDelegation={handleAcceptAgentDelegation}
+        onRejectDelegation={handleRejectAgentDelegation}
       />
     ) : activeView === "contacts" ? (
       <ContactsPage
@@ -2093,31 +2090,15 @@ export default function Home() {
         contacts={agentContacts}
         sentContactRequests={sentAgentContactRequests}
         receivedContactRequests={receivedAgentContactRequests}
-        sentDelegations={sentAgentDelegations}
-        receivedDelegations={receivedAgentDelegations}
         pendingActionKey={agentDelegationActionKey}
         onAddContact={handleAddAgentContact}
         onUpdateContact={handleUpdateAgentContact}
         onRemoveContact={handleRemoveAgentContact}
-        onCreateDelegation={handleCreateAgentDelegationFromContacts}
         onAcceptContactRequest={handleAcceptAgentContactRequest}
         onRejectContactRequest={handleRejectAgentContactRequest}
-        onAcceptDelegation={handleAcceptAgentDelegation}
-        onRejectDelegation={handleRejectAgentDelegation}
-        onOpenSession={handleOpenTaskSession}
-        conversationByContactUserId={conversationByContactUserId}
-        conversationMessagesById={conversationMessagesById}
-        onEnsureDirectConversation={handleEnsureDirectConversation}
         onOpenConversation={handleOpenCollaborationChat}
-        onSendConversationMessage={handleSendConversationMessage}
-        onCreateAgentInvocation={handleCreateAgentInvocation}
         onRefresh={async () => {
-          await Promise.all([
-            refreshAgentContacts(),
-            refreshAgentContactRequests(),
-            refreshAgentDelegations(),
-            refreshAgentConversations(),
-          ]);
+          await Promise.all([refreshAgentContacts(), refreshAgentContactRequests()]);
         }}
       />
     ) : activeView === "skills" ? (

@@ -1,6 +1,10 @@
 export interface ModelOption {
   id: string;
   owned_by: string;
+  display_name?: string;
+  description?: string;
+  supported_reasoning_efforts?: string[];
+  default_reasoning_effort?: string;
 }
 
 export const MODEL_DISPLAY_MAPPING: Record<string, string> = {
@@ -10,8 +14,10 @@ export const MODEL_DISPLAY_MAPPING: Record<string, string> = {
   "codex-xhigh": "Ultra",
 };
 
-export function formatModelName(id: string): string {
-  return MODEL_DISPLAY_MAPPING[id] ?? id;
+export function formatModelName(model: string | Pick<ModelOption, "id" | "display_name">): string {
+  if (typeof model !== "string")
+    return model.display_name || MODEL_DISPLAY_MAPPING[model.id] || model.id;
+  return MODEL_DISPLAY_MAPPING[model] ?? model;
 }
 
 const CODEX_MODEL_ORDER = ["codex-low", "codex-medium", "codex-high", "codex-xhigh"];

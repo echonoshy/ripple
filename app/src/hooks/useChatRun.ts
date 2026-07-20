@@ -90,6 +90,7 @@ export interface ChatRunSessionActions {
 
 interface UseChatRunOptions {
   selectedModel: string;
+  selectedReasoningEffort: string;
   onSelectedModelChange: (model: string, sessionId?: string | null) => void;
   onAuthExpired: (message: string) => void;
   onWorkspaceRefresh: () => void;
@@ -136,6 +137,7 @@ interface ConnectorAuthPollOptions {
 
 export function useChatRun({
   selectedModel,
+  selectedReasoningEffort,
   onSelectedModelChange,
   onAuthExpired,
   onWorkspaceRefresh,
@@ -1079,6 +1081,7 @@ export function useChatRun({
           signal: abortController.signal,
           files: filesForSend,
           requiredSkillIds: manualRequiredSkillIds.length > 0 ? manualRequiredSkillIds : undefined,
+          reasoningEffort: selectedReasoningEffort,
           browserContext,
         });
         if (selectedRequiredSkillId) setSelectedRequiredSkillId(null);
@@ -1102,6 +1105,7 @@ export function useChatRun({
       selectedRequiredSkillId,
       runtimeTimelineEvents,
       selectedModel,
+      selectedReasoningEffort,
       refreshSessionDetails,
       clearSessionRunning,
       clearPendingLocalImages,

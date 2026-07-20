@@ -7,6 +7,8 @@ import {
   Blocks,
   Bot,
   BrainCircuit,
+  ChevronLeft,
+  ChevronRight,
   FileText,
   FolderGit2,
   Image as ImageIcon,
@@ -19,7 +21,8 @@ import {
 import { useI18n } from "@/i18n";
 import type { ChatFileRef } from "@/lib/chatInput";
 import { shouldApplyInputFocus } from "@/lib/inputFocus";
-import { formatModelName } from "@/lib/models";
+import { formatModelName, type ModelOption } from "@/lib/models";
+import { REASONING_EFFORTS, type ReasoningEffort } from "@/lib/modelPreference";
 import type { SkillInfo } from "@/types";
 import {
   filesFromClipboardData,
@@ -27,11 +30,7 @@ import {
   type PendingImageSource,
   type PendingLocalImage,
 } from "@/lib/pendingImages";
-import {
-  getMeasuredViewportMenuPosition,
-  getResponsiveMenuBottomInsetPx,
-  type ViewportMenuAnchorRect,
-} from "@/lib/menuPosition";
+import { getMeasuredViewportMenuPosition, type ViewportMenuAnchorRect } from "@/lib/menuPosition";
 import WorkspaceFolderPicker from "./WorkspaceFolderPicker";
 import {
   LUCIDE_STANDARD_STROKE_WIDTH,
@@ -62,11 +61,15 @@ interface SessionComposerProps {
   hasSession: boolean;
   focusToken: number;
   selectedModel: string;
-  models: { id: string; owned_by: string }[];
+  selectedReasoningEffort?: ReasoningEffort;
+  models: ModelOption[];
   isModelDropdownOpen: boolean;
+  showModelButton?: boolean;
+  modelMenuAnchorRefs?: Array<React.RefObject<HTMLElement | null>>;
   onToggleModelDropdown: () => void;
   onCloseModelDropdown: () => void;
   onSelectModel: (model: string) => void;
+  onSelectReasoningEffort?: (effort: ReasoningEffort) => void;
   contextFolderPath?: string | null;
   workspaceScopeLabel?: string;
   workspaceScopePath?: string;
@@ -101,9 +104,10 @@ const COMPOSER_ICON_BUTTON_ACTIVE_CLASS =
 const COMPOSER_SEND_BUTTON_BASE_CLASS =
   "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-transparent transition-colors focus-visible:ring-2 focus-visible:ring-[#BACEFD] focus-visible:outline-none disabled:cursor-not-allowed lg:h-8 lg:w-8 lg:rounded-lg";
 
-const MODEL_MENU_WIDTH = 192;
+const MODEL_MENU_WIDTH = 272;
 const MODEL_MENU_ITEM_HEIGHT = 32;
 const MODEL_MENU_VERTICAL_PADDING = 8;
+const MODEL_MENU_SECTION_HEIGHT = 72;
 
 function skillDisplayName(skill: SkillInfo): string {
   return skill.display_name || skill.name;
@@ -175,8 +179,19 @@ interface ModelMenuPosition {
   measuredHeight: number | null;
 }
 
-function modelMenuHeight(optionCount: number): number {
-  return optionCount * MODEL_MENU_ITEM_HEIGHT + MODEL_MENU_VERTICAL_PADDING;
+function modelMenuHeight(
+  page: "models" | "reasoning",
+  optionCount: number,
+  effortCount: number
+): number {
+  if (page === "models") {
+    return optionCount * MODEL_MENU_ITEM_HEIGHT + MODEL_MENU_VERTICAL_PADDING * 2 + 30;
+  }
+  return (
+    effortCount * MODEL_MENU_ITEM_HEIGHT +
+    MODEL_MENU_VERTICAL_PADDING * 2 +
+    MODEL_MENU_SECTION_HEIGHT
+  );
 }
 
 function rectToViewportAnchor(rect: DOMRect): ViewportMenuAnchorRect {
@@ -190,17 +205,19 @@ function rectToViewportAnchor(rect: DOMRect): ViewportMenuAnchorRect {
 
 function getComposerModelMenuPosition(
   anchorRect: ViewportMenuAnchorRect,
+  page: "models" | "reasoning",
   optionCount: number,
+  effortCount: number,
   measuredHeight?: number | null
 ): ModelMenuPosition {
   const position = getMeasuredViewportMenuPosition({
     anchorRect,
     menuWidth: MODEL_MENU_WIDTH,
-    estimatedMenuHeight: modelMenuHeight(optionCount),
+    estimatedMenuHeight: modelMenuHeight(page, optionCount, effortCount),
     measuredMenuHeight: measuredHeight,
     viewportWidth: window.innerWidth,
     viewportHeight: window.innerHeight,
-    bottomInset: getResponsiveMenuBottomInsetPx(),
+    bottomInset: 0,
     align: "left",
   });
 
@@ -231,11 +248,15 @@ export default function SessionComposer({
   hasSession,
   focusToken,
   selectedModel,
+  selectedReasoningEffort = "medium",
   models,
   isModelDropdownOpen,
+  showModelButton = true,
+  modelMenuAnchorRefs,
   onToggleModelDropdown,
   onCloseModelDropdown,
   onSelectModel,
+  onSelectReasoningEffort,
   contextFolderPath = null,
   workspaceScopeLabel,
   workspaceScopePath = "/workspace",
@@ -257,6 +278,7 @@ export default function SessionComposer({
   const modelDropdownRef = useRef<HTMLDivElement>(null);
   const modelButtonRef = useRef<HTMLButtonElement>(null);
   const modelMenuRef = useRef<HTMLDivElement>(null);
+  const lastMeasuredModelMenuHeightRef = useRef<number | null>(null);
   const skillDropdownRef = useRef<HTMLDivElement>(null);
   const skillMenuRef = useRef<HTMLDivElement>(null);
   const agentMentionDropdownRef = useRef<HTMLDivElement>(null);
@@ -268,6 +290,8 @@ export default function SessionComposer({
   const [isSkillMenuOpen, setIsSkillMenuOpen] = useState(false);
   const [isAgentMentionMenuOpen, setIsAgentMentionMenuOpen] = useState(false);
   const [modelMenuPosition, setModelMenuPosition] = useState<ModelMenuPosition | null>(null);
+  const [modelMenuPage, setModelMenuPage] = useState<"models" | "reasoning">("models");
+  const [pendingModelId, setPendingModelId] = useState<string | null>(null);
   const isConversationMode = mode === "conversation";
   const canSend = isConversationMode
     ? Boolean(value.trim())
@@ -284,6 +308,16 @@ export default function SessionComposer({
     () => (models.length > 0 ? models : [{ id: selectedModel, owned_by: "ripple" }]),
     [models, selectedModel]
   );
+  const selectedModelOption = availableModels.find((model) => model.id === selectedModel);
+  const pendingModelOption =
+    availableModels.find((model) => model.id === (pendingModelId || selectedModel)) ||
+    selectedModelOption;
+  const supportedReasoningEfforts = useMemo(() => {
+    const supported = pendingModelOption?.supported_reasoning_efforts?.filter(
+      (effort): effort is ReasoningEffort => REASONING_EFFORTS.includes(effort as ReasoningEffort)
+    );
+    return supported?.length ? supported : [...REASONING_EFFORTS];
+  }, [pendingModelOption]);
   const isExpandedComposer = shouldExpandComposer(value, isComposerFocused);
   const selectedRequiredSkill = availableSkills.find(
     (skill) => skill.id === selectedRequiredSkillId
@@ -305,21 +339,28 @@ export default function SessionComposer({
   const updateModelMenuPosition = useCallback(
     (measuredHeight?: number | null) => {
       if (typeof window === "undefined") return null;
-      const anchor = modelButtonRef.current?.getBoundingClientRect();
+      const externalAnchor = modelMenuAnchorRefs
+        ?.map((ref) => ref.current)
+        .find((element) => element && element.getClientRects().length > 0);
+      const anchor = (externalAnchor || modelButtonRef.current)?.getBoundingClientRect();
       if (!anchor) return null;
       const position = getComposerModelMenuPosition(
         rectToViewportAnchor(anchor),
+        modelMenuPage,
         availableModels.length,
+        supportedReasoningEfforts.length,
         measuredHeight
       );
       setModelMenuPosition(position);
       return position;
     },
-    [availableModels.length]
+    [availableModels.length, modelMenuAnchorRefs, modelMenuPage, supportedReasoningEfforts.length]
   );
 
   const closeModelMenu = useCallback(() => {
     setModelMenuPosition(null);
+    setModelMenuPage("models");
+    setPendingModelId(null);
     onCloseModelDropdown();
   }, [onCloseModelDropdown]);
 
@@ -355,9 +396,14 @@ export default function SessionComposer({
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Node)) return;
-      if (modelDropdownRef.current && modelDropdownRef.current.getClientRects().length === 0)
+      if (
+        !modelMenuAnchorRefs?.length &&
+        modelDropdownRef.current &&
+        modelDropdownRef.current.getClientRects().length === 0
+      )
         return;
       if (modelDropdownRef.current?.contains(target)) return;
+      if (modelMenuAnchorRefs?.some((ref) => ref.current?.contains(target))) return;
       if (modelMenuRef.current?.contains(target)) return;
       closeModelMenu();
     };
@@ -376,7 +422,26 @@ export default function SessionComposer({
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("resize", handleResize);
     };
-  }, [closeModelMenu, isModelDropdownOpen]);
+  }, [closeModelMenu, isModelDropdownOpen, modelMenuAnchorRefs]);
+
+  useEffect(() => {
+    if (!isModelDropdownOpen) return;
+    const animationFrame = window.requestAnimationFrame(() => updateModelMenuPosition());
+    return () => window.cancelAnimationFrame(animationFrame);
+  }, [isModelDropdownOpen, updateModelMenuPosition]);
+
+  useEffect(() => {
+    if (!isModelDropdownOpen || !modelMenuRef.current) return;
+    lastMeasuredModelMenuHeightRef.current = null;
+    const observer = new ResizeObserver((entries) => {
+      const measuredHeight = Math.ceil(entries[0]?.contentRect.height || 0);
+      if (!measuredHeight || measuredHeight === lastMeasuredModelMenuHeightRef.current) return;
+      lastMeasuredModelMenuHeightRef.current = measuredHeight;
+      updateModelMenuPosition(measuredHeight);
+    });
+    observer.observe(modelMenuRef.current);
+    return () => observer.disconnect();
+  }, [isModelDropdownOpen, updateModelMenuPosition]);
 
   useEffect(() => {
     if (!isFolderPickerOpen) return;
@@ -494,6 +559,8 @@ export default function SessionComposer({
       closeModelMenu();
       return;
     }
+    setModelMenuPage("models");
+    setPendingModelId(selectedModel);
     updateModelMenuPosition();
     onToggleModelDropdown();
   };
@@ -520,50 +587,133 @@ export default function SessionComposer({
       if (event.pointerType !== "touch") return;
       event.preventDefault();
       touchSelectedModelRef.current = model;
-      onSelectModel(model);
+      setPendingModelId(model);
+      setModelMenuPage("reasoning");
       window.setTimeout(() => {
         if (touchSelectedModelRef.current === model) touchSelectedModelRef.current = null;
       }, 350);
     },
-    [onSelectModel]
+    []
   );
 
-  const handleModelOptionClick = useCallback(
-    (model: string) => {
-      if (touchSelectedModelRef.current === model) {
-        touchSelectedModelRef.current = null;
-        return;
-      }
-      onSelectModel(model);
+  const handleModelOptionClick = useCallback((model: string) => {
+    if (touchSelectedModelRef.current === model) {
+      touchSelectedModelRef.current = null;
+      return;
+    }
+    setPendingModelId(model);
+    setModelMenuPage("reasoning");
+  }, []);
+
+  const handleReasoningEffortOptionClick = useCallback(
+    (effort: ReasoningEffort) => {
+      onSelectModel(pendingModelId || selectedModel);
+      onSelectReasoningEffort?.(effort);
+      closeModelMenu();
     },
-    [onSelectModel]
+    [closeModelMenu, onSelectModel, onSelectReasoningEffort, pendingModelId, selectedModel]
   );
+
+  const reasoningEffortLabel = (effort: ReasoningEffort) => {
+    switch (effort) {
+      case "none":
+        return t("composer.reasoningNone");
+      case "low":
+        return t("composer.reasoningLow");
+      case "high":
+        return t("composer.reasoningHigh");
+      case "xhigh":
+        return t("composer.reasoningXhigh");
+      case "max":
+        return t("composer.reasoningMax");
+      default:
+        return t("composer.reasoningMedium");
+    }
+  };
 
   const modelMenu = (
     <div
       ref={modelMenuRef}
       data-ripple-composer-model-menu
       role="menu"
-      className={`max-h-[calc(100dvh-104px)] w-48 overflow-y-auto ${WORKBENCH_MENU_CLASS}`}
+      aria-label={
+        modelMenuPage === "models"
+          ? t("composer.selectModel")
+          : t("composer.selectReasoningEffortForModel", {
+              model: formatModelName(
+                pendingModelOption || { id: selectedModel, owned_by: "ripple" }
+              ),
+            })
+      }
+      className={`max-h-[calc(100dvh-104px)] w-[272px] overflow-y-auto ${WORKBENCH_MENU_CLASS}`}
     >
-      {availableModels.map((model) => {
-        const selected = selectedModel === model.id;
-        return (
+      {modelMenuPage === "models" ? (
+        <>
+          <div className={`px-2.5 pt-2 pb-1 ${TYPOGRAPHY_MICRO_CLASS} text-[#646A73]`}>
+            {t("composer.model")}
+          </div>
+          {availableModels.map((model) => {
+            const selected = selectedModel === model.id;
+            return (
+              <button
+                key={model.id}
+                type="button"
+                role="menuitem"
+                aria-current={selected ? "true" : undefined}
+                onPointerDown={(event) => handleModelOptionPointerDown(event, model.id)}
+                onClick={() => handleModelOptionClick(model.id)}
+                className={`${WORKBENCH_MENU_ITEM_CLASS} justify-between font-[family-name:var(--font-mono)] ${TYPOGRAPHY_META_CLASS} ${
+                  selected ? "bg-[#F0F5FF] text-[#1456F0]" : "text-[#1F2329]"
+                }`}
+              >
+                <span>{formatModelName(model)}</span>
+                <ChevronRight
+                  size={15}
+                  strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH}
+                  aria-hidden="true"
+                />
+              </button>
+            );
+          })}
+        </>
+      ) : (
+        <>
           <button
-            key={model.id}
             type="button"
-            role="menuitemradio"
-            aria-checked={selected}
-            onPointerDown={(event) => handleModelOptionPointerDown(event, model.id)}
-            onClick={() => handleModelOptionClick(model.id)}
-            className={`${WORKBENCH_MENU_ITEM_CLASS} justify-between font-[family-name:var(--font-mono)] ${TYPOGRAPHY_META_CLASS} ${
-              selected ? "bg-[#F0F5FF] text-[#1456F0]" : "text-[#1F2329]"
-            }`}
+            role="menuitem"
+            onClick={() => setModelMenuPage("models")}
+            className={`${WORKBENCH_MENU_ITEM_CLASS} gap-1.5 px-2.5 ${TYPOGRAPHY_META_CLASS} text-[#1F2329]`}
           >
-            {formatModelName(model.id)}
+            <ChevronLeft size={15} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} aria-hidden="true" />
+            <span>{t("composer.backToModels")}</span>
           </button>
-        );
-      })}
+          <div className={`px-2.5 pt-1 pb-1 ${TYPOGRAPHY_MICRO_CLASS} text-[#646A73]`}>
+            {formatModelName(pendingModelOption || { id: selectedModel, owned_by: "ripple" })}
+          </div>
+          <div className={`px-2.5 pb-1 ${TYPOGRAPHY_MICRO_CLASS} text-[#646A73]`}>
+            {t("composer.reasoningEffort")}
+          </div>
+          <div className="grid grid-cols-2 gap-1 px-2 pb-2">
+            {supportedReasoningEfforts.map((effort) => {
+              const selected = selectedReasoningEffort === effort;
+              return (
+                <button
+                  key={effort}
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={selected}
+                  onClick={() => handleReasoningEffortOptionClick(effort)}
+                  className={`min-h-8 rounded-md px-2 text-left ${TYPOGRAPHY_META_CLASS} transition-colors ${
+                    selected ? "bg-[#F0F5FF] text-[#1456F0]" : "text-[#2B2F36] hover:bg-[#F5F6F7]"
+                  }`}
+                >
+                  {reasoningEffortLabel(effort)}
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
     </div>
   );
 
@@ -749,16 +899,21 @@ export default function SessionComposer({
           </button>
         </div>
       )}
-      {!isConversationMode && (
+      {!isConversationMode && showModelButton && (
         <div ref={modelDropdownRef} className="relative flex shrink-0 items-center">
           <button
             ref={modelButtonRef}
             type="button"
             data-ripple-composer-model-button
-            aria-label={t("composer.selectModel")}
-            title={t("composer.modelTitle", { model: formatModelName(selectedModel) })}
+            aria-label={t("composer.selectModelAndReasoning")}
+            title={t("composer.modelAndReasoningTitle", {
+              model: formatModelName(selectedModelOption || selectedModel),
+              effort: reasoningEffortLabel(selectedReasoningEffort),
+            })}
             onClick={handleModelButtonClick}
-            className={COMPOSER_ICON_BUTTON_CLASS}
+            className={`${COMPOSER_ICON_BUTTON_CLASS} ${
+              isModelDropdownOpen ? COMPOSER_ICON_BUTTON_ACTIVE_CLASS : ""
+            }`}
           >
             <BrainCircuit size={16} strokeWidth={LUCIDE_STANDARD_STROKE_WIDTH} />
           </button>
@@ -784,17 +939,17 @@ export default function SessionComposer({
       placeholder={
         isGenerating
           ? t("composer.working")
-            : isBlocked
-              ? t("composer.draftNextMessage")
-              : isConversationMode
-                ? selectedAgentMentionOption
-                  ? t("contacts.agentTargetPlaceholder", {
-                      name: selectedAgentMentionOption.label,
-                    })
-                  : t("contacts.conversationPlaceholder")
-                : hasSession
-                  ? t("composer.askAnything")
-                  : t("composer.askAnything")
+          : isBlocked
+            ? t("composer.draftNextMessage")
+            : isConversationMode
+              ? selectedAgentMentionOption
+                ? t("contacts.agentTargetPlaceholder", {
+                    name: selectedAgentMentionOption.label,
+                  })
+                : t("contacts.conversationPlaceholder")
+              : hasSession
+                ? t("composer.askAnything")
+                : t("composer.askAnything")
       }
       className={`session-composer-input mb-[2px] max-h-[104px] min-h-10 min-w-0 resize-none bg-transparent px-1.5 py-2 ${TYPOGRAPHY_MOBILE_BODY_CLASS} text-[#1F2329] outline-none [-ms-overflow-style:none] [scrollbar-width:none] placeholder:text-[15px] placeholder:text-[#8F959E] disabled:opacity-60 lg:mb-0 lg:max-h-[180px] lg:min-h-[36px] lg:px-2 lg:py-1.5 lg:text-[14px] lg:leading-[22px] lg:placeholder:text-[#8F959E] [&::-webkit-scrollbar]:hidden [&::-webkit-scrollbar]:h-0 [&::-webkit-scrollbar]:w-0 ${
         isExpandedComposer ? "col-span-2 row-start-1 w-full" : "flex-1"

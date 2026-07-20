@@ -826,6 +826,45 @@ async function testAuthHeadersUseUserSessionWithoutSpoofableUserId() {
   });
 }
 
+async function testFetchModelsUsesCodexRuntimeCatalog() {
+  await withFetch(
+    async (input) => {
+      assert.match(String(input), /\/runtime\/codex$/);
+      return new Response(
+        JSON.stringify({
+          available: true,
+          models: {
+            data: [
+              {
+                id: "gpt-5.6",
+                model: "gpt-5.6",
+                displayName: "GPT-5.6",
+                description: "Frontier model",
+                supportedReasoningEfforts: [{ reasoningEffort: "low" }, { reasoningEffort: "max" }],
+                defaultReasoningEffort: "medium",
+              },
+            ],
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    },
+    async () => {
+      const models = await fetchModels();
+      assert.deepEqual(models, [
+        {
+          id: "gpt-5.6",
+          owned_by: "codex",
+          display_name: "GPT-5.6",
+          description: "Frontier model",
+          supported_reasoning_efforts: ["low", "max"],
+          default_reasoning_effort: "medium",
+        },
+      ]);
+    }
+  );
+}
+
 async function testAuthHeadersKeepServiceKeyUserIdCompatibility() {
   await withBrowserStorage(async () => {
     setApiKey("service-key");
@@ -2318,6 +2357,7 @@ async function testSendChatMessagePassesRequiredSkillsAndScreenContext() {
           },
           {
             requiredSkillIds: ["ripple:viaim-product-support"],
+            reasoningEffort: "high",
             screenContext: {
               app: "ripple",
               screen_id: "session.chat",
@@ -2340,6 +2380,7 @@ async function testSendChatMessagePassesRequiredSkillsAndScreenContext() {
       screen_id: "session.chat",
     },
   });
+  assert.deepEqual(requests[0].body.reasoning, { effort: "high" });
 }
 
 async function testSendChatMessagePassesClientContextOption() {
@@ -2722,6 +2763,7 @@ test("api client behavior", async () => {
   await testAvatarImageRejectsExternalUrlsBeforeAuthFetch();
   await testUpdateUserProfilePatchesDisplayName();
   await testAuthHeadersUseUserSessionWithoutSpoofableUserId();
+  await testFetchModelsUsesCodexRuntimeCatalog();
   await testAuthHeadersKeepServiceKeyUserIdCompatibility();
   testParseWorkspaceLinkDecodesEncodedSandboxPath();
   await testWorkspaceFilePreviewPathNotFoundStaysFileSpecific();

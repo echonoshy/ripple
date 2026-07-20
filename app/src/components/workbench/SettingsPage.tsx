@@ -47,7 +47,7 @@ import {
   VIEWPORT_MENU_MARGIN_PX,
   type ViewportMenuAnchorRect,
 } from "@/lib/menuPosition";
-import { formatModelName } from "@/lib/models";
+import { formatModelName, type ModelOption } from "@/lib/models";
 import {
   dispatchUserAvatarChanged,
   dispatchUserProfileChanged,
@@ -76,7 +76,7 @@ interface SettingsPageProps {
   userId: string;
   apiKey: string | null;
   authMode: "service" | "user";
-  models: { id: string; owned_by: string }[];
+  models: ModelOption[];
   defaultModel: string;
   selectedModel: string;
   onSelectDefaultModel: (model: string) => void;
@@ -261,9 +261,7 @@ export default function SettingsPage({
       if (handleSettingsAuthError(caught)) return;
       setMemoryStatus(null);
       setMemorySummary(null);
-      setMemoryError(
-        caught instanceof Error ? caught.message : t("settings.memory.loadFailed")
-      );
+      setMemoryError(caught instanceof Error ? caught.message : t("settings.memory.loadFailed"));
     }
   }, [handleSettingsAuthError, t]);
 
@@ -647,7 +645,7 @@ export default function SettingsPage({
                       selected ? "bg-[#F0F5FF] text-[#0F4BD8]" : "text-[#2B2F36] hover:bg-[#F8F9FA]"
                     }`}
                   >
-                    {formatModelName(model.id)}
+                    {formatModelName(model)}
                     {selected ? <Check size={13} aria-hidden="true" /> : null}
                   </button>
                 );
@@ -717,7 +715,7 @@ export default function SettingsPage({
         onClose={closeModelMenu}
         actions={availableModels.map((model) => ({
           key: model.id,
-          label: formatModelName(model.id),
+          label: formatModelName(model),
           selected: model.id === defaultModel,
           tone: model.id === defaultModel ? "accent" : "neutral",
           onClick: () => {
@@ -1133,7 +1131,7 @@ export default function SettingsPage({
                     {memorySummaryTruncated ? ` · ${t("settings.memory.truncated")}` : ""}
                   </div>
                   <div
-                    className={`max-h-52 overflow-y-auto whitespace-pre-wrap rounded-md border border-[#EFF0F1] bg-white px-2 py-1.5 text-[#2B2F36] ${TYPOGRAPHY_META_CLASS}`}
+                    className={`max-h-52 overflow-y-auto rounded-md border border-[#EFF0F1] bg-white px-2 py-1.5 whitespace-pre-wrap text-[#2B2F36] ${TYPOGRAPHY_META_CLASS}`}
                   >
                     {memorySummaryText || t("settings.memory.noSummary")}
                   </div>

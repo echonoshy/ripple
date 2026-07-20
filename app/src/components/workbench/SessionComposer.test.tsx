@@ -106,6 +106,8 @@ function testComposerRendersChineseStaticCopy() {
 
   assert.match(html, /aria-label="附加文件"/);
   assert.match(html, /aria-label="选择模型"/);
+  assert.match(html, />模型</);
+  assert.doesNotMatch(html, />思考深度</);
   assert.match(html, /aria-label="发送消息"/);
   assert.match(html, /placeholder="问任何问题..."/);
   assert.match(html, />正在上传文件</);
@@ -216,6 +218,7 @@ function testComposerModelMenuUsesViewportPortal() {
   assert.match(source, /position: "fixed"/);
   assert.match(source, /modelMenuRef/);
   assert.match(source, /modelButtonRef/);
+  assert.match(source, /bottomInset: 0/);
   assert.doesNotMatch(modelMenuBlock, /absolute bottom-full left-0/);
 }
 
@@ -223,8 +226,8 @@ function testComposerModelButtonHasStableExplainerAnchor() {
   const html = renderComposer();
 
   assert.match(html, /data-ripple-composer-model-button/);
-  assert.match(html, /aria-label="Select model"/);
-  assert.match(html, /title="Model: Pro"/);
+  assert.match(html, /aria-label="Select model and reasoning effort"/);
+  assert.match(html, /title="Model: Pro; reasoning effort: Medium"/);
 }
 
 function testComposerShowsRequiredSkillPickerChip() {
@@ -330,13 +333,39 @@ function testComposerModelMenuSelectsOnTouchPointerDown() {
   assert.match(source, /onClick=\{\(\) => handleModelOptionClick\(model\.id\)\}/);
 }
 
+function testComposerUsesTwoLevelModelAndReasoningMenu() {
+  const source = readFileSync(new URL("./SessionComposer.tsx", import.meta.url), "utf8");
+
+  assert.match(
+    source,
+    /const \[modelMenuPage, setModelMenuPage\] = useState<"models" \| "reasoning">\("models"\)/
+  );
+  assert.match(source, /setModelMenuPage\("reasoning"\)/);
+  assert.match(source, /onSelectModel\(pendingModelId \|\| selectedModel\)/);
+  assert.match(source, /setModelMenuPage\("models"\)/);
+  assert.match(source, /t\("composer\.backToModels"\)/);
+  assert.match(source, /pendingModelOption\?\.supported_reasoning_efforts/);
+}
+
+function testComposerCanUseAnExternalModelMenuAnchor() {
+  const source = readFileSync(new URL("./SessionComposer.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /showModelButton\?: boolean/);
+  assert.match(source, /modelMenuAnchorRefs\?: Array<React\.RefObject<HTMLElement \| null>>/);
+  assert.match(
+    source,
+    /modelMenuAnchorRefs\?\.some\(\(ref\) => ref\.current\?\.contains\(target\)\)/
+  );
+  assert.match(source, /!isConversationMode && showModelButton && \(/);
+}
+
 function testComposerModelMenuClosesWithExplicitCloseCallback() {
   const source = readFileSync(new URL("./SessionComposer.tsx", import.meta.url), "utf8");
 
   assert.match(source, /onCloseModelDropdown: \(\) => void/);
   assert.match(
     source,
-    /const closeModelMenu = useCallback\(\(\) => \{\s*setModelMenuPosition\(null\);\s*onCloseModelDropdown\(\);/
+    /const closeModelMenu = useCallback\(\(\) => \{\s*setModelMenuPosition\(null\);\s*setModelMenuPage\("models"\);\s*setPendingModelId\(null\);\s*onCloseModelDropdown\(\);/
   );
   assert.doesNotMatch(
     source,
@@ -349,7 +378,7 @@ function testHiddenComposerDoesNotCloseVisibleModelMenu() {
 
   assert.match(
     source,
-    /if \(modelDropdownRef\.current &&\s*modelDropdownRef\.current\.getClientRects\(\)\.length === 0\)\s*return;/
+    /!modelMenuAnchorRefs\?\.length &&\s*modelDropdownRef\.current &&\s*modelDropdownRef\.current\.getClientRects\(\)\.length === 0/
   );
 }
 
@@ -495,6 +524,8 @@ testComposerKeepsGogSubSkillsWhenNoSharedEntryExists();
 testComposerShowsSharedGogSelectionAsGog();
 testComposerDoesNotExposeClientContextFixturePicker();
 testComposerModelMenuSelectsOnTouchPointerDown();
+testComposerUsesTwoLevelModelAndReasoningMenu();
+testComposerCanUseAnExternalModelMenuAnchor();
 testComposerModelMenuClosesWithExplicitCloseCallback();
 testHiddenComposerDoesNotCloseVisibleModelMenu();
 testComposerExpandsActionsBelowTextAfterInput();

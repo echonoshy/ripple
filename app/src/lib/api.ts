@@ -44,6 +44,7 @@ import {
   UserProfile,
 } from "@/types";
 import { buildChatMessageContent, type ChatFileRef } from "@/lib/chatInput";
+import type { ModelOption } from "@/lib/models";
 import { readableApiErrorMessage } from "@/lib/apiErrors";
 import {
   API_URL,
@@ -1071,7 +1072,48 @@ function normalizeAgentInvocation(raw: RawAgentInvocation): AgentInvocation {
   };
 }
 
-export async function fetchModels(): Promise<{ id: string; owned_by: string }[]> {
+function runtimeModelsFromPayload(payload: unknown): ModelOption[] {
+  if (!isRecord(payload) || !isRecord(payload.models) || !Array.isArray(payload.models.data)) {
+    return [];
+  }
+
+  return payload.models.data.flatMap((item) => {
+    if (!isRecord(item)) return [];
+    const model = typeof item.model === "string" ? item.model : item.id;
+    if (typeof model !== "string" || !model) return [];
+    const supportedReasoningEfforts = Array.isArray(item.supportedReasoningEfforts)
+      ? item.supportedReasoningEfforts.flatMap((effort) =>
+          isRecord(effort) && typeof effort.reasoningEffort === "string"
+            ? [effort.reasoningEffort]
+            : []
+        )
+      : [];
+    return [
+      {
+        id: model,
+        owned_by: "codex",
+        display_name: typeof item.displayName === "string" ? item.displayName : model,
+        description: typeof item.description === "string" ? item.description : undefined,
+        supported_reasoning_efforts: supportedReasoningEfforts,
+        default_reasoning_effort:
+          typeof item.defaultReasoningEffort === "string" ? item.defaultReasoningEffort : undefined,
+      },
+    ];
+  });
+}
+
+export async function fetchModels(): Promise<ModelOption[]> {
+  try {
+    const runtimeRes = await fetch(`${API_URL}/runtime/codex`, { headers: { ...authHeaders() } });
+    if (runtimeRes.status === 401) throw new AuthError();
+    if (runtimeRes.ok) {
+      const runtimeModels = runtimeModelsFromPayload(await runtimeRes.json());
+      if (runtimeModels.length > 0) return runtimeModels;
+    }
+  } catch (error) {
+    if (error instanceof AuthError) throw error;
+  }
+
   const res = await fetch(`${API_URL}/models`, { headers: { ...authHeaders() } });
   if (res.status === 401) throw new AuthError();
   if (!res.ok) throw new Error("Failed to fetch models");
@@ -2250,6 +2292,7 @@ interface SendChatMessageOptions {
   signal?: AbortSignal;
   files?: ChatFileRef[];
   requiredSkillIds?: string[];
+  reasoningEffort?: string;
   screenContext?: ChatScreenContext;
   clientContext?: ChatClientContext | null;
   browserContext?: ChatBrowserContext | null;
@@ -2643,6 +2686,7 @@ export async function sendChatMessage(
       stream: true,
       previous_response_id: responseIdForSession(sessionId),
       metadata,
+      reasoning: options?.reasoningEffort ? { effort: options.reasoningEffort } : undefined,
     },
     callbacks,
     { signal: options?.signal }

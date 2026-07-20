@@ -38,6 +38,7 @@ function testFormatModelNameKnown() {
 
 function testFormatModelNameFallback() {
   assert.equal(formatModelName("custom-model"), "custom-model");
+  assert.equal(formatModelName({ id: "gpt-5.6", display_name: "GPT-5.6" }), "GPT-5.6");
   assert.equal(formatModelName(""), "");
 }
 

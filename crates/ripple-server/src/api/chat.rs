@@ -786,43 +786,19 @@ fn task_progress_data(task_id: &str, req_id: Option<&str>, content: impl Into<St
 
 fn task_progress_content(event: &Value) -> Option<String> {
     if let Some(plan_event) = extract_plan_update_event(event) {
-        let completed = plan_event
-            .pointer("/progress/completed")
-            .and_then(Value::as_u64)?;
-        let total = plan_event
-            .pointer("/progress/total")
-            .and_then(Value::as_u64)?;
-        let current_task = plan_event
-            .pointer("/progress/currentTask")
+        return plan_event
+            .get("explanation")
             .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty());
-        return Some(match current_task {
-            Some(current_task) => {
-                format!("正在执行第 {}/{} 步：{current_task}", completed + 1, total)
-            }
-            None if total > 0 => format!("执行进度：{completed}/{total} 步已完成"),
-            None => "正在规划执行步骤…".to_string(),
-        });
+            .filter(|value| !value.is_empty())
+            .or_else(|| {
+                plan_event
+                    .pointer("/progress/currentTask")
+                    .and_then(Value::as_str)
+                    .filter(|value| !value.is_empty())
+            })
+            .map(str::to_string);
     }
-
-    let tool_event = extract_tool_event(event)?;
-    match tool_event.get("type").and_then(Value::as_str) {
-        Some("tool_call") => {
-            let name = tool_event.get("name").and_then(Value::as_str).unwrap_or("");
-            if name == "codex_app.task_execution_confirmed" {
-                return None;
-            }
-            let label = match name {
-                "command_execution" => "命令操作",
-                "file_change" => "文件处理",
-                _ => "任务步骤",
-            };
-            Some(format!("正在执行{label}…"))
-        }
-        Some("tool_result") => Some("已完成一个执行步骤，正在继续处理…".to_string()),
-        _ => None,
-    }
+    None
 }
 
 fn task_execution_active(session: &SessionRecord) -> bool {
@@ -1055,7 +1031,6 @@ fn spawn_task_session_monitor(
             Instant::now() + Duration::from_secs(state.config.codex.max_runtime_seconds.max(1) + 5);
         let mut event_offset = 0_usize;
         let mut last_progress_content = None::<String>;
-        let mut last_progress_sent_at = Instant::now() - Duration::from_secs(1);
         loop {
             let info = state
                 .jobs
@@ -1082,9 +1057,7 @@ fn spawn_task_session_monitor(
                     let Some(content) = task_progress_content(&event) else {
                         continue;
                     };
-                    if last_progress_content.as_deref() == Some(content.as_str())
-                        || last_progress_sent_at.elapsed() < Duration::from_secs(1)
-                    {
+                    if last_progress_content.as_deref() == Some(content.as_str()) {
                         continue;
                     }
                     dispatch_task_callback(
@@ -1092,7 +1065,6 @@ fn spawn_task_session_monitor(
                         task_progress_data(&task_id, req_id.as_deref(), content.clone()),
                     );
                     last_progress_content = Some(content);
-                    last_progress_sent_at = Instant::now();
                 }
             }
             if let Some(approval) = info.pending_approval.clone() {
@@ -1269,15 +1241,6 @@ fn spawn_task_session_monitor(
                     );
                 }
                 return;
-            }
-            if last_progress_sent_at.elapsed() >= Duration::from_secs(10) {
-                let content = "任务仍在执行，请稍候…".to_string();
-                dispatch_task_callback(
-                    &session,
-                    task_progress_data(&task_id, req_id.as_deref(), content.clone()),
-                );
-                last_progress_content = Some(content);
-                last_progress_sent_at = Instant::now();
             }
             if Instant::now() >= deadline {
                 return;
@@ -3659,7 +3622,7 @@ mod tests {
     }
 
     #[test]
-    fn task_progress_uses_plan_updates_without_exposing_raw_tool_output() {
+    fn task_progress_forwards_the_raw_plan_step() {
         let event = json!({
             "type": "codex.notification",
             "data": {
@@ -3675,7 +3638,24 @@ mod tests {
 
         assert_eq!(
             task_progress_content(&event).as_deref(),
-            Some("正在执行第 1/1 步：读取项目文件")
+            Some("读取项目文件")
+        );
+    }
+
+    #[test]
+    fn task_progress_prefers_the_raw_plan_explanation() {
+        let event = json!({
+            "type": "codex.notification",
+            "data": {"message": {"method": "turn/plan/updated", "params": {
+                "turnId": "turn-1",
+                "explanation": "I will verify the source tasks before creating them.",
+                "plan": [{"step": "Create tasks", "status": "inProgress"}]
+            }}}
+        });
+
+        assert_eq!(
+            task_progress_content(&event).as_deref(),
+            Some("I will verify the source tasks before creating them.")
         );
     }
 

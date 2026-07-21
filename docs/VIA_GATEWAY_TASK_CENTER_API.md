@@ -73,7 +73,7 @@ Content-Type: application/json
 
 确认前的普通澄清、普通提问和确认提示只发送 `response.output_text.delta` 与 `[DONE]`，不会发送 callback。
 
-确认后执行期间，服务还可能通过 Callback 发送临时进度事件。它保持原有字段形状，但 `event` 为 `task.status.tmp`、`status` 固定为 `running`；调用方只展示其 `content`，不得把它当作任务结束或持久状态转换。
+确认后执行期间，服务还可能通过 Callback 发送临时进度事件。它保持原有字段形状，但 `event` 为 `task.status.tmp`、`status` 固定为 `running`；调用方只展示其 `content`，不得把它当作任务结束或持久状态转换。`content` 优先直接使用模型计划说明 `explanation`，缺失时直接使用模型当前计划步骤 `currentTask`；服务不翻译、不添加前后缀，也不会根据工具调用或工具输出生成临时文案。
 
 ## 4. SSE 协议
 
@@ -139,18 +139,18 @@ data: [DONE]
   "task_id": "task_001",
   "req_id": "req_004",
   "status": "running",
-  "content": "正在读取项目文件…"
+  "content": "I will verify the source tasks before creating them."
 }
 ```
 
-中间展示的临时过程：
+如果模型没有提供计划说明，服务原样使用当前计划步骤：
 ```json
  {
     "event": "task.status.tmp",
     "task_id": "task_001",
     "req_id": "req_004",
     "status": "running",
-    "content": "正在读取项目文件…"
+    "content": "Create Feishu tasks"
   }
 ```
 

@@ -61,9 +61,6 @@ fn thread_permission_config_with_user(
         workspace_root.join(".tmp").to_string_lossy().to_string(),
         json!("write"),
     );
-    for agents_file in ancestor_agent_files(workspace_root, &permission_root) {
-        filesystem.insert(agents_file.to_string_lossy().to_string(), json!("read"));
-    }
     let permission_root_access = if context_scope
         .as_ref()
         .is_some_and(|scope| scope.context_root_read_only())
@@ -264,30 +261,6 @@ fn current_user_sandbox_dir(
         return None;
     }
     Some(sandbox_dir.to_path_buf())
-}
-
-fn ancestor_agent_files(workspace_root: &Path, permission_root: &Path) -> Vec<PathBuf> {
-    let workspace_root = normalize_path_for_permission(workspace_root);
-    let permission_root = normalize_path_for_permission(permission_root);
-    let Ok(relative) = permission_root.strip_prefix(&workspace_root) else {
-        return Vec::new();
-    };
-    let mut dirs = vec![workspace_root.clone()];
-    let mut current = workspace_root;
-    for component in relative.components() {
-        match component {
-            Component::Normal(part) => {
-                current.push(part);
-                dirs.push(current.clone());
-            }
-            Component::CurDir => {}
-            _ => break,
-        }
-    }
-    dirs.into_iter()
-        .map(|dir| dir.join("AGENTS.md"))
-        .filter(|path| path_exists_for_permission_rule(path))
-        .collect()
 }
 
 fn current_user_id(user_id: Option<&str>, workspace: &Path, config: &AppConfig) -> Option<String> {
@@ -563,18 +536,18 @@ mod tests {
             filesystem.get(workspace.join(".tmp").to_string_lossy().as_ref()),
             Some(&json!("write"))
         );
-        assert_eq!(
-            filesystem.get(workspace.join("AGENTS.md").to_string_lossy().as_ref()),
-            Some(&json!("read"))
+        assert!(
+            !filesystem.contains_key(workspace.join("AGENTS.md").to_string_lossy().as_ref()),
+            "Codex app-server rejects an exact file path with read access"
         );
-        assert_eq!(
-            filesystem.get(
+        assert!(
+            !filesystem.contains_key(
                 workspace
                     .join("spaces/a/AGENTS.md")
                     .to_string_lossy()
                     .as_ref()
             ),
-            Some(&json!("read"))
+            "Codex app-server rejects an exact file path with read access"
         );
         assert!(!filesystem.contains_key(sibling.to_string_lossy().as_ref()));
 

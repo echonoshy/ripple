@@ -15,6 +15,7 @@ use crate::sessions::SessionRecord;
 
 mod auth;
 mod jobs;
+mod prepared_mail;
 mod schema;
 mod task_triggers;
 mod tasks;
@@ -1000,6 +1001,52 @@ mod tests {
         );
         assert_eq!(loaded.total_output_tokens, 2);
         assert_eq!(loaded.codex_synced_message_count, 1);
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn prepared_feishu_mail_can_only_be_claimed_once() -> anyhow::Result<()> {
+        let root =
+            std::env::temp_dir().join(format!("ripple-storage-test-{}", uuid::Uuid::new_v4()));
+        let storage = Storage::open(root.join(".ripple/ripple.sqlite"))?;
+        let record = serde_json::json!({
+            "prepared_mail_id": "mail-test",
+            "user_id": "alice",
+            "session_id": "task-session",
+            "status": "prepared",
+            "created_at": "2026-07-21T00:00:00Z",
+            "updated_at": "2026-07-21T00:00:00Z",
+            "to": ["alice@example.com"],
+            "subject": "测试",
+            "html": "<p>测试</p>"
+        });
+        storage.create_prepared_feishu_mail(&record).await?;
+
+        let first = storage
+            .claim_prepared_feishu_mail_for_send(
+                "alice",
+                "task-session",
+                "mail-test",
+                "2026-07-21T00:01:00Z",
+            )
+            .await?
+            .expect("prepared mail");
+        assert_eq!(first.get("status").and_then(Value::as_str), Some("sending"));
+        let second = storage
+            .claim_prepared_feishu_mail_for_send(
+                "alice",
+                "task-session",
+                "mail-test",
+                "2026-07-21T00:02:00Z",
+            )
+            .await?
+            .expect("claimed mail");
+        assert_eq!(
+            second.get("status").and_then(Value::as_str),
+            Some("sending")
+        );
 
         let _ = std::fs::remove_dir_all(root);
         Ok(())

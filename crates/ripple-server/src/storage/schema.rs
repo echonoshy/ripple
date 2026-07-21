@@ -1,7 +1,7 @@
 use serde_json::Value;
 use sqlx::{Row, SqlitePool};
 
-pub const CURRENT_SCHEMA_VERSION: i64 = 17;
+pub const CURRENT_SCHEMA_VERSION: i64 = 18;
 
 const SCHEMA_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS sessions (
@@ -123,6 +123,16 @@ CREATE TABLE IF NOT EXISTS file_refs (
     linked_session_id TEXT
 );
 
+CREATE TABLE IF NOT EXISTS prepared_feishu_mails (
+    prepared_mail_id TEXT PRIMARY KEY NOT NULL,
+    user_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    record_json TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS token_usage_events (
     event_id TEXT PRIMARY KEY NOT NULL,
     user_id TEXT NOT NULL,
@@ -216,6 +226,8 @@ CREATE INDEX IF NOT EXISTS idx_documents_user_updated
     ON documents(user_id, updated_at);
 CREATE INDEX IF NOT EXISTS idx_file_refs_user_workspace_path
     ON file_refs(user_id, workspace_path);
+CREATE INDEX IF NOT EXISTS idx_prepared_feishu_mails_user_session_status
+    ON prepared_feishu_mails(user_id, session_id, status);
 CREATE INDEX IF NOT EXISTS idx_token_usage_events_user_occurred
     ON token_usage_events(user_id, occurred_at);
 CREATE INDEX IF NOT EXISTS idx_token_usage_events_user_session
@@ -492,6 +504,7 @@ async fn ensure_schema_migrations(pool: &SqlitePool) -> anyhow::Result<()> {
         (15_i64, "remove_task_session_idempotency"),
         (16_i64, "task_session_response_metadata"),
         (17_i64, "caller_owned_task_response_ids"),
+        (18_i64, "prepared_feishu_mail_v1"),
     ] {
         sqlx::query("INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (?, ?)")
             .bind(version)

@@ -324,6 +324,16 @@ lark-cli mail +send --as user \
 
 撰写邮件正文时，**默认使用 HTML 格式**（body 内容会被自动检测）。仅当用户明确要求纯文本时，才使用 `--plain-text` 标志强制纯文本模式。
 
+#### Ripple Task Session：必须使用受控邮件渲染
+
+当动态工具中提供 `codex_app.prepare_feishu_mail` 和 `codex_app.send_prepared_feishu_mail` 时，邮件发送必须走该链路：
+
+1. 用 Markdown 编写内容，调用 `prepare_feishu_mail`。服务端会将其转为安全、兼容邮箱客户端的 HTML，并返回不可变的完整纯文本预览与 `prepared_mail_id`。
+2. 向用户展示返回的完整预览，明确确认收件人、主题和正文；此时不要创建草稿或调用 `mail +send`。
+3. 用户明确确认后，先调用 `task_execution_confirmed`，再只传入原 `prepared_mail_id` 调用 `send_prepared_feishu_mail`。
+
+不要在 Task Session 中自行拼 HTML，也不要用通用 `codex_app.feishu_cli` 发送邮件。这样可以保证用户确认的内容与最终送达内容完全一致，并阻止确认后修改收件人或正文。
+
 - HTML 支持粗体、列表、链接、段落等富文本排版，收件人阅读体验更好
 - 所有发送类命令（`+send`、`+reply`、`+reply-all`、`+forward`、`+draft-create`）都支持自动检测 HTML，可通过 `--plain-text` 强制纯文本
 - 纯文本仅适用于极简内容（如一句话回复 "收到"）

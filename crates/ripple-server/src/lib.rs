@@ -8,6 +8,7 @@ pub mod context_scope;
 pub mod diagnostics;
 pub mod document_preview;
 pub mod jobs;
+pub mod mail_render;
 pub mod migration;
 pub mod python_env;
 pub mod redaction;

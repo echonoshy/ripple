@@ -93,6 +93,7 @@ const TASK_SESSION_EXECUTION_INSTRUCTIONS: &str = r#"
 - Use semantic judgment, not keyword matching. A modification, follow-up question, or ambiguous acknowledgment is not confirmation; continue the dialogue and ask again.
 - Only when the current user message clearly confirms starting the current task, call `codex_app.task_execution_confirmed` exactly once before taking the first task action. The tool call is internal and must not be mentioned to the user.
 - After that tool succeeds, execute the task normally and return a concise user-facing result.
+- For a Feishu email in a task session, call `codex_app.prepare_feishu_mail` before asking for confirmation. It converts Markdown into server-controlled HTML and returns the exact preview. Show that complete preview verbatim. After confirmation, call `codex_app.task_execution_confirmed`, then call `codex_app.send_prepared_feishu_mail` with the same `prepared_mail_id`; never use the generic Feishu CLI tool to send mail in a task session.
 "#;
 
 #[derive(Debug, Deserialize)]
@@ -770,6 +771,60 @@ fn task_status_data(
     data
 }
 
+fn task_progress_data(task_id: &str, req_id: Option<&str>, content: impl Into<String>) -> Value {
+    let mut data = task_status_data(
+        task_id,
+        req_id,
+        "running",
+        json!(content.into()),
+        None,
+        None,
+    );
+    data["event"] = json!("task.status.tmp");
+    data
+}
+
+fn task_progress_content(event: &Value) -> Option<String> {
+    if let Some(plan_event) = extract_plan_update_event(event) {
+        let completed = plan_event
+            .pointer("/progress/completed")
+            .and_then(Value::as_u64)?;
+        let total = plan_event
+            .pointer("/progress/total")
+            .and_then(Value::as_u64)?;
+        let current_task = plan_event
+            .pointer("/progress/currentTask")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        return Some(match current_task {
+            Some(current_task) => {
+                format!("正在执行第 {}/{} 步：{current_task}", completed + 1, total)
+            }
+            None if total > 0 => format!("执行进度：{completed}/{total} 步已完成"),
+            None => "正在规划执行步骤…".to_string(),
+        });
+    }
+
+    let tool_event = extract_tool_event(event)?;
+    match tool_event.get("type").and_then(Value::as_str) {
+        Some("tool_call") => {
+            let name = tool_event.get("name").and_then(Value::as_str).unwrap_or("");
+            if name == "codex_app.task_execution_confirmed" {
+                return None;
+            }
+            let label = match name {
+                "command_execution" => "命令操作",
+                "file_change" => "文件处理",
+                _ => "任务步骤",
+            };
+            Some(format!("正在执行{label}…"))
+        }
+        Some("tool_result") => Some("已完成一个执行步骤，正在继续处理…".to_string()),
+        _ => None,
+    }
+}
+
 fn task_execution_active(session: &SessionRecord) -> bool {
     session
         .pending_control_request
@@ -998,6 +1053,9 @@ fn spawn_task_session_monitor(
     tokio::spawn(async move {
         let deadline =
             Instant::now() + Duration::from_secs(state.config.codex.max_runtime_seconds.max(1) + 5);
+        let mut event_offset = 0_usize;
+        let mut last_progress_content = None::<String>;
+        let mut last_progress_sent_at = Instant::now() - Duration::from_secs(1);
         loop {
             let info = state
                 .jobs
@@ -1017,6 +1075,26 @@ fn spawn_task_session_monitor(
             else {
                 return;
             };
+            if let Some(events_file) = info.events_file.as_deref() {
+                for event in
+                    read_events_from_offset(FsPath::new(events_file), &mut event_offset).await
+                {
+                    let Some(content) = task_progress_content(&event) else {
+                        continue;
+                    };
+                    if last_progress_content.as_deref() == Some(content.as_str())
+                        || last_progress_sent_at.elapsed() < Duration::from_secs(1)
+                    {
+                        continue;
+                    }
+                    dispatch_task_callback(
+                        &session,
+                        task_progress_data(&task_id, req_id.as_deref(), content.clone()),
+                    );
+                    last_progress_content = Some(content);
+                    last_progress_sent_at = Instant::now();
+                }
+            }
             if let Some(approval) = info.pending_approval.clone() {
                 let approval = sanitize_user_visible_value(&state, &user_id, &approval);
                 session.set_status(SessionStatus::AwaitingPermission);
@@ -1191,6 +1269,15 @@ fn spawn_task_session_monitor(
                     );
                 }
                 return;
+            }
+            if last_progress_sent_at.elapsed() >= Duration::from_secs(10) {
+                let content = "任务仍在执行，请稍候…".to_string();
+                dispatch_task_callback(
+                    &session,
+                    task_progress_data(&task_id, req_id.as_deref(), content.clone()),
+                );
+                last_progress_content = Some(content);
+                last_progress_sent_at = Instant::now();
             }
             if Instant::now() >= deadline {
                 return;
@@ -3554,6 +3641,41 @@ mod tests {
         assert_eq!(
             chat.task_context_folder_path.as_deref(),
             Some("/workspace/projects/review")
+        );
+    }
+
+    #[test]
+    fn task_progress_keeps_the_existing_callback_shape() {
+        assert_eq!(
+            task_progress_data("task_001", Some("req_004"), "正在读取项目文件…"),
+            json!({
+                "event": "task.status.tmp",
+                "task_id": "task_001",
+                "req_id": "req_004",
+                "status": "running",
+                "content": "正在读取项目文件…"
+            })
+        );
+    }
+
+    #[test]
+    fn task_progress_uses_plan_updates_without_exposing_raw_tool_output() {
+        let event = json!({
+            "type": "codex.notification",
+            "data": {
+                "message": {
+                    "method": "turn/plan/updated",
+                    "params": {
+                        "turnId": "turn-1",
+                        "plan": [{"step": "读取项目文件", "status": "inProgress"}]
+                    }
+                }
+            }
+        });
+
+        assert_eq!(
+            task_progress_content(&event).as_deref(),
+            Some("正在执行第 1/1 步：读取项目文件")
         );
     }
 

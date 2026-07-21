@@ -73,6 +73,8 @@ Content-Type: application/json
 
 确认前的普通澄清、普通提问和确认提示只发送 `response.output_text.delta` 与 `[DONE]`，不会发送 callback。
 
+确认后执行期间，服务还可能通过 Callback 发送临时进度事件。它保持原有字段形状，但 `event` 为 `task.status.tmp`、`status` 固定为 `running`；调用方只展示其 `content`，不得把它当作任务结束或持久状态转换。
+
 ## 4. SSE 协议
 
 ### 普通对话
@@ -127,6 +129,29 @@ data: [DONE]
   "status": "running",
   "content": "任务已开始执行。"
 }
+```
+
+执行中的临时进度通知示例：
+
+```json
+{
+  "event": "task.status.tmp",
+  "task_id": "task_001",
+  "req_id": "req_004",
+  "status": "running",
+  "content": "正在读取项目文件…"
+}
+```
+
+中间展示的临时过程：
+```json
+ {
+    "event": "task.status.tmp",
+    "task_id": "task_001",
+    "req_id": "req_004",
+    "status": "running",
+    "content": "正在读取项目文件…"
+  }
 ```
 
 `content` 是面向用户的文本。`waiting_user` 和 `failed` 可额外包含以下字段：

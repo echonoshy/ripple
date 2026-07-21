@@ -27,10 +27,11 @@ use crate::codex::permissions::{
     thread_permission_config_for_user, RIPPLE_CODEX_PERMISSION_PROFILE,
 };
 use crate::config::AppConfig;
+use crate::mail_render::{render_mail, MailPrepareInput};
 use crate::python_env::ensure_ripple_py_wrapper;
 use crate::redaction::redact_text;
 use crate::sandbox::SandboxManager;
-use crate::sessions::SessionStatus;
+use crate::sessions::{SessionRecord, SessionStatus};
 use crate::storage::Storage;
 use event_log::append_event;
 use pool::{pool_generation, PoolKey, PoolState, PoolWorker, IDLE_REAPER_INTERVAL_SECONDS};
@@ -1059,6 +1060,70 @@ impl CodexAppServerProvider {
                     Err(err) => (false, format!("{err:?}")),
                 }
             }
+        } else if namespace == "codex_app" && tool == "prepare_feishu_mail" {
+            if request
+                .metadata
+                .get("task_response")
+                .and_then(Value::as_bool)
+                != Some(true)
+            {
+                (
+                    false,
+                    "prepare_feishu_mail is only available in task sessions".to_string(),
+                )
+            } else {
+                let user_id = request.user_id.as_deref().unwrap_or("default");
+                match persist_prepared_feishu_mail(
+                    &self.storage,
+                    user_id,
+                    request.session_id.as_deref(),
+                    &arguments,
+                )
+                .await
+                {
+                    Ok(output) => (
+                        true,
+                        serde_json::to_string(&output)
+                            .unwrap_or_else(|_| "{\"ok\":true}".to_string()),
+                    ),
+                    Err(err) => (false, format!("{err:?}")),
+                }
+            }
+        } else if namespace == "codex_app" && tool == "send_prepared_feishu_mail" {
+            if request
+                .metadata
+                .get("task_response")
+                .and_then(Value::as_bool)
+                != Some(true)
+            {
+                (
+                    false,
+                    "send_prepared_feishu_mail is only available in task sessions".to_string(),
+                )
+            } else {
+                let user_id = request.user_id.as_deref().unwrap_or("default");
+                let sandboxes = SandboxManager::new(self.config.clone());
+                match send_prepared_feishu_mail(
+                    &self.storage,
+                    &self.config,
+                    &sandboxes,
+                    user_id,
+                    request.session_id.as_deref(),
+                    &arguments,
+                )
+                .await
+                {
+                    Ok(output) => {
+                        let success = output.get("ok").and_then(Value::as_bool).unwrap_or(false);
+                        (
+                            success,
+                            serde_json::to_string(&output)
+                                .unwrap_or_else(|_| "{\"ok\":false}".to_string()),
+                        )
+                    }
+                    Err(err) => (false, format!("{err:?}")),
+                }
+            }
         } else if namespace == "codex_app" && tool == "feishu_cli" {
             let user_id = request.user_id.as_deref().unwrap_or("default");
             let args = match arguments.get("args").and_then(Value::as_array) {
@@ -1078,6 +1143,28 @@ impl CodexAppServerProvider {
             };
             match args {
                 Ok(args) => {
+                    if request
+                        .metadata
+                        .get("task_response")
+                        .and_then(Value::as_bool)
+                        == Some(true)
+                        && is_task_session_mail_write(&args)
+                    {
+                        let output = json!({
+                            "ok": false,
+                            "code": "prepared_mail_required",
+                            "message": "Task-session email sends must use prepare_feishu_mail before confirmation and send_prepared_feishu_mail after confirmation."
+                        });
+                        return_dynamic_tool_response(
+                            session,
+                            request_id,
+                            false,
+                            serde_json::to_string(&output)
+                                .unwrap_or_else(|_| "{\"ok\":false}".to_string()),
+                        )
+                        .await?;
+                        return Ok(true);
+                    }
                     let sandboxes = SandboxManager::new(self.config.clone());
                     match invoke_feishu_for_agent(&self.config, &sandboxes, user_id, &args).await {
                         Ok(output) => {
@@ -1103,20 +1190,7 @@ impl CodexAppServerProvider {
                 format!("unsupported dynamic tool {namespace}.{tool}"),
             )
         };
-        session
-            .respond(
-                request_id,
-                json!({
-                    "contentItems": [
-                        {
-                            "type": "inputText",
-                            "text": text
-                        }
-                    ],
-                    "success": success
-                }),
-            )
-            .await?;
+        return_dynamic_tool_response(session, request_id, success, text).await?;
         Ok(true)
     }
 
@@ -2115,6 +2189,13 @@ fn add_task_dynamic_tools(params: &mut Value, request: &AgentRunnerRequest) {
         {
             tools.push(json!({
                 "namespace": "codex_app",
+                "name": "prepare_feishu_mail",
+                "description": "Render a Task Session email from Markdown into server-controlled safe HTML and return the exact preview plus a prepared_mail_id. Call before asking the user to confirm. This does not create a draft or contact Feishu.",
+                "inputSchema": prepare_feishu_mail_input_schema(),
+                "deferLoading": false
+            }));
+            tools.push(json!({
+                "namespace": "codex_app",
                 "name": "task_execution_confirmed",
                 "description": "Mark that the user explicitly confirmed starting the current task. Call this exactly once before performing any task action.",
                 "inputSchema": {
@@ -2122,6 +2203,13 @@ fn add_task_dynamic_tools(params: &mut Value, request: &AgentRunnerRequest) {
                     "properties": {},
                     "additionalProperties": false
                 },
+                "deferLoading": false
+            }));
+            tools.push(json!({
+                "namespace": "codex_app",
+                "name": "send_prepared_feishu_mail",
+                "description": "Send exactly one already-previewed Feishu email. Only call after task_execution_confirmed succeeds and only with the prepared_mail_id returned by prepare_feishu_mail. Do not alter recipients, subject, or body.",
+                "inputSchema": send_prepared_feishu_mail_input_schema(),
                 "deferLoading": false
             }));
         }
@@ -2226,6 +2314,46 @@ fn feishu_cli_input_schema() -> Value {
     })
 }
 
+fn prepare_feishu_mail_input_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "to": {
+                "type": "array",
+                "items": {"type": "string", "format": "email"},
+                "minItems": 1,
+                "maxItems": 50
+            },
+            "cc": {
+                "type": "array",
+                "items": {"type": "string", "format": "email"},
+                "maxItems": 50
+            },
+            "bcc": {
+                "type": "array",
+                "items": {"type": "string", "format": "email"},
+                "maxItems": 50
+            },
+            "subject": {"type": "string", "minLength": 1, "maxLength": 256},
+            "markdown": {"type": "string", "minLength": 1, "maxLength": 100000},
+            "signature_id": {"type": "string", "maxLength": 256}
+        },
+        "required": ["to", "subject", "markdown"],
+        "additionalProperties": false
+    })
+}
+
+fn send_prepared_feishu_mail_input_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "prepared_mail_id": {"type": "string", "minLength": 1, "maxLength": 128}
+        },
+        "required": ["prepared_mail_id"],
+        "additionalProperties": false
+    })
+}
+
 async fn persist_session_wait_user(
     storage: &Storage,
     user_id: &str,
@@ -2288,6 +2416,220 @@ async fn persist_task_execution_confirmed(
     }));
     storage.save_session(&session).await?;
     Ok(json!({"ok": true}))
+}
+
+async fn persist_prepared_feishu_mail(
+    storage: &Storage,
+    user_id: &str,
+    session_id: Option<&str>,
+    arguments: &Value,
+) -> anyhow::Result<Value> {
+    let session_id = session_id.context("prepare_feishu_mail requires a Ripple session")?;
+    let input = serde_json::from_value::<MailPrepareInput>(arguments.clone())
+        .context("prepare_feishu_mail arguments are invalid")?;
+    let rendered = render_mail(input).map_err(anyhow::Error::msg)?;
+    let prepared_mail_id = format!("mail-{}", uuid::Uuid::new_v4().simple());
+    let now = crate::auth::now_iso();
+    let mut record = serde_json::to_value(&rendered)?;
+    let object = record
+        .as_object_mut()
+        .context("rendered Feishu mail was not an object")?;
+    object.insert("prepared_mail_id".to_string(), json!(prepared_mail_id));
+    object.insert("user_id".to_string(), json!(user_id));
+    object.insert("session_id".to_string(), json!(session_id));
+    object.insert("status".to_string(), json!("prepared"));
+    object.insert("created_at".to_string(), json!(now));
+    object.insert("updated_at".to_string(), json!(now));
+    storage.create_prepared_feishu_mail(&record).await?;
+    Ok(json!({
+        "ok": true,
+        "prepared_mail_id": prepared_mail_id,
+        "recipients": {
+            "to": record.get("to").cloned().unwrap_or_else(|| json!([])),
+            "cc": record.get("cc").cloned().unwrap_or_else(|| json!([])),
+            "bcc": record.get("bcc").cloned().unwrap_or_else(|| json!([]))
+        },
+        "subject": record.get("subject").cloned().unwrap_or(Value::Null),
+        "preview_text": record.get("preview_text").cloned().unwrap_or(Value::Null),
+        "message": "Show the complete preview above and ask for explicit confirmation. Do not create a draft or send before confirmation."
+    }))
+}
+
+async fn send_prepared_feishu_mail(
+    storage: &Storage,
+    config: &AppConfig,
+    sandboxes: &SandboxManager,
+    user_id: &str,
+    session_id: Option<&str>,
+    arguments: &Value,
+) -> anyhow::Result<Value> {
+    let session_id = session_id.context("send_prepared_feishu_mail requires a Ripple session")?;
+    let prepared_mail_id = arguments
+        .get("prepared_mail_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && value.len() <= 128)
+        .context("send_prepared_feishu_mail requires prepared_mail_id")?;
+    let Some(session) = storage.load_session(user_id, session_id).await? else {
+        anyhow::bail!("Ripple session not found");
+    };
+    if !task_execution_is_confirmed(&session) {
+        anyhow::bail!("the user must explicitly confirm the prepared email before it can be sent");
+    }
+
+    let now = crate::auth::now_iso();
+    let Some(mut record) = storage
+        .claim_prepared_feishu_mail_for_send(user_id, session_id, prepared_mail_id, &now)
+        .await?
+    else {
+        anyhow::bail!("prepared Feishu mail was not found");
+    };
+    if record.get("status").and_then(Value::as_str) != Some("sending") {
+        return Ok(json!({
+            "ok": false,
+            "code": "prepared_mail_not_sendable",
+            "prepared_mail_id": prepared_mail_id,
+            "status": record.get("status").cloned().unwrap_or(Value::Null),
+            "message": "This prepared email was already sent, is being sent, or has an uncertain/failed result. It will not be sent automatically again."
+        }));
+    }
+
+    let args = prepared_feishu_mail_args(&record)?;
+    match invoke_feishu_for_agent(config, sandboxes, user_id, &args).await {
+        Ok(output) => {
+            let success = output.get("ok").and_then(Value::as_bool).unwrap_or(false);
+            record["updated_at"] = json!(crate::auth::now_iso());
+            record["status"] = json!(if success { "sent" } else { "failed" });
+            record["delivery"] = mail_delivery_from_output(&output);
+            storage.save_prepared_feishu_mail(&record).await?;
+            Ok(json!({
+                "ok": success,
+                "prepared_mail_id": prepared_mail_id,
+                "status": record.get("status").cloned().unwrap_or(Value::Null),
+                "delivery": record.get("delivery").cloned().unwrap_or(Value::Null),
+                "output": output
+            }))
+        }
+        Err(err) => {
+            record["updated_at"] = json!(crate::auth::now_iso());
+            record["status"] = json!("uncertain");
+            record["delivery"] = json!({"error": format!("{err:?}")});
+            storage.save_prepared_feishu_mail(&record).await?;
+            Ok(json!({
+                "ok": false,
+                "code": "feishu_mail_delivery_uncertain",
+                "prepared_mail_id": prepared_mail_id,
+                "status": "uncertain",
+                "message": "The send command did not return a reliable result. The email was not retried automatically to avoid duplicate delivery."
+            }))
+        }
+    }
+}
+
+fn task_execution_is_confirmed(session: &SessionRecord) -> bool {
+    session
+        .pending_control_request
+        .as_ref()
+        .filter(|value| value.get("type").and_then(Value::as_str) == Some("task_execution"))
+        .and_then(|value| value.get("active").and_then(Value::as_bool))
+        .unwrap_or(false)
+}
+
+fn prepared_feishu_mail_args(record: &Value) -> anyhow::Result<Vec<String>> {
+    let to = prepared_mail_addresses(record, "to")?;
+    let cc = prepared_mail_addresses(record, "cc")?;
+    let bcc = prepared_mail_addresses(record, "bcc")?;
+    let subject = prepared_mail_string(record, "subject")?;
+    let html = prepared_mail_string(record, "html")?;
+    let mut args = vec![
+        "mail".to_string(),
+        "+send".to_string(),
+        "--to".to_string(),
+        to.join(","),
+        "--subject".to_string(),
+        subject.to_string(),
+        "--body".to_string(),
+        html.to_string(),
+    ];
+    if !cc.is_empty() {
+        args.extend(["--cc".to_string(), cc.join(",")]);
+    }
+    if !bcc.is_empty() {
+        args.extend(["--bcc".to_string(), bcc.join(",")]);
+    }
+    if let Some(signature_id) = record.get("signature_id").and_then(Value::as_str) {
+        args.extend(["--signature-id".to_string(), signature_id.to_string()]);
+    }
+    args.extend([
+        "--confirm-send".to_string(),
+        "--as".to_string(),
+        "user".to_string(),
+    ]);
+    Ok(args)
+}
+
+fn prepared_mail_addresses(record: &Value, field: &str) -> anyhow::Result<Vec<String>> {
+    record
+        .get(field)
+        .and_then(Value::as_array)
+        .context(format!("prepared email missing {field}"))?
+        .iter()
+        .map(|value| {
+            value
+                .as_str()
+                .map(str::to_string)
+                .context(format!("prepared email has invalid {field}"))
+        })
+        .collect()
+}
+
+fn prepared_mail_string<'a>(record: &'a Value, field: &str) -> anyhow::Result<&'a str> {
+    record
+        .get(field)
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .context(format!("prepared email missing {field}"))
+}
+
+fn mail_delivery_from_output(output: &Value) -> Value {
+    output
+        .get("stdout")
+        .and_then(Value::as_str)
+        .and_then(|stdout| serde_json::from_str::<Value>(stdout).ok())
+        .unwrap_or_else(|| output.clone())
+}
+
+fn is_task_session_mail_write(args: &[String]) -> bool {
+    if args.first().map(String::as_str) != Some("mail") {
+        return false;
+    }
+    matches!(
+        args.get(1).map(String::as_str),
+        Some("+send" | "+reply" | "+reply-all" | "+forward" | "+draft-create")
+    ) || (args.get(1).map(String::as_str) == Some("user_mailbox.drafts")
+        && args.get(2).map(String::as_str) == Some("send"))
+}
+
+async fn return_dynamic_tool_response(
+    session: &Arc<CodexAppServerSession>,
+    request_id: Value,
+    success: bool,
+    text: String,
+) -> anyhow::Result<()> {
+    session
+        .respond(
+            request_id,
+            json!({
+                "contentItems": [
+                    {
+                        "type": "inputText",
+                        "text": text
+                    }
+                ],
+                "success": success
+            }),
+        )
+        .await
 }
 
 fn image_generation_enabled_for_request(request: &AgentRunnerRequest) -> bool {
@@ -2738,10 +3080,44 @@ mod tests {
         let task_tools = task_params["dynamicTools"]
             .as_array()
             .expect("task session dynamic tools");
-        assert_eq!(task_tools.len(), 4);
+        assert_eq!(task_tools.len(), 6);
+        let prepare_mail_tool = task_tools
+            .iter()
+            .find(|tool| tool.get("name").and_then(Value::as_str) == Some("prepare_feishu_mail"))
+            .expect("prepared Feishu mail tool");
+        assert!(prepare_mail_tool
+            .pointer("/inputSchema/properties/markdown")
+            .is_some());
+        let send_mail_tool = task_tools
+            .iter()
+            .find(|tool| {
+                tool.get("name").and_then(Value::as_str) == Some("send_prepared_feishu_mail")
+            })
+            .expect("prepared Feishu mail send tool");
+        assert!(send_mail_tool
+            .pointer("/inputSchema/properties/prepared_mail_id")
+            .is_some());
         assert!(task_tools.iter().any(|tool| {
             tool.get("name").and_then(Value::as_str) == Some("task_execution_confirmed")
         }));
+    }
+
+    #[test]
+    fn task_session_blocks_generic_mail_delivery_commands() {
+        assert!(is_task_session_mail_write(&[
+            "mail".to_string(),
+            "+send".to_string(),
+        ]));
+        assert!(is_task_session_mail_write(&[
+            "mail".to_string(),
+            "user_mailbox.drafts".to_string(),
+            "send".to_string(),
+        ]));
+        assert!(!is_task_session_mail_write(&[
+            "mail".to_string(),
+            "user_mailboxes".to_string(),
+            "profile".to_string(),
+        ]));
     }
 
     #[test]

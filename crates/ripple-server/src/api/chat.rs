@@ -3814,6 +3814,21 @@ mod tests {
             .contains("refusing to remove non-temp test root"));
     }
 
+    #[test]
+    fn codex_instructions_require_complete_record_summary_for_external_delivery() {
+        let root = std::env::temp_dir().join(format!("ripple-chat-test-{}", Uuid::new_v4()));
+        let instructions = build_codex_chat_base_instructions(&test_config(&root));
+
+        assert!(instructions.contains(
+            "Folder Context Evidence is a lightweight search excerpt, not complete source content"
+        ));
+        assert!(instructions
+            .contains("read that record's AGENTS.md and the complete designated summary content"));
+        assert!(instructions.contains("show the exact complete content to be delivered"));
+        assert!(instructions
+            .contains("send that same content without re-summarizing or omitting material"));
+    }
+
     #[tokio::test]
     async fn codex_chat_context_omits_local_proxy_helper() {
         let root = std::env::temp_dir().join(format!("ripple-chat-test-{}", Uuid::new_v4()));

@@ -1077,6 +1077,81 @@ fn spawn_task_session_monitor(
                     .error
                     .as_deref()
                     .map(|message| sanitize_user_visible_text(&state, &user_id, message));
+                if !failed {
+                    let user_input = info
+                        .metadata
+                        .get("chat_user_input")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default();
+                    let user_content = info
+                        .metadata
+                        .get("chat_user_content")
+                        .cloned()
+                        .unwrap_or(Value::Null);
+                    let request_base_url = info
+                        .metadata
+                        .get("request_base_url")
+                        .and_then(Value::as_str);
+                    match maybe_persist_model_connector_auth_request(
+                        &state,
+                        &user_id,
+                        &mut session,
+                        &user_content,
+                        user_input,
+                        &output,
+                        request_base_url,
+                        &info,
+                        true,
+                    )
+                    .await
+                    {
+                        Ok(Some(event)) => {
+                            let public_event = public_connector_auth_event(&event);
+                            let message = event_message(&event);
+                            task_execution_context(
+                                &mut session,
+                                &task_id,
+                                req_id.as_deref(),
+                                Some("connector_auth"),
+                                None,
+                            );
+                            if state.sessions.save_record(session.clone()).await.is_ok() {
+                                dispatch_task_callback(
+                                    &session,
+                                    task_status_data(
+                                        &task_id,
+                                        req_id.as_deref(),
+                                        "waiting_user",
+                                        json!(message),
+                                        Some(task_connector_required_action(&public_event)),
+                                        None,
+                                    ),
+                                );
+                            }
+                            return;
+                        }
+                        Ok(None) => {}
+                        Err(error) => {
+                            let message =
+                                sanitize_user_visible_text(&state, &user_id, &format!("{error:?}"));
+                            session.set_status(SessionStatus::Failed);
+                            session.pending_control_request = None;
+                            let _ = state.sessions.save_record(session.clone()).await;
+                            dispatch_task_callback(
+                                &session,
+                                task_status_data(
+                                    &task_id,
+                                    req_id.as_deref(),
+                                    "failed",
+                                    json!(message.clone()),
+                                    None,
+                                    Some(json!({"code": "server_error", "message": message})),
+                                ),
+                            );
+                            return;
+                        }
+                    }
+                }
                 let _ = finalize_chat_run_for_session(&state, &user_id, &session_id, &info).await;
                 let Some(mut finalized) = state
                     .sessions
@@ -1626,6 +1701,7 @@ async fn create_codex_chat_run(args: &CodexChatStart) -> Result<AgentRunInfo, Ap
         client_request_id: args.request.client_request_id.clone(),
         chat_user_input: Some(args.user_input.clone()),
         chat_user_content: Some(args.user_content.clone()),
+        request_base_url: args.request_base_url.clone(),
         task_response: args.request.task_response,
     };
     ensure_workspace_change_baseline(&args.state, &args.user_id, &args.workspace_root).await;
@@ -2360,9 +2436,9 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
         let mut agent_messages = AgentMessageTracker::default();
         let mut model_connector_auth_buffer: Option<String> = None;
         let mut task_execution_started = task_response && task_execution_active(&session);
-        let mut task_running_callback_sent = task_execution_started;
+        let task_running_callback_sent = task_execution_started;
         let mut last_emit = now_epoch_seconds();
-        loop {
+        'stream: loop {
             if let Some(events_file) = events_file.as_deref() {
                 for event in read_events_from_offset(events_file, &mut offset).await {
                     if let Some(usage_event) = extract_usage_event(&event) {
@@ -2410,8 +2486,8 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
                                 == Some("tool_call")
                             && public_tool_event.get("name").and_then(Value::as_str)
                                 == Some("codex_app.task_execution_confirmed")
+                            && !task_execution_started
                         {
-                            task_execution_started = true;
                             task_execution_context(
                                 &mut session,
                                 &task_id,
@@ -2432,8 +2508,16 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
                                         None,
                                     ),
                                 );
-                                task_running_callback_sent = true;
                             }
+                            spawn_task_session_monitor(
+                                state.clone(),
+                                user_id.clone(),
+                                session_id.clone(),
+                                job_id.clone(),
+                                task_id.clone(),
+                                task_req_id.clone(),
+                            );
+                            break 'stream;
                         }
                         if !task_response {
                             emit!(sse_for_event(&public_tool_event));

@@ -14,8 +14,10 @@ use super::{
     value_as_bool, value_as_u64,
 };
 use crate::api::ApiError;
-use crate::config::FeishuAppConfig;
+use crate::config::{AppConfig, FeishuAppConfig};
 use crate::connector_runtime::PendingFeishuSetup;
+use crate::redaction::redact_text;
+use crate::sandbox::SandboxManager;
 use crate::state::AppState;
 
 pub(super) async fn status(state: &AppState, user_id: &str) -> Value {
@@ -30,6 +32,77 @@ pub(super) async fn status(state: &AppState, user_id: &str) -> Value {
         "detail": detail,
         "metadata": metadata
     })
+}
+
+/// Execute a lark-cli business command for exactly one Ripple user. The
+/// caller supplies argv only; credentials, config paths, and the nsjail
+/// environment remain server-owned.
+pub(crate) async fn invoke_for_agent(
+    config: &AppConfig,
+    sandboxes: &SandboxManager,
+    user_id: &str,
+    args: &[String],
+) -> Result<Value, ApiError> {
+    if !config.connector_enabled("feishu") {
+        return Ok(json!({
+            "ok": false,
+            "code": "connector_disabled",
+            "connector": "feishu",
+            "message": "Feishu connector is disabled on this server."
+        }));
+    }
+    if args.is_empty()
+        || args.len() > 64
+        || args
+            .iter()
+            .any(|arg| arg.is_empty() || arg.len() > 4096 || arg.contains('\0'))
+    {
+        return Ok(json!({
+            "ok": false,
+            "code": "invalid_arguments",
+            "message": "feishu_cli requires 1-64 non-empty arguments."
+        }));
+    }
+    if matches!(args[0].as_str(), "auth" | "config" | "doctor" | "whoami") {
+        return Ok(json!({
+            "ok": false,
+            "code": "connector_control_plane_only",
+            "connector": "feishu",
+            "message": "Feishu authentication and configuration are managed by Ripple, not by agent commands."
+        }));
+    }
+
+    sandboxes.prepare_lark_cli_credentials(user_id)?;
+    let config_file = sandboxes.lark_cli_config_dir(user_id)?.join("config.json");
+    if !config_file.is_file() {
+        return Ok(json!({
+            "ok": false,
+            "code": "connector_auth_required",
+            "connector": "feishu",
+            "message": "Feishu app configuration is not ready for this user."
+        }));
+    }
+    let auth_status =
+        run_lark_with_sandbox(sandboxes, user_id, &["auth", "status"], None, 15).await?;
+    if !auth_status.status.success() {
+        return Ok(json!({
+            "ok": false,
+            "code": "connector_auth_required",
+            "connector": "feishu",
+            "message": "Feishu user authorization is not ready for this user."
+        }));
+    }
+    let argv = args.iter().map(String::as_str).collect::<Vec<_>>();
+    let output = run_lark_with_sandbox(sandboxes, user_id, &argv, None, 60).await?;
+    let stdout = redact_text(&String::from_utf8_lossy(&output.stdout));
+    let stderr = redact_text(&String::from_utf8_lossy(&output.stderr));
+    Ok(json!({
+        "ok": output.status.success(),
+        "connector": "feishu",
+        "exit_code": output.status.code(),
+        "stdout": stdout,
+        "stderr": stderr
+    }))
 }
 
 pub(super) async fn auth_start(
@@ -75,6 +148,7 @@ pub(super) async fn auth_start(
 
     let force_new_setup = value_as_bool(payload.get("force_new_setup")).unwrap_or(false);
     let force_new_user_auth = value_as_bool(payload.get("force_new_user_auth")).unwrap_or(false);
+    let requested_scopes = requested_user_scopes(payload);
 
     let (ok, msg) = ensure_cli_config(state, user_id, force_new_setup).await?;
     state.sandboxes.write_nsjail_config(user_id)?;
@@ -98,7 +172,7 @@ pub(super) async fn auth_start(
     }
 
     let (connected, _detail, metadata) = cli_login_status(state, user_id).await;
-    if connected && !force_new_user_auth {
+    if connected && !force_new_user_auth && requested_scopes.is_empty() {
         return Ok(Json(action_response(
             "feishu",
             true,
@@ -130,7 +204,7 @@ pub(super) async fn auth_start(
         }
     }
 
-    let data = match start_lark_user_auth(state, user_id, true).await {
+    let data = match start_lark_user_auth(state, user_id, &requested_scopes).await {
         Ok(data) => data,
         Err(err) => {
             return Ok(Json(action_response(
@@ -230,7 +304,7 @@ pub(super) async fn disconnect(state: &AppState, user_id: &str) -> Result<Json<V
         .credentials_dir(user_id)?
         .join("feishu.json");
     let removed_seed = remove_file_if_exists(&seed).await?;
-    let lark_dir = state.sandboxes.workspace_dir(user_id)?.join(".lark-cli");
+    let lark_dir = state.sandboxes.lark_cli_credentials_dir(user_id)?;
     let removed_workspace_config = if lark_dir.exists() {
         tokio::fs::remove_dir_all(&lark_dir).await?;
         true
@@ -261,11 +335,19 @@ async fn run_lark(
     stdin: Option<&str>,
     timeout_seconds: u64,
 ) -> Result<std::process::Output, ApiError> {
-    let argv = state.sandboxes.nsjail_exec_argv(
-        user_id,
-        state.sandboxes.lark_cli_sandbox_binary(),
-        args,
-    )?;
+    run_lark_with_sandbox(&state.sandboxes, user_id, args, stdin, timeout_seconds).await
+}
+
+async fn run_lark_with_sandbox(
+    sandboxes: &SandboxManager,
+    user_id: &str,
+    args: &[&str],
+    stdin: Option<&str>,
+    timeout_seconds: u64,
+) -> Result<std::process::Output, ApiError> {
+    sandboxes.prepare_lark_cli_credentials(user_id)?;
+    sandboxes.write_nsjail_config(user_id)?;
+    let argv = sandboxes.nsjail_exec_argv(user_id, sandboxes.lark_cli_sandbox_binary(), args)?;
     let mut command = Command::new(&argv[0]);
     command
         .args(&argv[1..])
@@ -299,10 +381,17 @@ async fn cli_login_status(state: &AppState, user_id: &str) -> (bool, String, Val
             json!({"has_app_config": false}),
         );
     };
+    if let Err(error) = state.sandboxes.prepare_lark_cli_credentials(user_id) {
+        return (
+            false,
+            format!("Unable to prepare Feishu credentials for this user: {error}"),
+            json!({"has_app_config": false}),
+        );
+    }
     let has_app_config = state
         .sandboxes
-        .workspace_dir(user_id)
-        .map(|workspace| workspace.join(".lark-cli/config.json").is_file())
+        .lark_cli_config_dir(user_id)
+        .map(|config| config.join("config.json").is_file())
         .unwrap_or(false);
     if !has_app_config {
         return (
@@ -437,7 +526,8 @@ async fn ensure_cli_config(
                 .to_string(),
         ));
     }
-    let lark_dir = state.sandboxes.workspace_dir(user_id)?.join(".lark-cli");
+    state.sandboxes.prepare_lark_cli_credentials(user_id)?;
+    let lark_dir = state.sandboxes.lark_cli_config_dir(user_id)?;
     if force_new_setup {
         cancel_setup(state, user_id).await;
         if lark_dir.exists() {
@@ -577,8 +667,8 @@ async fn start_setup(state: &AppState, user_id: &str) -> Result<(bool, String), 
 async fn check_setup(state: &AppState, user_id: &str) -> Result<Option<(bool, String)>, ApiError> {
     let config_file = state
         .sandboxes
-        .workspace_dir(user_id)?
-        .join(".lark-cli/config.json");
+        .lark_cli_config_dir(user_id)?
+        .join("config.json");
     if config_file.is_file() {
         cancel_setup(state, user_id).await;
         return Ok(Some((true, String::new())));
@@ -666,33 +756,27 @@ fn first_url_in_text(text: &str) -> Option<String> {
 async fn start_lark_user_auth(
     state: &AppState,
     user_id: &str,
-    force_new: bool,
+    requested_scopes: &[String],
 ) -> anyhow::Result<Value> {
     let Some(lark) = lark_binary(state) else {
         anyhow::bail!("lark-cli is not installed.");
     };
-    if force_new {
-        let output = run_lark(state, user_id, &lark, &["auth", "logout"], None, 10)
-            .await
-            .map_err(|err| anyhow::anyhow!("{err:?}"))?;
-        if !output.status.success() {
-            tracing::warn!(
-                user_id = user_id,
-                detail = command_tail(&output),
-                "lark-cli auth logout before new device flow failed"
-            );
-        }
+    let mut args = vec![
+        "auth".to_string(),
+        "login".to_string(),
+        "--no-wait".to_string(),
+        "--json".to_string(),
+        "--domain".to_string(),
+        "all".to_string(),
+    ];
+    if !requested_scopes.is_empty() {
+        args.push("--scope".to_string());
+        args.push(requested_scopes.join(","));
     }
-    let output = run_lark(
-        state,
-        user_id,
-        &lark,
-        &["auth", "login", "--no-wait", "--json", "--domain", "all"],
-        None,
-        20,
-    )
-    .await
-    .map_err(|err| anyhow::anyhow!("{err:?}"))?;
+    let arg_refs = args.iter().map(String::as_str).collect::<Vec<_>>();
+    let output = run_lark(state, user_id, &lark, &arg_refs, None, 20)
+        .await
+        .map_err(|err| anyhow::anyhow!("{err:?}"))?;
     if !output.status.success() {
         anyhow::bail!(
             "lark-cli auth login --no-wait failed (exit {}): {}",
@@ -709,6 +793,38 @@ async fn start_lark_user_auth(
     auth_start_payload(&parsed).ok_or_else(|| {
         anyhow::anyhow!("lark-cli auth login --no-wait output is missing oauth_url or device_code")
     })
+}
+
+fn requested_user_scopes(payload: &Value) -> Vec<String> {
+    let mut scopes = Vec::new();
+    let Some(values) = payload.get("requested_scopes").and_then(Value::as_array) else {
+        return scopes;
+    };
+    for value in values {
+        let Some(scope) = value.as_str().map(str::trim) else {
+            continue;
+        };
+        if is_valid_user_scope(scope) && !scopes.iter().any(|existing| existing == scope) {
+            scopes.push(scope.to_string());
+        }
+    }
+    scopes
+}
+
+fn is_valid_user_scope(scope: &str) -> bool {
+    scope.len() <= 128
+        && scope.contains(':')
+        && scope
+            .bytes()
+            .next()
+            .is_some_and(|byte| byte.is_ascii_alphanumeric())
+        && scope
+            .bytes()
+            .last()
+            .is_some_and(|byte| byte.is_ascii_alphanumeric())
+        && scope
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b':' | b'_' | b'-' | b'.'))
 }
 
 async fn complete_lark_user_auth(
@@ -905,6 +1021,20 @@ mod tests {
         let message = "authorization failed: Unable to authorize. The app is pending approval.";
 
         assert!(!is_auth_pending_message(message));
+    }
+
+    #[test]
+    fn requested_user_scopes_keeps_only_valid_unique_scope_identifiers() {
+        let scopes = requested_user_scopes(&json!({
+            "requested_scopes": [
+                "im:message.send_as_user",
+                "im:message.send_as_user",
+                "not a scope",
+                42
+            ]
+        }));
+
+        assert_eq!(scopes, vec!["im:message.send_as_user".to_string()]);
     }
 
     #[tokio::test]

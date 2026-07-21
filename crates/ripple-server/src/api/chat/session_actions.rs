@@ -31,6 +31,7 @@ pub(crate) async fn handle_session_control_action(
                     .get("force_reauth")
                     .and_then(Value::as_bool)
                     .unwrap_or(false),
+                feishu_scopes: Vec::new(),
                 source: control_action
                     .action
                     .get("source")

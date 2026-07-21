@@ -383,6 +383,9 @@ fn complete_pending_response(
     if let Some((thread_id, turn_id, item_id, text)) = pending_approvals.remove(key) {
         complete_turn(&thread_id, &turn_id, &item_id, &text);
     } else if let Some((thread_id, turn_id, item_id, text)) = pending_dynamic_tools.remove(key) {
+        if text.starts_with("[slow]") {
+            thread::sleep(Duration::from_millis(500));
+        }
         complete_turn(&thread_id, &turn_id, &item_id, &text);
     } else if let Some((thread_id, turn_id, item_id, text)) = pending_user_inputs.remove(key) {
         complete_turn(&thread_id, &turn_id, &item_id, &text);
@@ -719,13 +722,20 @@ fn main() {
                     }
                     let dynamic_request_id = format!("dynamic-task-confirm-{turn_counter}");
                     let call_id = format!("call-task-confirm-{turn_counter}");
+                    let completion_text = if line.contains("[task-confirm-auth]") {
+                        "<ripple_connector_auth_request>{\"connector\":\"google_workspace\",\"force_reauth\":false,\"reason\":\"needs Gmail access\"}</ripple_connector_auth_request>"
+                    } else if line.contains("[task-confirm-slow]") {
+                        "[slow] task execution completed"
+                    } else {
+                        "task execution completed"
+                    };
                     pending_dynamic_tools.insert(
                         dynamic_request_id.clone(),
                         (
                             thread_id.clone(),
                             turn_id.clone(),
                             item_id.clone(),
-                            "task execution completed".to_string(),
+                            completion_text.to_string(),
                         ),
                     );
                     send(format!(
@@ -1142,6 +1152,133 @@ async fn task_session_explicit_confirmation_starts_callback_only_execution_statu
                 .to_string()
         })
         .collect::<std::collections::HashSet<_>>();
+    assert_eq!(
+        statuses,
+        std::collections::HashSet::from(["running".to_string(), "completed".to_string()])
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn task_session_execution_connector_auth_posts_waiting_user_callback() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+    let (callback_url, mut callbacks) = callback_collector().await;
+
+    let response = app
+        .oneshot(request(
+            Method::POST,
+            "/v1/task-sessions/responses",
+            json!({
+                "task_id": "caller-task-confirm-auth-1",
+                "input": "[task-confirm-execute] [task-confirm-auth] 确认开始执行",
+                "req_id": "via-task-confirm-auth-1",
+                "callback_url": callback_url
+            }),
+            true,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response_text(response).await, "data: [DONE]\n\n");
+
+    let mut received = Vec::new();
+    for _ in 0..2 {
+        received.push(
+            tokio::time::timeout(Duration::from_secs(2), callbacks.recv())
+                .await
+                .expect("callback timeout")
+                .expect("callback payload"),
+        );
+    }
+    assert_eq!(
+        received
+            .iter()
+            .filter_map(|callback| callback.get("status").and_then(Value::as_str))
+            .collect::<std::collections::HashSet<_>>(),
+        std::collections::HashSet::from(["running", "waiting_user"])
+    );
+    let waiting = received
+        .iter()
+        .find(|callback| callback.get("status").and_then(Value::as_str) == Some("waiting_user"))
+        .expect("waiting_user callback");
+    assert_eq!(
+        waiting
+            .pointer("/required_action/type")
+            .and_then(Value::as_str),
+        Some("connector_auth")
+    );
+    assert_eq!(
+        waiting
+            .pointer("/required_action/connector")
+            .and_then(Value::as_str),
+        Some("google_workspace")
+    );
+    assert!(!waiting
+        .get("content")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .contains("<ripple_connector_auth_request>"));
+
+    let session_id = state.sessions.list_sessions("smoke-user").await.unwrap()[0]
+        .session_id
+        .clone();
+    let session = state
+        .sessions
+        .load("smoke-user", &session_id)
+        .await
+        .unwrap()
+        .expect("task session");
+    assert_eq!(session.status, "awaiting_user_input");
+    assert!(session.pending_connector_auth.is_some());
+    assert!(session.pending_control_request.is_some());
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn task_session_confirmation_closes_sse_before_a_slow_background_run_finishes() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (_state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+    let (callback_url, mut callbacks) = callback_collector().await;
+
+    let response = app
+        .oneshot(request(
+            Method::POST,
+            "/v1/task-sessions/responses",
+            json!({
+                "task_id": "caller-task-confirm-close-1",
+                "input": "[task-confirm-execute] [task-confirm-slow] 确认开始执行",
+                "req_id": "via-task-confirm-close-1",
+                "callback_url": callback_url
+            }),
+            true,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = tokio::time::timeout(Duration::from_millis(250), response_text(response))
+        .await
+        .expect("confirmation SSE must close without waiting for the run");
+    assert_eq!(body, "data: [DONE]\n\n");
+
+    let mut statuses = std::collections::HashSet::new();
+    for _ in 0..2 {
+        let callback = tokio::time::timeout(Duration::from_secs(2), callbacks.recv())
+            .await
+            .expect("callback timeout")
+            .expect("callback payload");
+        statuses.insert(
+            callback
+                .get("status")
+                .and_then(Value::as_str)
+                .expect("callback status")
+                .to_string(),
+        );
+    }
     assert_eq!(
         statuses,
         std::collections::HashSet::from(["running".to_string(), "completed".to_string()])
@@ -2534,6 +2671,7 @@ async fn session_overview_groups_sessions_and_enriches_linked_runs() {
                 client_request_id: None,
                 chat_user_input: None,
                 chat_user_content: None,
+                request_base_url: None,
                 task_response: false,
             },
             "smoke-user".to_string(),
@@ -2567,6 +2705,7 @@ async fn session_overview_groups_sessions_and_enriches_linked_runs() {
                 client_request_id: None,
                 chat_user_input: None,
                 chat_user_content: None,
+                request_base_url: None,
                 task_response: false,
             },
             "smoke-user".to_string(),
@@ -4546,8 +4685,12 @@ async fn runs_for_same_user_execute_in_parallel_with_isolated_fake_codex_app_ser
 async fn queued_run_can_be_cancelled_before_it_executes() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let fake_codex = write_fake_codex_app_server(&root);
-    let (_state, app) =
-        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+    let mut config = test_config_with_codex_executable(&root, fake_codex);
+    // This test verifies queue cancellation, so it must not use the default
+    // multi-worker configuration that correctly starts both runs in parallel.
+    config.codex.max_workers_per_pool = 1;
+    config.codex.max_total_pool_workers = 1;
+    let (_state, app) = test_state_and_app_with_config(config);
 
     let (status, first) = call(
         app.clone(),
@@ -4594,7 +4737,12 @@ async fn queued_run_can_be_cancelled_before_it_executes() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(second.get("status").and_then(Value::as_str), Some("queued"));
+    // A dispatched job is public as `running` while it waits for the only
+    // worker. It has not executed the fake turn yet and remains cancellable.
+    assert_eq!(
+        second.get("status").and_then(Value::as_str),
+        Some("running")
+    );
     let second_job_id = second
         .get("job_id")
         .and_then(Value::as_str)

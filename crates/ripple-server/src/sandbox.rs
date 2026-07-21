@@ -28,6 +28,7 @@ const GOGCLI_CLI_INSTALL_ROOT: &str = "/opt/gogcli-cli";
 const GOGCLI_CLI_SANDBOX_BIN_DIR: &str = "/opt/gogcli-cli/current/bin";
 const LARK_CLI_SANDBOX_BINARY: &str = "/opt/lark-cli/current/bin/lark-cli";
 const GOGCLI_CLI_SANDBOX_BINARY: &str = "/opt/gogcli-cli/current/bin/gog";
+const LARK_CLI_CREDENTIALS_SANDBOX_DIR: &str = "/connector-credentials/lark-cli";
 
 #[derive(Clone)]
 pub struct SandboxManager {
@@ -141,6 +142,24 @@ impl SandboxManager {
         Ok(self.sandbox_dir(user_id)?.join("credentials"))
     }
 
+    /// Per-user lark-cli state. This lives outside the workspace so Codex's
+    /// native shell never receives connector credentials as readable files.
+    pub fn lark_cli_credentials_dir(&self, user_id: &str) -> anyhow::Result<PathBuf> {
+        Ok(self.credentials_dir(user_id)?.join("lark-cli"))
+    }
+
+    pub fn lark_cli_config_dir(&self, user_id: &str) -> anyhow::Result<PathBuf> {
+        Ok(self.lark_cli_credentials_dir(user_id)?.join("config"))
+    }
+
+    pub fn lark_cli_data_dir(&self, user_id: &str) -> anyhow::Result<PathBuf> {
+        Ok(self.lark_cli_credentials_dir(user_id)?.join("data"))
+    }
+
+    pub fn lark_cli_log_dir(&self, user_id: &str) -> anyhow::Result<PathBuf> {
+        Ok(self.lark_cli_credentials_dir(user_id)?.join("logs"))
+    }
+
     pub fn sessions_dir(&self, user_id: &str) -> anyhow::Result<PathBuf> {
         Ok(self.sandbox_dir(user_id)?.join("sessions"))
     }
@@ -164,12 +183,34 @@ impl SandboxManager {
         std::fs::create_dir_all(sandbox_dir.join("credentials"))?;
         std::fs::create_dir_all(sandbox_dir.join("sessions"))?;
         std::fs::create_dir_all(&workspace_dir)?;
+        self.prepare_lark_cli_credentials(user_id)?;
         self.deleted
             .lock()
             .expect("deleted sandbox set poisoned")
             .remove(user_id);
         self.write_nsjail_config(user_id)?;
         Ok(workspace_dir)
+    }
+
+    /// Move the legacy workspace-scoped lark-cli files into the credential
+    /// store. The old layout put the encrypted config and its master key in a
+    /// location reachable by a workspace-scoped Codex shell.
+    pub fn prepare_lark_cli_credentials(&self, user_id: &str) -> anyhow::Result<()> {
+        let credential_root = self.lark_cli_credentials_dir(user_id)?;
+        let config_dir = self.lark_cli_config_dir(user_id)?;
+        let data_dir = self.lark_cli_data_dir(user_id)?;
+        let log_dir = self.lark_cli_log_dir(user_id)?;
+        std::fs::create_dir_all(&credential_root)?;
+        std::fs::create_dir_all(&data_dir)?;
+        std::fs::create_dir_all(&log_dir)?;
+
+        let workspace = self.workspace_dir(user_id)?;
+        move_legacy_lark_dir(&workspace.join(".lark-cli"), &config_dir)?;
+        move_legacy_lark_dir(
+            &workspace.join(".local/share/lark-cli"),
+            &data_dir.join("lark-cli"),
+        )?;
+        Ok(())
     }
 
     pub fn teardown_sandbox(&self, user_id: &str, allow_default: bool) -> anyhow::Result<bool> {
@@ -248,7 +289,10 @@ impl SandboxManager {
             session_count,
             has_python_venv: workspace.join(".venv/pyvenv.cfg").is_file(),
             has_pnpm_setup: workspace.join(".local/.node-setup-done").is_file(),
-            has_lark_cli_config: workspace.join(".lark-cli/config.json").is_file(),
+            has_lark_cli_config: self
+                .lark_cli_config_dir(user_id)?
+                .join("config.json")
+                .is_file(),
             has_notion_token: self.notion_config_file(user_id)?.is_file(),
             has_gogcli_client_config: self.gogcli_client_config_file(user_id)?.is_file(),
             has_gogcli_login: has_gogcli_login(&workspace),
@@ -328,6 +372,14 @@ impl SandboxManager {
         mounts.push(mount_block(
             Some(workspace.to_string_lossy().as_ref()),
             "/workspace",
+            true,
+            None,
+        ));
+        let lark_credentials = self.lark_cli_credentials_dir(user_id)?;
+        std::fs::create_dir_all(&lark_credentials)?;
+        mounts.push(mount_block(
+            Some(lark_credentials.to_string_lossy().as_ref()),
+            LARK_CLI_CREDENTIALS_SANDBOX_DIR,
             true,
             None,
         ));
@@ -564,6 +616,20 @@ keep_env: false
             env.push(("UV_INDEX_URL".to_string(), url.clone()));
             env.push(("PIP_INDEX_URL".to_string(), url.clone()));
         }
+        if self.config.sandbox.lark_cli_install_root.is_some() {
+            env.push((
+                "LARKSUITE_CLI_CONFIG_DIR".to_string(),
+                format!("{LARK_CLI_CREDENTIALS_SANDBOX_DIR}/config"),
+            ));
+            env.push((
+                "LARKSUITE_CLI_DATA_DIR".to_string(),
+                format!("{LARK_CLI_CREDENTIALS_SANDBOX_DIR}/data"),
+            ));
+            env.push((
+                "LARKSUITE_CLI_LOG_DIR".to_string(),
+                format!("{LARK_CLI_CREDENTIALS_SANDBOX_DIR}/logs"),
+            ));
+        }
         if let Some(token) = read_json_string_field(&self.notion_config_file(user_id)?, "api_token")
         {
             env.push(("NOTION_API_TOKEN".to_string(), token));
@@ -676,6 +742,55 @@ fn has_gogcli_login(workspace: &Path) -> bool {
                 .map(|m| m.is_file() && m.len() > 0)
                 .unwrap_or(false)
         })
+}
+
+fn move_legacy_lark_dir(source: &Path, destination: &Path) -> anyhow::Result<()> {
+    if !source.exists() || destination.exists() {
+        return Ok(());
+    }
+    if let Some(parent) = destination.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    match std::fs::rename(source, destination) {
+        Ok(()) => Ok(()),
+        Err(rename_error) => {
+            // `workspaces_root` may be configured on a different filesystem
+            // from `sandboxes_root`, where rename(2) cannot cross devices.
+            // Copy first and remove the credential-bearing legacy directory
+            // only after every entry is safely in the private store.
+            copy_directory(source, destination).map_err(|copy_error| {
+                anyhow::anyhow!(
+                    "move legacy lark-cli credentials from {} to {} failed after rename error ({rename_error}): {copy_error}",
+                    source.display(),
+                    destination.display()
+                )
+            })?;
+            std::fs::remove_dir_all(source)?;
+            Ok(())
+        }
+    }
+}
+
+fn copy_directory(source: &Path, destination: &Path) -> anyhow::Result<()> {
+    for entry in WalkDir::new(source) {
+        let entry = entry?;
+        let relative = entry.path().strip_prefix(source)?;
+        let target = destination.join(relative);
+        if entry.file_type().is_dir() {
+            std::fs::create_dir_all(&target)?;
+        } else if entry.file_type().is_file() {
+            if let Some(parent) = target.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::copy(entry.path(), &target)?;
+        } else {
+            anyhow::bail!(
+                "unsupported entry in legacy lark-cli credentials: {}",
+                entry.path().display()
+            );
+        }
+    }
+    Ok(())
 }
 
 fn mount_block(src: Option<&str>, dst: &str, rw: bool, fstype: Option<&str>) -> String {
@@ -861,8 +976,43 @@ mod tests {
         assert!(cfg.contains(r#"options: "size=64M""#));
         assert!(cfg.contains("NOTION_API_TOKEN=secret_test"));
         assert!(cfg.contains("GOG_KEYRING_PASSWORD=pw"));
+        assert!(cfg.contains(r#"dst: "/connector-credentials/lark-cli""#));
+        assert!(cfg.contains("LARKSUITE_CLI_CONFIG_DIR=/connector-credentials/lark-cli/config"));
+        assert!(cfg.contains("LARKSUITE_CLI_DATA_DIR=/connector-credentials/lark-cli/data"));
         assert!(cfg.contains("/opt/gogcli-cli/current/bin"));
         assert!(cfg.contains("/opt/bilibili-cli/current/bin"));
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn migrates_legacy_lark_state_out_of_workspace() {
+        let root =
+            std::env::temp_dir().join(format!("ripple-sandbox-test-{}", uuid::Uuid::new_v4()));
+        let manager = SandboxManager::new(test_config(&root));
+        let user_id = "alice";
+        let workspace = manager.workspace_dir(user_id).unwrap();
+        let legacy_config = workspace.join(".lark-cli");
+        let legacy_key_dir = workspace.join(".local/share/lark-cli");
+        std::fs::create_dir_all(&legacy_config).unwrap();
+        std::fs::create_dir_all(&legacy_key_dir).unwrap();
+        std::fs::write(legacy_config.join("config.json"), "{}").unwrap();
+        std::fs::write(legacy_key_dir.join("master.key"), "key").unwrap();
+
+        manager.ensure_sandbox(user_id).unwrap();
+
+        assert!(!legacy_config.exists());
+        assert!(!legacy_key_dir.exists());
+        assert!(manager
+            .lark_cli_config_dir(user_id)
+            .unwrap()
+            .join("config.json")
+            .is_file());
+        assert!(manager
+            .lark_cli_data_dir(user_id)
+            .unwrap()
+            .join("lark-cli/master.key")
+            .is_file());
 
         let _ = std::fs::remove_dir_all(root);
     }

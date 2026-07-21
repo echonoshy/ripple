@@ -111,7 +111,7 @@ data: [DONE]
 
 ## 5. Callback 协议
 
-确认后，当前 HTTP SSE 通常只返回：
+确认事件被服务端接受并交给后台执行后，当前 HTTP SSE 会立即只返回并关闭：
 
 ```text
 data: [DONE]

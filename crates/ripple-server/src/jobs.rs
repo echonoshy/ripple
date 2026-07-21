@@ -69,6 +69,9 @@ pub struct AgentRunCreateRequest {
     pub chat_user_input: Option<String>,
     #[serde(default, skip_deserializing)]
     pub chat_user_content: Option<Value>,
+    #[serde(default, skip)]
+    #[schema(ignore)]
+    pub request_base_url: Option<String>,
     #[serde(default, skip_deserializing)]
     pub task_response: bool,
 }
@@ -230,6 +233,9 @@ impl JobManager {
             }
             if let Some(chat_user_content) = &create.chat_user_content {
                 object.insert("chat_user_content".to_string(), chat_user_content.clone());
+            }
+            if let Some(request_base_url) = &create.request_base_url {
+                object.insert("request_base_url".to_string(), json!(request_base_url));
             }
             if create.task_response {
                 object.insert("task_response".to_string(), json!(true));
@@ -1375,6 +1381,9 @@ impl StoredJobRecord {
             if let Some(value) = job.metadata.get("chat_user_content") {
                 object.insert("chat_user_content".to_string(), value.clone());
             }
+            if let Some(value) = job.metadata.get("request_base_url").and_then(Value::as_str) {
+                object.insert("request_base_url".to_string(), json!(value));
+            }
         }
         record
     }
@@ -1466,6 +1475,7 @@ impl StoredJobRecord {
                 "client_req_id",
                 "chat_user_input",
                 "chat_user_content",
+                "request_base_url",
                 "task_response",
             ] {
                 if let Some(value) = record.get(key) {
@@ -1906,6 +1916,7 @@ mod tests {
             client_request_id: Some("request-1".to_string()),
             chat_user_input: None,
             chat_user_content: None,
+            request_base_url: None,
             task_response: false,
         };
         let replay = StoredJobReplay::new(
@@ -1951,6 +1962,7 @@ mod tests {
             client_request_id: None,
             chat_user_input: None,
             chat_user_content: None,
+            request_base_url: None,
             task_response: false,
         };
         let replay =

@@ -31,6 +31,11 @@ pub(crate) fn build_codex_chat_base_instructions(config: &AppConfig) -> String {
             "- Do not collect connector credentials inside Codex. If an enabled connector is required and its status is not_connected, your final answer must contain only this internal control-plane request. The connector must be one of: {}.\n  <ripple_connector_auth_request>{{\"connector\":\"{example}\",\"force_reauth\":false,\"reason\":\"connector access is required\"}}</ripple_connector_auth_request>",
             enabled_connectors.join(", ")
         );
+        if config.connector_enabled("feishu") {
+            instructions.push_str(
+                "\n- If `codex_app.feishu_cli` reports `missing_scope`, copy every exact scope identifier into the existing `reason` field of the Feishu connector-auth request. Do not use a generic reauthorization request when the error names a scope.",
+            );
+        }
         if config.connector_enabled("bilibili") {
             instructions.push_str(
                 "\n- For Bilibili tasks, follow the `bilibili` CLI workflow documented by the Bilibili skills.",
@@ -51,6 +56,7 @@ Ripple is the control plane: it owns user identity, sandbox isolation, connector
 - Do not assume an uploaded screenshot is Ripple UI just because Ripple UI skills are available. Treat it as Ripple UI only when Screen Context says `app: ripple`, when the user explicitly selected a Ripple UI skill, or when the screenshot itself gives strong Ripple-specific evidence; otherwise state the uncertainty.\n\
 __RIPPLE_CONNECTOR_AUTH_INSTRUCTIONS__\n\
 - For risky connector writes, ask a clear confirmation question and stop. Continue only after the user's next message explicitly approves the specific action.\n\n\
+- For Feishu/Lark work, never run `lark-cli` in a shell and never inspect or initialize its config files. Call `codex_app.feishu_cli` with the arguments after `lark-cli`; Ripple executes it with the current user's server-owned credentials. If it returns `code=\"connector_auth_required\"`, stop business commands and make your final answer contain only the standard Ripple connector-auth request for `feishu`; do not run `lark-cli auth` or `lark-cli config`.\n\n\
 - Ripple uses Tasks as the durable follow-up model. Tasks capture user goals, obligations, deliverables, or multi-step work items that may outlive the current chat. Task actions may have triggers for future or recurring execution; time-based scheduling is just one task-trigger driver. Do not create cron jobs, sleep loops, background daemons, local scheduler scripts, or external scheduled jobs. Do not call Ripple HTTP APIs from Codex to create tasks or triggers; Ripple validates, stores, confirms, and triggers these control-plane records.\n\
 - When the user states a durable goal, deliverable, obligation, or multi-step work item that should be tracked beyond the immediate answer, call `codex_app.task_update` with `target=\"task\"` only after the durable objective and at least one concrete next action are clear. Use `mode=\"propose\"` when the task is inferred but clear enough to review; use `mode=\"create\"` only when the user clearly asks to track/create the task. The task captures the durable objective; task actions capture concrete next steps.\n\
 - If the task goal, next action, timing, scope, or delivery target is unclear, ask one concise clarification question and do not call `codex_app.task_update` yet. For future or recurring tasks, the trigger time or repeat interval must be clear. For tasks that gather, search, summarize, monitor, or send/update an external service, clarify the source/scope, output format, delivery target, and empty-result/failure behavior before creating the task.\n\

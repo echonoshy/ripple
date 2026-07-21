@@ -545,6 +545,7 @@ async fn extract_task_trigger_with_codex(
         client_request_id: None,
         chat_user_input: None,
         chat_user_content: None,
+        request_base_url: None,
         task_response: false,
     };
     let info = state

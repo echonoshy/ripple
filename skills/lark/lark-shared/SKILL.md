@@ -14,10 +14,8 @@ metadata:
 
 ## 运行环境前提（重要）
 
-lark-cli 跑在**单人本地 Agent 沙箱**里：每个用户拥有独立的 nsjail 沙箱、独立的
-`/workspace/.lark-cli/config.json` 与 access token，凭证天然隔离。**这不是企业
-server-to-server 场景**，没有"多租户串号"风险，因此本 skill 体系**全面放弃"最小
-权限原则"**，全部默认按"一次性、最大化"授权，最大程度减少用户被打断点链接的次数。
+lark-cli 由 **Ripple 服务端受控执行**：每个调用都绑定当前 Ripple user，配置和 access
+token 保存在服务端用户凭证目录，绝不位于 Agent workspace，也不会传给 Agent shell。
 
 新版 lark-cli 在 Agent 环境里可能会提示使用绑定的 app。Ripple 正常路径是服务端统一
 配置 Feishu app 后由 connector 注入；只有没有服务端 app、且确实要为当前 workspace
@@ -25,17 +23,21 @@ server-to-server 场景**，没有"多租户串号"风险，因此本 skill 体�
 
 ## 全局默认（所有 lark-cli 操作都要遵守）
 
-1. **身份默认：`--as user`** -- 凡是同时支持 `user` 与 `bot` 的 API，**必须显式
+1. **调用入口：`codex_app.feishu_cli`** -- 不要在 shell 里运行 `lark-cli`。把命令中
+   `lark-cli` 后的每个参数原样放入该动态工具的 `args` 数组，例如
+   `lark-cli docs +create --title "周报"` 对应 `{"args":["docs","+create","--title","周报"]}`。
+   服务端会使用当前用户隔离的凭证执行命令。
+2. **身份默认：`--as user`** -- 凡是同时支持 `user` 与 `bot` 的 API，**必须显式
    带上 `--as user`**。CLI 底层默认是 `bot`，不显式指定会以应用身份发送/读取，
    行为与用户预期完全不同。
-2. **授权只能走 Ripple 对话链路** -- Codex 不能直接执行 `lark-cli auth login`
+3. **授权只能走 Ripple 对话链路** -- Codex 不能直接执行 `lark-cli auth login`
    或手工生成授权 URL。用户授权、重新授权、补权限都由 Ripple control plane 在对话中处理。
-3. 切换到 `--as bot` 仅限三种情况：
+4. 切换到 `--as bot` 仅限三种情况：
    - 用户在当前消息里**明确**要求"以应用 / bot 身份执行"；
    - 当前 API **只支持 bot**（如 `im.messages.forward`、`im.messages.merge_forward`、
      `im.images.create`、`im.chats.create` 等，子 skill 会标注 `Identity: bot only`）；
    - 当前工作流就是 bot 主动播报、在 bot 自己所在群里以应用身份发言。
-4. 遇到 `need_user_authorization`、`missing_scope`、用户 token 缺失或授权状态不确定时，
+5. 遇到 `need_user_authorization`、`missing_scope`、用户 token 缺失或授权状态不确定时，
    **停止业务命令**，请用户在对话里完成或重新完成 Feishu 授权；不要在 Codex shell 里补跑
    `auth login`。
 
@@ -44,20 +46,13 @@ API 只支持 bot），它会**显式覆盖**这条规则，否则一律按本�
 
 ## 首要步骤：状态检查
 
-**调用任何 lark-cli 业务命令之前，必须先检查配置和认证状态：**
-
-```bash
-lark-cli config show 2>&1 && lark-cli auth status 2>&1
-```
+`codex_app.feishu_cli` 在每条业务命令前自动检查当前用户的配置和认证状态；不要手工执行
+`config show`、`auth status`、`whoami` 或 `doctor`。
 
 根据返回结果判断：
 
-1. **`config` 返回 `"not configured"`** -> app 凭证未配置。不要在 Codex shell 里手工初始化；
-   告诉用户需要在 Ripple 对话里完成 Feishu CLI 配置。
-2. **`config` 正常但 `auth` 未登录** -> 默认 user 身份不可用。不要执行 `auth login`；
-   告诉用户需要在 Ripple 对话里完成 Feishu 用户授权。只有当本次任务确属"bot only"
-   或用户明确要求 bot 时，才能跳过 user 授权直接以 `--as bot` 调用。
-3. **两者都正常** -> 直接执行业务命令（仍然显式带 `--as user`）。
+1. 工具返回 `code="connector_auth_required"` -> 停止业务命令并走 Ripple 对话授权；不要生成或运行配置命令。
+2. 工具成功 -> 直接使用返回的业务结果（仍然显式带 `--as user`）。
 
 **绝对不要跳过这一步直接调用业务 API。**
 

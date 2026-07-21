@@ -27,7 +27,9 @@ use bilibili::{
     bilibili_app_url, bilibili_qrcode_generate, bilibili_qrcode_poll,
     bilibili_verify_credential_live,
 };
-pub(crate) use feishu::cancel_setup as cancel_feishu_setup;
+pub(crate) use feishu::{
+    cancel_setup as cancel_feishu_setup, invoke_for_agent as invoke_feishu_for_agent,
+};
 
 const BILIBILI_QRCODE_TTL_SECONDS: u64 = 180;
 const BILIBILI_PENDING_TTL_SECONDS: u64 = 600;

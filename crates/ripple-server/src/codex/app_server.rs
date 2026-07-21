@@ -20,6 +20,7 @@ mod protocol;
 mod runtime_env;
 mod types;
 
+use crate::api::connectors::invoke_feishu_for_agent;
 use crate::api::tasks::persist_task_update;
 use crate::codex::approvals::{approval_response_for_action, CodexApproval};
 use crate::codex::permissions::{
@@ -545,6 +546,10 @@ pub struct CodexAppServerProvider {
     reaper_started: Arc<AtomicBool>,
     service_auth_refresh_lock: Arc<Mutex<()>>,
     active_turns: Arc<Mutex<HashMap<String, ActiveTurn>>>,
+    // A job can be waiting to acquire a pooled app-server worker before it
+    // has an interruptible turn. Keep that cancellation request until the
+    // runner observes it, otherwise a cancelled waiting job may execute later.
+    cancelled_before_turn: Arc<Mutex<HashSet<String>>>,
     pending_approvals: Arc<Mutex<HashMap<String, Value>>>,
     pending_user_inputs: Arc<Mutex<HashMap<String, Value>>>,
     // Avoid reusing pre-restart keys after a later context compaction.
@@ -563,6 +568,7 @@ impl CodexAppServerProvider {
             reaper_started: Arc::new(AtomicBool::new(false)),
             service_auth_refresh_lock: Arc::new(Mutex::new(())),
             active_turns: Arc::new(Mutex::new(HashMap::new())),
+            cancelled_before_turn: Arc::new(Mutex::new(HashSet::new())),
             pending_approvals: Arc::new(Mutex::new(HashMap::new())),
             pending_user_inputs: Arc::new(Mutex::new(HashMap::new())),
             additional_context_epoch_seed: uuid::Uuid::new_v4().as_u128() as u64,
@@ -590,106 +596,116 @@ impl CodexAppServerProvider {
         let mut turn_id = None;
         let mut thread_resumed = false;
 
-        append_event(
-            &events_file,
-            &mut sequence,
-            &job_id,
-            &request.provider,
-            "runner.started",
-            None,
-            json!({
-                "cwd": request.cwd,
-                "runner": "codex-app-server",
-                "user_id": request.user_id,
-                "trusted_app_server": true
-            }),
-        )
-        .await?;
-
         let mut turn_rx = None;
         let mut session = self.session_for_request(&request).await?;
         let mut stderr_start = session.stderr_tail_len().await;
         let mut service_auth_refresh_attempted = false;
-        let (status, mut error) = loop {
-            match self
-                .run_turn(&request, &job_id, &events_file, &mut sequence, &session)
-                .await
-            {
-                Ok((ids, rx, text, resumed)) => {
-                    thread_id = Some(ids.0);
-                    turn_id = Some(ids.1);
-                    turn_rx = Some(rx);
-                    output_text = text;
-                    thread_resumed = resumed;
-                    break (AgentRunnerStatus::Completed, None);
+        let cancelled_before_start = self.take_cancelled_before_turn(&job_id).await;
+        if !cancelled_before_start {
+            append_event(
+                &events_file,
+                &mut sequence,
+                &job_id,
+                &request.provider,
+                "runner.started",
+                None,
+                json!({
+                    "cwd": request.cwd,
+                    "runner": "codex-app-server",
+                    "user_id": request.user_id,
+                    "trusted_app_server": true
+                }),
+            )
+            .await?;
+        }
+        let (status, mut error) = if cancelled_before_start {
+            (AgentRunnerStatus::Cancelled, None)
+        } else {
+            loop {
+                if self.take_cancelled_before_turn(&job_id).await {
+                    break (AgentRunnerStatus::Cancelled, None);
                 }
-                Err(err) => {
-                    let stderr_tail = session.stderr_tail_since(stderr_start).await;
-                    let combined_error = format!("{err}\n{stderr_tail}");
-                    if !service_auth_refresh_attempted
-                        && codex_error_needs_service_auth_refresh(&combined_error)
-                    {
-                        service_auth_refresh_attempted = true;
-                        let observed_auth = service_auth_fingerprint(&self.config).await;
-                        append_event(
-                            &events_file,
-                            &mut sequence,
-                            &job_id,
-                            &request.provider,
-                            "codex.service_auth_refresh.started",
-                            Some("Codex auth failed; refreshing service auth".to_string()),
-                            json!({}),
-                        )
-                        .await?;
-                        self.clear_job_transient_state(&job_id).await;
-                        self.discard_job_worker(&job_id).await;
-                        match self
-                            .refresh_service_codex_auth(&request, observed_auth)
-                            .await
+                match self
+                    .run_turn(&request, &job_id, &events_file, &mut sequence, &session)
+                    .await
+                {
+                    Ok((ids, rx, text, resumed)) => {
+                        thread_id = Some(ids.0);
+                        turn_id = Some(ids.1);
+                        turn_rx = Some(rx);
+                        output_text = text;
+                        thread_resumed = resumed;
+                        break (AgentRunnerStatus::Completed, None);
+                    }
+                    Err(err) => {
+                        let stderr_tail = session.stderr_tail_since(stderr_start).await;
+                        let combined_error = format!("{err}\n{stderr_tail}");
+                        if !service_auth_refresh_attempted
+                            && codex_error_needs_service_auth_refresh(&combined_error)
                         {
-                            Ok(outcome) => {
-                                let discarded_idle_workers =
-                                    self.discard_idle_workers_after_service_auth_refresh().await;
-                                append_event(
-                                    &events_file,
-                                    &mut sequence,
-                                    &job_id,
-                                    &request.provider,
-                                    "codex.service_auth_refresh.completed",
-                                    None,
-                                    json!({
-                                        "outcome": service_auth_refresh_outcome_name(outcome),
-                                        "discarded_idle_workers": discarded_idle_workers
-                                    }),
-                                )
-                                .await?;
-                                session = self.session_for_request(&request).await?;
-                                stderr_start = session.stderr_tail_len().await;
-                                continue;
-                            }
-                            Err(refresh_err) => {
-                                append_event(
-                                    &events_file,
-                                    &mut sequence,
-                                    &job_id,
-                                    &request.provider,
-                                    "codex.service_auth_refresh.failed",
-                                    Some("Codex service auth refresh failed".to_string()),
-                                    json!({
-                                        "error": refresh_err.to_string()
-                                    }),
-                                )
-                                .await?;
-                                break (
+                            service_auth_refresh_attempted = true;
+                            let observed_auth = service_auth_fingerprint(&self.config).await;
+                            append_event(
+                                &events_file,
+                                &mut sequence,
+                                &job_id,
+                                &request.provider,
+                                "codex.service_auth_refresh.started",
+                                Some("Codex auth failed; refreshing service auth".to_string()),
+                                json!({}),
+                            )
+                            .await?;
+                            self.clear_job_transient_state(&job_id).await;
+                            self.discard_job_worker(&job_id).await;
+                            match self
+                                .refresh_service_codex_auth(&request, observed_auth)
+                                .await
+                            {
+                                Ok(outcome) => {
+                                    let discarded_idle_workers = self
+                                        .discard_idle_workers_after_service_auth_refresh()
+                                        .await;
+                                    append_event(
+                                        &events_file,
+                                        &mut sequence,
+                                        &job_id,
+                                        &request.provider,
+                                        "codex.service_auth_refresh.completed",
+                                        None,
+                                        json!({
+                                            "outcome": service_auth_refresh_outcome_name(outcome),
+                                            "discarded_idle_workers": discarded_idle_workers
+                                        }),
+                                    )
+                                    .await?;
+                                    session = self.session_for_request(&request).await?;
+                                    stderr_start = session.stderr_tail_len().await;
+                                    continue;
+                                }
+                                Err(refresh_err) => {
+                                    append_event(
+                                        &events_file,
+                                        &mut sequence,
+                                        &job_id,
+                                        &request.provider,
+                                        "codex.service_auth_refresh.failed",
+                                        Some("Codex service auth refresh failed".to_string()),
+                                        json!({
+                                            "error": refresh_err.to_string()
+                                        }),
+                                    )
+                                    .await?;
+                                    break (
                                     AgentRunnerStatus::Failed,
                                     Some(format!(
                                         "Codex service auth refresh failed; re-login the service CODEX_HOME: {refresh_err}"
                                     )),
                                 );
+                                }
                             }
                         }
+                        break (AgentRunnerStatus::Failed, Some(err.to_string()));
                     }
-                    break (AgentRunnerStatus::Failed, Some(err.to_string()));
                 }
             }
         };
@@ -698,6 +714,7 @@ impl CodexAppServerProvider {
             session.unregister_turn(thread_id, turn_id).await;
         }
         self.active_turns.lock().await.remove(&job_id);
+        self.cancelled_before_turn.lock().await.remove(&job_id);
         self.pending_approvals.lock().await.remove(&job_id);
         self.pending_user_inputs.lock().await.remove(&job_id);
         drop(turn_rx);
@@ -1041,6 +1058,44 @@ impl CodexAppServerProvider {
                     ),
                     Err(err) => (false, format!("{err:?}")),
                 }
+            }
+        } else if namespace == "codex_app" && tool == "feishu_cli" {
+            let user_id = request.user_id.as_deref().unwrap_or("default");
+            let args = match arguments.get("args").and_then(Value::as_array) {
+                Some(values) => match values
+                    .iter()
+                    .map(|value| value.as_str().map(str::to_string))
+                    .collect::<Option<Vec<_>>>()
+                {
+                    Some(args) => Ok(args),
+                    None => Err(json!({
+                        "ok": false,
+                        "code": "invalid_arguments",
+                        "message": "feishu_cli args must be an array of strings."
+                    })),
+                },
+                None => Ok(Vec::new()),
+            };
+            match args {
+                Ok(args) => {
+                    let sandboxes = SandboxManager::new(self.config.clone());
+                    match invoke_feishu_for_agent(&self.config, &sandboxes, user_id, &args).await {
+                        Ok(output) => {
+                            let success =
+                                output.get("ok").and_then(Value::as_bool).unwrap_or(false);
+                            (
+                                success,
+                                serde_json::to_string(&output)
+                                    .unwrap_or_else(|_| "{\"ok\":false}".to_string()),
+                            )
+                        }
+                        Err(err) => (false, format!("{err:?}")),
+                    }
+                }
+                Err(output) => (
+                    false,
+                    serde_json::to_string(&output).unwrap_or_else(|_| "{\"ok\":false}".to_string()),
+                ),
             }
         } else {
             (
@@ -1539,7 +1594,11 @@ impl CodexAppServerProvider {
         self.pending_approvals.lock().await.remove(job_id);
         self.pending_user_inputs.lock().await.remove(job_id);
         let Some(active) = active else {
-            return false;
+            self.cancelled_before_turn
+                .lock()
+                .await
+                .insert(job_id.to_string());
+            return true;
         };
         active
             .session
@@ -1549,6 +1608,10 @@ impl CodexAppServerProvider {
             )
             .await
             .is_ok()
+    }
+
+    async fn take_cancelled_before_turn(&self, job_id: &str) -> bool {
+        self.cancelled_before_turn.lock().await.remove(job_id)
     }
 
     pub async fn compact_thread(
@@ -2036,6 +2099,13 @@ fn add_task_dynamic_tools(params: &mut Value, request: &AgentRunnerRequest) {
                 "inputSchema": session_wait_user_input_schema(),
                 "deferLoading": true
             }),
+            json!({
+                "namespace": "codex_app",
+                "name": "feishu_cli",
+                "description": "Run one Feishu lark-cli business command for the current Ripple user. Credentials are server-owned. Do not use this for auth/config/status; if it returns code=connector_auth_required, request Ripple Feishu authorization instead.",
+                "inputSchema": feishu_cli_input_schema(),
+                "deferLoading": false
+            }),
         ];
         if request
             .metadata
@@ -2135,6 +2205,23 @@ fn session_wait_user_input_schema() -> Value {
             }
         },
         "required": ["question"],
+        "additionalProperties": false
+    })
+}
+
+fn feishu_cli_input_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "args": {
+                "type": "array",
+                "description": "Arguments after lark-cli, for example [\"docs\", \"+create\", \"--title\", \"Weekly notes\"].",
+                "items": {"type": "string"},
+                "minItems": 1,
+                "maxItems": 64
+            }
+        },
+        "required": ["args"],
         "additionalProperties": false
     })
 }
@@ -2611,7 +2698,7 @@ mod tests {
             .get("dynamicTools")
             .and_then(Value::as_array)
             .expect("dynamic task tools");
-        assert_eq!(tools.len(), 2);
+        assert_eq!(tools.len(), 3);
         let tool = &tools[0];
         assert_eq!(
             tool.get("namespace").and_then(Value::as_str),
@@ -2636,6 +2723,13 @@ mod tests {
         assert!(wait_tool
             .pointer("/inputSchema/properties/question")
             .is_some());
+        let feishu_tool = tools
+            .iter()
+            .find(|tool| tool.get("name").and_then(Value::as_str) == Some("feishu_cli"))
+            .expect("feishu CLI tool");
+        assert!(feishu_tool
+            .pointer("/inputSchema/properties/args")
+            .is_some());
 
         let mut task_request = request;
         task_request.metadata["task_response"] = json!(true);
@@ -2644,7 +2738,7 @@ mod tests {
         let task_tools = task_params["dynamicTools"]
             .as_array()
             .expect("task session dynamic tools");
-        assert_eq!(task_tools.len(), 3);
+        assert_eq!(task_tools.len(), 4);
         assert!(task_tools.iter().any(|tool| {
             tool.get("name").and_then(Value::as_str) == Some("task_execution_confirmed")
         }));

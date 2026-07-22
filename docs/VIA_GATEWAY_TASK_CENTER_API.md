@@ -88,19 +88,19 @@ data: [DONE]
 
 ### 确认前的 Connector 授权
 
-授权是确认前唯一的结构化 SSE 例外：服务先发送展示用文本，再发送 `task.status`。
+授权是确认前唯一的结构化 SSE 例外：服务会发送兼容用文本，再发送 `task.status`。调用方必须以 `task.status.required_action` 的结构化字段判断授权阶段和下一步操作；不得解析 `response.output_text.delta` 或 `content` 的文案来判断流程。
 
 ```text
 event: response.output_text.delta
 data: {"delta":"需要完成飞书授权后继续执行。"}
 
 event: task.status
-data: {"event":"task.status","task_id":"task_001","req_id":"req_002","status":"waiting_user","content":"需要完成飞书授权后继续执行。","required_action":{"type":"connector_auth","connector":"feishu","auth_url":"https://example.com/auth"}}
+data: {"event":"task.status","task_id":"task_001","req_id":"req_002","status":"waiting_user","content":"需要完成飞书授权后继续执行。","required_action":{"type":"connector_auth","connector":"feishu","stage":"awaiting_user_auth","auth_url":"https://example.com/auth"}}
 
 data: [DONE]
 ```
 
-收到 `required_action.type = "connector_auth"` 时，打开**本轮** `auth_url` 完成当前步骤，再以相同 `task_id` 提交下一条输入。飞书等 Connector 可能多步授权；若下一轮仍返回 `connector_auth`，必须继续使用最新 `auth_url`。
+收到 `required_action.type = "connector_auth"` 时，结合 `connector` 和 `stage` 决定本地化展示；需要浏览器操作时，打开**本轮** `auth_url`，完成后以相同 `task_id` 提交下一条输入。飞书等 Connector 可能多步授权；若下一轮仍返回 `connector_auth`，必须继续使用最新字段，不能复用旧 URL 或旧 stage。
 
 ### SSE 建立后的错误
 
@@ -154,7 +154,7 @@ data: [DONE]
   }
 ```
 
-`content` 是面向用户的文本。`waiting_user` 和 `failed` 可额外包含以下字段：
+`content` 是旧客户端可直接展示的兼容文本。新的调用方不得依赖它判断 Connector 授权阶段或拼接本地化文案；应使用下面的 `required_action` 或 `error` 结构化字段。`waiting_user` 和 `failed` 可额外包含以下字段：
 
 ```json
 {
@@ -162,19 +162,35 @@ data: [DONE]
     "type": "confirm | reply | connector_auth"
   },
   "error": {
-    "code": "server_error | cancelled",
+    "code": "server_error | cancelled | connector_auth_failed",
+    "connector": "feishu",
+    "stage": "auth_failed",
     "message": "..."
   }
 }
 ```
 
+当 `error.code = "connector_auth_failed"` 时，`error.connector` 和 `error.stage` 必定存在；调用方可据此展示本地化失败提示，并将 `message` 作为未适配时的 fallback。其他错误类型不包含这两个字段。
+
 `required_action` 的完整形态：
 
 | 类型 | 字段 | 调用方下一步 |
 | --- | --- | --- |
-| `connector_auth` | `connector`、`auth_url` | 完成当前授权步骤后，以相同 `task_id` 发送输入。 |
+| `connector_auth` | `connector`、`stage`、`auth_url` | 完成当前授权步骤后，以相同 `task_id` 发送输入。`stage` 是稳定的授权阶段标识，调用方可结合 `connector` 使用本地化文案。 |
 | `confirm` | `approval`（Codex 原始审批信息） | 发送文本批准或拒绝。 |
 | `reply` | `message` | 发送补充答案。 |
+
+### Connector 授权阶段
+
+`connector_auth` 的展示由调用方负责。服务端不根据调用方语言翻译，也不要求调用方展示 `content`。当前飞书阶段如下；调用方遇到未知 `stage` 必须保留通用授权入口或错误 fallback，不能假设枚举只有以下值。
+
+| `connector` | `stage` | 结构化数据 | 调用方展示/行为 |
+| --- | --- | --- | --- |
+| `feishu` | `awaiting_setup` | `auth_url` 指向本轮飞书配置页 | 展示飞书 Bot 配置流程；打开 URL 后等待或提交下一轮输入。 |
+| `feishu` | `awaiting_user_auth` | `auth_url` 指向本轮用户 OAuth 页 | 展示飞书账号授权流程；打开 URL 后等待或提交下一轮输入。 |
+| `feishu` | `pending` | 可能没有新的 `auth_url` | 展示授权处理中/等待确认；不要把空 URL 当作可打开操作。 |
+| `feishu` | `authorized` | 不再需要 `connector_auth` action | 展示已授权或继续原任务。 |
+| `feishu` | `auth_failed`、`invalid_request` | 以 `error.connector`、`error.stage` 返回 | 展示本地化失败提示；不得返回或伪造 `required_action`。 |
 
 审批文本的内置解释：`允许`、`同意`、`确认`、`允许发送`、`继续` 为单次允许；`始终允许` 为本 Task Session 持续允许；`拒绝`、`不同意`、`取消`、`不要发送` 为拒绝。
 

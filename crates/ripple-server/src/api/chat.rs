@@ -1157,24 +1157,25 @@ fn spawn_task_session_monitor(
                     {
                         Ok(Some(event)) => {
                             let public_event = public_connector_auth_event(&event);
-                            let message = event_message(&event);
-                            task_execution_context(
-                                &mut session,
-                                &task_id,
-                                req_id.as_deref(),
-                                Some("connector_auth"),
-                                None,
-                            );
+                            if task_connector_auth_failed(&public_event) {
+                                session.set_status(SessionStatus::Failed);
+                                session.pending_control_request = None;
+                            } else {
+                                task_execution_context(
+                                    &mut session,
+                                    &task_id,
+                                    req_id.as_deref(),
+                                    Some("connector_auth"),
+                                    None,
+                                );
+                            }
                             if state.sessions.save_record(session.clone()).await.is_ok() {
                                 dispatch_task_callback(
                                     &session,
-                                    task_status_data(
+                                    task_connector_auth_status_data(
                                         &task_id,
                                         req_id.as_deref(),
-                                        "waiting_user",
-                                        json!(message),
-                                        Some(task_connector_required_action(&public_event)),
-                                        None,
+                                        &public_event,
                                     ),
                                 );
                             }
@@ -1297,14 +1298,7 @@ fn task_control_event_response(
 ) -> Response<Body> {
     let output_text = event_message(event);
     if task_execution_active(session) {
-        let status_data = task_status_data(
-            task_id,
-            req_id,
-            "waiting_user",
-            json!(output_text.clone()),
-            Some(task_connector_required_action(event)),
-            None,
-        );
+        let status_data = task_connector_auth_status_data(task_id, req_id, event);
         dispatch_task_callback(session, status_data);
     }
     let mut body = Vec::new();
@@ -1314,13 +1308,8 @@ fn task_control_event_response(
     if !task_execution_active(session)
         && event.get("type").and_then(Value::as_str) == Some("connector_auth_required")
     {
-        body.extend_from_slice(&task_status_sse(&task_status_data(
-            task_id,
-            req_id,
-            "waiting_user",
-            json!(output_text),
-            Some(task_connector_required_action(event)),
-            None,
+        body.extend_from_slice(&task_status_sse(&task_connector_auth_status_data(
+            task_id, req_id, event,
         )));
     }
     body.extend_from_slice(b"data: [DONE]\n\n");
@@ -1339,12 +1328,47 @@ fn task_connector_required_action(event: &Value) -> Value {
     json!({
         "type": "connector_auth",
         "connector": event.get("connector").cloned().unwrap_or(Value::Null),
+        "stage": event.get("stage").cloned().unwrap_or(Value::Null),
         "auth_url": event
             .pointer("/action/data/oauth_url")
             .or_else(|| event.pointer("/action/data/setup_url"))
             .cloned()
             .unwrap_or(Value::Null)
     })
+}
+
+fn task_connector_auth_failed(event: &Value) -> bool {
+    matches!(
+        event.get("stage").and_then(Value::as_str),
+        Some("auth_failed" | "invalid_request")
+    )
+}
+
+fn task_connector_auth_status_data(task_id: &str, req_id: Option<&str>, event: &Value) -> Value {
+    let message = event_message(event);
+    if task_connector_auth_failed(event) {
+        return task_status_data(
+            task_id,
+            req_id,
+            "failed",
+            json!(message.clone()),
+            None,
+            Some(json!({
+                "code": "connector_auth_failed",
+                "connector": event.get("connector").cloned().unwrap_or(Value::Null),
+                "stage": event.get("stage").cloned().unwrap_or(Value::Null),
+                "message": message
+            })),
+        );
+    }
+    task_status_data(
+        task_id,
+        req_id,
+        "waiting_user",
+        json!(message),
+        Some(task_connector_required_action(event)),
+        None,
+    )
 }
 
 async fn handle_chat_request(
@@ -2779,26 +2803,26 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
                                 ));
                             }
                             if task_response {
+                                if task_connector_auth_failed(&public_event) {
+                                    session.set_status(SessionStatus::Failed);
+                                    session.pending_control_request = None;
+                                    let _ =
+                                        state.sessions.save_record_if_exists(session.clone()).await;
+                                }
                                 if task_execution_started {
                                     dispatch_task_callback(
                                         &session,
-                                        task_status_data(
+                                        task_connector_auth_status_data(
                                             &task_id,
                                             task_req_id.as_deref(),
-                                            "waiting_user",
-                                            json!(message.clone()),
-                                            Some(task_connector_required_action(&public_event)),
-                                            None,
+                                            &public_event,
                                         ),
                                     );
                                 } else {
-                                    emit!(task_status_sse(&task_status_data(
+                                    emit!(task_status_sse(&task_connector_auth_status_data(
                                         &task_id,
                                         task_req_id.as_deref(),
-                                        "waiting_user",
-                                        json!(message.clone()),
-                                        Some(task_connector_required_action(&public_event)),
-                                        None,
+                                        &public_event,
                                     )));
                                 }
                             } else {
@@ -3758,6 +3782,7 @@ mod tests {
         let event = json!({
             "type": "connector_auth_required",
             "connector": "feishu",
+            "stage": "awaiting_user_auth",
             "message": "需要完成飞书授权后继续执行。",
             "action": {
                 "data": {
@@ -3792,11 +3817,84 @@ mod tests {
                 "required_action": {
                     "type": "connector_auth",
                     "connector": "feishu",
+                    "stage": "awaiting_user_auth",
                     "auth_url": "https://accounts.feishu.cn/device"
                 }
             })
         );
         assert!(body.ends_with("data: [DONE]\n\n"));
+    }
+
+    #[tokio::test]
+    async fn failed_task_connector_auth_never_emits_waiting_user_with_empty_url() {
+        let now = now_iso();
+        let session = SessionRecord {
+            session_id: "task-session".to_string(),
+            user_id: "alice".to_string(),
+            title: String::new(),
+            pinned: false,
+            context_folder_path: None,
+            model: "codex-test".to_string(),
+            max_turns: 200,
+            caller_system_prompt: None,
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+            last_input_tokens: 0,
+            created_at: now.clone(),
+            last_active: now,
+            status: "idle".to_string(),
+            message_count: 0,
+            messages: Vec::new(),
+            pending_question: None,
+            pending_options: None,
+            pending_permission_request: None,
+            pending_connector_auth: None,
+            pending_control_request: None,
+            codex_thread_id: None,
+            codex_synced_message_count: 0,
+            memory_disabled: false,
+            plan_steps: Vec::new(),
+            plan_progress: None,
+            task_callback_url: None,
+        };
+        let event = json!({
+            "type": "connector_auth_required",
+            "connector": "feishu",
+            "stage": "auth_failed",
+            "message": "config init --new failed (exit=1)",
+            "action": {"data": {}}
+        });
+
+        let response = task_control_event_response(&session, "task-001", Some("req-001"), &event);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("read SSE body");
+        let body = String::from_utf8(body.to_vec()).expect("UTF-8 SSE body");
+        let status_data = body
+            .split("event: task.status\n")
+            .nth(1)
+            .and_then(|event| event.lines().next())
+            .and_then(|line| line.strip_prefix("data: "))
+            .expect("task.status data");
+        let status: Value = serde_json::from_str(status_data).expect("task.status JSON");
+
+        assert_eq!(
+            status,
+            json!({
+                "event": "task.status",
+                "task_id": "task-001",
+                "req_id": "req-001",
+                "status": "failed",
+                "content": "config init --new failed (exit=1)",
+                "error": {
+                    "code": "connector_auth_failed",
+                    "connector": "feishu",
+                    "stage": "auth_failed",
+                    "message": "config init --new failed (exit=1)"
+                }
+            })
+        );
+        assert!(!body.contains("auth_url"));
     }
     use std::collections::BTreeMap;
 

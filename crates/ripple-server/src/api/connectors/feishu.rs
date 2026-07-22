@@ -541,9 +541,18 @@ async fn ensure_cli_config(
         return inject_credentials(state, user_id, &app).await;
     }
     if let Some(result) = check_setup(state, user_id).await? {
-        return Ok(result);
+        if !setup_check_needs_retry(&result) {
+            return Ok(result);
+        }
     }
     start_setup(state, user_id).await
+}
+
+/// A finished setup that did not create a configuration file cannot be
+/// completed by asking the user to revisit its old URL. Start a new device
+/// setup so the caller receives a fresh URL instead.
+fn setup_check_needs_retry(result: &(bool, String)) -> bool {
+    !result.0 && !looks_like_url(&result.1)
 }
 
 fn read_app_credentials(
@@ -1072,5 +1081,22 @@ mod tests {
         .unwrap();
 
         assert_eq!(value_as_u64(payload.get("expires_in_seconds")), Some(600));
+    }
+
+    #[test]
+    fn failed_setup_check_requires_a_fresh_setup_url() {
+        assert!(setup_check_needs_retry(&(
+            false,
+            "config init --new failed (exit=1)".to_string()
+        )));
+        assert!(setup_check_needs_retry(&(
+            false,
+            "config init --new exited but did not create config.json.".to_string()
+        )));
+        assert!(!setup_check_needs_retry(&(true, String::new())));
+        assert!(!setup_check_needs_retry(&(
+            false,
+            "https://open.feishu.cn/page/cli?user_code=fresh".to_string()
+        )));
     }
 }

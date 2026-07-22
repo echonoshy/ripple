@@ -20,6 +20,13 @@ use crate::redaction::redact_text;
 use crate::sandbox::SandboxManager;
 use crate::state::AppState;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum DeviceAuthorizationCompletion {
+    Completed,
+    Pending { detail: String },
+    Failed { detail: String },
+}
+
 pub(super) async fn status(state: &AppState, user_id: &str) -> Value {
     let (connected, detail, mut metadata) = cli_login_status(state, user_id).await;
     if let Ok(seed_file) = state.sandboxes.credentials_dir(user_id) {
@@ -94,7 +101,9 @@ pub(crate) async fn invoke_for_agent(
     }
     let argv = args.iter().map(String::as_str).collect::<Vec<_>>();
     let output = run_lark_with_sandbox(sandboxes, user_id, &argv, None, 60).await?;
-    let stdout = redact_text(&String::from_utf8_lossy(&output.stdout));
+    let stdout = redact_text(&strip_lark_update_notice(&String::from_utf8_lossy(
+        &output.stdout,
+    )));
     let stderr = redact_text(&String::from_utf8_lossy(&output.stderr));
     Ok(json!({
         "ok": output.status.success(),
@@ -103,6 +112,28 @@ pub(crate) async fn invoke_for_agent(
         "stdout": stdout,
         "stderr": stderr
     }))
+}
+
+/// CLI update notices are service-maintenance metadata, not part of a user's
+/// requested Feishu operation. Keep them out of the agent-visible tool result
+/// so they cannot leak into the user-facing answer.
+fn strip_lark_update_notice(stdout: &str) -> String {
+    let Ok(mut output) = serde_json::from_str::<Value>(stdout) else {
+        return stdout.to_string();
+    };
+    let Some(root) = output.as_object_mut() else {
+        return stdout.to_string();
+    };
+    let Some(notices) = root.get_mut("_notice").and_then(Value::as_object_mut) else {
+        return stdout.to_string();
+    };
+
+    notices.remove("update");
+    if notices.is_empty() {
+        root.remove("_notice");
+    }
+
+    serde_json::to_string(&output).unwrap_or_else(|_| stdout.to_string())
 }
 
 pub(super) async fn auth_start(
@@ -246,7 +277,9 @@ pub(super) async fn auth_complete(
     }
     let complete_result = complete_lark_user_auth(state, user_id, device_code).await;
     state.sandboxes.write_nsjail_config(user_id)?;
-    if complete_result.as_ref().is_ok_and(|ok| *ok) {
+    let (connected, status_detail, status_metadata) =
+        confirm_user_authorization(state, user_id).await;
+    if connected {
         return Ok(Json(action_response(
             "feishu",
             true,
@@ -256,41 +289,44 @@ pub(super) async fn auth_complete(
         )));
     }
 
-    let msg = complete_result
-        .err()
-        .map(|err| err.to_string())
-        .unwrap_or_else(|| "Feishu user authorization is not ready yet.".to_string());
-    let (connected, status_detail, status_metadata) =
-        confirm_user_authorization(state, user_id).await;
-    if connected {
-        return Ok(Json(action_response(
-            "feishu",
+    let completion =
+        complete_result.unwrap_or_else(|error| DeviceAuthorizationCompletion::Failed {
+            detail: error.to_string(),
+        });
+    let (stage, ok, message, device_code_finalized) = match completion {
+        DeviceAuthorizationCompletion::Completed => (
+            "pending",
             true,
-            "authorized",
-            "Feishu user authorization completed for this user.",
-            json!({"status_detail": status_detail, "status_metadata": status_metadata}),
-        )));
-    }
-    let pending_approval = is_auth_pending_approval_message(&msg);
-    let final_confirmation = is_auth_final_confirmation_message(&msg);
-    let stage = if !pending_approval && (is_auth_pending_message(&msg) || final_confirmation) {
-        "pending"
-    } else {
-        "auth_failed"
+            "Feishu authorization was confirmed, but local user status is not ready yet. Please wait a moment and try again.".to_string(),
+            true,
+        ),
+        DeviceAuthorizationCompletion::Pending { detail } => (
+            "pending",
+            true,
+            detail,
+            false,
+        ),
+        DeviceAuthorizationCompletion::Failed { detail } => {
+            let pending_approval = is_auth_pending_approval_message(&detail);
+            if pending_approval {
+                (
+                    "auth_failed",
+                    false,
+                    "Feishu app authorization is pending administrator approval. Ask the Feishu app administrator to approve the requested permissions, then start authorization again.".to_string(),
+                    false,
+                )
+            } else {
+                ("auth_failed", false, detail, false)
+            }
+        }
     };
     Ok(Json(action_response(
         "feishu",
-        stage == "pending",
+        ok,
         stage,
-        if pending_approval {
-            "Feishu app authorization is pending administrator approval. Ask the Feishu app administrator to approve the requested permissions, then start authorization again."
-        } else if final_confirmation {
-            "Feishu authorization was confirmed in the browser, but local user status is not ready yet."
-        } else {
-            &msg
-        },
+        &message,
         json!({
-            "device_code_finalized": final_confirmation,
+            "device_code_finalized": device_code_finalized,
             "status_detail": status_detail,
             "status_metadata": status_metadata
         }),
@@ -840,7 +876,7 @@ async fn complete_lark_user_auth(
     state: &AppState,
     user_id: &str,
     device_code: &str,
-) -> anyhow::Result<bool> {
+) -> anyhow::Result<DeviceAuthorizationCompletion> {
     let Some(lark) = lark_binary(state) else {
         anyhow::bail!("lark-cli is not installed.");
     };
@@ -848,23 +884,68 @@ async fn complete_lark_user_auth(
         state,
         user_id,
         &lark,
-        &["auth", "login", "--device-code", device_code],
+        &["auth", "login", "--device-code", device_code, "--json"],
         None,
         60,
     )
     .await
     .map_err(|err| anyhow::anyhow!("{err:?}"))?;
     if output.status.success() {
-        Ok(true)
+        Ok(DeviceAuthorizationCompletion::Completed)
     } else {
-        anyhow::bail!(
-            "{}",
-            command_tail(&output)
-                .trim()
-                .to_string()
-                .if_empty("lark-cli auth login --device-code failed")
-        )
+        Ok(classify_device_authorization_failure(&command_tail(
+            &output,
+        )))
     }
+}
+
+fn classify_device_authorization_failure(output: &str) -> DeviceAuthorizationCompletion {
+    let detail = output
+        .trim()
+        .to_string()
+        .if_empty("Feishu user authorization is not ready yet.");
+    let normalized = auth_error_code(output)
+        .unwrap_or_else(|| detail.to_ascii_lowercase())
+        .to_ascii_lowercase();
+    if is_auth_pending_approval_message(&normalized)
+        || [
+            "expired",
+            "invalid_device",
+            "invalid_grant",
+            "access_denied",
+            "authorization_denied",
+            "denied",
+            "revoked",
+        ]
+        .into_iter()
+        .any(|marker| normalized.contains(marker))
+    {
+        return DeviceAuthorizationCompletion::Failed { detail };
+    }
+
+    // The device flow reports an HTTP 400 while the user has not completed the
+    // browser confirmation. Unknown non-terminal responses are deliberately
+    // retained as pending, because dropping the device code starts a new flow.
+    DeviceAuthorizationCompletion::Pending { detail }
+}
+
+fn auth_error_code(output: &str) -> Option<String> {
+    let value = first_json_object(output)?;
+    for pointer in [
+        "/error/code",
+        "/data/error/code",
+        "/code",
+        "/error/error",
+        "/data/error/error",
+    ] {
+        if let Some(code) = value.pointer(pointer).and_then(Value::as_str) {
+            let code = code.trim();
+            if !code.is_empty() {
+                return Some(code.to_string());
+            }
+        }
+    }
+    None
 }
 
 async fn confirm_user_authorization(state: &AppState, user_id: &str) -> (bool, String, Value) {
@@ -946,40 +1027,9 @@ fn first_json_object(text: &str) -> Option<Value> {
     None
 }
 
-fn is_auth_pending_message(message: &str) -> bool {
-    let normalized = message.to_ascii_lowercase();
-    if is_auth_pending_approval_message(&normalized) {
-        return false;
-    }
-    [
-        "pending",
-        "not yet",
-        "not completed",
-        "authorization_pending",
-        "slow_down",
-        "尚未",
-        "未完成",
-        "等待",
-    ]
-    .into_iter()
-    .any(|marker| normalized.contains(marker))
-}
-
 fn is_auth_pending_approval_message(message: &str) -> bool {
     let normalized = message.to_ascii_lowercase();
     normalized.contains("pending approval") || normalized.contains("管理员审批")
-}
-
-fn is_auth_final_confirmation_message(message: &str) -> bool {
-    let normalized = message.to_ascii_lowercase();
-    [
-        "本次授权请求用户最终确认后的结果",
-        "请勿持续重试",
-        "最终确认",
-        "final confirmation",
-    ]
-    .into_iter()
-    .any(|marker| normalized.contains(marker))
 }
 
 trait IfEmpty {
@@ -1026,10 +1076,73 @@ mod tests {
     }
 
     #[test]
-    fn pending_approval_is_not_user_auth_pending() {
+    fn pending_approval_is_terminal_device_auth_failure() {
         let message = "authorization failed: Unable to authorize. The app is pending approval.";
 
-        assert!(!is_auth_pending_message(message));
+        assert_eq!(
+            classify_device_authorization_failure(message),
+            DeviceAuthorizationCompletion::Failed {
+                detail: message.to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn pending_device_auth_json_is_not_terminal() {
+        let output = r#"{"error":{"code":"authorization_pending","message":"waiting for user"}}"#;
+
+        assert_eq!(
+            classify_device_authorization_failure(output),
+            DeviceAuthorizationCompletion::Pending {
+                detail: output.to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn expired_device_code_is_terminal() {
+        let output = r#"{"error":{"code":"expired_token","message":"device code expired"}}"#;
+
+        assert_eq!(
+            classify_device_authorization_failure(output),
+            DeviceAuthorizationCompletion::Failed {
+                detail: output.to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn strips_only_maintenance_update_notice_from_agent_output() {
+        let output = strip_lark_update_notice(
+            r#"{
+                "ok": true,
+                "data": {"message_id": "om_123"},
+                "_notice": {
+                    "update": {"current": "1.0.34", "latest": "1.0.74"},
+                    "rate_limit": {"remaining": 99}
+                }
+            }"#,
+        );
+        let value: Value = serde_json::from_str(&output).unwrap();
+
+        assert_eq!(
+            value.pointer("/data/message_id").and_then(Value::as_str),
+            Some("om_123")
+        );
+        assert!(value.pointer("/_notice/update").is_none());
+        assert_eq!(
+            value
+                .pointer("/_notice/rate_limit/remaining")
+                .and_then(Value::as_u64),
+            Some(99)
+        );
+    }
+
+    #[test]
+    fn preserves_non_json_lark_output() {
+        let output = "lark-cli diagnostic output";
+
+        assert_eq!(strip_lark_update_notice(output), output);
     }
 
     #[test]

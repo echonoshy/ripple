@@ -3961,6 +3961,28 @@ mod tests {
             })
         );
         assert!(body.ends_with("data: [DONE]\n\n"));
+
+        let pending_event = json!({
+            "type": "connector_auth_required",
+            "connector": "feishu",
+            "stage": "pending",
+            "message": "需要完成飞书授权后继续执行。",
+            "action": {
+                "data": {
+                    "oauth_url": "https://accounts.feishu.cn/device"
+                }
+            }
+        });
+        let pending_response =
+            task_control_event_response(&session, "task-001", Some("req-001"), &pending_event);
+        let pending_body = axum::body::to_bytes(pending_response.into_body(), usize::MAX)
+            .await
+            .expect("read pending SSE body");
+        let pending_body =
+            String::from_utf8(pending_body.to_vec()).expect("UTF-8 pending SSE body");
+        assert!(pending_body.contains("\"status\":\"waiting_user\""));
+        assert!(pending_body.contains("\"stage\":\"pending\""));
+        assert!(pending_body.contains("https://accounts.feishu.cn/device"));
     }
 
     #[tokio::test]
@@ -4033,6 +4055,18 @@ mod tests {
             })
         );
         assert!(!body.contains("auth_url"));
+    }
+
+    #[test]
+    fn pending_task_connector_auth_is_not_terminal() {
+        assert!(!task_connector_auth_failed(&json!({
+            "connector": "feishu",
+            "stage": "pending"
+        })));
+        assert!(task_connector_auth_failed(&json!({
+            "connector": "feishu",
+            "stage": "auth_failed"
+        })));
     }
     use std::collections::BTreeMap;
 

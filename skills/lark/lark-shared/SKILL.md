@@ -1,7 +1,7 @@
 ---
 name: lark-shared
-version: 1.3.0
-description: "飞书/Lark CLI 共享基础：Ripple 对话授权、身份切换（--as user/bot）、权限与 scope 管理、Permission denied 错误处理、更新提示、高风险操作确认和安全规则。适用于第一次配置、使用登录授权、遇到权限不足、切换 user/bot 身份、看到 _notice.update、遇到 confirmation_required，或首次使用 lark-cli 的场景。"
+version: 1.3.1
+description: "飞书/Lark CLI 共享基础：Ripple 对话授权、身份切换（--as user/bot）、权限与 scope 管理、Permission denied 错误处理、高风险操作确认和安全规则。适用于第一次配置、使用登录授权、遇到权限不足、切换 user/bot 身份、遇到 confirmation_required，或首次使用 lark-cli 的场景。"
 metadata:
   requires:
     bins: ["lark-cli"]
@@ -189,22 +189,6 @@ lark-cli 对高风险写操作（`risk: "high-risk-write"`）有强制确认门�
 - shortcut：`lark-cli <service> +<cmd> --help` 顶部会显示 `Risk: high-risk-write`。
 - service 命令：`lark-cli schema <service>.<resource>.<method> --format json` 的返回值里
   `"risk": "high-risk-write"`。
-
-## 更新与维护
-
-lark-cli 是 Go 静态二进制，由项目脚本 `scripts/install-feishu-cli.sh` 安装到仓库内
-`vendor/lark-cli/`，沙箱启动时 readonly bind-mount 到 `/opt/lark-cli` 并已加入 `PATH`，
-可直接调用 `lark-cli`。
-
-**不要**在 Ripple 用户沙箱里尝试用 `npm install -g`、`pnpm install -g` 或
-`lark-cli update` 升级；Ripple 的升级需要同步两部分：
-
-1. `scripts/install-feishu-cli.sh <version>` 安装并切换 `vendor/lark-cli/current`。
-2. 将同 tag 的官方 `skills/` 内容同步到本仓库 `skills/lark/`，并保留 Ripple 必需的
-   `lark-shared` 运行约束。
-
-如果 lark-cli 命令 JSON 输出里出现 `_notice.update`，完成当前用户请求后应告知当前版本和
-最新版本，并提醒需要由 Ripple 维护者按上述方式升级。不要在业务任务中自行改动用户沙箱里的 CLI。
 
 ## 安全规则
 

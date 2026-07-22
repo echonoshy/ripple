@@ -395,6 +395,7 @@ async fn continue_feishu_auth(
         .0
     };
     annotate_connector_auth_source(&mut action, pending_auth_source(pending));
+    preserve_pending_feishu_auth_context(&mut action, pending);
     let mut decision = decision_from_action(
         session,
         "feishu",
@@ -410,6 +411,32 @@ async fn continue_feishu_auth(
         decision.event["message"] = json!("飞书所需权限已补齐。请确认后继续此前的操作。");
     }
     Ok(Some(decision))
+}
+
+fn preserve_pending_feishu_auth_context(action: &mut Value, pending: &Value) {
+    if action.get("stage").and_then(Value::as_str) != Some("pending") {
+        return;
+    }
+    let Some(action_object) = action.as_object_mut() else {
+        return;
+    };
+    let data = action_object
+        .entry("data".to_string())
+        .or_insert_with(|| Value::Object(serde_json::Map::new()));
+    let Some(data) = data.as_object_mut() else {
+        return;
+    };
+    for key in ["device_code", "oauth_url", "expires_in_seconds"] {
+        if data.contains_key(key) {
+            continue;
+        }
+        let value = pending
+            .get(key)
+            .or_else(|| pending.pointer(&format!("/action/data/{key}")));
+        if let Some(value) = value {
+            data.insert(key.to_string(), value.clone());
+        }
+    }
 }
 
 async fn continue_bilibili_auth(
@@ -931,7 +958,7 @@ mod tests {
     use super::{
         connector_auth_message, connector_auth_status, decision_from_action,
         feishu_scopes_from_text, model_connector_auth_request_might_be_start,
-        parse_model_connector_auth_request,
+        parse_model_connector_auth_request, preserve_pending_feishu_auth_context,
     };
     use crate::sessions::SessionRecord;
 
@@ -972,6 +999,38 @@ mod tests {
     fn feishu_scope_parser_rejects_non_scope_text() {
         assert!(feishu_scopes_from_text("请重新授权，缺少发送权限").is_empty());
         assert!(feishu_scopes_from_text("not a scope").is_empty());
+    }
+
+    #[test]
+    fn pending_feishu_completion_keeps_original_device_flow() {
+        let mut action = json!({
+            "name": "feishu",
+            "ok": true,
+            "stage": "pending",
+            "data": {"device_code_finalized": false}
+        });
+        let pending = json!({
+            "device_code": "device-123",
+            "oauth_url": "https://accounts.feishu.cn/device",
+            "action": {"data": {"expires_in_seconds": 600}}
+        });
+
+        preserve_pending_feishu_auth_context(&mut action, &pending);
+
+        assert_eq!(
+            action.pointer("/data/device_code").and_then(Value::as_str),
+            Some("device-123")
+        );
+        assert_eq!(
+            action.pointer("/data/oauth_url").and_then(Value::as_str),
+            Some("https://accounts.feishu.cn/device")
+        );
+        assert_eq!(
+            action
+                .pointer("/data/expires_in_seconds")
+                .and_then(Value::as_u64),
+            Some(600)
+        );
     }
 
     #[test]

@@ -5030,26 +5030,11 @@ async fn google_disconnect_supports_account_and_all_local_removal() {
     )
     .unwrap();
 
-    let (status, missing_confirm) = call(
-        app.clone(),
-        Method::POST,
-        "/v1/connectors/google_workspace/disconnect",
-        json!({"email": "worker@example.com"}),
-    )
-    .await;
-    assert_eq!(status, StatusCode::PRECONDITION_REQUIRED);
-    assert_eq!(
-        missing_confirm
-            .pointer("/detail/code")
-            .and_then(Value::as_str),
-        Some("confirmation_required")
-    );
-
     let (status, removed) = call(
         app.clone(),
         Method::POST,
         "/v1/connectors/google_workspace/disconnect",
-        json!({"confirm": true, "email": "worker@example.com"}),
+        json!({"email": "worker@example.com"}),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
@@ -5067,7 +5052,7 @@ async fn google_disconnect_supports_account_and_all_local_removal() {
         app.clone(),
         Method::POST,
         "/v1/connectors/google_workspace/disconnect",
-        json!({"confirm": true, "all": true}),
+        json!({"all": true}),
     )
     .await;
     assert_eq!(status, StatusCode::OK);

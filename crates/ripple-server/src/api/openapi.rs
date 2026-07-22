@@ -18,6 +18,7 @@ use utoipa_swagger_ui::{Config, SwaggerUi, Url};
             ApiErrorEnvelope,
             ApiErrorFields,
             ConfirmationRequest,
+            ConnectorDisconnectRequest,
             GenericJsonObject,
             PaginatedJsonResponse,
             SseEvent
@@ -104,6 +105,14 @@ pub struct ApiErrorFields {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ConfirmationRequest {
     pub confirm: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ConnectorDisconnectRequest {
+    /// Google Workspace only: disconnect this account.
+    pub email: Option<String>,
+    /// Google Workspace only: remove all locally stored accounts.
+    pub all: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]

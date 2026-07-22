@@ -2480,7 +2480,7 @@ export async function disconnectConnector(
   const res = await fetch(`${API_URL}/connectors/${encodeURIComponent(connectorName)}/disconnect`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...authHeaders() },
-    body: JSON.stringify({ confirm: true, ...payload }),
+    body: JSON.stringify(payload),
   });
   if (res.status === 401) throw new AuthError();
   if (!res.ok) {

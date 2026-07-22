@@ -9,7 +9,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use url::{form_urlencoded, Url};
 
-use crate::api::{audit_event, require_confirm, ApiError};
+use crate::api::{audit_event, ApiError};
 use crate::capabilities::{connector_definition, connector_info, enabled_connector_definitions};
 use crate::connector_runtime::PendingBilibiliQr;
 use crate::redaction::{redact_text, redact_value};
@@ -344,12 +344,11 @@ pub async fn connector_auth_cancel(
     path = "/connectors/{connector_name}/disconnect",
     tag = "connectors",
     params(("connector_name" = String, Path, description = "Connector name")),
-    request_body = crate::api::openapi::ConfirmationRequest,
+    request_body = Option<crate::api::openapi::ConnectorDisconnectRequest>,
     responses(
         (status = 200, description = "Connector disconnect result", body = serde_json::Value),
         (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
         (status = 404, description = "Connector not found", body = crate::api::openapi::ApiErrorEnvelope),
-        (status = 428, description = "Confirmation required", body = crate::api::openapi::ApiErrorEnvelope)
     ),
     security(
         ("bearerAuth" = []),
@@ -366,9 +365,6 @@ pub async fn connector_disconnect(
     ensure_connector_enabled(&state, &connector_name)?;
     state.sandboxes.ensure_sandbox(&user_id)?;
     let payload = body.map(|Json(value)| value).unwrap_or_else(|| json!({}));
-    if state.config.security.require_confirm_for_risky_api {
-        require_confirm(Some(&payload), "connector.disconnect")?;
-    }
     audit_event(
         &state,
         &user_id,

@@ -386,7 +386,7 @@ async function testConnectorManagementApisEncodeNamesAndPayloads() {
     {
       url: "http://140.143.229.103:8810/v1/connectors/google%2Fworkspace/disconnect",
       method: "POST",
-      body: { confirm: true, email: "worker@example.com" },
+      body: { email: "worker@example.com" },
     },
     {
       url: "http://140.143.229.103:8810/v1/connectors/google%2Fworkspace/auth/cancel",

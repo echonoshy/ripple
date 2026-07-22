@@ -50,7 +50,7 @@ pub fn render_mail(input: MailPrepareInput) -> Result<RenderedMail, String> {
     let (body_html, preview_text) = render_markdown(markdown);
     let html = format!(
         concat!(
-            "<div style=\"max-width:640px;margin:0 auto;padding:24px;",
+            "<div style=\"padding:24px;",
             "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;",
             "font-size:14px;line-height:1.65;color:#1f2329;\">",
             "{}</div>"
@@ -483,6 +483,8 @@ mod tests {
         assert!(rendered.html.contains("<strong>完成</strong>"));
         assert!(rendered.html.contains("href=\"https://example.com\""));
         assert!(rendered.html.contains("<table"));
+        assert!(!rendered.html.contains("max-width:640px"));
+        assert!(!rendered.html.contains("margin:0 auto"));
         assert_eq!(
             rendered.preview_text,
             "摘要\n• 完成 API\n• 访问 文档 (https://example.com)\n项目 | 状态\n邮件 | 完成"

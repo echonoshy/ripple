@@ -73,7 +73,9 @@ Content-Type: application/json
 
 确认前的普通澄清、普通提问和确认提示只发送 `response.output_text.delta` 与 `[DONE]`，不会发送 callback。
 
-确认后执行期间，服务还可能通过 Callback 发送临时进度事件。它保持原有字段形状，但 `event` 为 `task.status.tmp`、`status` 固定为 `running`；调用方只展示其 `content`，不得把它当作任务结束或持久状态转换。`content` 优先直接使用模型计划说明 `explanation`，缺失时直接使用模型当前计划步骤 `currentTask`；服务不翻译、不添加前后缀，也不会根据工具调用或工具输出生成临时文案。
+确认后执行期间，服务还可能通过 Callback 发送临时进度事件。它保持原有字段形状，但 `event` 为 `task.status.tmp`、`status` 固定为 `running`；调用方只展示其 `content`，不得把它当作任务结束或持久状态转换。
+
+`content` 由 Agent 在 task-session 内显式生成：确认执行时 `codex_app.task_execution_confirmed` 必须携带首条用户可见进度；后续每个实质阶段前，Agent 可调用 `codex_app.task_progress` 上报新的进度。服务端只校验并原样转发该文本，不翻译、不添加前后缀，也不会根据工具调用、命令或工具输出生成文案。已有的模型计划更新仍会按原样作为兼容进度转发。文案语言跟随用户的任务语言或用户明确要求的回复语言，调用方必须将它作为任意语言的展示文本处理。
 
 ## 4. SSE 协议
 
@@ -127,7 +129,7 @@ data: [DONE]
   "task_id": "task_001",
   "req_id": "req_004",
   "status": "running",
-  "content": "任务已开始执行。"
+  "content": "正在核对收件人与邮件内容。"
 }
 ```
 
@@ -143,7 +145,7 @@ data: [DONE]
 }
 ```
 
-如果模型没有提供计划说明，服务原样使用当前计划步骤：
+Agent 也可以生成其他语言的进度文案，例如：
 ```json
  {
     "event": "task.status.tmp",

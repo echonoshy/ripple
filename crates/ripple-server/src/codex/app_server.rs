@@ -1049,6 +1049,7 @@ impl CodexAppServerProvider {
                     user_id,
                     request.session_id.as_deref(),
                     request.metadata.get("req_id").and_then(Value::as_str),
+                    &arguments,
                 )
                 .await
                 {
@@ -1057,6 +1058,23 @@ impl CodexAppServerProvider {
                         serde_json::to_string(&output)
                             .unwrap_or_else(|_| "{\"ok\":true}".to_string()),
                     ),
+                    Err(err) => (false, format!("{err:?}")),
+                }
+            }
+        } else if namespace == "codex_app" && tool == "task_progress" {
+            if request
+                .metadata
+                .get("task_response")
+                .and_then(Value::as_bool)
+                != Some(true)
+            {
+                (
+                    false,
+                    "task_progress is only available in task sessions".to_string(),
+                )
+            } else {
+                match task_progress_content(&arguments) {
+                    Ok(_) => (true, "{\"ok\":true}".to_string()),
                     Err(err) => (false, format!("{err:?}")),
                 }
             }
@@ -2197,12 +2215,22 @@ fn add_task_dynamic_tools(params: &mut Value, request: &AgentRunnerRequest) {
             tools.push(json!({
                 "namespace": "codex_app",
                 "name": "task_execution_confirmed",
-                "description": "Mark that the user explicitly confirmed starting the current task. Call this exactly once before performing any task action.",
+                "description": "Mark that the user explicitly confirmed starting the current task. Call this exactly once before performing any task action. content must be a concise user-visible progress update in the language of the task, without tool names or implementation details.",
                 "inputSchema": {
                     "type": "object",
-                    "properties": {},
+                    "properties": {
+                        "content": {"type": "string", "minLength": 1, "maxLength": 1000}
+                    },
+                    "required": ["content"],
                     "additionalProperties": false
                 },
+                "deferLoading": false
+            }));
+            tools.push(json!({
+                "namespace": "codex_app",
+                "name": "task_progress",
+                "description": "Report a concise user-visible execution update. Call before each substantive new phase or external operation after task execution is confirmed. content must use the language of the task and must not expose tool names, commands, paths, credentials, or implementation details.",
+                "inputSchema": task_progress_input_schema(),
                 "deferLoading": false
             }));
             tools.push(json!({
@@ -2293,6 +2321,17 @@ fn session_wait_user_input_schema() -> Value {
             }
         },
         "required": ["question"],
+        "additionalProperties": false
+    })
+}
+
+fn task_progress_input_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "content": {"type": "string", "minLength": 1, "maxLength": 1000}
+        },
+        "required": ["content"],
         "additionalProperties": false
     })
 }
@@ -2395,6 +2434,7 @@ async fn persist_task_execution_confirmed(
     user_id: &str,
     session_id: Option<&str>,
     req_id: Option<&str>,
+    arguments: &Value,
 ) -> anyhow::Result<Value> {
     let session_id = session_id.context("task_execution_confirmed requires a Ripple session")?;
     let Some(mut session) = storage.load_session(user_id, session_id).await? else {
@@ -2409,13 +2449,29 @@ async fn persist_task_execution_confirmed(
     {
         anyhow::bail!("task execution requires callback_url");
     }
+    let progress_content = task_progress_content(arguments)?;
     session.pending_control_request = Some(json!({
         "type": "task_execution",
         "active": true,
-        "req_id": req_id
+        "req_id": req_id,
+        "progress_content": progress_content
     }));
     storage.save_session(&session).await?;
     Ok(json!({"ok": true}))
+}
+
+fn task_progress_content(arguments: &Value) -> anyhow::Result<String> {
+    let content = arguments
+        .get("content")
+        .and_then(Value::as_str)
+        .context("task progress requires a non-empty content string")?;
+    if content.trim().is_empty() {
+        anyhow::bail!("task progress requires a non-empty content string");
+    }
+    if content.len() > 1_000 {
+        anyhow::bail!("task progress content must not exceed 1000 bytes");
+    }
+    Ok(content.to_string())
 }
 
 async fn persist_prepared_feishu_mail(
@@ -3080,7 +3136,7 @@ mod tests {
         let task_tools = task_params["dynamicTools"]
             .as_array()
             .expect("task session dynamic tools");
-        assert_eq!(task_tools.len(), 6);
+        assert_eq!(task_tools.len(), 7);
         let prepare_mail_tool = task_tools
             .iter()
             .find(|tool| tool.get("name").and_then(Value::as_str) == Some("prepare_feishu_mail"))
@@ -3097,9 +3153,34 @@ mod tests {
         assert!(send_mail_tool
             .pointer("/inputSchema/properties/prepared_mail_id")
             .is_some());
-        assert!(task_tools.iter().any(|tool| {
-            tool.get("name").and_then(Value::as_str) == Some("task_execution_confirmed")
-        }));
+        let execution_confirmed_tool = task_tools
+            .iter()
+            .find(|tool| {
+                tool.get("name").and_then(Value::as_str) == Some("task_execution_confirmed")
+            })
+            .expect("task execution confirmation tool");
+        assert!(execution_confirmed_tool
+            .pointer("/inputSchema/properties/content")
+            .is_some());
+        assert_eq!(
+            execution_confirmed_tool.pointer("/inputSchema/required/0"),
+            Some(&json!("content"))
+        );
+        let progress_tool = task_tools
+            .iter()
+            .find(|tool| tool.get("name").and_then(Value::as_str) == Some("task_progress"))
+            .expect("task progress tool");
+        assert!(progress_tool
+            .pointer("/inputSchema/properties/content")
+            .is_some());
+    }
+
+    #[test]
+    fn task_progress_content_preserves_agent_language() {
+        let content = task_progress_content(&json!({"content": "正在向朱全发送邮件。"}))
+            .expect("valid progress content");
+        assert_eq!(content, "正在向朱全发送邮件。");
+        assert!(task_progress_content(&json!({"content": "   "})).is_err());
     }
 
     #[test]

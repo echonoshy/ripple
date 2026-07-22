@@ -91,8 +91,9 @@ const TASK_SESSION_EXECUTION_INSTRUCTIONS: &str = r#"
 - This is a task-session conversation. Before executing the task, gather all required information, summarize the exact action, and ask whether the user confirms starting execution.
 - Do not write files, call connectors, run commands that perform the task, or take any other task action before the user explicitly confirms the current task content.
 - Use semantic judgment, not keyword matching. A modification, follow-up question, or ambiguous acknowledgment is not confirmation; continue the dialogue and ask again.
-- Only when the current user message clearly confirms starting the current task, call `codex_app.task_execution_confirmed` exactly once before taking the first task action. The tool call is internal and must not be mentioned to the user.
+- Only when the current user message clearly confirms starting the current task, call `codex_app.task_execution_confirmed` exactly once before taking the first task action. Its required `content` is a concise user-visible progress update in the language of the task. Do not expose tool names, commands, paths, credentials, or other implementation details.
 - After that tool succeeds, execute the task normally and return a concise user-facing result.
+- During execution, call `codex_app.task_progress` before each substantive new phase or external operation. Its required `content` is a concise user-visible progress update in the language of the task. Do not generate progress by translating tool names or narrating internal implementation details.
 - For a Feishu email in a task session, call `codex_app.prepare_feishu_mail` before asking for confirmation. It converts Markdown into server-controlled HTML and returns the exact preview. Show that complete preview verbatim. After confirmation, call `codex_app.task_execution_confirmed`, then call `codex_app.send_prepared_feishu_mail` with the same `prepared_mail_id`; never use the generic Feishu CLI tool to send mail in a task session.
 "#;
 
@@ -785,6 +786,9 @@ fn task_progress_data(task_id: &str, req_id: Option<&str>, content: impl Into<St
 }
 
 fn task_progress_content(event: &Value) -> Option<String> {
+    if task_progress_tool_succeeded(event) {
+        return task_progress_tool_content(event);
+    }
     if let Some(plan_event) = extract_plan_update_event(event) {
         return plan_event
             .get("explanation")
@@ -801,6 +805,64 @@ fn task_progress_content(event: &Value) -> Option<String> {
     None
 }
 
+fn task_progress_tool_succeeded(event: &Value) -> bool {
+    event.get("type").and_then(Value::as_str) == Some("codex.notification")
+        && event
+            .pointer("/data/message/method")
+            .and_then(Value::as_str)
+            == Some("item/completed")
+        && event
+            .pointer("/data/message/params/item/type")
+            .and_then(Value::as_str)
+            == Some("dynamicToolCall")
+        && event
+            .pointer("/data/message/params/item/namespace")
+            .and_then(Value::as_str)
+            == Some("codex_app")
+        && event
+            .pointer("/data/message/params/item/tool")
+            .and_then(Value::as_str)
+            == Some("task_progress")
+        && event
+            .pointer("/data/message/params/item/success")
+            .and_then(Value::as_bool)
+            == Some(true)
+}
+
+fn task_progress_tool_content(event: &Value) -> Option<String> {
+    let content = event
+        .pointer("/data/message/params/item/arguments/content")?
+        .as_str()?;
+    if content.trim().is_empty() || content.len() > 1_000 {
+        return None;
+    }
+    Some(content.to_string())
+}
+
+fn task_execution_confirmation_succeeded(event: &Value) -> bool {
+    event.get("type").and_then(Value::as_str) == Some("codex.notification")
+        && event
+            .pointer("/data/message/method")
+            .and_then(Value::as_str)
+            == Some("item/completed")
+        && event
+            .pointer("/data/message/params/item/type")
+            .and_then(Value::as_str)
+            == Some("dynamicToolCall")
+        && event
+            .pointer("/data/message/params/item/namespace")
+            .and_then(Value::as_str)
+            == Some("codex_app")
+        && event
+            .pointer("/data/message/params/item/tool")
+            .and_then(Value::as_str)
+            == Some("task_execution_confirmed")
+        && event
+            .pointer("/data/message/params/item/success")
+            .and_then(Value::as_bool)
+            == Some(true)
+}
+
 fn task_execution_active(session: &SessionRecord) -> bool {
     session
         .pending_control_request
@@ -808,6 +870,18 @@ fn task_execution_active(session: &SessionRecord) -> bool {
         .and_then(|value| value.get("type"))
         .and_then(Value::as_str)
         == Some("task_execution")
+}
+
+fn task_execution_progress_content(session: &SessionRecord) -> Option<String> {
+    let content = session
+        .pending_control_request
+        .as_ref()?
+        .get("progress_content")?
+        .as_str()?;
+    if content.trim().is_empty() || content.len() > 1_000 {
+        return None;
+    }
+    Some(content.to_string())
 }
 
 fn task_execution_context(
@@ -2552,47 +2626,47 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
                         last_emit = now_epoch_seconds();
                         continue;
                     }
+                    if task_response
+                        && task_execution_confirmation_succeeded(&event)
+                        && !task_execution_started
+                    {
+                        let Some(content) = task_progress_tool_content(&event) else {
+                            continue;
+                        };
+                        task_execution_context(
+                            &mut session,
+                            &task_id,
+                            task_req_id.as_deref(),
+                            None,
+                            Some(context_folder_path.as_deref()),
+                        );
+                        let _ = state.sessions.save_record_if_exists(session.clone()).await;
+                        if !task_running_callback_sent {
+                            dispatch_task_callback(
+                                &session,
+                                task_status_data(
+                                    &task_id,
+                                    task_req_id.as_deref(),
+                                    "running",
+                                    json!(content),
+                                    None,
+                                    None,
+                                ),
+                            );
+                        }
+                        spawn_task_session_monitor(
+                            state.clone(),
+                            user_id.clone(),
+                            session_id.clone(),
+                            job_id.clone(),
+                            task_id.clone(),
+                            task_req_id.clone(),
+                        );
+                        break 'stream;
+                    }
                     if let Some(tool_event) = extract_tool_event(&event) {
                         let public_tool_event =
                             sanitize_user_visible_value(&state, &user_id, &tool_event);
-                        if task_response
-                            && public_tool_event.get("type").and_then(Value::as_str)
-                                == Some("tool_call")
-                            && public_tool_event.get("name").and_then(Value::as_str)
-                                == Some("codex_app.task_execution_confirmed")
-                            && !task_execution_started
-                        {
-                            task_execution_context(
-                                &mut session,
-                                &task_id,
-                                task_req_id.as_deref(),
-                                None,
-                                Some(context_folder_path.as_deref()),
-                            );
-                            let _ = state.sessions.save_record_if_exists(session.clone()).await;
-                            if !task_running_callback_sent {
-                                dispatch_task_callback(
-                                    &session,
-                                    task_status_data(
-                                        &task_id,
-                                        task_req_id.as_deref(),
-                                        "running",
-                                        json!("任务已开始执行。"),
-                                        None,
-                                        None,
-                                    ),
-                                );
-                            }
-                            spawn_task_session_monitor(
-                                state.clone(),
-                                user_id.clone(),
-                                session_id.clone(),
-                                job_id.clone(),
-                                task_id.clone(),
-                                task_req_id.clone(),
-                            );
-                            break 'stream;
-                        }
                         if !task_response {
                             emit!(sse_for_event(&public_tool_event));
                         }
@@ -2908,17 +2982,20 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
                         }
                         if task_execution_started {
                             if !task_running_callback_sent {
-                                dispatch_task_callback(
-                                    &session,
-                                    task_status_data(
-                                        &task_id,
-                                        task_req_id.as_deref(),
-                                        "running",
-                                        json!("任务已开始执行。"),
-                                        None,
-                                        None,
-                                    ),
-                                );
+                                let content = task_execution_progress_content(&session);
+                                if let Some(content) = content {
+                                    dispatch_task_callback(
+                                        &session,
+                                        task_status_data(
+                                            &task_id,
+                                            task_req_id.as_deref(),
+                                            "running",
+                                            json!(content),
+                                            None,
+                                            None,
+                                        ),
+                                    );
+                                }
                             }
                             dispatch_task_callback(
                                 &session,
@@ -3680,6 +3757,67 @@ mod tests {
         assert_eq!(
             task_progress_content(&event).as_deref(),
             Some("I will verify the source tasks before creating them.")
+        );
+    }
+
+    #[test]
+    fn task_progress_forwards_agent_generated_content_without_localizing() {
+        let event = json!({
+            "type": "codex.notification",
+            "data": {"message": {"method": "item/completed", "params": {
+                "item": {
+                    "type": "dynamicToolCall",
+                    "namespace": "codex_app",
+                    "tool": "task_progress",
+                    "success": true,
+                    "arguments": {"content": "メールを送信しています。"}
+                }
+            }}}
+        });
+
+        assert_eq!(
+            task_progress_content(&event).as_deref(),
+            Some("メールを送信しています。")
+        );
+    }
+
+    #[test]
+    fn failed_task_progress_tool_does_not_emit_progress() {
+        let event = json!({
+            "type": "codex.notification",
+            "data": {"message": {"method": "item/completed", "params": {
+                "item": {
+                    "type": "dynamicToolCall",
+                    "namespace": "codex_app",
+                    "tool": "task_progress",
+                    "success": false,
+                    "arguments": {"content": "Should not be sent"}
+                }
+            }}}
+        });
+
+        assert_eq!(task_progress_content(&event), None);
+    }
+
+    #[test]
+    fn task_execution_confirmation_requires_a_successful_tool_result() {
+        let event = json!({
+            "type": "codex.notification",
+            "data": {"message": {"method": "item/completed", "params": {
+                "item": {
+                    "type": "dynamicToolCall",
+                    "namespace": "codex_app",
+                    "tool": "task_execution_confirmed",
+                    "success": true,
+                    "arguments": {"content": "Preparing the requested report."}
+                }
+            }}}
+        });
+
+        assert!(task_execution_confirmation_succeeded(&event));
+        assert_eq!(
+            task_progress_tool_content(&event).as_deref(),
+            Some("Preparing the requested report.")
         );
     }
 

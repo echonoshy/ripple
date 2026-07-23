@@ -9,6 +9,7 @@ pub const DEFAULT_CODEX_MAX_TOTAL_POOL_WORKERS: usize = 256;
 pub const DEFAULT_CODEX_RUNTIME_LOG_RETENTION_SECONDS: u64 = 24 * 60 * 60;
 pub const DEFAULT_CODEX_RUNTIME_LOG_MAX_MB: u64 = 64;
 pub const DEFAULT_CODEX_RUNTIME_LOG_CLEANUP_INTERVAL_SECONDS: u64 = 60 * 60;
+pub const DEFAULT_SQLITE_MAX_CONNECTIONS: u32 = 50;
 pub const USER_CONNECTOR_NAMES: &[&str] = &["google_workspace", "notion", "feishu", "bilibili"];
 
 #[derive(Clone, Debug)]
@@ -25,6 +26,7 @@ pub struct AppConfig {
     pub default_model: String,
     pub model_presets: BTreeMap<String, ModelPreset>,
     pub logging: LoggingConfig,
+    pub storage: StorageConfig,
     pub sandbox: SandboxConfig,
     pub codex: CodexConfig,
     pub task_trigger_extraction_max_runtime_seconds: u64,
@@ -45,6 +47,11 @@ pub struct ModelPreset {
 #[derive(Clone, Debug)]
 pub struct LoggingConfig {
     pub level: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct StorageConfig {
+    pub sqlite_max_connections: u32,
 }
 
 #[derive(Clone, Debug)]
@@ -224,6 +231,7 @@ struct RawServer {
     task_trigger_extraction: Option<RawTaskTriggerExtraction>,
     task_triggers: Option<RawTaskTriggers>,
     document_preview: Option<RawDocumentPreview>,
+    storage: Option<RawStorage>,
     public_base_url: Option<String>,
     feishu: Option<RawFeishu>,
     gogcli_oauth: Option<RawGogcliOAuth>,
@@ -275,6 +283,11 @@ struct RawDocumentPreview {
     libreoffice_path: Option<String>,
     max_source_bytes: Option<u64>,
     conversion_timeout_seconds: Option<u64>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct RawStorage {
+    sqlite_max_connections: Option<u32>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -418,6 +431,7 @@ impl AppConfig {
         let task_trigger_extraction = server.task_trigger_extraction.unwrap_or_default();
         let task_triggers = server.task_triggers.unwrap_or_default();
         let document_preview = server.document_preview.unwrap_or_default();
+        let storage = server.storage.unwrap_or_default();
         let skills_raw = raw.skills.unwrap_or_default();
 
         let model_presets = parse_model_presets(model.presets.unwrap_or_default());
@@ -519,6 +533,12 @@ impl AppConfig {
             logging: LoggingConfig {
                 level: clean_config_string(logging.level.as_deref())
                     .unwrap_or_else(|| "debug".to_string()),
+            },
+            storage: StorageConfig {
+                sqlite_max_connections: storage
+                    .sqlite_max_connections
+                    .unwrap_or(DEFAULT_SQLITE_MAX_CONNECTIONS)
+                    .max(1),
             },
             sandbox: SandboxConfig {
                 sandboxes_root: sandbox_sandboxes_root,
@@ -1343,6 +1363,23 @@ external_agents:
 
         assert_eq!(config.codex.max_workers_per_pool, 50);
         assert_eq!(config.codex.max_total_pool_workers, 256);
+    }
+
+    #[test]
+    fn parses_sqlite_connection_pool_limit() {
+        let config = with_temp_config(
+            "sqlite-connection-pool-limit",
+            r#"
+server:
+  api_keys: ["test-key"]
+  storage:
+    sqlite_max_connections: 50
+"#,
+            AppConfig::load,
+        )
+        .expect("load config");
+
+        assert_eq!(config.storage.sqlite_max_connections, 50);
     }
 
     #[test]

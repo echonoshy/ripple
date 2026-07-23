@@ -468,6 +468,9 @@ INSERT INTO logs (
             logging: LoggingConfig {
                 level: "debug".to_string(),
             },
+            storage: crate::config::StorageConfig {
+                sqlite_max_connections: 50,
+            },
             sandbox: SandboxConfig {
                 sandboxes_root: root.join(".ripple/sandboxes"),
                 workspaces_root: None,

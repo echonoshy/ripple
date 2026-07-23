@@ -79,6 +79,10 @@ logging:
 server:
   host: "0.0.0.0"
   port: 8810
+  # SQLite 连接池上限。SQLite 仍只有一个写者；此值用于避免短查询在高并发下
+  # 因等待空闲连接而过早失败。
+  storage:
+    sqlite_max_connections: 50
   # 用户 connector 暴露 allowlist。省略时为兼容旧配置，会启用全部内置 connector。
   # 下例只暴露飞书；运行时 Codex 能力不受此列表影响。
   enabled_connectors:

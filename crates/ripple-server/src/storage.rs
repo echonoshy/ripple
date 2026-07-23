@@ -10,7 +10,7 @@ use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, S
 use sqlx::{Row, SqlitePool};
 use tokio::sync::OnceCell;
 
-use crate::config::AppConfig;
+use crate::config::{AppConfig, DEFAULT_SQLITE_MAX_CONNECTIONS};
 use crate::sessions::SessionRecord;
 
 mod auth;
@@ -89,10 +89,20 @@ pub struct UserProfileRecord {
 
 impl Storage {
     pub fn new(config: Arc<AppConfig>) -> anyhow::Result<Self> {
-        Self::open(database_path(&config))
+        Self::open_with_max_connections(
+            database_path(&config),
+            config.storage.sqlite_max_connections,
+        )
     }
 
     pub fn open(path: impl AsRef<Path>) -> anyhow::Result<Self> {
+        Self::open_with_max_connections(path, DEFAULT_SQLITE_MAX_CONNECTIONS)
+    }
+
+    fn open_with_max_connections(
+        path: impl AsRef<Path>,
+        max_connections: u32,
+    ) -> anyhow::Result<Self> {
         let path = path.as_ref();
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).with_context(|| {
@@ -111,7 +121,9 @@ impl Storage {
             .foreign_keys(true)
             .busy_timeout(Duration::from_millis(5_000));
         let pool = SqlitePoolOptions::new()
-            .max_connections(5)
+            // Session creation and run-state persistence share this pool. Keep
+            // enough short-lived connections available for concurrent requests.
+            .max_connections(max_connections)
             .connect_lazy_with(options);
         Ok(Self {
             pool,

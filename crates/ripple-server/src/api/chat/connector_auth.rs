@@ -28,9 +28,6 @@ const MODEL_CONNECTOR_AUTH_REQUEST_CLOSE: &str = "</ripple_connector_auth_reques
 pub(crate) struct ModelConnectorAuthRequest {
     pub(crate) connector: String,
     pub(crate) force_reauth: bool,
-    /// Derived from the existing free-form reason so the model control tag and
-    /// all public Ripple API payloads remain backward compatible.
-    pub(crate) feishu_scopes: Vec<String>,
     pub(crate) source: Option<String>,
 }
 
@@ -40,7 +37,11 @@ struct RawModelConnectorAuthRequest {
     connector: String,
     #[serde(default)]
     force_reauth: bool,
-    reason: Option<String>,
+    #[serde(default)]
+    #[serde(rename = "required_scopes")]
+    _required_scopes: Vec<String>,
+    #[serde(rename = "reason")]
+    _reason: Option<String>,
     source: Option<String>,
 }
 
@@ -91,11 +92,6 @@ pub(crate) fn parse_model_connector_auth_request(text: &str) -> Option<ModelConn
     ) {
         return None;
     }
-    let feishu_scopes = if connector == "feishu" {
-        feishu_scopes_from_text(request.reason.as_deref().unwrap_or(""))
-    } else {
-        Vec::new()
-    };
     let source = request
         .source
         .as_deref()
@@ -105,7 +101,6 @@ pub(crate) fn parse_model_connector_auth_request(text: &str) -> Option<ModelConn
     Some(ModelConnectorAuthRequest {
         connector: connector.to_string(),
         force_reauth: request.force_reauth,
-        feishu_scopes,
         source,
     })
 }
@@ -127,7 +122,6 @@ pub(crate) async fn start_model_connector_auth_for_chat(
         user_input,
         request_base_url,
         request.force_reauth,
-        &request.feishu_scopes,
         request.source.as_deref().unwrap_or("session_skill"),
         resume_after_auth,
     )
@@ -233,7 +227,6 @@ async fn start_connector_auth_for_chat(
     user_input: &str,
     request_base_url: Option<&str>,
     force_reauth: bool,
-    feishu_scopes: &[String],
     source: &str,
     resume_after_auth: bool,
 ) -> Result<ConnectorAuthDecision, ApiError> {
@@ -241,10 +234,7 @@ async fn start_connector_auth_for_chat(
         "notion" => extract_notion_token(user_input)
             .map(|token| json!({"api_token": token}))
             .unwrap_or_else(|| json!({})),
-        "feishu" if force_reauth || !feishu_scopes.is_empty() => json!({
-            "force_new_user_auth": force_reauth,
-            "requested_scopes": feishu_scopes
-        }),
+        "feishu" if force_reauth => json!({"force_new_user_auth": true}),
         _ => json!({}),
     };
     let is_empty_payload = payload
@@ -287,7 +277,6 @@ async fn start_connector_auth_for_chat(
         resume_user_input,
         resume_after_auth,
     )?;
-    attach_feishu_requested_scopes(session, connector, feishu_scopes);
     Ok(decision)
 }
 
@@ -353,15 +342,11 @@ async fn continue_feishu_auth(
         }));
     }
     if is_reauth_intent(user_input) {
-        let requested_scopes = pending_feishu_requested_scopes(pending);
         let mut action = connector_auth_start_action(
             state,
             user_id,
             "feishu",
-            &json!({
-                "force_new_user_auth": true,
-                "requested_scopes": requested_scopes
-            }),
+            &json!({"force_new_user_auth": true}),
             None,
         )
         .await?
@@ -396,20 +381,13 @@ async fn continue_feishu_auth(
     };
     annotate_connector_auth_source(&mut action, pending_auth_source(pending));
     preserve_pending_feishu_auth_context(&mut action, pending);
-    let mut decision = decision_from_action(
+    let decision = decision_from_action(
         session,
         "feishu",
         action,
         pending_resume_user_input(pending).unwrap_or_else(|| user_input.to_string()),
         resume_after_auth,
     )?;
-    let requested_scopes = pending_feishu_requested_scopes(pending);
-    if !requested_scopes.is_empty()
-        && decision.event.get("stage").and_then(Value::as_str) == Some("authorized")
-    {
-        decision.resume_user_input = None;
-        decision.event["message"] = json!("飞书所需权限已补齐。请确认后继续此前的操作。");
-    }
     Ok(Some(decision))
 }
 
@@ -809,67 +787,6 @@ fn pending_auth_source(pending: &Value) -> &str {
         .unwrap_or("session_skill")
 }
 
-fn attach_feishu_requested_scopes(
-    session: &mut SessionRecord,
-    connector: &str,
-    requested_scopes: &[String],
-) {
-    if connector != "feishu" || requested_scopes.is_empty() {
-        return;
-    }
-    let Some(pending) = session.pending_connector_auth.as_mut() else {
-        return;
-    };
-    let Some(object) = pending.as_object_mut() else {
-        return;
-    };
-    object.insert("requested_scopes".to_string(), json!(requested_scopes));
-}
-
-fn pending_feishu_requested_scopes(pending: &Value) -> Vec<String> {
-    pending
-        .get("requested_scopes")
-        .and_then(Value::as_array)
-        .map(|scopes| {
-            scopes
-                .iter()
-                .filter_map(Value::as_str)
-                .filter(|scope| is_valid_feishu_scope(scope))
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-fn feishu_scopes_from_text(text: &str) -> Vec<String> {
-    let mut scopes = Vec::new();
-    for candidate in
-        text.split(|ch: char| !(ch.is_ascii_alphanumeric() || matches!(ch, ':' | '_' | '-' | '.')))
-    {
-        if is_valid_feishu_scope(candidate) && !scopes.iter().any(|scope| scope == candidate) {
-            scopes.push(candidate.to_string());
-        }
-    }
-    scopes
-}
-
-fn is_valid_feishu_scope(scope: &str) -> bool {
-    let scope = scope.trim();
-    scope.len() <= 128
-        && scope.contains(':')
-        && scope
-            .bytes()
-            .next()
-            .is_some_and(|byte| byte.is_ascii_alphanumeric())
-        && scope
-            .bytes()
-            .last()
-            .is_some_and(|byte| byte.is_ascii_alphanumeric())
-        && scope
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b':' | b'_' | b'-' | b'.'))
-}
-
 fn connector_auth_source(action: &Value) -> &str {
     action
         .get("source")
@@ -957,8 +874,8 @@ mod tests {
 
     use super::{
         connector_auth_message, connector_auth_status, decision_from_action,
-        feishu_scopes_from_text, model_connector_auth_request_might_be_start,
-        parse_model_connector_auth_request, preserve_pending_feishu_auth_context,
+        model_connector_auth_request_might_be_start, parse_model_connector_auth_request,
+        preserve_pending_feishu_auth_context,
     };
     use crate::sessions::SessionRecord;
 
@@ -980,25 +897,24 @@ mod tests {
     }
 
     #[test]
-    fn feishu_auth_request_derives_scopes_from_existing_reason_field() {
+    fn feishu_auth_request_accepts_legacy_scope_fields() {
         let request = parse_model_connector_auth_request(
-            "<ripple_connector_auth_request>{\"connector\":\"feishu\",\"force_reauth\":true,\"reason\":\"missing required scope(s): im:message.send_as_user, contact:user.base:readonly\"}</ripple_connector_auth_request>",
+            "<ripple_connector_auth_request>{\"connector\":\"feishu\",\"force_reauth\":true,\"required_scopes\":[\"im:message.send_as_user\",\"contact:user.base:readonly\"],\"reason\":\"send a message\"}</ripple_connector_auth_request>",
         )
         .expect("feishu request");
 
-        assert_eq!(
-            request.feishu_scopes,
-            vec![
-                "im:message.send_as_user".to_string(),
-                "contact:user.base:readonly".to_string()
-            ]
-        );
+        assert_eq!(request.connector, "feishu");
+        assert!(request.force_reauth);
     }
 
     #[test]
-    fn feishu_scope_parser_rejects_non_scope_text() {
-        assert!(feishu_scopes_from_text("请重新授权，缺少发送权限").is_empty());
-        assert!(feishu_scopes_from_text("not a scope").is_empty());
+    fn feishu_auth_request_accepts_no_scope_fields() {
+        let request = parse_model_connector_auth_request(
+            "<ripple_connector_auth_request>{\"connector\":\"feishu\",\"reason\":\"needs access\"}</ripple_connector_auth_request>",
+        )
+        .expect("request");
+        assert_eq!(request.connector, "feishu");
+        assert!(!request.force_reauth);
     }
 
     #[test]

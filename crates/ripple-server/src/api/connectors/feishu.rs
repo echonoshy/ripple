@@ -179,7 +179,6 @@ pub(super) async fn auth_start(
 
     let force_new_setup = value_as_bool(payload.get("force_new_setup")).unwrap_or(false);
     let force_new_user_auth = value_as_bool(payload.get("force_new_user_auth")).unwrap_or(false);
-    let requested_scopes = requested_user_scopes(payload);
 
     let (ok, msg) = ensure_cli_config(state, user_id, force_new_setup).await?;
     state.sandboxes.write_nsjail_config(user_id)?;
@@ -203,7 +202,7 @@ pub(super) async fn auth_start(
     }
 
     let (connected, _detail, metadata) = cli_login_status(state, user_id).await;
-    if connected && !force_new_user_auth && requested_scopes.is_empty() {
+    if connected && !force_new_user_auth {
         return Ok(Json(action_response(
             "feishu",
             true,
@@ -235,7 +234,7 @@ pub(super) async fn auth_start(
         }
     }
 
-    let data = match start_lark_user_auth(state, user_id, &requested_scopes).await {
+    let data = match start_lark_user_auth(state, user_id).await {
         Ok(data) => data,
         Err(err) => {
             return Ok(Json(action_response(
@@ -798,26 +797,11 @@ fn first_url_in_text(text: &str) -> Option<String> {
         })
 }
 
-async fn start_lark_user_auth(
-    state: &AppState,
-    user_id: &str,
-    requested_scopes: &[String],
-) -> anyhow::Result<Value> {
+async fn start_lark_user_auth(state: &AppState, user_id: &str) -> anyhow::Result<Value> {
     let Some(lark) = lark_binary(state) else {
         anyhow::bail!("lark-cli is not installed.");
     };
-    let mut args = vec![
-        "auth".to_string(),
-        "login".to_string(),
-        "--no-wait".to_string(),
-        "--json".to_string(),
-        "--domain".to_string(),
-        "all".to_string(),
-    ];
-    if !requested_scopes.is_empty() {
-        args.push("--scope".to_string());
-        args.push(requested_scopes.join(","));
-    }
+    let args = lark_user_auth_args();
     let arg_refs = args.iter().map(String::as_str).collect::<Vec<_>>();
     let output = run_lark(state, user_id, &lark, &arg_refs, None, 20)
         .await
@@ -840,36 +824,14 @@ async fn start_lark_user_auth(
     })
 }
 
-fn requested_user_scopes(payload: &Value) -> Vec<String> {
-    let mut scopes = Vec::new();
-    let Some(values) = payload.get("requested_scopes").and_then(Value::as_array) else {
-        return scopes;
-    };
-    for value in values {
-        let Some(scope) = value.as_str().map(str::trim) else {
-            continue;
-        };
-        if is_valid_user_scope(scope) && !scopes.iter().any(|existing| existing == scope) {
-            scopes.push(scope.to_string());
-        }
-    }
-    scopes
-}
-
-fn is_valid_user_scope(scope: &str) -> bool {
-    scope.len() <= 128
-        && scope.contains(':')
-        && scope
-            .bytes()
-            .next()
-            .is_some_and(|byte| byte.is_ascii_alphanumeric())
-        && scope
-            .bytes()
-            .last()
-            .is_some_and(|byte| byte.is_ascii_alphanumeric())
-        && scope
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b':' | b'_' | b'-' | b'.'))
+fn lark_user_auth_args() -> Vec<String> {
+    vec![
+        "auth".to_string(),
+        "login".to_string(),
+        "--no-wait".to_string(),
+        "--json".to_string(),
+        "--recommend".to_string(),
+    ]
 }
 
 async fn complete_lark_user_auth(
@@ -1146,17 +1108,16 @@ mod tests {
     }
 
     #[test]
-    fn requested_user_scopes_keeps_only_valid_unique_scope_identifiers() {
-        let scopes = requested_user_scopes(&json!({
-            "requested_scopes": [
-                "im:message.send_as_user",
-                "im:message.send_as_user",
-                "not a scope",
-                42
-            ]
-        }));
+    fn user_auth_requests_recommended_scopes() {
+        let args = lark_user_auth_args();
 
-        assert_eq!(scopes, vec!["im:message.send_as_user".to_string()]);
+        assert_eq!(
+            args,
+            vec!["auth", "login", "--no-wait", "--json", "--recommend"]
+        );
+        assert!(!args.iter().any(|arg| arg == "--domain"));
+        assert!(!args.iter().any(|arg| arg == "all"));
+        assert!(!args.iter().any(|arg| arg == "--scope"));
     }
 
     #[tokio::test]

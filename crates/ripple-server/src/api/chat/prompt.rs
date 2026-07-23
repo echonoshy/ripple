@@ -33,7 +33,7 @@ pub(crate) fn build_codex_chat_base_instructions(config: &AppConfig) -> String {
         );
         if config.connector_enabled("feishu") {
             instructions.push_str(
-                "\n- If `codex_app.feishu_cli` reports `missing_scope`, copy every exact scope identifier into the existing `reason` field of the Feishu connector-auth request. Do not use a generic reauthorization request when the error names a scope.",
+                "\n- Feishu user authorization uses a broad recommended-permission baseline. Request connector authorization when Feishu access is needed and the connector is not ready. If `codex_app.feishu_cli` reports `missing_scope`, request reauthorization with `force_reauth: true`; do not require the user task to enumerate exact scopes.",
             );
         }
         if config.connector_enabled("bilibili") {

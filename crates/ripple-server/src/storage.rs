@@ -13,6 +13,8 @@ use tokio::sync::OnceCell;
 use crate::config::AppConfig;
 use crate::sessions::SessionRecord;
 
+const SQLITE_MAX_CONNECTIONS: u32 = 50;
+
 mod auth;
 mod jobs;
 mod prepared_mail;
@@ -111,7 +113,9 @@ impl Storage {
             .foreign_keys(true)
             .busy_timeout(Duration::from_millis(5_000));
         let pool = SqlitePoolOptions::new()
-            .max_connections(5)
+            // Session creation and run-state persistence share this pool. Keep
+            // enough short-lived connections available for concurrent requests.
+            .max_connections(SQLITE_MAX_CONNECTIONS)
             .connect_lazy_with(options);
         Ok(Self {
             pool,

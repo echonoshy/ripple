@@ -110,32 +110,53 @@ impl SandboxManager {
             );
         }
         let service_auth = std::fs::canonicalize(&service_auth)?;
+        Self::ensure_user_codex_home_file_link(&service_auth, &auth_link, "auth")?;
 
-        match std::fs::symlink_metadata(&auth_link) {
+        let service_config = self.config.codex_home_path().join("config.toml");
+        if service_config.is_file() {
+            let service_config = std::fs::canonicalize(&service_config)?;
+            Self::ensure_user_codex_home_file_link(
+                &service_config,
+                &codex_home.join("config.toml"),
+                "config",
+            )?;
+        }
+
+        Ok(auth_link)
+    }
+
+    fn ensure_user_codex_home_file_link(
+        source: &Path,
+        link: &Path,
+        label: &str,
+    ) -> anyhow::Result<()> {
+        match std::fs::symlink_metadata(link) {
             Ok(metadata) if metadata.file_type().is_symlink() => {
-                let resolved = std::fs::canonicalize(&auth_link)?;
-                if resolved != service_auth {
+                let resolved = std::fs::canonicalize(link)?;
+                if resolved != source {
                     anyhow::bail!(
-                        "user Codex auth link {} points to {}, expected {}",
-                        auth_link.display(),
+                        "user Codex {} link {} points to {}, expected {}",
+                        label,
+                        link.display(),
                         resolved.display(),
-                        service_auth.display()
+                        source.display()
                     );
                 }
             }
             Ok(_) => {
                 anyhow::bail!(
-                    "user Codex auth path {} exists but is not a symlink",
-                    auth_link.display()
+                    "user Codex {} path {} exists but is not a symlink",
+                    label,
+                    link.display()
                 );
             }
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-                create_auth_symlink(&service_auth, &auth_link)?;
+                create_auth_symlink(source, link)?;
             }
             Err(err) => return Err(err.into()),
         }
 
-        Ok(auth_link)
+        Ok(())
     }
 
     pub fn credentials_dir(&self, user_id: &str) -> anyhow::Result<PathBuf> {
@@ -1111,6 +1132,32 @@ mod tests {
         let metadata = std::fs::symlink_metadata(&auth_link).unwrap();
         assert!(metadata.file_type().is_symlink());
         assert_eq!(std::fs::canonicalize(&auth_link).unwrap(), service_auth);
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn ensure_user_codex_home_links_service_provider_config() {
+        let root =
+            std::env::temp_dir().join(format!("ripple-sandbox-test-{}", uuid::Uuid::new_v4()));
+        let manager = SandboxManager::new(test_config(&root));
+        let service_home = manager.config.codex_home_path();
+        let service_auth = service_home.join("auth.json");
+        let service_config = service_home.join("config.toml");
+        std::fs::create_dir_all(&service_home).unwrap();
+        std::fs::write(&service_auth, r#"{"OPENAI_API_KEY":"test"}"#).unwrap();
+        std::fs::write(
+            &service_config,
+            "model_provider = \"volcengine-coding-plan\"\n",
+        )
+        .unwrap();
+
+        manager.ensure_user_codex_home_auth_link("alice").unwrap();
+
+        let config_link = manager.codex_home_dir("alice").unwrap().join("config.toml");
+        let metadata = std::fs::symlink_metadata(&config_link).unwrap();
+        assert!(metadata.file_type().is_symlink());
+        assert_eq!(std::fs::canonicalize(&config_link).unwrap(), service_config);
 
         let _ = std::fs::remove_dir_all(root);
     }

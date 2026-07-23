@@ -21,6 +21,7 @@ pub(super) const INHERITED_NETWORK_ENV: &[&str] = &[
     "NODE_EXTRA_CA_CERTS",
     "CURL_CA_BUNDLE",
     "REQUESTS_CA_BUNDLE",
+    "ARK_API_KEY",
 ];
 
 const CODEX_NATIVE_HARDENING_CONFIG_OVERRIDES: &[&str] = &[
@@ -169,4 +170,14 @@ pub(super) fn runtime_path(
         return None;
     }
     std::env::join_paths(entries).ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::INHERITED_NETWORK_ENV;
+
+    #[test]
+    fn inherits_ark_api_key_for_custom_coding_plan_providers() {
+        assert!(INHERITED_NETWORK_ENV.contains(&"ARK_API_KEY"));
+    }
 }

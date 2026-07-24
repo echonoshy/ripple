@@ -197,6 +197,7 @@ Chat 主链路会向 Codex 暴露 `codex_app.task_update` 动态工具。它只�
 
 - `POST /v1/connectors/:connector_name/auth/cancel` 取消当前 user 的待授权状态，幂等返回 `{ ok, connector, cancelled }`。它会清理 connector runtime pending state，例如 Google assisted OAuth、Feishu setup 进程、Bilibili QR pending state，并清掉该 user 相关 session 的 pending connector auth。
 - `POST /v1/connectors/:connector_name/disconnect` 是本地断开。它删除 Ripple user sandbox 里的 token、keyring、cookie 或 CLI 配置，不承诺撤销 provider 侧授权。Google 支持 `{ email }` 删除单个本地账号 token，也支持 `{ all: true }` 清理本地 Google keyring。
+- `GET /v1/connectors/feishu/permissions` 返回当前 user 的 Feishu OAuth scope 状态。`enabled_scopes` 来自应用已启用的 user-token scopes，`granted_scopes` 来自当前用户 token；`domains` 按 scope 的第一个 `:` 前缀动态分组，每个领域返回启用、已授予、缺失及“token 残留但应用未启用”的 scope 列表和计数。它不代表文档、群聊或云盘等资源自身 ACL 已授权。
 - `GET /v1/capabilities` 返回内部统一能力目录，合并 connectors、runtime capabilities、Ripple shared skills 和当前 user workspace skills；前端普通用户页面不直接展示 runtime capability 分类。runtime capability 条目会带 `runtime` 元数据，例如 Codex app-server stdio protocol、managed permission profile、workspace messages 方法，以及 image input 只接受 workspace/local/inline data image、拒绝远程 HTTP(S) URL 的策略。
 - `GET /v1/skills` 返回用户侧 skill 列表，不包含 runtime capability；skill 条目包含 `display_source`、`kind`、`runtime`、`entry`、`python_packages`、`content_hash` 和 `last_validated_at`。
 - `POST /v1/skills` 创建当前 user 的 skill；旧 text skill 字段保持兼容，新增字段支持创建 Python executable skill。创建后会立即校验，安全且通过时自动启用。
@@ -204,6 +205,71 @@ Chat 主链路会向 Codex 暴露 `codex_app.task_update` 动态工具。它只�
 - `PATCH /v1/skills/:skill_id` 支持编辑、启用和停用 `user:*` skill；内容编辑会立即重新校验，`ripple:*` shared skills 只读。
 - `DELETE /v1/skills/:skill_id` 需要 `{ confirm: true }`，归档 user skill，不物理丢失。
 - `POST /v1/skills/:skill_id/validate` 执行格式、安全、当前依赖可用性、Python runtime 和 content-hash 校验；不会运行用户脚本或安装 Python 包。安全 skill 校验通过后自动注入 Codex prompt；需要显式确认或带 risk flags 的 skill 需要用户手动启用。
+
+### Feishu Permission Scope Contract
+
+调用方使用此接口查询**指定 Ripple user 的 Feishu OAuth scope**。它只描述应用 scope 与当前 user token scope 的交集；它不保证该用户对具体文档、群聊、云盘文件等资源拥有业务 ACL。
+
+```http
+GET /v1/connectors/feishu/permissions HTTP/1.1
+Host: <ripple-server-host>
+Authorization: Bearer <RIPPLE_API_KEY>
+X-Ripple-User-Id: <user_id>
+Accept: application/json
+```
+
+请求没有 body。`Authorization: Bearer` 也可替换为 `X-API-Key: <RIPPLE_API_KEY>`；`X-Ripple-User-Id` 缺失时按服务端默认 user 处理。
+
+成功时返回 `200 application/json`。以下是报文示例，scope 列表会随飞书应用配置和用户授权实际变化：
+
+```json
+{
+  "name": "feishu",
+  "connected": true,
+  "detail": "Feishu user authorization is ready.",
+  "enabled_scopes": [
+    "drive:file:download",
+    "task:task:read",
+    "task:task:write"
+  ],
+  "granted_scopes": [
+    "drive:file:download",
+    "task:task:read"
+  ],
+  "capabilities": {
+    "task": {
+      "task:task:read": true,
+      "task:task:write": false
+    }
+  },
+  "domains": {
+    "task": {
+      "enabled_scopes": ["task:task:read", "task:task:write"],
+      "granted_scopes": ["task:task:read"],
+      "missing_scopes": ["task:task:write"],
+      "granted_not_enabled_scopes": [],
+      "enabled_count": 2,
+      "granted_count": 1,
+      "missing_count": 1,
+      "granted_not_enabled_count": 0
+    }
+  }
+}
+```
+
+字段约定：
+
+| 字段 | 含义 |
+| --- | --- |
+| `connected` | 当前 user 是否具备可用的 Feishu 用户授权。 |
+| `enabled_scopes` | Feishu 应用后台启用、且支持 user token 的全部 scope。 |
+| `granted_scopes` | 当前 user access token 声明拥有的全部 scope。可能含有已不再由应用启用的历史 scope。 |
+| `capabilities` | 兼容字段。按 scope 前缀分组，`true` 表示该 scope 同时在应用启用且已授予当前 user。 |
+| `domains` | 推荐消费字段。key 为 scope 第一个 `:` 前的动态领域名，例如 `task`、`drive`、`im`；不维护固定领域白名单。 |
+| `domains.<domain>.missing_scopes` | 应用已启用、但当前 user token 未拥有的 scope。 |
+| `domains.<domain>.granted_not_enabled_scopes` | 当前 user token 尚有、但应用当前未启用的 scope；调用方不应将其当成可用能力。 |
+
+错误响应：缺少或错误 API key 返回 `401`；Feishu connector 未启用返回 `404`。若应用配置、lark-cli 或 app scope 查询不可用，接口仍返回 `200`，但 `enabled_scopes`、`granted_scopes`、`capabilities`、`domains` 均为空，并通过 `connected=false` 或 `detail` 说明状态。
 
 ## Health And Diagnostics
 

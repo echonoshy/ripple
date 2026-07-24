@@ -251,6 +251,7 @@ pub fn router(state: AppState) -> Router {
         .routes(utoipa_axum::routes!(skills::validate_skill))
         .routes(utoipa_axum::routes!(connectors::list_connectors))
         .routes(utoipa_axum::routes!(connectors::connector_status))
+        .routes(utoipa_axum::routes!(connectors::feishu_permissions))
         .routes(utoipa_axum::routes!(connectors::connector_auth_start))
         .routes(utoipa_axum::routes!(connectors::connector_auth_complete))
         .routes(utoipa_axum::routes!(connectors::connector_auth_cancel))

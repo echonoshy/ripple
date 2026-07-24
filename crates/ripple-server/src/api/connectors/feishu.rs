@@ -21,6 +21,10 @@ use crate::redaction::redact_text;
 use crate::sandbox::SandboxManager;
 use crate::state::AppState;
 
+// The setup URL has no TTL supplied by lark-cli. This is a caller-facing
+// refresh recommendation only; the server does not invalidate setup after it.
+const SETUP_URL_DISPLAY_TTL_SECONDS: u64 = 300;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum DeviceAuthorizationCompletion {
     Completed,
@@ -297,7 +301,10 @@ pub(super) async fn auth_start(
             true,
             "awaiting_setup",
             "Open the setup URL to finish Feishu configuration.",
-            json!({"setup_url": msg}),
+            json!({
+                "setup_url": msg,
+                "expires_in_seconds": SETUP_URL_DISPLAY_TTL_SECONDS
+            }),
         )));
     }
     if !ok {
@@ -329,7 +336,10 @@ pub(super) async fn auth_start(
                 true,
                 "awaiting_setup",
                 "Open the setup URL to finish Feishu configuration.",
-                json!({"setup_url": msg}),
+                json!({
+                    "setup_url": msg,
+                    "expires_in_seconds": SETUP_URL_DISPLAY_TTL_SECONDS
+                }),
             )));
         }
         if !ok {

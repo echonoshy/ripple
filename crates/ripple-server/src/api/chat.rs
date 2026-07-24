@@ -1399,7 +1399,7 @@ fn task_control_event_response(
 }
 
 fn task_connector_required_action(event: &Value) -> Value {
-    json!({
+    let mut action = json!({
         "type": "connector_auth",
         "connector": event.get("connector").cloned().unwrap_or(Value::Null),
         "stage": event.get("stage").cloned().unwrap_or(Value::Null),
@@ -1408,7 +1408,11 @@ fn task_connector_required_action(event: &Value) -> Value {
             .or_else(|| event.pointer("/action/data/setup_url"))
             .cloned()
             .unwrap_or(Value::Null)
-    })
+    });
+    if let Some(expires_in_seconds) = event.pointer("/action/data/expires_in_seconds") {
+        action["expires_in_seconds"] = expires_in_seconds.clone();
+    }
+    action
 }
 
 fn task_connector_auth_failed(event: &Value) -> bool {
@@ -3924,7 +3928,8 @@ mod tests {
             "message": "需要完成飞书授权后继续执行。",
             "action": {
                 "data": {
-                    "oauth_url": "https://accounts.feishu.cn/device"
+                    "oauth_url": "https://accounts.feishu.cn/device",
+                    "expires_in_seconds": 600
                 }
             }
         });
@@ -3956,7 +3961,8 @@ mod tests {
                     "type": "connector_auth",
                     "connector": "feishu",
                     "stage": "awaiting_user_auth",
-                    "auth_url": "https://accounts.feishu.cn/device"
+                    "auth_url": "https://accounts.feishu.cn/device",
+                    "expires_in_seconds": 600
                 }
             })
         );
@@ -3983,6 +3989,40 @@ mod tests {
         assert!(pending_body.contains("\"status\":\"waiting_user\""));
         assert!(pending_body.contains("\"stage\":\"pending\""));
         assert!(pending_body.contains("https://accounts.feishu.cn/device"));
+    }
+
+    #[test]
+    fn task_connector_auth_callback_status_includes_setup_url_display_ttl() {
+        let event = json!({
+            "type": "connector_auth_required",
+            "connector": "feishu",
+            "stage": "awaiting_setup",
+            "message": "需要完成飞书授权后继续执行。",
+            "action": {
+                "data": {
+                    "setup_url": "https://open.feishu.cn/page/cli?user_code=abc",
+                    "expires_in_seconds": 300
+                }
+            }
+        });
+
+        assert_eq!(
+            task_connector_auth_status_data("task-001", Some("req-001"), &event),
+            json!({
+                "event": "task.status",
+                "task_id": "task-001",
+                "req_id": "req-001",
+                "status": "waiting_user",
+                "content": "需要完成飞书授权后继续执行。",
+                "required_action": {
+                    "type": "connector_auth",
+                    "connector": "feishu",
+                    "stage": "awaiting_setup",
+                    "auth_url": "https://open.feishu.cn/page/cli?user_code=abc",
+                    "expires_in_seconds": 300
+                }
+            })
+        );
     }
 
     #[tokio::test]

@@ -97,12 +97,12 @@ event: response.output_text.delta
 data: {"delta":"需要完成飞书授权后继续执行。"}
 
 event: task.status
-data: {"event":"task.status","task_id":"task_001","req_id":"req_002","status":"waiting_user","content":"需要完成飞书授权后继续执行。","required_action":{"type":"connector_auth","connector":"feishu","stage":"awaiting_user_auth","auth_url":"https://example.com/auth"}}
+data: {"event":"task.status","task_id":"task_001","req_id":"req_002","status":"waiting_user","content":"需要完成飞书授权后继续执行。","required_action":{"type":"connector_auth","connector":"feishu","stage":"awaiting_user_auth","auth_url":"https://example.com/auth","expires_in_seconds":600}}
 
 data: [DONE]
 ```
 
-收到 `required_action.type = "connector_auth"` 时，结合 `connector` 和 `stage` 决定本地化展示；需要浏览器操作时，打开**本轮** `auth_url`，完成后以相同 `task_id` 提交下一条输入。飞书等 Connector 可能多步授权；若下一轮仍返回 `connector_auth`，必须继续使用最新字段，不能复用旧 URL 或旧 stage。
+收到 `required_action.type = "connector_auth"` 时，结合 `connector` 和 `stage` 决定本地化展示；需要浏览器操作时，打开**本轮** `auth_url`，完成后以相同 `task_id` 提交下一条输入。存在 `expires_in_seconds` 时，它是上游声明的有效期秒数；调用方可在该 URL 首次收到时据此展示倒计时或提示刷新，重复收到同一 URL 时不得重置倒计时。飞书等 Connector 可能多步授权；若下一轮仍返回 `connector_auth`，必须继续使用最新字段，不能复用旧 URL 或旧 stage。
 
 ### SSE 建立后的错误
 
@@ -156,7 +156,7 @@ Agent 也可以生成其他语言的进度文案，例如：
   }
 ```
 
-`content` 是旧客户端可直接展示的兼容文本。新的调用方不得依赖它判断 Connector 授权阶段或拼接本地化文案；应使用下面的 `required_action` 或 `error` 结构化字段。`waiting_user` 和 `failed` 可额外包含以下字段：
+`content` 是旧客户端可直接展示的兼容文本。新的调用方不得依赖它判断 Connector 授权阶段或拼接本地化文案；应使用下面的 `required_action` 或 `error` 结构化字段。Callback 中的 `waiting_user.required_action` 与 SSE `task.status.required_action` 字段形状相同，包括可选的 `expires_in_seconds`。`waiting_user` 和 `failed` 可额外包含以下字段：
 
 ```json
 {
@@ -178,7 +178,7 @@ Agent 也可以生成其他语言的进度文案，例如：
 
 | 类型 | 字段 | 调用方下一步 |
 | --- | --- | --- |
-| `connector_auth` | `connector`、`stage`、`auth_url` | 完成当前授权步骤后，以相同 `task_id` 发送输入。`stage` 是稳定的授权阶段标识，调用方可结合 `connector` 使用本地化文案。 |
+| `connector_auth` | `connector`、`stage`、`auth_url`、可选 `expires_in_seconds` | 完成当前授权步骤后，以相同 `task_id` 发送输入。`stage` 是稳定的授权阶段标识，调用方可结合 `connector` 使用本地化文案；有 `expires_in_seconds` 时可按秒显示倒计时或提示刷新。 |
 | `confirm` | `approval`（Codex 原始审批信息） | 发送文本批准或拒绝。 |
 | `reply` | `message` | 发送补充答案。 |
 
@@ -188,8 +188,8 @@ Agent 也可以生成其他语言的进度文案，例如：
 
 | `connector` | `stage` | 结构化数据 | 调用方展示/行为 |
 | --- | --- | --- | --- |
-| `feishu` | `awaiting_setup` | `auth_url` 指向本轮飞书配置页 | 展示飞书 Bot 配置流程；打开 URL 后等待或提交下一轮输入。 |
-| `feishu` | `awaiting_user_auth` | `auth_url` 指向本轮用户 OAuth 页 | 展示飞书账号授权流程；打开 URL 后等待或提交下一轮输入。 |
+| `feishu` | `awaiting_setup` | `auth_url` 指向本轮飞书配置页；`expires_in_seconds` 固定为 `300` | 展示飞书 Bot 配置流程；打开 URL 后等待或提交下一轮输入。`300` 是调用方的刷新/展示建议期限，不会使服务端 setup 在五分钟后失效。 |
+| `feishu` | `awaiting_user_auth` | `auth_url` 指向本轮用户 OAuth 页；若 CLI 返回有效期，则携带实际 `expires_in_seconds` | 展示飞书账号授权流程；打开 URL 后等待或提交下一轮输入。有效期来自飞书 device authorization flow；未提供时调用方不应自行猜测。 |
 | `feishu` | `pending` | 可能没有新的 `auth_url` | 展示授权处理中/等待确认；不要把空 URL 当作可打开操作。 |
 | `feishu` | `authorized` | 不再需要 `connector_auth` action | 展示已授权或继续原任务。 |
 | `feishu` | `auth_failed`、`invalid_request` | 以 `error.connector`、`error.stage` 返回 | 展示本地化失败提示；不得返回或伪造 `required_action`。 |

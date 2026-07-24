@@ -80,15 +80,16 @@ pub async fn connector_status(
     Ok(Json(status))
 }
 
-/// Return the effective user-token scopes and the product capabilities derived
-/// from them. This is intentionally Feishu-specific: scopes vary by connector
-/// and must not be projected onto the generic connector status contract.
+/// Return application-enabled Feishu user scopes, grouped by namespace and
+/// marked according to the current user's access token. This is intentionally
+/// Feishu-specific: scopes vary by connector and must not be projected onto
+/// the generic connector status contract.
 #[utoipa::path(
     get,
     path = "/connectors/feishu/permissions",
     tag = "connectors",
     responses(
-        (status = 200, description = "Current Feishu user-token scopes and derived capabilities", body = serde_json::Value),
+        (status = 200, description = "Feishu scope capabilities for the current user", body = serde_json::Value),
         (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
         (status = 404, description = "Feishu connector is not enabled", body = crate::api::openapi::ApiErrorEnvelope)
     ),

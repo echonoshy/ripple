@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::path::{Path as FsPath, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
@@ -42,31 +42,19 @@ pub(super) async fn status(state: &AppState, user_id: &str) -> Value {
     })
 }
 
-/// Return every user scope enabled for the current app, grouped by scope
-/// namespace and marked according to the current user's access token.
+/// Return every application-enabled user scope, grouped by namespace and
+/// marked according to the current user's access token.
 pub(super) async fn permissions(state: &AppState, user_id: &str) -> Value {
     let Some(lark) = lark_binary(state) else {
         return json!({
-            "name": "feishu",
-            "connected": false,
-            "detail": "lark-cli is not installed for this server.",
-            "enabled_scopes": [],
-            "granted_scopes": [],
-            "capabilities": {},
-            "domains": {}
+            "capabilities": {}
         });
     };
 
-    let (connected, detail, metadata) = cli_login_status(state, user_id).await;
+    let (connected, _detail, metadata) = cli_login_status(state, user_id).await;
     if metadata.get("has_app_config").and_then(Value::as_bool) != Some(true) {
         return json!({
-            "name": "feishu",
-            "connected": false,
-            "detail": detail,
-            "enabled_scopes": [],
-            "granted_scopes": [],
-            "capabilities": {},
-            "domains": {}
+            "capabilities": {}
         });
     };
 
@@ -74,13 +62,7 @@ pub(super) async fn permissions(state: &AppState, user_id: &str) -> Value {
         Ok(output) => output,
         Err(_) => {
             return json!({
-                "name": "feishu",
-                "connected": connected,
-                "detail": "Feishu enabled-scope check failed.",
-                "enabled_scopes": [],
-                "granted_scopes": [],
-                "capabilities": {},
-                "domains": {}
+                "capabilities": {}
             });
         }
     };
@@ -92,13 +74,7 @@ pub(super) async fn permissions(state: &AppState, user_id: &str) -> Value {
         .unwrap_or_default();
     if enabled_scopes.is_empty() {
         return json!({
-            "name": "feishu",
-            "connected": connected,
-            "detail": "Feishu app configuration is ready, but lark-cli did not report enabled user scopes.",
-            "enabled_scopes": [],
-            "granted_scopes": [],
-            "capabilities": {},
-            "domains": {}
+            "capabilities": {}
         });
     }
     let granted_scopes = if connected {
@@ -107,13 +83,7 @@ pub(super) async fn permissions(state: &AppState, user_id: &str) -> Value {
         BTreeSet::new()
     };
     json!({
-        "name": "feishu",
-        "connected": connected,
-        "detail": detail,
-        "enabled_scopes": enabled_scopes.iter().collect::<Vec<_>>(),
-        "granted_scopes": granted_scopes.iter().collect::<Vec<_>>(),
-        "capabilities": scope_capabilities(&enabled_scopes, &granted_scopes),
-        "domains": scope_domains(&enabled_scopes, &granted_scopes)
+        "capabilities": scope_capabilities(&enabled_scopes, &granted_scopes)
     })
 }
 
@@ -178,61 +148,6 @@ fn scope_capabilities(
         }
     }
     Value::Object(namespaces)
-}
-
-/// Group application-enabled and user-granted scopes by their namespace. The
-/// namespace is derived from the scope itself instead of a maintained domain
-/// allowlist, so newly enabled Feishu products remain visible automatically.
-fn scope_domains(enabled_scopes: &BTreeSet<String>, granted_scopes: &BTreeSet<String>) -> Value {
-    let mut enabled_by_domain = BTreeMap::<String, BTreeSet<String>>::new();
-    let mut granted_by_domain = BTreeMap::<String, BTreeSet<String>>::new();
-
-    for scope in enabled_scopes {
-        enabled_by_domain
-            .entry(scope_domain(scope).to_string())
-            .or_default()
-            .insert(scope.clone());
-    }
-    for scope in granted_scopes {
-        granted_by_domain
-            .entry(scope_domain(scope).to_string())
-            .or_default()
-            .insert(scope.clone());
-    }
-
-    let domains = enabled_by_domain
-        .keys()
-        .chain(granted_by_domain.keys())
-        .cloned()
-        .collect::<BTreeSet<_>>();
-    let mut result = Map::new();
-    for domain in domains {
-        let enabled = enabled_by_domain.remove(&domain).unwrap_or_default();
-        let granted = granted_by_domain.remove(&domain).unwrap_or_default();
-        let missing = enabled.difference(&granted).cloned().collect::<Vec<_>>();
-        let granted_not_enabled = granted.difference(&enabled).cloned().collect::<Vec<_>>();
-        result.insert(
-            domain,
-            json!({
-                "enabled_scopes": enabled.iter().collect::<Vec<_>>(),
-                "granted_scopes": granted.iter().collect::<Vec<_>>(),
-                "missing_scopes": missing,
-                "granted_not_enabled_scopes": granted_not_enabled,
-                "enabled_count": enabled.len(),
-                "granted_count": granted.len(),
-                "missing_count": enabled.difference(&granted).count(),
-                "granted_not_enabled_count": granted.difference(&enabled).count()
-            }),
-        );
-    }
-    Value::Object(result)
-}
-
-fn scope_domain(scope: &str) -> &str {
-    scope
-        .split_once(':')
-        .map(|(domain, _)| domain)
-        .unwrap_or(scope)
 }
 
 /// Execute a lark-cli business command for exactly one Ripple user. The
@@ -1334,7 +1249,6 @@ mod tests {
             ]
         }));
         let capabilities = scope_capabilities(&enabled_scopes, &granted_scopes);
-        let domains = scope_domains(&enabled_scopes, &granted_scopes);
 
         assert_eq!(
             capabilities.pointer("/docx/docx:document"),
@@ -1351,33 +1265,6 @@ mod tests {
         assert_eq!(
             capabilities.pointer("/mail/mail:user_mailbox.message:send"),
             Some(&json!(false))
-        );
-        assert_eq!(
-            domains.pointer("/docx/missing_scopes"),
-            Some(&json!(["docx:document:create"]))
-        );
-        assert_eq!(domains.pointer("/drive/enabled_count"), Some(&json!(2)));
-        assert_eq!(domains.pointer("/drive/granted_count"), Some(&json!(1)));
-        assert_eq!(domains.pointer("/mail/missing_count"), Some(&json!(1)));
-    }
-
-    #[test]
-    fn domain_summary_keeps_granted_scopes_outside_current_app_configuration() {
-        let enabled_scopes = BTreeSet::from(["im:message:readonly".to_string()]);
-        let granted_scopes = BTreeSet::from([
-            "im:message:readonly".to_string(),
-            "search:message".to_string(),
-        ]);
-
-        let domains = scope_domains(&enabled_scopes, &granted_scopes);
-
-        assert_eq!(
-            domains.pointer("/search/granted_not_enabled_scopes"),
-            Some(&json!(["search:message"]))
-        );
-        assert_eq!(
-            domains.pointer("/search/granted_not_enabled_count"),
-            Some(&json!(1))
         );
     }
 

@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Ripple Codex state backup every day
+
+[Timer]
+OnCalendar=*-*-* 03:20:00
+AccuracySec=10min
+Persistent=true
+Unit=ripple-codex-state-backup.service
+
+[Install]
+WantedBy=timers.target

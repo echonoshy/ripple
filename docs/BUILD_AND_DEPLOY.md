@@ -848,11 +848,11 @@ CODEX_MULTI_AUTH_DIR=/nas/ripple-data/codex-multi-auth codex-multi-auth why-sele
 
 ### 运行时日志清理
 
-Codex 自身会写入 `logs_2.sqlite`，主要是 trace/debug 级运行时日志。它不参与 Ripple 会话列表、消息恢复或 Codex thread 续聊；这些依赖的是 `/nas/ripple-data/ripple-runtime/ripple.sqlite`、Codex runtime `state_5.sqlite` 和 thread rollout 文件。
+Codex 自身会写入 `logs_2.sqlite`，主要是 trace/debug 级运行时日志。它不参与 Ripple 会话列表、消息恢复或 Codex thread 续聊；当前部署中前两者依赖本机 `.ripple/ripple.sqlite`、`.ripple/codex-sqlite/**/state_5.sqlite`，thread rollout 文件仍在 user runtime 中。
 
 Ripple Server 启动后会按配置自动清理这些日志库：
 
-- `/nas/ripple-data/codex-runtime/users/<user_id>/sqlite/logs_2.sqlite`
+- `/root/ripple/.ripple/codex-sqlite/users/<user_id>/sqlite/logs_2.sqlite`
 - `/nas/ripple-data/sandboxes/<user_id>/codex-home/logs_2.sqlite`，仅兼容旧布局
 - `/nas/ripple-data/codex-service-home/logs_2.sqlite`
 
@@ -865,8 +865,8 @@ Ripple Server 启动后会按配置自动清理这些日志库：
 
 不要把下面这些路径当成普通日志清理：
 
-- `/nas/ripple-data/ripple-runtime/ripple.sqlite*`
-- `/nas/ripple-data/codex-runtime/users/<user_id>/sqlite/state_5.sqlite`
+- `/root/ripple/.ripple/ripple.sqlite*`
+- `/root/ripple/.ripple/codex-sqlite/users/<user_id>/sqlite/state_5.sqlite`
 - `/nas/ripple-data/sandboxes/<user_id>/codex-home/sessions`
 - `/nas/ripple-data/sandboxes/<user_id>/sessions`
 
@@ -893,21 +893,20 @@ server:
 
 ### 备份与升级
 
-建议停服务或冻结写入后备份。生产多账号部署必须备份：
+当前部署的自动备份只覆盖本机运行时，不二次复制 NAS 上已有的 sandbox、workspace、credentials、agent-runs 或 service auth。备份过程不停服务：脚本使用 SQLite `.backup` 创建一致性逻辑快照，随后校验、压缩并发布到 NAS。
 
-- `/nas/ripple-data/ripple-runtime/ripple.sqlite`
-- `/nas/ripple-data/ripple-runtime/ripple.sqlite-wal`
-- `/nas/ripple-data/ripple-runtime/ripple.sqlite-shm`
-- `/nas/ripple-data/sandboxes/<user_id>/workspace`
-- `/nas/ripple-data/sandboxes/<user_id>/credentials`
-- `/nas/ripple-data/sandboxes/<user_id>/agent-runs`
-- `/nas/ripple-data/sandboxes/<user_id>/sessions`
-- `/nas/ripple-data/codex-service-home/auth.json`
-- `/nas/ripple-data/codex-multi-auth/openai-codex-accounts.json`
+自动备份范围：
 
-可以排除：
+- `/root/ripple/.ripple/ripple.sqlite` 和 `.ripple/audit.jsonl`：每 15 分钟。
+- `/root/ripple/.ripple/codex-sqlite/**/{state_5,goals_1,memories_1}.sqlite`：每日一次。
 
-- `/nas/ripple-data/sandboxes-cache`
+不备份：
+
+- `logs_2.sqlite`。
+- `/nas/ripple-data/**` 的现有业务数据。
+- `sandboxes-cache`。
+
+快照在 `/nas/ripple-data/backups/ripple-local/` 保留 7 天。不得直接复制在线的 `ripple.sqlite`、`ripple.sqlite-wal` 和 `ripple.sqlite-shm`；安装与恢复命令见 [本地 SQLite 迁移](LOCAL_SQLITE_MIGRATION.md#备份与恢复)。
 
 升级前先备份，再替换 `/opt/ripple/ripple-server` 和配置。当前版本会把可重放的 `queued/running` job 保存在原 SQLite 中；新进程启动时自动恢复并重新派发，最多自动重试一次。旧版本生成、缺少 replay envelope 的运行中记录仍会标记为 `interrupted_by_restart`。Run output 下载使用 `/v1/runs/:job_id/output`，不要依赖 host path。
 
@@ -941,7 +940,7 @@ curl -fsS \
 
 如果 30 秒内仍有运行中 job，服务会退出，但其执行参数和 attempt 已持久化；新进程会从 NAS 上的同一 SQLite 恢复。这个方案提供的是“任务不丢、允许最多一次重放”，不是任意外部副作用的 exactly-once 保证。
 
-如果使用仓库内的每日 NAS 镜像脚本，先确认 `ops/systemd/ripple-runtime-backup.service` 和 `scripts/backup-ripple-runtime-to-nas.sh` 中的源路径已经改成当前部署路径；旧开发机路径不能直接用于生产。
+本仓库提供 `scripts/backup-ripple-runtime-to-nas.sh` 及两个 systemd timer：控制面每 15 分钟、Codex 状态每日一次。它们已固定当前部署路径 `/root/ripple/.ripple`；如部署路径变化，必须在安装前显式更新 unit 的环境变量。
 
 ### 诊断入口
 

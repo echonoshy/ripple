@@ -47,10 +47,33 @@ external_agents:
 
 ## 备份与恢复
 
-- 控制面数据库：周期性从本地库用 `.backup` 生成快照到 NAS 备份目录，再复制到独立于该 NAS 的存储。
-- workspace、credentials、agent-runs：从 `sandbox` 配置指向的 NAS 根目录做加密文件备份。
-- Codex user SQLite：可在升级前或按日做冷快照；它不是控制面权威数据，但保留它有助于 app-server 连续性。
-- `sandboxes-cache`：不备份。
-- service Codex auth：恢复后重新登录，不把 auth 文件复制进用户 workspace。
+当前生产策略只备份本机运行时到 NAS；NAS 上既有的 workspace、credentials、agent-runs、service Codex auth 和 cache 不做二次备份。
 
-同一 NAS 内的第二个目录不构成灾难恢复备份；至少应有一份离开该 NAS 的加密副本，并定期演练恢复。
+- 控制面数据库：每 15 分钟从本地库用 SQLite `.backup` 创建一致性快照，执行 `integrity_check` 和 `foreign_key_check`，压缩后发布到 NAS。
+- 审计日志：与控制面快照同时压缩发布。
+- Codex user SQLite：每天对 `state_5.sqlite`、`goals_1.sqlite` 和 `memories_1.sqlite` 创建逻辑快照；`logs_2.sqlite` 是可清理运行日志，不备份。
+- 快照目录：`/nas/ripple-data/backups/ripple-local/{control,codex-state}/<UTC 时间戳>/`。每个已完成目录都带有 `SHA256SUMS` 和 `COMPLETE`；未完成的 `.incoming` 目录不能用于恢复。
+- 保留期：7 天。脚本只清理自己生成、同时具有合法时间戳和 `COMPLETE` 标记的目录，不使用 `rsync --delete` 覆盖历史快照。
+
+安装定时任务：
+
+```bash
+cd /root/ripple
+sudo install -m 0644 ops/systemd/ripple-control-plane-backup.service /etc/systemd/system/
+sudo install -m 0644 ops/systemd/ripple-control-plane-backup.timer /etc/systemd/system/
+sudo install -m 0644 ops/systemd/ripple-codex-state-backup.service /etc/systemd/system/
+sudo install -m 0644 ops/systemd/ripple-codex-state-backup.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now ripple-control-plane-backup.timer
+sudo systemctl enable --now ripple-codex-state-backup.timer
+```
+
+恢复前可先在不影响在线服务的前提下验证一个快照：
+
+```bash
+cd /root/ripple
+scripts/verify-ripple-backup-snapshot.sh \
+  /nas/ripple-data/backups/ripple-local/control/<UTC 时间戳>
+```
+
+恢复时先停止 `ripple-server`，选定一个包含 `COMPLETE` 的控制面目录，执行 `sha256sum -c SHA256SUMS`，解压 `ripple.sqlite.zst` 到本机 `.ripple/ripple.sqlite`，再运行 `PRAGMA integrity_check` 后启动服务。不要恢复旧的 `-wal` 或 `-shm` 文件。

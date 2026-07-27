@@ -152,6 +152,12 @@ pub struct CodexConfig {
     pub codex_executable: String,
     pub app_server_args: Vec<String>,
     pub codex_home: Option<PathBuf>,
+    /// Optional local root for Codex app-server's per-user SQLite state.
+    ///
+    /// This deliberately stays separate from `codex_home`: service auth and
+    /// other low-frequency Codex files may live elsewhere, while WAL-backed
+    /// databases need a local filesystem rather than NFS.
+    pub sqlite_root: Option<PathBuf>,
     pub approval_policy: JsonValue,
     pub sandbox_type: String,
     pub network_access: bool,
@@ -356,6 +362,7 @@ struct RawCodex {
     codex_executable: Option<String>,
     app_server_args: Option<Vec<String>>,
     codex_home: Option<String>,
+    sqlite_root: Option<String>,
     approval_policy: Option<serde_yaml::Value>,
     sandbox_type: Option<String>,
     network_access: Option<bool>,
@@ -612,6 +619,8 @@ impl AppConfig {
                         .map(|value| resolve_path(&repo_root, &value))
                         .unwrap_or_else(|| repo_root.join(".ripple/codex-service-home")),
                 ),
+                sqlite_root: clean_config_string(codex_raw.sqlite_root.as_deref())
+                    .map(|value| resolve_path(&repo_root, &value)),
                 approval_policy: parse_codex_approval_policy(codex_raw.approval_policy)?,
                 sandbox_type: codex_raw
                     .sandbox_type
@@ -701,6 +710,17 @@ impl AppConfig {
             .codex_home
             .clone()
             .unwrap_or_else(|| self.repo_root.join(".ripple/codex-service-home"))
+    }
+
+    pub fn codex_sqlite_root_path(&self) -> PathBuf {
+        self.codex.sqlite_root.clone().unwrap_or_else(|| {
+            let codex_home = self.codex_home_path();
+            codex_home
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or(codex_home)
+                .join("codex-runtime")
+        })
     }
 
     pub fn tracing_filter(&self) -> String {
@@ -1498,6 +1518,27 @@ external_agents:
 
         assert_eq!(config.codex.max_workers_per_pool, 50);
         assert_eq!(config.codex.max_total_pool_workers, 256);
+    }
+
+    #[test]
+    fn parses_codex_sqlite_root() {
+        let config = with_temp_config(
+            "codex-sqlite-root",
+            r#"
+server:
+  api_keys: ["test-key"]
+external_agents:
+  codex:
+    sqlite_root: "local/codex-sqlite"
+"#,
+            AppConfig::load,
+        )
+        .expect("load config");
+
+        assert_eq!(
+            config.codex_sqlite_root_path(),
+            config.repo_root.join("local/codex-sqlite")
+        );
     }
 
     #[test]

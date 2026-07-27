@@ -922,6 +922,7 @@ mod tests {
                 codex_executable: "codex".to_string(),
                 app_server_args: Vec::new(),
                 codex_home: None,
+                sqlite_root: None,
                 approval_policy: serde_json::json!("never"),
                 sandbox_type: "workspace-write".to_string(),
                 network_access: true,

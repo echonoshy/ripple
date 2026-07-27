@@ -49,6 +49,10 @@ external_agents:
     #   CODEX_HOME=/path/to/.ripple/codex-service-home codex login
     # 登录一次；不要复用开发者个人 ~/.codex，避免继承 yolo/danger-full-access 配置。
     codex_home: ".ripple/codex-service-home"
+    # 可选：把 Codex app-server 的 state/logs/goals/memories SQLite 放到本地盘。
+    # 路径下按 users/<user_id>/sqlite/ 隔离；不要放 NFS。省略时保持与 codex_home
+    # 同级的 codex-runtime/ 兼容路径。
+    # sqlite_root: ".ripple/codex-sqlite"
     approval_policy:
       granular:
         sandbox_approval: true

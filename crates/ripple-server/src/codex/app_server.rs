@@ -3388,6 +3388,25 @@ mod tests {
     }
 
     #[test]
+    fn codex_sqlite_home_for_user_uses_configured_local_root() {
+        let mut config = test_config();
+        config.codex.sqlite_root = Some(config.repo_root.join("local-codex-sqlite"));
+
+        let sqlite_home = codex_sqlite_home_for_user(&config, "alice").expect("sqlite home");
+
+        assert_eq!(
+            sqlite_home,
+            config
+                .repo_root
+                .join("local-codex-sqlite/users/alice/sqlite")
+        );
+        assert_ne!(
+            sqlite_home,
+            codex_runtime_home_for_user(&config, "alice").unwrap()
+        );
+    }
+
+    #[test]
     fn service_codex_auth_is_required_only_for_real_codex_launches() {
         let mut config = test_config();
 
@@ -3606,6 +3625,7 @@ mod tests {
                     "stdio://".to_string(),
                 ],
                 codex_home: Some(root.join(".ripple/codex-service-home")),
+                sqlite_root: None,
                 approval_policy: serde_json::json!("never"),
                 sandbox_type: "workspace-write".to_string(),
                 network_access: true,

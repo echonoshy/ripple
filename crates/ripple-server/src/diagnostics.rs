@@ -86,6 +86,7 @@ impl DoctorCheck {
 pub async fn readiness_report(config: &AppConfig) -> Value {
     let mut checks = vec![
         sqlite_check(config).await,
+        writable_dir_check("codex_sqlite_root", &config.codex_sqlite_root_path()).await,
         writable_dir_check("sandboxes_root", &config.sandbox.sandboxes_root).await,
         writable_dir_check("caches_root", &config.sandbox.caches_root).await,
         executable_check(
@@ -145,6 +146,12 @@ pub fn redact_deployment_paths(config: &AppConfig, value: Value) -> Value {
         &codex_home,
         "/codex-home/",
         "/codex-home",
+    );
+    push_path_replacement(
+        &mut replacements,
+        &config.codex_sqlite_root_path(),
+        "/codex-sqlite/",
+        "/codex-sqlite",
     );
     push_path_replacement(
         &mut replacements,
@@ -214,6 +221,7 @@ pub async fn doctor_report(config: &AppConfig) -> Value {
         security_check(config),
         cors_check(config),
         sqlite_check(config).await,
+        writable_dir_check("codex_sqlite_root", &config.codex_sqlite_root_path()).await,
         writable_dir_check("sandboxes_root", &config.sandbox.sandboxes_root).await,
         writable_dir_check("caches_root", &config.sandbox.caches_root).await,
         executable_check(
@@ -238,11 +246,13 @@ pub async fn doctor_report(config: &AppConfig) -> Value {
     }
     checks.extend(connector_cli_checks(config));
     let (pass_count, warn_count, fail_count) = count_statuses(&checks);
-    let workspace_backup_path = if config.sandbox.workspaces_root.is_some() {
-        "sandbox.workspaces_root/<user_id>/workspace"
-    } else {
-        ".ripple/sandboxes/<user_id>/workspace"
-    };
+    let workspace_root = config
+        .sandbox
+        .workspaces_root
+        .as_ref()
+        .unwrap_or(&config.sandbox.sandboxes_root);
+    let sandbox_root = &config.sandbox.sandboxes_root;
+    let storage_path = database_path(config);
     json!({
         "status": aggregate_status(&checks),
         "service": "ripple-server",
@@ -256,17 +266,19 @@ pub async fn doctor_report(config: &AppConfig) -> Value {
         },
         "backup_contract": {
             "include": [
-                ".ripple/ripple.sqlite",
-                ".ripple/ripple.sqlite-wal",
-                ".ripple/ripple.sqlite-shm",
-                workspace_backup_path,
-                ".ripple/sandboxes/<user_id>/credentials",
-                ".ripple/sandboxes/<user_id>/agent-runs",
-                ".ripple/sandboxes/<user_id>/sessions"
+                {"path": storage_path, "strategy": "sqlite .backup snapshot"},
+                {"path": workspace_root.join("<user_id>/workspace"), "strategy": "filesystem backup"},
+                {"path": sandbox_root.join("<user_id>/credentials"), "strategy": "encrypted filesystem backup"},
+                {"path": sandbox_root.join("<user_id>/agent-runs"), "strategy": "filesystem backup"},
+                {"path": sandbox_root.join("<user_id>/sessions"), "strategy": "filesystem backup"}
             ],
             "exclude": [
-                ".ripple/sandboxes-cache"
+                config.sandbox.caches_root
             ],
+            "codex_runtime_sqlite": {
+                "path": config.codex_sqlite_root_path(),
+                "strategy": "optional cold snapshot before upgrades; do not place the live WAL files on NFS"
+            },
             "codex_auth": "re-login the service CODEX_HOME after restore instead of copying auth into user workspaces"
         }
     })
@@ -770,6 +782,7 @@ mod tests {
                     "stdio://".to_string(),
                 ],
                 codex_home: Some(root.join(".ripple/codex-service-home")),
+                sqlite_root: None,
                 approval_policy: serde_json::json!("never"),
                 sandbox_type: "workspace-write".to_string(),
                 network_access: true,

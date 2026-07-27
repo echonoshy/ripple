@@ -169,9 +169,27 @@ pub struct SkillsConfig {
     pub shared_dirs: Vec<String>,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct FeishuConfig {
     pub app: Option<FeishuAppConfig>,
+    /// Server-owned, broad permission bundles. The model selects a bundle for
+    /// a concrete task; it never supplies individual OAuth scopes.
+    pub authorization_profiles: Vec<FeishuAuthorizationProfile>,
+}
+
+impl Default for FeishuConfig {
+    fn default() -> Self {
+        Self {
+            app: None,
+            authorization_profiles: default_feishu_authorization_profiles(),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct FeishuAuthorizationProfile {
+    pub id: String,
+    pub scopes: Vec<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -360,6 +378,16 @@ struct RawFeishu {
     app_id: Option<String>,
     app_secret: Option<String>,
     brand: Option<String>,
+    authorization_profiles: Option<Vec<RawFeishuAuthorizationProfile>>,
+    // Backward-compatible config input only. `keywords` is deliberately
+    // ignored: task classification is performed by the internal model.
+    authorization_rules: Option<Vec<RawFeishuAuthorizationProfile>>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct RawFeishuAuthorizationProfile {
+    id: Option<String>,
+    scopes: Option<Vec<String>>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -821,7 +849,90 @@ fn parse_feishu_config(raw: Option<RawFeishu>) -> FeishuConfig {
                 app_secret,
                 brand,
             }),
+        authorization_profiles: parse_feishu_authorization_profiles(
+            raw.authorization_profiles.or(raw.authorization_rules),
+        ),
     }
+}
+
+fn parse_feishu_authorization_profiles(
+    raw: Option<Vec<RawFeishuAuthorizationProfile>>,
+) -> Vec<FeishuAuthorizationProfile> {
+    let profiles = raw.unwrap_or_default();
+    let parsed = profiles
+        .into_iter()
+        .filter_map(|profile| {
+            let id = clean_config_string(profile.id.as_deref())?;
+            let scopes = profile
+                .scopes
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|scope| clean_config_string(Some(&scope)))
+                .filter(|scope| scope.contains(':'))
+                .collect::<Vec<_>>();
+            (!scopes.is_empty()).then_some(FeishuAuthorizationProfile { id, scopes })
+        })
+        .collect::<Vec<_>>();
+    if parsed.is_empty() {
+        default_feishu_authorization_profiles()
+    } else {
+        parsed
+    }
+}
+
+fn default_feishu_authorization_profiles() -> Vec<FeishuAuthorizationProfile> {
+    [
+        (
+            "im",
+            vec![
+                "contact:user:search",
+                "contact:user.base:readonly",
+                "im:message",
+                "im:message.send_as_user",
+                "im:message:readonly",
+                "im:chat:read",
+            ],
+        ),
+        (
+            "mail",
+            vec![
+                "contact:user:search",
+                "im:message",
+                "im:message.send_as_user",
+                "mail:user_mailbox.message:modify",
+                "mail:user_mailbox.message:send",
+                "mail:user_mailbox.message:readonly",
+                "mail:user_mailbox:readonly",
+            ],
+        ),
+        (
+            "task",
+            vec![
+                "contact:user:search",
+                "task:task:read",
+                "task:task:write",
+                "task:tasklist:read",
+                "task:tasklist:write",
+            ],
+        ),
+        (
+            "docs_base",
+            vec![
+                "docx:document:create",
+                "docx:document:readonly",
+                "docx:document:write_only",
+                "drive:drive:readonly",
+                "bitable:app",
+                "bitable:app:readonly",
+            ],
+        ),
+    ]
+    .into_iter()
+    .map(|(id, scopes)| FeishuAuthorizationProfile {
+        id: id.to_string(),
+        scopes: scopes.into_iter().map(str::to_string).collect(),
+    })
+    .collect()
 }
 
 fn parse_gogcli_oauth_client(raw: Option<RawGogcliOAuthClient>) -> Option<GogcliOAuthClient> {
@@ -1018,6 +1129,30 @@ mod tests {
         for connector in ["google_workspace", "notion", "feishu", "bilibili"] {
             assert!(config.connector_enabled(connector), "{connector}");
         }
+    }
+
+    #[test]
+    fn parses_feishu_authorization_profiles_without_keyword_rules() {
+        let config = with_temp_config(
+            "feishu-authorization-profiles",
+            r#"
+server:
+  api_keys: [test-key]
+  feishu:
+    authorization_profiles:
+      - id: im
+        scopes: [im:message, contact:user:search]
+"#,
+            AppConfig::load,
+        )
+        .expect("load config");
+
+        assert_eq!(config.feishu.authorization_profiles.len(), 1);
+        assert_eq!(config.feishu.authorization_profiles[0].id, "im");
+        assert_eq!(
+            config.feishu.authorization_profiles[0].scopes,
+            vec!["im:message", "contact:user:search"]
+        );
     }
 
     #[test]

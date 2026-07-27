@@ -197,6 +197,7 @@ Chat 主链路会向 Codex 暴露 `codex_app.task_update` 动态工具。它只�
 
 - `POST /v1/connectors/:connector_name/auth/cancel` 取消当前 user 的待授权状态，幂等返回 `{ ok, connector, cancelled }`。它会清理 connector runtime pending state，例如 Google assisted OAuth、Feishu setup 进程、Bilibili QR pending state，并清掉该 user 相关 session 的 pending connector auth。
 - `POST /v1/connectors/:connector_name/disconnect` 是本地断开。它删除 Ripple user sandbox 里的 token、keyring、cookie 或 CLI 配置，不承诺撤销 provider 侧授权。Google 支持 `{ email }` 删除单个本地账号 token，也支持 `{ all: true }` 清理本地 Google keyring。
+- Feishu 授权由服务端内部决定，客户端和模型不传 scope、capability 等字段。默认仅对消息、邮件、个人待办和 Docx 使用最小显式 scope；未命中的其他飞书意图，以及没有具体任务的“连接飞书”，均使用 `lark-cli auth login --recommend`。业务 CLI 返回 `permission_violations` 时，服务端只信任 CLI 的结构化结果，保存缺失 scope 并在下一次标准重新授权中精确补权、恢复原任务；这不改变 `/v1` 请求或响应字段。部署方仍可通过 `server.feishu.authorization_rules` 为已接入能力定义更小的显式 scope。
 - `GET /v1/connectors/feishu/permissions` 返回当前 user 的 Feishu OAuth scope capabilities。scope 按第一个 `:` 前缀分组，`true` 表示应用和当前 user token 都拥有该 scope，`false` 表示应用已启用但当前 user token 未授予。它不代表文档、群聊或云盘等资源自身 ACL 已授权。
 - `GET /v1/capabilities` 返回内部统一能力目录，合并 connectors、runtime capabilities、Ripple shared skills 和当前 user workspace skills；前端普通用户页面不直接展示 runtime capability 分类。runtime capability 条目会带 `runtime` 元数据，例如 Codex app-server stdio protocol、managed permission profile、workspace messages 方法，以及 image input 只接受 workspace/local/inline data image、拒绝远程 HTTP(S) URL 的策略。
 - `GET /v1/skills` 返回用户侧 skill 列表，不包含 runtime capability；skill 条目包含 `display_source`、`kind`、`runtime`、`entry`、`python_packages`、`content_hash` 和 `last_validated_at`。

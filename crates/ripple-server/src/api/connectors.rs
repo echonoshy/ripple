@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::path::Path as FsPath;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -29,7 +29,16 @@ use bilibili::{
 };
 pub(crate) use feishu::{
     cancel_setup as cancel_feishu_setup, invoke_for_agent as invoke_feishu_for_agent,
+    missing_user_scopes_from_cli_result,
 };
+
+/// Internal task-level authorization intent for Feishu. This is deliberately
+/// not part of the HTTP or model authorization protocol.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum FeishuAuthorizationRequest {
+    ExplicitScopes(BTreeSet<String>),
+    Recommended,
+}
 
 const BILIBILI_QRCODE_TTL_SECONDS: u64 = 180;
 const BILIBILI_PENDING_TTL_SECONDS: u64 = 600;
@@ -256,13 +265,39 @@ pub(crate) async fn connector_auth_start_action(
     payload: &Value,
     request_base_url: Option<&str>,
 ) -> Result<Json<Value>, ApiError> {
+    connector_auth_start_action_for_feishu_authorization(
+        state,
+        user_id,
+        connector_name,
+        payload,
+        request_base_url,
+        None,
+    )
+    .await
+}
+
+pub(crate) async fn connector_auth_start_action_for_feishu_authorization(
+    state: &AppState,
+    user_id: &str,
+    connector_name: &str,
+    payload: &Value,
+    request_base_url: Option<&str>,
+    feishu_authorization: Option<&FeishuAuthorizationRequest>,
+) -> Result<Json<Value>, ApiError> {
     ensure_connector_enabled(state, connector_name)?;
     state.sandboxes.ensure_sandbox(user_id)?;
     match connector_name {
         "notion" => notion_auth_start(state, user_id, payload).await,
         "google_workspace" => google_workspace::auth_start(state, user_id, request_base_url).await,
         "bilibili" => bilibili_auth_start(state, user_id).await,
-        "feishu" => feishu::auth_start(state, user_id, payload).await,
+        "feishu" => match feishu_authorization {
+            Some(FeishuAuthorizationRequest::ExplicitScopes(scopes)) => {
+                feishu::auth_start_for_scopes(state, user_id, payload, scopes).await
+            }
+            Some(FeishuAuthorizationRequest::Recommended) | None => {
+                feishu::auth_start_with_recommendation(state, user_id, payload).await
+            }
+        },
         _ => Err(ApiError::not_found(format!(
             "Connector {connector_name:?} not found"
         ))),

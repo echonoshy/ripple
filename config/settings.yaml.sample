@@ -144,6 +144,13 @@ server:
     #   app_id: "<FEISHU_APP_ID>"
     #   app_secret: "<FEISHU_APP_SECRET>"
     #   brand: "feishu"
+    # 授权 profile 只在服务端使用；客户端和 connector-auth 报文都不传 scope。
+    # 对具体任务，内部模型只选择 profile，服务端再展开为预置的一组较宽 scope，
+    # 以覆盖跨域依赖并避免同一任务反复授权。无法判断或只是“连接飞书”时走
+    # lark-cli --recommend。profile id 应保持简短、稳定且与业务能力对应。
+    # authorization_profiles:
+    #   - id: "base"
+    #     scopes: ["bitable:app", "bitable:app:readonly"]
   gogcli_oauth:
     # 推荐：部署方配置一次 Google OAuth Client，最终用户只需要打开授权 URL 点 Allow。
     # Google Cloud Console 中创建 OAuth Client 时使用 Web application，并把下面 callback URL

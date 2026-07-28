@@ -641,7 +641,6 @@ async fn run_lark_with_sandbox(
     timeout_seconds: u64,
 ) -> Result<std::process::Output, ApiError> {
     sandboxes.prepare_lark_cli_credentials(user_id)?;
-    sandboxes.write_nsjail_config(user_id)?;
     let argv = sandboxes.nsjail_exec_argv(user_id, sandboxes.lark_cli_sandbox_binary(), args)?;
     let mut command = Command::new(&argv[0]);
     command

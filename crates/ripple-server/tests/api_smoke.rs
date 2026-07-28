@@ -4897,6 +4897,69 @@ async fn connector_status_and_accounts_require_existing_sandbox() {
 }
 
 #[tokio::test]
+async fn connector_status_does_not_mutate_pending_connector_auth() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let (state, app) = test_state_and_app(&root);
+    let user_id = "smoke-user";
+    state.sandboxes.ensure_sandbox(user_id).unwrap();
+    let credentials = state.sandboxes.credentials_dir(user_id).unwrap();
+    fs::write(
+        credentials.join("notion.json"),
+        r#"{"api_token":"test-token"}"#,
+    )
+    .unwrap();
+
+    let mut session = state
+        .sessions
+        .create_session(
+            user_id,
+            CreateSessionInput {
+                model: Some("codex-test".to_string()),
+                max_turns: None,
+                system_prompt: None,
+                context_folder_path: None,
+            },
+        )
+        .await
+        .unwrap();
+    session.status = "waiting_for_user".to_string();
+    session.pending_connector_auth = Some(json!({
+        "connector": "notion",
+        "stage": "awaiting_user_auth",
+        "resume_user_input": "继续读取 Notion"
+    }));
+    state.sessions.save_record(session.clone()).await.unwrap();
+
+    let (status, body) = call(
+        app,
+        Method::GET,
+        "/v1/connectors/notion/status",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body.get("connected").and_then(Value::as_bool), Some(true));
+
+    let reloaded = state
+        .sessions
+        .load(user_id, &session.session_id)
+        .await
+        .unwrap()
+        .expect("session");
+    assert_eq!(reloaded.status, "waiting_for_user");
+    assert_eq!(
+        reloaded
+            .pending_connector_auth
+            .as_ref()
+            .and_then(|value| value.get("stage"))
+            .and_then(Value::as_str),
+        Some("awaiting_user_auth")
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
 async fn connector_manifest_exposes_management_paths_for_user_connectors() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let (_state, app) = test_state_and_app(&root);
@@ -5223,6 +5286,57 @@ async fn connector_auth_route_clears_matching_pending_session_auth() {
             .and_then(Value::as_str),
         Some("authorized")
     );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn connector_disconnect_clears_matching_pending_session_auth() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let (state, app) = test_state_and_app(&root);
+    let user_id = "smoke-user";
+    let mut session = state
+        .sessions
+        .create_session(
+            user_id,
+            CreateSessionInput {
+                model: Some("codex-test".to_string()),
+                max_turns: None,
+                system_prompt: None,
+                context_folder_path: None,
+            },
+        )
+        .await
+        .unwrap();
+    session.status = "awaiting_user_input".to_string();
+    session.pending_connector_auth = Some(json!({
+        "connector": "notion",
+        "stage": "awaiting_token",
+        "resume_user_input": "继续读取 Notion"
+    }));
+    state.sessions.save_record(session.clone()).await.unwrap();
+
+    let (status, disconnected) = call(
+        app,
+        Method::POST,
+        "/v1/connectors/notion/disconnect",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        disconnected.get("stage").and_then(Value::as_str),
+        Some("disconnected")
+    );
+
+    let reloaded = state
+        .sessions
+        .load(user_id, &session.session_id)
+        .await
+        .unwrap()
+        .expect("session");
+    assert_eq!(reloaded.status, "idle");
+    assert!(reloaded.pending_connector_auth.is_none());
 
     let _ = std::fs::remove_dir_all(root);
 }

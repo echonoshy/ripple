@@ -2447,6 +2447,7 @@ async fn persist_feishu_scope_upgrade(
         "required_scopes".to_string(),
         json!(scopes.iter().collect::<Vec<_>>()),
     );
+    pending.remove("use_recommend");
     session.pending_connector_auth = Some(Value::Object(pending));
     storage.save_session(&session).await?;
     Ok(())

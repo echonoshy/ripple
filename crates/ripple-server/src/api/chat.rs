@@ -53,7 +53,8 @@ use connector_auth::{
     connector_auth_poll_should_emit_message, connector_auth_poll_should_persist_message,
     connector_auth_status, continue_pending_connector_auth, maybe_handle_connector_auth,
     model_connector_auth_request_might_be_start, parse_model_connector_auth_request,
-    persist_connector_auth_event, public_connector_auth_event, start_model_connector_auth_for_chat,
+    pending_feishu_scope_upgrade, persist_connector_auth_event, public_connector_auth_event,
+    start_model_connector_auth_for_chat, ModelConnectorAuthRequest,
 };
 use input::extract_control_action_from_messages;
 pub(crate) use input::{extract_caller_system_prompt, extract_user_input_and_items};
@@ -1399,6 +1400,12 @@ fn task_control_event_response(
 }
 
 fn task_connector_required_action(event: &Value) -> Value {
+    if task_awaiting_admin_authorization(event) {
+        return json!({
+            "type": "awaiting_admin_authorization",
+            "connector": event.get("connector").cloned().unwrap_or(Value::Null)
+        });
+    }
     let mut action = json!({
         "type": "connector_auth",
         "connector": event.get("connector").cloned().unwrap_or(Value::Null),
@@ -1415,6 +1422,13 @@ fn task_connector_required_action(event: &Value) -> Value {
     action
 }
 
+fn task_awaiting_admin_authorization(event: &Value) -> bool {
+    event
+        .pointer("/action/data/required_action_type")
+        .and_then(Value::as_str)
+        == Some("awaiting_admin_authorization")
+}
+
 fn task_connector_auth_failed(event: &Value) -> bool {
     matches!(
         event.get("stage").and_then(Value::as_str),
@@ -1424,6 +1438,16 @@ fn task_connector_auth_failed(event: &Value) -> bool {
 
 fn task_connector_auth_status_data(task_id: &str, req_id: Option<&str>, event: &Value) -> Value {
     let message = event_message(event);
+    if task_awaiting_admin_authorization(event) {
+        return task_status_data(
+            task_id,
+            req_id,
+            "waiting_user",
+            json!(message),
+            Some(task_connector_required_action(event)),
+            None,
+        );
+    }
     if task_connector_auth_failed(event) {
         return task_status_data(
             task_id,
@@ -2128,7 +2152,18 @@ async fn maybe_persist_model_connector_auth_request(
     info: &AgentRunInfo,
     resume_after_auth: bool,
 ) -> Result<Option<Value>, ApiError> {
-    let Some(request) = parse_model_connector_auth_request(output_text) else {
+    let request = if let Some(request) = parse_model_connector_auth_request(output_text) {
+        request
+    } else if pending_feishu_scope_upgrade(state, user_id, &session.session_id)
+        .await?
+        .is_some()
+    {
+        ModelConnectorAuthRequest {
+            connector: "feishu".to_string(),
+            force_reauth: false,
+            source: Some("session_skill".to_string()),
+        }
+    } else {
         return Ok(None);
     };
     let decision = start_model_connector_auth_for_chat(
@@ -4020,6 +4055,37 @@ mod tests {
                     "stage": "awaiting_setup",
                     "auth_url": "https://open.feishu.cn/page/cli?user_code=abc",
                     "expires_in_seconds": 300
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn task_awaiting_admin_authorization_uses_compact_required_action() {
+        let event = json!({
+            "type": "connector_auth_required",
+            "connector": "feishu",
+            "stage": "auth_failed",
+            "message": "飞书邮件发送权限尚未审批，请联系飞书管理员完成权限审批后重新发起任务。",
+            "action": {
+                "data": {
+                    "missing_scopes": ["mail:user_mailbox.message:send"],
+                    "required_action_type": "awaiting_admin_authorization"
+                }
+            }
+        });
+
+        assert_eq!(
+            task_connector_auth_status_data("task-001", Some("req-001"), &event),
+            json!({
+                "event": "task.status",
+                "task_id": "task-001",
+                "req_id": "req-001",
+                "status": "waiting_user",
+                "content": "飞书邮件发送权限尚未审批，请联系飞书管理员完成权限审批后重新发起任务。",
+                "required_action": {
+                    "type": "awaiting_admin_authorization",
+                    "connector": "feishu"
                 }
             })
         );

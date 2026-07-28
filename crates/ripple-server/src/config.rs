@@ -906,44 +906,36 @@ fn default_feishu_authorization_profiles() -> Vec<FeishuAuthorizationProfile> {
             "im",
             vec![
                 "contact:user:search",
-                "contact:user.base:readonly",
                 "im:message",
                 "im:message.send_as_user",
-                "im:message:readonly",
                 "im:chat:read",
-            ],
-        ),
-        (
-            "mail",
-            vec![
-                "contact:user:search",
-                "im:message",
-                "im:message.send_as_user",
-                "mail:user_mailbox.message:modify",
-                "mail:user_mailbox.message:send",
-                "mail:user_mailbox.message:readonly",
-                "mail:user_mailbox:readonly",
             ],
         ),
         (
             "task",
             vec![
+                "contact:user.basic_profile:readonly",
                 "contact:user:search",
-                "task:task:read",
                 "task:task:write",
-                "task:tasklist:read",
                 "task:tasklist:write",
             ],
         ),
         (
-            "docs_base",
+            "mail",
+            vec![
+                // lark-cli mail +send reads the current mailbox profile
+                // before it creates and sends the draft.
+                "mail:user_mailbox:readonly",
+                "mail:user_mailbox.message:send",
+                "mail:user_mailbox.message:modify",
+            ],
+        ),
+        (
+            "docs",
             vec![
                 "docx:document:create",
                 "docx:document:readonly",
                 "docx:document:write_only",
-                "drive:drive:readonly",
-                "bitable:app",
-                "bitable:app:readonly",
             ],
         ),
     ]
@@ -1059,7 +1051,7 @@ fn find_on_path(binary: &str) -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::{default_codex_approval_policy, AppConfig};
+    use super::{default_codex_approval_policy, AppConfig, FeishuConfig};
     use serde_json::json;
     use std::sync::{Mutex, OnceLock};
 
@@ -1172,6 +1164,63 @@ server:
         assert_eq!(
             config.feishu.authorization_profiles[0].scopes,
             vec!["im:message", "contact:user:search"]
+        );
+    }
+
+    #[test]
+    fn default_feishu_profiles_cover_each_core_workflow_independently() {
+        let profiles = FeishuConfig::default().authorization_profiles;
+
+        assert_eq!(profiles.len(), 4);
+        assert_eq!(
+            profiles
+                .iter()
+                .find(|profile| profile.id == "im")
+                .expect("im profile")
+                .scopes,
+            vec![
+                "contact:user:search",
+                "im:message",
+                "im:message.send_as_user",
+                "im:chat:read",
+            ]
+        );
+        assert_eq!(
+            profiles
+                .iter()
+                .find(|profile| profile.id == "task")
+                .expect("task profile")
+                .scopes,
+            vec![
+                "contact:user.basic_profile:readonly",
+                "contact:user:search",
+                "task:task:write",
+                "task:tasklist:write",
+            ]
+        );
+        assert_eq!(
+            profiles
+                .iter()
+                .find(|profile| profile.id == "mail")
+                .expect("mail profile")
+                .scopes,
+            vec![
+                "mail:user_mailbox:readonly",
+                "mail:user_mailbox.message:send",
+                "mail:user_mailbox.message:modify",
+            ]
+        );
+        assert_eq!(
+            profiles
+                .iter()
+                .find(|profile| profile.id == "docs")
+                .expect("docs profile")
+                .scopes,
+            vec![
+                "docx:document:create",
+                "docx:document:readonly",
+                "docx:document:write_only",
+            ]
         );
     }
 

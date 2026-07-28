@@ -670,9 +670,10 @@ impl SessionManager {
             if record
                 .pending_connector_auth
                 .as_ref()
-                .and_then(|pending| pending.get("connector"))
-                .and_then(Value::as_str)
-                == Some(connector_name)
+                .is_some_and(|pending| {
+                    pending.get("connector").and_then(Value::as_str) == Some(connector_name)
+                        && connector_auth_requires_user_action(pending)
+                })
             {
                 count += 1;
             }
@@ -917,6 +918,13 @@ impl SessionManager {
             Ok(Some(workspace_path))
         }
     }
+}
+
+fn connector_auth_requires_user_action(pending: &Value) -> bool {
+    !matches!(
+        pending.get("stage").and_then(Value::as_str),
+        Some("authorized" | "auth_failed" | "invalid_request" | "disconnected")
+    )
 }
 
 async fn remove_dir_all_with_retry(path: &Path) -> std::io::Result<()> {
@@ -2017,6 +2025,12 @@ mod tests {
                 .and_then(|value| value.get("stage"))
                 .and_then(Value::as_str),
             Some("authorized")
+        );
+        assert_eq!(
+            manager
+                .pending_connector_auth_count(user_id, "notion")
+                .await?,
+            0
         );
         let clearable = manager
             .load(user_id, &clearable.session_id)

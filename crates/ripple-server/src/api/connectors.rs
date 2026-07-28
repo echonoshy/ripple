@@ -85,7 +85,6 @@ pub async fn connector_status(
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
     ensure_sandbox_exists(&state, &user_id)?;
     let status = connector_status_value(&state, &user_id, &connector_name).await?;
-    clear_pending_auth_if_status_connected(&state, &user_id, &connector_name, &status).await;
     Ok(Json(status))
 }
 
@@ -100,7 +99,9 @@ pub async fn connector_status(
     responses(
         (status = 200, description = "Feishu scope capabilities for the current user", body = serde_json::Value),
         (status = 401, description = "Invalid or missing API key", body = crate::api::openapi::ApiErrorEnvelope),
-        (status = 404, description = "Feishu connector is not enabled", body = crate::api::openapi::ApiErrorEnvelope)
+        (status = 404, description = "Feishu connector is not enabled", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 502, description = "Feishu permission probe returned invalid CLI data", body = crate::api::openapi::ApiErrorEnvelope),
+        (status = 503, description = "Feishu permission probe is temporarily unavailable", body = crate::api::openapi::ApiErrorEnvelope)
     ),
     security(
         ("bearerAuth" = []),
@@ -114,7 +115,7 @@ pub async fn feishu_permissions(
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
     ensure_connector_enabled(&state, "feishu")?;
     ensure_sandbox_exists(&state, &user_id)?;
-    Ok(Json(feishu::permissions(&state, &user_id).await))
+    Ok(Json(feishu::permissions(&state, &user_id).await?))
 }
 
 pub(crate) async fn connector_status_value(
@@ -188,20 +189,6 @@ pub(crate) async fn connector_status_value(
         }
     }
     Ok(status)
-}
-
-async fn clear_pending_auth_if_status_connected(
-    state: &AppState,
-    user_id: &str,
-    connector_name: &str,
-    status: &Value,
-) {
-    if status.get("connected").and_then(Value::as_bool) == Some(true) {
-        let _ = state
-            .sessions
-            .clear_pending_connector_auth(user_id, connector_name)
-            .await;
-    }
 }
 
 async fn clear_pending_auth_if_action_authorized(
@@ -436,7 +423,7 @@ pub async fn connector_disconnect(
         json!({"connector": connector_name}),
     )
     .await?;
-    match connector_name.as_str() {
+    let result = match connector_name.as_str() {
         "notion" => notion_disconnect(&state, &user_id).await,
         "google_workspace" => google_workspace::disconnect(&state, &user_id, &payload).await,
         "feishu" => feishu::disconnect(&state, &user_id).await,
@@ -444,7 +431,14 @@ pub async fn connector_disconnect(
         _ => Err(ApiError::not_found(format!(
             "Connector {connector_name:?} not found"
         ))),
+    }?;
+    if result.0.get("ok").and_then(Value::as_bool) == Some(true) {
+        state
+            .sessions
+            .cancel_pending_connector_auth(&user_id, &connector_name)
+            .await?;
     }
+    Ok(result)
 }
 
 #[derive(Debug, Deserialize, utoipa::IntoParams)]

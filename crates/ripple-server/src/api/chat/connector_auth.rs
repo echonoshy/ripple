@@ -240,19 +240,17 @@ async fn start_connector_auth_for_chat(
 ) -> Result<ConnectorAuthDecision, ApiError> {
     let feishu_authorization = if connector == "feishu" {
         let authorization_context = feishu_authorization_context(session, user_input);
-        let authorization =
-            match pending_feishu_scope_upgrade(state, user_id, &session.session_id).await? {
-                Some(authorization) => authorization,
-                None => {
-                    classify_feishu_authorization_for_task(
-                        state,
-                        user_id,
-                        session,
-                        &authorization_context,
-                    )
-                    .await
-                }
-            };
+        let classified_authorization =
+            classify_feishu_authorization_for_task(state, user_id, session, &authorization_context)
+                .await;
+        let authorization = match pending_feishu_scope_upgrade(state, user_id, &session.session_id)
+            .await?
+        {
+            Some(pending_authorization) => {
+                merge_feishu_authorization_requests(pending_authorization, classified_authorization)
+            }
+            None => classified_authorization,
+        };
         Some(authorization)
     } else {
         None
@@ -306,6 +304,8 @@ async fn start_connector_auth_for_chat(
         String::new()
     } else if source == "connectors_page" {
         String::new()
+    } else if connector == "feishu" && resume_after_auth {
+        "飞书授权已完成，请继续执行已经确认的任务。".to_string()
     } else {
         user_input.to_string()
     };
@@ -333,6 +333,9 @@ fn feishu_authorization_context(session: &SessionRecord, current_user_input: &st
                 return None;
             }
             let text = message_content_text(message.get("content")?);
+            if is_feishu_authorization_context_noise(role, &text) {
+                return None;
+            }
             (!text.is_empty()).then_some(format!(
                 "{role}: {}",
                 truncate_context_text(&text, FEISHU_AUTHORIZATION_CONTEXT_MESSAGE_MAX_CHARS)
@@ -353,6 +356,27 @@ fn feishu_authorization_context(session: &SessionRecord, current_user_input: &st
         ));
     }
     messages.join("\n")
+}
+
+fn is_feishu_authorization_context_noise(role: &str, text: &str) -> bool {
+    let normalized = text.trim().to_lowercase();
+    match role {
+        "user" => matches!(
+            normalized.as_str(),
+            "重新授权飞书"
+                | "授权飞书"
+                | "连接飞书"
+                | "重新连接飞书"
+                | "i have authorized"
+                | "i authorized"
+        ),
+        "assistant" => {
+            normalized == "需要完成飞书授权后继续执行。"
+                || normalized == "飞书授权已完成。"
+                || normalized.starts_with("飞书还没有确认到用户授权完成。")
+        }
+        _ => false,
+    }
 }
 
 fn message_content_text(content: &Value) -> String {
@@ -484,8 +508,10 @@ fn feishu_task_classification_prompt(task_description: &str, profile_ids: &[Stri
         "You classify a user's Feishu/Lark request for OAuth authorization.\n\
 Return JSON only, matching the provided schema.\n\
 Choose every applicable profile needed to complete the concrete task.\n\
-Return an empty profiles array when the user only asks to connect/authorize Feishu,\n\
-when the task is unrelated to Feishu, or when no profile clearly applies.\n\
+Return an empty profiles array when the entire conversation only asks to connect/authorize\n\
+Feishu, when the task is unrelated to Feishu, or when no profile clearly applies.\n\
+If a connect, authorize, reauthorize, or retry message follows an unresolved concrete Feishu\n\
+task, classify the concrete task from the preceding context instead of returning an empty array.\n\
 Conversation context can include acknowledgments such as \"OK\" or \"confirm\".\n\
 Treat those as confirmation only; infer the capability from the preceding task request\n\
 or the assistant's confirmation summary.\n\
@@ -541,7 +567,7 @@ fn parse_feishu_task_classification(output: &str) -> Vec<String> {
     json_text.map(|value| value.profiles).unwrap_or_default()
 }
 
-async fn pending_feishu_scope_upgrade(
+pub(crate) async fn pending_feishu_scope_upgrade(
     state: &AppState,
     user_id: &str,
     session_id: &str,
@@ -570,7 +596,25 @@ async fn pending_feishu_scope_upgrade(
                 .collect::<BTreeSet<_>>()
         })
         .unwrap_or_default();
+    let scopes = expand_unique_feishu_profile_for_scopes(
+        scopes,
+        &state.config.feishu.authorization_profiles,
+    );
     Ok((!scopes.is_empty()).then_some(FeishuAuthorizationRequest::ExplicitScopes(scopes)))
+}
+
+fn expand_unique_feishu_profile_for_scopes(
+    mut scopes: BTreeSet<String>,
+    profiles: &[crate::config::FeishuAuthorizationProfile],
+) -> BTreeSet<String> {
+    let matching_profiles = profiles
+        .iter()
+        .filter(|profile| profile.scopes.iter().any(|scope| scopes.contains(scope)))
+        .collect::<Vec<_>>();
+    if matching_profiles.len() == 1 {
+        scopes.extend(matching_profiles[0].scopes.iter().cloned());
+    }
+    scopes
 }
 
 fn remember_pending_feishu_authorization(
@@ -586,12 +630,14 @@ fn remember_pending_feishu_authorization(
     };
     match authorization {
         FeishuAuthorizationRequest::ExplicitScopes(scopes) => {
+            pending.remove("use_recommend");
             pending.insert(
                 "required_scopes".to_string(),
                 json!(scopes.iter().collect::<Vec<_>>()),
             );
         }
         FeishuAuthorizationRequest::Recommended => {
+            pending.remove("required_scopes");
             pending.insert("use_recommend".to_string(), json!(true));
         }
     }
@@ -640,6 +686,25 @@ async fn continue_feishu_auth(
     user_input: &str,
     resume_after_auth: bool,
 ) -> Result<Option<ConnectorAuthDecision>, ApiError> {
+    if pending_stage(pending, "pending") == "authorized"
+        && connector_is_connected(state, user_id, "feishu").await?
+    {
+        let event = connector_auth_event(
+            "feishu",
+            "connector_auth_updated",
+            "authorized",
+            "飞书授权已完成。",
+            pending.get("action").cloned(),
+        );
+        return Ok(Some(ConnectorAuthDecision {
+            event,
+            resume_user_input: connector_resume_user_input(
+                "feishu",
+                pending_resume_user_input(pending).unwrap_or_default(),
+                resume_after_auth && pending_auth_source(pending) != "connectors_page",
+            ),
+        }));
+    }
     if pending
         .get("device_code_finalized")
         .and_then(Value::as_bool)
@@ -663,7 +728,7 @@ async fn continue_feishu_auth(
             pending_resume_user_input(pending).unwrap_or_else(|| user_input.to_string());
         let authorization = feishu_authorization_from_pending_or_task(
             pending,
-            classify_feishu_authorization_for_task(state, user_id, session, &resume_user_input)
+            classify_feishu_authorization_for_resume(state, user_id, session, &resume_user_input)
                 .await,
         );
         let mut action = connector_auth_start_action_for_feishu_authorization(
@@ -697,7 +762,7 @@ async fn continue_feishu_auth(
     let fresh_authorization = if device_code.is_empty() {
         Some(feishu_authorization_from_pending_or_task(
             pending,
-            classify_feishu_authorization_for_task(state, user_id, session, &resume_user_input)
+            classify_feishu_authorization_for_resume(state, user_id, session, &resume_user_input)
                 .await,
         ))
     } else {
@@ -718,11 +783,15 @@ async fn continue_feishu_auth(
         .0;
         action
     } else {
+        let required_scopes = pending_feishu_required_scopes(pending);
         connector_auth_complete_action(
             state,
             user_id,
             "feishu",
-            &json!({"device_code": device_code}),
+            &json!({
+                "device_code": device_code,
+                "required_scopes": required_scopes.iter().collect::<Vec<_>>()
+            }),
         )
         .await?
         .0
@@ -730,7 +799,7 @@ async fn continue_feishu_auth(
     if feishu_auth_action_needs_restart(&action) {
         let authorization = feishu_authorization_from_pending_or_task(
             pending,
-            classify_feishu_authorization_for_task(state, user_id, session, &resume_user_input)
+            classify_feishu_authorization_for_resume(state, user_id, session, &resume_user_input)
                 .await,
         );
         action = connector_auth_start_action_for_feishu_authorization(
@@ -760,6 +829,16 @@ async fn continue_feishu_auth(
     Ok(Some(decision))
 }
 
+async fn classify_feishu_authorization_for_resume(
+    state: &AppState,
+    user_id: &str,
+    session: &SessionRecord,
+    resume_user_input: &str,
+) -> FeishuAuthorizationRequest {
+    let authorization_context = feishu_authorization_context(session, resume_user_input);
+    classify_feishu_authorization_for_task(state, user_id, session, &authorization_context).await
+}
+
 fn feishu_auth_action_needs_restart(action: &Value) -> bool {
     action.get("stage").and_then(Value::as_str) == Some("auth_failed")
         && action
@@ -786,12 +865,60 @@ fn feishu_authorization_from_pending_or_task(
         })
         .unwrap_or_default();
     if !scopes.is_empty() {
-        return FeishuAuthorizationRequest::ExplicitScopes(scopes);
+        return merge_feishu_authorization_requests(
+            FeishuAuthorizationRequest::ExplicitScopes(scopes),
+            classified_authorization,
+        );
     }
     if pending.get("use_recommend").and_then(Value::as_bool) == Some(true) {
-        return FeishuAuthorizationRequest::Recommended;
+        return merge_feishu_authorization_requests(
+            FeishuAuthorizationRequest::Recommended,
+            classified_authorization,
+        );
     }
     classified_authorization
+}
+
+fn merge_feishu_authorization_requests(
+    saved_authorization: FeishuAuthorizationRequest,
+    classified_authorization: FeishuAuthorizationRequest,
+) -> FeishuAuthorizationRequest {
+    match (saved_authorization, classified_authorization) {
+        (
+            FeishuAuthorizationRequest::ExplicitScopes(mut saved_scopes),
+            FeishuAuthorizationRequest::ExplicitScopes(classified_scopes),
+        ) => {
+            saved_scopes.extend(classified_scopes);
+            FeishuAuthorizationRequest::ExplicitScopes(saved_scopes)
+        }
+        (
+            FeishuAuthorizationRequest::ExplicitScopes(saved_scopes),
+            FeishuAuthorizationRequest::Recommended,
+        ) => FeishuAuthorizationRequest::ExplicitScopes(saved_scopes),
+        (
+            FeishuAuthorizationRequest::Recommended,
+            FeishuAuthorizationRequest::ExplicitScopes(classified_scopes),
+        ) => FeishuAuthorizationRequest::ExplicitScopes(classified_scopes),
+        (FeishuAuthorizationRequest::Recommended, FeishuAuthorizationRequest::Recommended) => {
+            FeishuAuthorizationRequest::Recommended
+        }
+    }
+}
+
+fn pending_feishu_required_scopes(pending: &Value) -> BTreeSet<String> {
+    pending
+        .get("required_scopes")
+        .and_then(Value::as_array)
+        .map(|scopes| {
+            scopes
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::trim)
+                .filter(|scope| is_valid_feishu_scope(scope))
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn is_valid_feishu_scope(scope: &str) -> bool {
@@ -1125,7 +1252,7 @@ pub(crate) fn connector_auth_message(connector: &str, action: &Value) -> String 
         .get("stage")
         .and_then(Value::as_str)
         .unwrap_or("pending");
-    if matches!(stage, "awaiting_task" | "invalid_request") {
+    if matches!(stage, "awaiting_task" | "invalid_request" | "auth_failed") {
         if let Some(detail) = action
             .get("detail")
             .and_then(Value::as_str)
@@ -1295,11 +1422,12 @@ mod tests {
 
     use super::{
         connector_auth_message, connector_auth_status, decision_from_action,
-        feishu_auth_action_needs_restart, feishu_authorization_context,
-        feishu_authorization_for_profiles, feishu_task_classification_output_schema,
+        expand_unique_feishu_profile_for_scopes, feishu_auth_action_needs_restart,
+        feishu_authorization_context, feishu_authorization_for_profiles,
+        feishu_authorization_from_pending_or_task, feishu_task_classification_output_schema,
         feishu_task_classification_prompt, model_connector_auth_request_might_be_start,
         parse_feishu_task_classification, parse_model_connector_auth_request,
-        preserve_pending_feishu_auth_context,
+        pending_feishu_required_scopes, preserve_pending_feishu_auth_context,
     };
     use crate::api::connectors::FeishuAuthorizationRequest;
     use crate::config::{FeishuAuthorizationProfile, FeishuConfig};
@@ -1392,8 +1520,8 @@ mod tests {
     #[test]
     fn parses_internal_model_classification_without_keyword_matching() {
         assert_eq!(
-            parse_feishu_task_classification("```json\n{\"profiles\":[\"im\",\"docs_base\"]}\n```"),
-            vec!["im".to_string(), "docs_base".to_string()]
+            parse_feishu_task_classification("```json\n{\"profiles\":[\"im\",\"docs\"]}\n```"),
+            vec!["im".to_string(), "docs".to_string()]
         );
         assert_eq!(
             parse_feishu_task_classification("connect Feishu first"),
@@ -1406,6 +1534,7 @@ mod tests {
             .collect::<Vec<_>>();
         let prompt = feishu_task_classification_prompt("Send a message to Hu Pan", &ids);
         assert!(prompt.contains("untrusted data"));
+        assert!(prompt.contains("reauthorize, or retry message follows an unresolved concrete"));
         let schema = feishu_task_classification_output_schema(&ids);
         assert_eq!(
             schema.pointer("/properties/profiles/items/enum"),
@@ -1432,6 +1561,30 @@ mod tests {
         assert!(context.contains("发送给孙庆"));
         assert!(context.contains("确认将以上内容发送给飞书联系人"));
         assert!(context.ends_with("user (current turn): OK"));
+    }
+
+    #[test]
+    fn feishu_authorization_context_ignores_repeated_auth_chatter() {
+        let mut session = test_session_record();
+        session.messages = vec![
+            json!({"role": "user", "content": "通过飞书新建一个任务，任务内容是 APP 开发"}),
+            json!({"role": "assistant", "content": "确认创建这个飞书任务吗？"}),
+            json!({"role": "user", "content": "OK"}),
+            json!({"role": "assistant", "content": "需要完成飞书授权后继续执行。"}),
+            json!({"role": "user", "content": "重新授权飞书"}),
+            json!({"role": "assistant", "content": "需要完成飞书授权后继续执行。"}),
+            json!({"role": "user", "content": "I have authorized"}),
+            json!({"role": "assistant", "content": "飞书授权已完成。"}),
+            json!({"role": "user", "content": "重新授权飞书"}),
+            json!({"role": "assistant", "content": "需要完成飞书授权后继续执行。"}),
+        ];
+
+        let context = feishu_authorization_context(&session, "重新授权飞书");
+
+        assert!(context.contains("通过飞书新建一个任务"));
+        assert!(context.contains("确认创建这个飞书任务"));
+        assert!(!context.contains("需要完成飞书授权后继续执行"));
+        assert!(context.ends_with("user (current turn): 重新授权飞书"));
     }
 
     #[test]
@@ -1476,6 +1629,99 @@ mod tests {
             "stage": "auth_failed",
             "data": {}
         })));
+    }
+
+    #[test]
+    fn pending_feishu_scopes_are_forwarded_only_when_well_formed() {
+        assert_eq!(
+            pending_feishu_required_scopes(&json!({
+                "required_scopes": ["mail:user_mailbox.message:send", "bad scope", 42]
+            })),
+            ["mail:user_mailbox.message:send".to_string()]
+                .into_iter()
+                .collect()
+        );
+    }
+
+    #[test]
+    fn scope_upgrade_merges_runtime_scope_with_classified_workflow() {
+        let authorization = feishu_authorization_from_pending_or_task(
+            &json!({
+                "required_scopes": ["contact:user.basic_profile:readonly"]
+            }),
+            FeishuAuthorizationRequest::ExplicitScopes(
+                [
+                    "contact:user:search".to_string(),
+                    "task:task:write".to_string(),
+                    "task:tasklist:write".to_string(),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+        );
+
+        assert_eq!(
+            authorization,
+            FeishuAuthorizationRequest::ExplicitScopes(
+                [
+                    "contact:user.basic_profile:readonly".to_string(),
+                    "contact:user:search".to_string(),
+                    "task:task:write".to_string(),
+                    "task:tasklist:write".to_string(),
+                ]
+                .into_iter()
+                .collect(),
+            )
+        );
+    }
+
+    #[test]
+    fn scope_upgrade_expands_a_unique_matching_workflow_profile() {
+        let profiles = FeishuConfig::default().authorization_profiles;
+
+        assert_eq!(
+            expand_unique_feishu_profile_for_scopes(
+                ["contact:user.basic_profile:readonly".to_string()]
+                    .into_iter()
+                    .collect(),
+                &profiles,
+            ),
+            [
+                "contact:user.basic_profile:readonly".to_string(),
+                "contact:user:search".to_string(),
+                "task:task:write".to_string(),
+                "task:tasklist:write".to_string(),
+            ]
+            .into_iter()
+            .collect()
+        );
+    }
+
+    #[test]
+    fn classified_workflow_recovers_from_stale_recommended_authorization() {
+        let authorization = feishu_authorization_from_pending_or_task(
+            &json!({"use_recommend": true}),
+            FeishuAuthorizationRequest::ExplicitScopes(
+                [
+                    "contact:user.basic_profile:readonly".to_string(),
+                    "task:task:write".to_string(),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+        );
+
+        assert_eq!(
+            authorization,
+            FeishuAuthorizationRequest::ExplicitScopes(
+                [
+                    "contact:user.basic_profile:readonly".to_string(),
+                    "task:task:write".to_string(),
+                ]
+                .into_iter()
+                .collect(),
+            )
+        );
     }
 
     #[test]

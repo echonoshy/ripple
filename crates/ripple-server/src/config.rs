@@ -908,6 +908,7 @@ fn default_feishu_authorization_profiles() -> Vec<FeishuAuthorizationProfile> {
                 "contact:user:search",
                 "im:message",
                 "im:message.send_as_user",
+                "im:message:readonly",
                 "im:chat:read",
             ],
         ),
@@ -915,8 +916,11 @@ fn default_feishu_authorization_profiles() -> Vec<FeishuAuthorizationProfile> {
             "task",
             vec![
                 "contact:user.basic_profile:readonly",
+                "contact:user.base:readonly",
                 "contact:user:search",
+                "task:task:read",
                 "task:task:write",
+                "task:tasklist:read",
                 "task:tasklist:write",
             ],
         ),
@@ -926,6 +930,7 @@ fn default_feishu_authorization_profiles() -> Vec<FeishuAuthorizationProfile> {
                 // lark-cli mail +send reads the current mailbox profile
                 // before it creates and sends the draft.
                 "mail:user_mailbox:readonly",
+                "mail:user_mailbox.message:readonly",
                 "mail:user_mailbox.message:send",
                 "mail:user_mailbox.message:modify",
             ],
@@ -1182,6 +1187,7 @@ server:
                 "contact:user:search",
                 "im:message",
                 "im:message.send_as_user",
+                "im:message:readonly",
                 "im:chat:read",
             ]
         );
@@ -1193,8 +1199,11 @@ server:
                 .scopes,
             vec![
                 "contact:user.basic_profile:readonly",
+                "contact:user.base:readonly",
                 "contact:user:search",
+                "task:task:read",
                 "task:task:write",
+                "task:tasklist:read",
                 "task:tasklist:write",
             ]
         );
@@ -1206,6 +1215,7 @@ server:
                 .scopes,
             vec![
                 "mail:user_mailbox:readonly",
+                "mail:user_mailbox.message:readonly",
                 "mail:user_mailbox.message:send",
                 "mail:user_mailbox.message:modify",
             ]

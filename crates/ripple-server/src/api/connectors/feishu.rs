@@ -155,15 +155,23 @@ async fn user_scopes_from_status(
     user_id: &str,
     lark: &FsPath,
 ) -> BTreeSet<String> {
-    let Ok(output) = run_lark(state, user_id, lark, &["auth", "status"], None, 10).await else {
+    let args = lark_user_status_args();
+    let Ok(output) = run_lark(state, user_id, lark, &args, None, 10).await else {
         return BTreeSet::new();
     };
+    if !output.status.success() {
+        return BTreeSet::new();
+    }
     let text = String::from_utf8_lossy(&output.stdout).to_string()
         + "\n"
         + &String::from_utf8_lossy(&output.stderr);
     first_json_object(&text)
         .map(|status| user_granted_scopes(&status))
         .unwrap_or_default()
+}
+
+fn lark_user_status_args() -> [&'static str; 3] {
+    ["auth", "status", "--verify"]
 }
 
 fn user_granted_scopes(status: &Value) -> BTreeSet<String> {
@@ -521,19 +529,14 @@ async fn auth_start_for_request(
         )));
     }
 
-    let (connected, _detail, metadata) = cli_login_status(state, user_id).await;
-    let granted_scopes = if connected {
-        if let Some(lark) = lark_binary(state) {
-            user_scopes_from_status(state, user_id, &lark).await
-        } else {
-            BTreeSet::new()
-        }
+    let (_connected, _detail, metadata) = cli_login_status(state, user_id).await;
+    let granted_scopes = if let Some(lark) = lark_binary(state) {
+        user_scopes_from_status(state, user_id, &lark).await
     } else {
         BTreeSet::new()
     };
     if let Some(requested_scopes) = requested_scopes {
-        let missing_scopes = missing_required_scopes(requested_scopes, &granted_scopes);
-        if connected && missing_scopes.is_empty() && !force_new_user_auth {
+        if can_reuse_user_authorization(requested_scopes, &granted_scopes, force_new_user_auth) {
             return Ok(Json(action_response(
                 "feishu",
                 true,
@@ -742,9 +745,31 @@ fn missing_required_scopes(
     granted_scopes: &BTreeSet<String>,
 ) -> BTreeSet<String> {
     required_scopes
-        .difference(granted_scopes)
+        .iter()
+        .filter(|scope| !feishu_scope_is_granted(scope, granted_scopes))
         .cloned()
         .collect()
+}
+
+fn feishu_scope_is_granted(scope: &str, granted_scopes: &BTreeSet<String>) -> bool {
+    granted_scopes.contains(scope)
+        || match scope {
+            "contact:user.basic_profile:readonly" => {
+                granted_scopes.contains("contact:user.base:readonly")
+            }
+            "contact:user.base:readonly" => {
+                granted_scopes.contains("contact:user.basic_profile:readonly")
+            }
+            _ => false,
+        }
+}
+
+fn can_reuse_user_authorization(
+    requested_scopes: &BTreeSet<String>,
+    granted_scopes: &BTreeSet<String>,
+    force_new_user_auth: bool,
+) -> bool {
+    !force_new_user_auth && missing_required_scopes(requested_scopes, granted_scopes).is_empty()
 }
 
 pub(super) async fn disconnect(state: &AppState, user_id: &str) -> Result<Json<Value>, ApiError> {
@@ -1739,6 +1764,65 @@ mod tests {
         assert_eq!(scopes.len(), 2);
         assert!(scopes.contains("drive:file:upload"));
         assert!(scopes.contains("mail:user_mailbox.message:send"));
+    }
+
+    #[test]
+    fn authorization_scope_check_verifies_the_token_with_feishu() {
+        assert_eq!(
+            lark_user_status_args().as_slice(),
+            ["auth", "status", "--verify"]
+        );
+    }
+
+    #[test]
+    fn authorization_reuses_verified_token_only_when_all_scopes_are_granted() {
+        let requested = ["contact:user:search", "mail:user_mailbox.message:send"]
+            .into_iter()
+            .map(str::to_string)
+            .collect();
+        let granted = [
+            "contact:user:search",
+            "mail:user_mailbox.message:send",
+            "mail:user_mailbox.message:modify",
+        ]
+        .into_iter()
+        .map(str::to_string)
+        .collect();
+
+        assert!(can_reuse_user_authorization(&requested, &granted, false));
+    }
+
+    #[test]
+    fn authorization_starts_again_for_missing_scopes_or_explicit_reauth() {
+        let requested = ["mail:user_mailbox.message:send".to_string()]
+            .into_iter()
+            .collect();
+        let missing = BTreeSet::new();
+        let granted = ["mail:user_mailbox.message:send".to_string()]
+            .into_iter()
+            .collect();
+
+        assert!(!can_reuse_user_authorization(&requested, &missing, false));
+        assert!(!can_reuse_user_authorization(&requested, &granted, true));
+    }
+
+    #[test]
+    fn contact_base_scope_aliases_do_not_force_reauthorization() {
+        let requested = [
+            "contact:user.basic_profile:readonly",
+            "contact:user.base:readonly",
+            "task:task:write",
+        ]
+        .into_iter()
+        .map(str::to_string)
+        .collect();
+        let granted = ["contact:user.base:readonly", "task:task:write"]
+            .into_iter()
+            .map(str::to_string)
+            .collect();
+
+        assert!(missing_required_scopes(&requested, &granted).is_empty());
+        assert!(can_reuse_user_authorization(&requested, &granted, false));
     }
 
     #[tokio::test]

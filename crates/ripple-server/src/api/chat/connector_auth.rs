@@ -1687,9 +1687,12 @@ mod tests {
                 &profiles,
             ),
             [
+                "contact:user.base:readonly".to_string(),
                 "contact:user.basic_profile:readonly".to_string(),
                 "contact:user:search".to_string(),
+                "task:task:read".to_string(),
                 "task:task:write".to_string(),
+                "task:tasklist:read".to_string(),
                 "task:tasklist:write".to_string(),
             ]
             .into_iter()

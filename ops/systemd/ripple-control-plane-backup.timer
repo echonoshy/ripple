@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Ripple control-plane backup every 15 minutes
+
+[Timer]
+OnCalendar=*-*-* *:0/15:00
+AccuracySec=1min
+Persistent=true
+Unit=ripple-control-plane-backup.service
+
+[Install]
+WantedBy=timers.target

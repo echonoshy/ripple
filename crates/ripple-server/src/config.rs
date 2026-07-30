@@ -152,6 +152,12 @@ pub struct CodexConfig {
     pub codex_executable: String,
     pub app_server_args: Vec<String>,
     pub codex_home: Option<PathBuf>,
+    /// Optional local root for Codex app-server's per-user SQLite state.
+    ///
+    /// This deliberately stays separate from `codex_home`: service auth and
+    /// other low-frequency Codex files may live elsewhere, while WAL-backed
+    /// databases need a local filesystem rather than NFS.
+    pub sqlite_root: Option<PathBuf>,
     pub approval_policy: JsonValue,
     pub sandbox_type: String,
     pub network_access: bool,
@@ -169,9 +175,27 @@ pub struct SkillsConfig {
     pub shared_dirs: Vec<String>,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct FeishuConfig {
     pub app: Option<FeishuAppConfig>,
+    /// Server-owned, broad permission bundles. The model selects a bundle for
+    /// a concrete task; it never supplies individual OAuth scopes.
+    pub authorization_profiles: Vec<FeishuAuthorizationProfile>,
+}
+
+impl Default for FeishuConfig {
+    fn default() -> Self {
+        Self {
+            app: None,
+            authorization_profiles: default_feishu_authorization_profiles(),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct FeishuAuthorizationProfile {
+    pub id: String,
+    pub scopes: Vec<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -338,6 +362,7 @@ struct RawCodex {
     codex_executable: Option<String>,
     app_server_args: Option<Vec<String>>,
     codex_home: Option<String>,
+    sqlite_root: Option<String>,
     approval_policy: Option<serde_yaml::Value>,
     sandbox_type: Option<String>,
     network_access: Option<bool>,
@@ -360,6 +385,16 @@ struct RawFeishu {
     app_id: Option<String>,
     app_secret: Option<String>,
     brand: Option<String>,
+    authorization_profiles: Option<Vec<RawFeishuAuthorizationProfile>>,
+    // Backward-compatible config input only. `keywords` is deliberately
+    // ignored: task classification is performed by the internal model.
+    authorization_rules: Option<Vec<RawFeishuAuthorizationProfile>>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct RawFeishuAuthorizationProfile {
+    id: Option<String>,
+    scopes: Option<Vec<String>>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -584,6 +619,8 @@ impl AppConfig {
                         .map(|value| resolve_path(&repo_root, &value))
                         .unwrap_or_else(|| repo_root.join(".ripple/codex-service-home")),
                 ),
+                sqlite_root: clean_config_string(codex_raw.sqlite_root.as_deref())
+                    .map(|value| resolve_path(&repo_root, &value)),
                 approval_policy: parse_codex_approval_policy(codex_raw.approval_policy)?,
                 sandbox_type: codex_raw
                     .sandbox_type
@@ -673,6 +710,17 @@ impl AppConfig {
             .codex_home
             .clone()
             .unwrap_or_else(|| self.repo_root.join(".ripple/codex-service-home"))
+    }
+
+    pub fn codex_sqlite_root_path(&self) -> PathBuf {
+        self.codex.sqlite_root.clone().unwrap_or_else(|| {
+            let codex_home = self.codex_home_path();
+            codex_home
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or(codex_home)
+                .join("codex-runtime")
+        })
     }
 
     pub fn tracing_filter(&self) -> String {
@@ -821,7 +869,87 @@ fn parse_feishu_config(raw: Option<RawFeishu>) -> FeishuConfig {
                 app_secret,
                 brand,
             }),
+        authorization_profiles: parse_feishu_authorization_profiles(
+            raw.authorization_profiles.or(raw.authorization_rules),
+        ),
     }
+}
+
+fn parse_feishu_authorization_profiles(
+    raw: Option<Vec<RawFeishuAuthorizationProfile>>,
+) -> Vec<FeishuAuthorizationProfile> {
+    let profiles = raw.unwrap_or_default();
+    let parsed = profiles
+        .into_iter()
+        .filter_map(|profile| {
+            let id = clean_config_string(profile.id.as_deref())?;
+            let scopes = profile
+                .scopes
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|scope| clean_config_string(Some(&scope)))
+                .filter(|scope| scope.contains(':'))
+                .collect::<Vec<_>>();
+            (!scopes.is_empty()).then_some(FeishuAuthorizationProfile { id, scopes })
+        })
+        .collect::<Vec<_>>();
+    if parsed.is_empty() {
+        default_feishu_authorization_profiles()
+    } else {
+        parsed
+    }
+}
+
+fn default_feishu_authorization_profiles() -> Vec<FeishuAuthorizationProfile> {
+    [
+        (
+            "im",
+            vec![
+                "contact:user:search",
+                "im:message",
+                "im:message.send_as_user",
+                "im:message:readonly",
+                "im:chat:read",
+            ],
+        ),
+        (
+            "task",
+            vec![
+                "contact:user.basic_profile:readonly",
+                "contact:user.base:readonly",
+                "contact:user:search",
+                "task:task:read",
+                "task:task:write",
+                "task:tasklist:read",
+                "task:tasklist:write",
+            ],
+        ),
+        (
+            "mail",
+            vec![
+                // lark-cli mail +send reads the current mailbox profile
+                // before it creates and sends the draft.
+                "mail:user_mailbox:readonly",
+                "mail:user_mailbox.message:readonly",
+                "mail:user_mailbox.message:send",
+                "mail:user_mailbox.message:modify",
+            ],
+        ),
+        (
+            "docs",
+            vec![
+                "docx:document:create",
+                "docx:document:readonly",
+                "docx:document:write_only",
+            ],
+        ),
+    ]
+    .into_iter()
+    .map(|(id, scopes)| FeishuAuthorizationProfile {
+        id: id.to_string(),
+        scopes: scopes.into_iter().map(str::to_string).collect(),
+    })
+    .collect()
 }
 
 fn parse_gogcli_oauth_client(raw: Option<RawGogcliOAuthClient>) -> Option<GogcliOAuthClient> {
@@ -928,7 +1056,7 @@ fn find_on_path(binary: &str) -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::{default_codex_approval_policy, AppConfig};
+    use super::{default_codex_approval_policy, AppConfig, FeishuConfig};
     use serde_json::json;
     use std::sync::{Mutex, OnceLock};
 
@@ -1018,6 +1146,92 @@ mod tests {
         for connector in ["google_workspace", "notion", "feishu", "bilibili"] {
             assert!(config.connector_enabled(connector), "{connector}");
         }
+    }
+
+    #[test]
+    fn parses_feishu_authorization_profiles_without_keyword_rules() {
+        let config = with_temp_config(
+            "feishu-authorization-profiles",
+            r#"
+server:
+  api_keys: [test-key]
+  feishu:
+    authorization_profiles:
+      - id: im
+        scopes: [im:message, contact:user:search]
+"#,
+            AppConfig::load,
+        )
+        .expect("load config");
+
+        assert_eq!(config.feishu.authorization_profiles.len(), 1);
+        assert_eq!(config.feishu.authorization_profiles[0].id, "im");
+        assert_eq!(
+            config.feishu.authorization_profiles[0].scopes,
+            vec!["im:message", "contact:user:search"]
+        );
+    }
+
+    #[test]
+    fn default_feishu_profiles_cover_each_core_workflow_independently() {
+        let profiles = FeishuConfig::default().authorization_profiles;
+
+        assert_eq!(profiles.len(), 4);
+        assert_eq!(
+            profiles
+                .iter()
+                .find(|profile| profile.id == "im")
+                .expect("im profile")
+                .scopes,
+            vec![
+                "contact:user:search",
+                "im:message",
+                "im:message.send_as_user",
+                "im:message:readonly",
+                "im:chat:read",
+            ]
+        );
+        assert_eq!(
+            profiles
+                .iter()
+                .find(|profile| profile.id == "task")
+                .expect("task profile")
+                .scopes,
+            vec![
+                "contact:user.basic_profile:readonly",
+                "contact:user.base:readonly",
+                "contact:user:search",
+                "task:task:read",
+                "task:task:write",
+                "task:tasklist:read",
+                "task:tasklist:write",
+            ]
+        );
+        assert_eq!(
+            profiles
+                .iter()
+                .find(|profile| profile.id == "mail")
+                .expect("mail profile")
+                .scopes,
+            vec![
+                "mail:user_mailbox:readonly",
+                "mail:user_mailbox.message:readonly",
+                "mail:user_mailbox.message:send",
+                "mail:user_mailbox.message:modify",
+            ]
+        );
+        assert_eq!(
+            profiles
+                .iter()
+                .find(|profile| profile.id == "docs")
+                .expect("docs profile")
+                .scopes,
+            vec![
+                "docx:document:create",
+                "docx:document:readonly",
+                "docx:document:write_only",
+            ]
+        );
     }
 
     #[test]
@@ -1363,6 +1577,27 @@ external_agents:
 
         assert_eq!(config.codex.max_workers_per_pool, 50);
         assert_eq!(config.codex.max_total_pool_workers, 256);
+    }
+
+    #[test]
+    fn parses_codex_sqlite_root() {
+        let config = with_temp_config(
+            "codex-sqlite-root",
+            r#"
+server:
+  api_keys: ["test-key"]
+external_agents:
+  codex:
+    sqlite_root: "local/codex-sqlite"
+"#,
+            AppConfig::load,
+        )
+        .expect("load config");
+
+        assert_eq!(
+            config.codex_sqlite_root_path(),
+            config.repo_root.join("local/codex-sqlite")
+        );
     }
 
     #[test]

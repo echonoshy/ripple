@@ -20,7 +20,7 @@ mod protocol;
 mod runtime_env;
 mod types;
 
-use crate::api::connectors::invoke_feishu_for_agent;
+use crate::api::connectors::{invoke_feishu_for_agent, missing_user_scopes_from_cli_result};
 use crate::api::tasks::persist_task_update;
 use crate::codex::approvals::{approval_response_for_action, CodexApproval};
 use crate::codex::permissions::{
@@ -1185,7 +1185,41 @@ impl CodexAppServerProvider {
                     }
                     let sandboxes = SandboxManager::new(self.config.clone());
                     match invoke_feishu_for_agent(&self.config, &sandboxes, user_id, &args).await {
-                        Ok(output) => {
+                        Ok(mut output) => {
+                            let missing_scopes = missing_user_scopes_from_cli_result(&output);
+                            if !missing_scopes.is_empty() {
+                                if let Some(session_id) = request.session_id.as_deref() {
+                                    if let Err(error) = persist_feishu_scope_upgrade(
+                                        &self.storage,
+                                        user_id,
+                                        session_id,
+                                        &missing_scopes,
+                                    )
+                                    .await
+                                    {
+                                        output = json!({
+                                            "ok": false,
+                                            "code": "connector_auth_required",
+                                            "connector": "feishu",
+                                            "message": format!("Feishu needs additional authorization, but Ripple could not save the authorization request: {error:#}")
+                                        });
+                                    } else {
+                                        output = json!({
+                                            "ok": false,
+                                            "code": "connector_auth_required",
+                                            "connector": "feishu",
+                                            "message": "This Feishu operation needs additional authorization. Request standard Feishu reauthorization for the same task."
+                                        });
+                                    }
+                                } else {
+                                    output = json!({
+                                        "ok": false,
+                                        "code": "connector_auth_required",
+                                        "connector": "feishu",
+                                        "message": "This Feishu operation needs additional authorization. Continue it in a Ripple chat session and request Feishu reauthorization."
+                                    });
+                                }
+                            }
                             let success =
                                 output.get("ok").and_then(Value::as_bool).unwrap_or(false);
                             (
@@ -2236,7 +2270,7 @@ fn add_task_dynamic_tools(params: &mut Value, request: &AgentRunnerRequest) {
             tools.push(json!({
                 "namespace": "codex_app",
                 "name": "send_prepared_feishu_mail",
-                "description": "Send exactly one already-previewed Feishu email. Only call after task_execution_confirmed succeeds and only with the prepared_mail_id returned by prepare_feishu_mail. Do not alter recipients, subject, or body.",
+                "description": "Send exactly one already-previewed Feishu email. Only call after task_execution_confirmed succeeds and only with the prepared_mail_id returned by prepare_feishu_mail. Do not alter recipients, subject, or body. If it returns code=connector_auth_required, stop and request standard Ripple Feishu authorization; after authorization, resume the same prepared_mail_id unchanged.",
                 "inputSchema": send_prepared_feishu_mail_input_schema(),
                 "deferLoading": false
             }));
@@ -2391,6 +2425,32 @@ fn send_prepared_feishu_mail_input_schema() -> Value {
         "required": ["prepared_mail_id"],
         "additionalProperties": false
     })
+}
+
+async fn persist_feishu_scope_upgrade(
+    storage: &Storage,
+    user_id: &str,
+    session_id: &str,
+    scopes: &std::collections::BTreeSet<String>,
+) -> anyhow::Result<()> {
+    let Some(mut session) = storage.load_session(user_id, session_id).await? else {
+        anyhow::bail!("Ripple session not found");
+    };
+    let mut pending = session
+        .pending_connector_auth
+        .take()
+        .and_then(|value| value.as_object().cloned())
+        .unwrap_or_default();
+    pending.insert("connector".to_string(), json!("feishu"));
+    pending.insert("stage".to_string(), json!("scope_upgrade"));
+    pending.insert(
+        "required_scopes".to_string(),
+        json!(scopes.iter().collect::<Vec<_>>()),
+    );
+    pending.remove("use_recommend");
+    session.pending_connector_auth = Some(Value::Object(pending));
+    storage.save_session(&session).await?;
+    Ok(())
 }
 
 async fn persist_session_wait_user(
@@ -2553,6 +2613,32 @@ async fn send_prepared_feishu_mail(
     let args = prepared_feishu_mail_args(&record)?;
     match invoke_feishu_for_agent(config, sandboxes, user_id, &args).await {
         Ok(output) => {
+            let missing_scopes = missing_user_scopes_from_cli_result(&output);
+            if !missing_scopes.is_empty() {
+                if let Err(error) =
+                    persist_feishu_scope_upgrade(storage, user_id, session_id, &missing_scopes)
+                        .await
+                {
+                    record["updated_at"] = json!(crate::auth::now_iso());
+                    record["status"] = json!("failed");
+                    record["delivery"] = mail_delivery_from_output(&output);
+                    storage.save_prepared_feishu_mail(&record).await?;
+                    return Ok(json!({
+                        "ok": false,
+                        "code": "feishu_mail_scope_upgrade_failed",
+                        "prepared_mail_id": prepared_mail_id,
+                        "status": "failed",
+                        "message": format!("The prepared email was not sent, and Ripple could not save the required Feishu authorization request: {error:#}")
+                    }));
+                }
+                return reset_prepared_feishu_mail_for_scope_upgrade(
+                    storage,
+                    &mut record,
+                    prepared_mail_id,
+                    &missing_scopes,
+                )
+                .await;
+            }
             let success = output.get("ok").and_then(Value::as_bool).unwrap_or(false);
             record["updated_at"] = json!(crate::auth::now_iso());
             record["status"] = json!(if success { "sent" } else { "failed" });
@@ -2580,6 +2666,42 @@ async fn send_prepared_feishu_mail(
             }))
         }
     }
+}
+
+async fn reset_prepared_feishu_mail_for_scope_upgrade(
+    storage: &Storage,
+    record: &mut Value,
+    prepared_mail_id: &str,
+    missing_scopes: &std::collections::BTreeSet<String>,
+) -> anyhow::Result<Value> {
+    let response =
+        prepared_feishu_mail_scope_upgrade_response(record, prepared_mail_id, missing_scopes);
+    storage.save_prepared_feishu_mail(record).await?;
+    Ok(response)
+}
+
+fn prepared_feishu_mail_scope_upgrade_response(
+    record: &mut Value,
+    prepared_mail_id: &str,
+    missing_scopes: &std::collections::BTreeSet<String>,
+) -> Value {
+    record["updated_at"] = json!(crate::auth::now_iso());
+    // A recognized OAuth scope denial is returned before Feishu can deliver
+    // the message, so this exact user-confirmed payload is safe to retry once
+    // authorization resumes.
+    record["status"] = json!("prepared");
+    record["delivery"] = json!({
+        "authorization_required": true,
+        "required_scopes": missing_scopes.iter().collect::<Vec<_>>()
+    });
+    json!({
+        "ok": false,
+        "code": "connector_auth_required",
+        "connector": "feishu",
+        "prepared_mail_id": prepared_mail_id,
+        "status": "prepared",
+        "message": "This prepared email was not sent because Feishu needs additional authorization. Request standard Feishu reauthorization for the same task; after authorization, resume the confirmed send with this prepared_mail_id."
+    })
 }
 
 fn task_execution_is_confirmed(session: &SessionRecord) -> bool {
@@ -3202,6 +3324,36 @@ mod tests {
     }
 
     #[test]
+    fn prepared_mail_scope_denial_returns_to_prepared_for_authorization_resume() {
+        let mut record = json!({"status": "sending"});
+        let missing_scopes = ["mail:user_mailbox:readonly".to_string()]
+            .into_iter()
+            .collect();
+
+        let response =
+            prepared_feishu_mail_scope_upgrade_response(&mut record, "mail-123", &missing_scopes);
+
+        assert_eq!(
+            record.get("status").and_then(Value::as_str),
+            Some("prepared")
+        );
+        assert_eq!(
+            record
+                .pointer("/delivery/required_scopes/0")
+                .and_then(Value::as_str),
+            Some("mail:user_mailbox:readonly")
+        );
+        assert_eq!(
+            response.get("code").and_then(Value::as_str),
+            Some("connector_auth_required")
+        );
+        assert_eq!(
+            response.get("prepared_mail_id").and_then(Value::as_str),
+            Some("mail-123")
+        );
+    }
+
+    #[test]
     fn codex_home_for_user_uses_service_runtime_root() {
         let config = test_config();
 
@@ -3234,6 +3386,25 @@ mod tests {
                 .join("codex-runtime/users/alice/sqlite")
         );
         assert!(!sqlite_home.starts_with(&config.sandbox.sandboxes_root));
+    }
+
+    #[test]
+    fn codex_sqlite_home_for_user_uses_configured_local_root() {
+        let mut config = test_config();
+        config.codex.sqlite_root = Some(config.repo_root.join("local-codex-sqlite"));
+
+        let sqlite_home = codex_sqlite_home_for_user(&config, "alice").expect("sqlite home");
+
+        assert_eq!(
+            sqlite_home,
+            config
+                .repo_root
+                .join("local-codex-sqlite/users/alice/sqlite")
+        );
+        assert_ne!(
+            sqlite_home,
+            codex_runtime_home_for_user(&config, "alice").unwrap()
+        );
     }
 
     #[test]
@@ -3455,6 +3626,7 @@ mod tests {
                     "stdio://".to_string(),
                 ],
                 codex_home: Some(root.join(".ripple/codex-service-home")),
+                sqlite_root: None,
                 approval_policy: serde_json::json!("never"),
                 sandbox_type: "workspace-write".to_string(),
                 network_access: true,

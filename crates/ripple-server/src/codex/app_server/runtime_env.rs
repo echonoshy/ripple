@@ -64,7 +64,12 @@ pub(super) fn codex_sqlite_home_for_user(
     config: &AppConfig,
     user_id: &str,
 ) -> anyhow::Result<PathBuf> {
-    Ok(codex_runtime_home_for_user(config, user_id)?.join("sqlite"))
+    validate_user_id(user_id).map_err(anyhow::Error::msg)?;
+    Ok(config
+        .codex_sqlite_root_path()
+        .join("users")
+        .join(user_id)
+        .join("sqlite"))
 }
 
 pub(super) fn node_runtime_paths(runtime_home: &Path) -> NodeRuntimePaths {

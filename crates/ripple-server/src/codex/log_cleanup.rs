@@ -221,13 +221,7 @@ fn collect_existing_legacy_codex_home_log_databases(
 }
 
 fn codex_runtime_users_root(config: &AppConfig) -> PathBuf {
-    let codex_home = config.codex_home_path();
-    codex_home
-        .parent()
-        .map(Path::to_path_buf)
-        .unwrap_or(codex_home)
-        .join("codex-runtime")
-        .join("users")
+    config.codex_sqlite_root_path().join("users")
 }
 
 fn sqlite_family_size_bytes(path: &Path) -> anyhow::Result<u64> {
@@ -501,6 +495,7 @@ INSERT INTO logs (
                     "stdio://".to_string(),
                 ],
                 codex_home: Some(root.join(".ripple/codex-service-home")),
+                sqlite_root: None,
                 approval_policy: serde_json::json!("never"),
                 sandbox_type: "workspace-write".to_string(),
                 network_access: true,

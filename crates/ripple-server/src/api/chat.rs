@@ -53,7 +53,8 @@ use connector_auth::{
     connector_auth_poll_should_emit_message, connector_auth_poll_should_persist_message,
     connector_auth_status, continue_pending_connector_auth, maybe_handle_connector_auth,
     model_connector_auth_request_might_be_start, parse_model_connector_auth_request,
-    persist_connector_auth_event, public_connector_auth_event, start_model_connector_auth_for_chat,
+    pending_feishu_scope_upgrade, persist_connector_auth_event, public_connector_auth_event,
+    start_model_connector_auth_for_chat, ModelConnectorAuthRequest,
 };
 use input::extract_control_action_from_messages;
 pub(crate) use input::{extract_caller_system_prompt, extract_user_input_and_items};
@@ -94,7 +95,7 @@ const TASK_SESSION_EXECUTION_INSTRUCTIONS: &str = r#"
 - Only when the current user message clearly confirms starting the current task, call `codex_app.task_execution_confirmed` exactly once before taking the first task action. Its required `content` is a concise user-visible progress update in the language of the task. Do not expose tool names, commands, paths, credentials, or other implementation details.
 - After that tool succeeds, execute the task normally and return a concise user-facing result.
 - During execution, call `codex_app.task_progress` before each substantive new phase or external operation. Its required `content` is a concise user-visible progress update in the language of the task. Do not generate progress by translating tool names or narrating internal implementation details.
-- For a Feishu email in a task session, call `codex_app.prepare_feishu_mail` before asking for confirmation. It converts Markdown into server-controlled HTML and returns the exact preview. Show that complete preview verbatim. After confirmation, call `codex_app.task_execution_confirmed`, then call `codex_app.send_prepared_feishu_mail` with the same `prepared_mail_id`; never use the generic Feishu CLI tool to send mail in a task session.
+- For a Feishu email in a task session, call `codex_app.prepare_feishu_mail` before asking for confirmation. It converts Markdown into server-controlled HTML and returns the exact preview. Show that complete preview verbatim. After confirmation, call `codex_app.task_execution_confirmed`, then call `codex_app.send_prepared_feishu_mail` with the same `prepared_mail_id`; never use the generic Feishu CLI tool to send mail in a task session. If sending returns `code="connector_auth_required"`, stop and make the standard Ripple connector-auth request for Feishu; after authorization, resume the same prepared mail without changing its recipients, subject, or body.
 "#;
 
 #[derive(Debug, Deserialize)]
@@ -1399,7 +1400,13 @@ fn task_control_event_response(
 }
 
 fn task_connector_required_action(event: &Value) -> Value {
-    json!({
+    if task_awaiting_admin_authorization(event) {
+        return json!({
+            "type": "awaiting_admin_authorization",
+            "connector": event.get("connector").cloned().unwrap_or(Value::Null)
+        });
+    }
+    let mut action = json!({
         "type": "connector_auth",
         "connector": event.get("connector").cloned().unwrap_or(Value::Null),
         "stage": event.get("stage").cloned().unwrap_or(Value::Null),
@@ -1408,7 +1415,18 @@ fn task_connector_required_action(event: &Value) -> Value {
             .or_else(|| event.pointer("/action/data/setup_url"))
             .cloned()
             .unwrap_or(Value::Null)
-    })
+    });
+    if let Some(expires_in_seconds) = event.pointer("/action/data/expires_in_seconds") {
+        action["expires_in_seconds"] = expires_in_seconds.clone();
+    }
+    action
+}
+
+fn task_awaiting_admin_authorization(event: &Value) -> bool {
+    event
+        .pointer("/action/data/required_action_type")
+        .and_then(Value::as_str)
+        == Some("awaiting_admin_authorization")
 }
 
 fn task_connector_auth_failed(event: &Value) -> bool {
@@ -1420,6 +1438,16 @@ fn task_connector_auth_failed(event: &Value) -> bool {
 
 fn task_connector_auth_status_data(task_id: &str, req_id: Option<&str>, event: &Value) -> Value {
     let message = event_message(event);
+    if task_awaiting_admin_authorization(event) {
+        return task_status_data(
+            task_id,
+            req_id,
+            "waiting_user",
+            json!(message),
+            Some(task_connector_required_action(event)),
+            None,
+        );
+    }
     if task_connector_auth_failed(event) {
         return task_status_data(
             task_id,
@@ -2124,7 +2152,18 @@ async fn maybe_persist_model_connector_auth_request(
     info: &AgentRunInfo,
     resume_after_auth: bool,
 ) -> Result<Option<Value>, ApiError> {
-    let Some(request) = parse_model_connector_auth_request(output_text) else {
+    let request = if let Some(request) = parse_model_connector_auth_request(output_text) {
+        request
+    } else if pending_feishu_scope_upgrade(state, user_id, &session.session_id)
+        .await?
+        .is_some()
+    {
+        ModelConnectorAuthRequest {
+            connector: "feishu".to_string(),
+            force_reauth: false,
+            source: Some("session_skill".to_string()),
+        }
+    } else {
         return Ok(None);
     };
     let decision = start_model_connector_auth_for_chat(
@@ -3924,7 +3963,8 @@ mod tests {
             "message": "需要完成飞书授权后继续执行。",
             "action": {
                 "data": {
-                    "oauth_url": "https://accounts.feishu.cn/device"
+                    "oauth_url": "https://accounts.feishu.cn/device",
+                    "expires_in_seconds": 600
                 }
             }
         });
@@ -3956,7 +3996,8 @@ mod tests {
                     "type": "connector_auth",
                     "connector": "feishu",
                     "stage": "awaiting_user_auth",
-                    "auth_url": "https://accounts.feishu.cn/device"
+                    "auth_url": "https://accounts.feishu.cn/device",
+                    "expires_in_seconds": 600
                 }
             })
         );
@@ -3983,6 +4024,71 @@ mod tests {
         assert!(pending_body.contains("\"status\":\"waiting_user\""));
         assert!(pending_body.contains("\"stage\":\"pending\""));
         assert!(pending_body.contains("https://accounts.feishu.cn/device"));
+    }
+
+    #[test]
+    fn task_connector_auth_callback_status_includes_setup_url_display_ttl() {
+        let event = json!({
+            "type": "connector_auth_required",
+            "connector": "feishu",
+            "stage": "awaiting_setup",
+            "message": "需要完成飞书授权后继续执行。",
+            "action": {
+                "data": {
+                    "setup_url": "https://open.feishu.cn/page/cli?user_code=abc",
+                    "expires_in_seconds": 300
+                }
+            }
+        });
+
+        assert_eq!(
+            task_connector_auth_status_data("task-001", Some("req-001"), &event),
+            json!({
+                "event": "task.status",
+                "task_id": "task-001",
+                "req_id": "req-001",
+                "status": "waiting_user",
+                "content": "需要完成飞书授权后继续执行。",
+                "required_action": {
+                    "type": "connector_auth",
+                    "connector": "feishu",
+                    "stage": "awaiting_setup",
+                    "auth_url": "https://open.feishu.cn/page/cli?user_code=abc",
+                    "expires_in_seconds": 300
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn task_awaiting_admin_authorization_uses_compact_required_action() {
+        let event = json!({
+            "type": "connector_auth_required",
+            "connector": "feishu",
+            "stage": "auth_failed",
+            "message": "飞书邮件发送权限尚未审批，请联系飞书管理员完成权限审批后重新发起任务。",
+            "action": {
+                "data": {
+                    "missing_scopes": ["mail:user_mailbox.message:send"],
+                    "required_action_type": "awaiting_admin_authorization"
+                }
+            }
+        });
+
+        assert_eq!(
+            task_connector_auth_status_data("task-001", Some("req-001"), &event),
+            json!({
+                "event": "task.status",
+                "task_id": "task-001",
+                "req_id": "req-001",
+                "status": "waiting_user",
+                "content": "飞书邮件发送权限尚未审批，请联系飞书管理员完成权限审批后重新发起任务。",
+                "required_action": {
+                    "type": "awaiting_admin_authorization",
+                    "connector": "feishu"
+                }
+            })
+        );
     }
 
     #[tokio::test]
@@ -4120,6 +4226,7 @@ mod tests {
                 codex_executable: "codex".to_string(),
                 app_server_args: Vec::new(),
                 codex_home: None,
+                sqlite_root: None,
                 approval_policy: serde_json::json!("never"),
                 sandbox_type: "workspace-write".to_string(),
                 network_access: true,

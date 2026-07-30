@@ -1,9 +1,13 @@
 use std::collections::{HashMap, HashSet};
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use serde::Serialize;
 use serde_json::Value;
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
 use tokio::sync::Mutex;
 use walkdir::WalkDir;
 
@@ -341,7 +345,9 @@ impl SandboxManager {
         if let Some(parent) = cfg.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        std::fs::write(&cfg, self.generate_nsjail_config(user_id)?)?;
+        let config_text = self.generate_nsjail_config(user_id)?;
+        crate::runtime_checks::ensure_nsjail_config_hardened(&config_text)?;
+        atomic_write_private_file(&cfg, config_text.as_bytes())?;
         Ok(cfg)
     }
 
@@ -352,8 +358,6 @@ impl SandboxManager {
         args: &[&str],
     ) -> anyhow::Result<Vec<String>> {
         let cfg = self.write_nsjail_config(user_id)?;
-        let cfg_text = std::fs::read_to_string(&cfg)?;
-        crate::runtime_checks::ensure_nsjail_config_hardened(&cfg_text)?;
         let mut argv = vec![
             self.config.sandbox.nsjail_path.clone(),
             "--config".to_string(),
@@ -853,6 +857,40 @@ fn read_json_string_field(path: &Path, field: &str) -> Option<String> {
         .map(str::to_string)
 }
 
+fn atomic_write_private_file(path: &Path, contents: &[u8]) -> std::io::Result<()> {
+    let parent = path.parent().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "atomic write target has no parent directory",
+        )
+    })?;
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "atomic write target has an invalid file name",
+            )
+        })?;
+    let temporary = parent.join(format!(".{file_name}.{}.tmp", uuid::Uuid::new_v4()));
+    let result = (|| {
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        options.mode(0o600);
+        let mut file = options.open(&temporary)?;
+        file.write_all(contents)?;
+        file.flush()?;
+        drop(file);
+        std::fs::rename(&temporary, path)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    result
+}
+
 #[cfg(unix)]
 fn create_auth_symlink(target: &Path, link: &Path) -> std::io::Result<()> {
     std::os::unix::fs::symlink(target, link)
@@ -870,6 +908,7 @@ mod tests {
         AppConfig, CliToolConfig, CodexConfig, FeishuConfig, GogcliOAuthConfig, SandboxConfig,
         SkillsConfig,
     };
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     fn test_config(root: &Path) -> Arc<AppConfig> {
         let lark_root = root.join("vendor/lark-cli");
@@ -935,6 +974,7 @@ mod tests {
                 codex_executable: "codex".to_string(),
                 app_server_args: Vec::new(),
                 codex_home: None,
+                sqlite_root: None,
                 approval_policy: serde_json::json!("never"),
                 sandbox_type: "workspace-write".to_string(),
                 network_access: true,
@@ -1005,6 +1045,68 @@ mod tests {
         assert!(cfg.contains("LARKSUITE_CLI_DATA_DIR=/connector-credentials/lark-cli/data"));
         assert!(cfg.contains("/opt/gogcli-cli/current/bin"));
         assert!(cfg.contains("/opt/bilibili-cli/current/bin"));
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn nsjail_config_is_atomically_published_under_concurrent_writes() {
+        let root =
+            std::env::temp_dir().join(format!("ripple-sandbox-test-{}", uuid::Uuid::new_v4()));
+        let manager = Arc::new(SandboxManager::new(test_config(&root)));
+        let user_id = "sandboxuser";
+        manager.ensure_sandbox(user_id).unwrap();
+        let cfg = manager.sandbox_dir(user_id).unwrap().join("nsjail.cfg");
+        let reading = Arc::new(AtomicBool::new(true));
+
+        let reader_cfg = cfg.clone();
+        let reader_running = reading.clone();
+        let reader = std::thread::spawn(move || -> anyhow::Result<()> {
+            while reader_running.load(Ordering::Acquire) {
+                let config_text = std::fs::read_to_string(&reader_cfg)?;
+                crate::runtime_checks::ensure_nsjail_config_hardened(&config_text)?;
+            }
+            let config_text = std::fs::read_to_string(&reader_cfg)?;
+            crate::runtime_checks::ensure_nsjail_config_hardened(&config_text)
+        });
+
+        let writers = (0..8)
+            .map(|_| {
+                let manager = manager.clone();
+                std::thread::spawn(move || {
+                    for _ in 0..250 {
+                        manager.write_nsjail_config(user_id).unwrap();
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+        for writer in writers {
+            writer.join().unwrap();
+        }
+        reading.store(false, Ordering::Release);
+        reader.join().unwrap().unwrap();
+
+        let sandbox_dir = manager.sandbox_dir(user_id).unwrap();
+        let temporary_files = std::fs::read_dir(&sandbox_dir)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_str()
+                    .is_some_and(|name| name.starts_with(".nsjail.cfg.") && name.ends_with(".tmp"))
+            })
+            .count();
+        assert_eq!(temporary_files, 0);
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(&cfg).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
 
         let _ = std::fs::remove_dir_all(root);
     }

@@ -251,6 +251,7 @@ pub fn router(state: AppState) -> Router {
         .routes(utoipa_axum::routes!(skills::validate_skill))
         .routes(utoipa_axum::routes!(connectors::list_connectors))
         .routes(utoipa_axum::routes!(connectors::connector_status))
+        .routes(utoipa_axum::routes!(connectors::feishu_permissions))
         .routes(utoipa_axum::routes!(connectors::connector_auth_start))
         .routes(utoipa_axum::routes!(connectors::connector_auth_complete))
         .routes(utoipa_axum::routes!(connectors::connector_auth_cancel))
@@ -642,6 +643,7 @@ mod tests {
                 codex_executable,
                 app_server_args: Vec::new(),
                 codex_home: None,
+                sqlite_root: None,
                 approval_policy: serde_json::json!("never"),
                 sandbox_type: "workspace-write".to_string(),
                 network_access: true,

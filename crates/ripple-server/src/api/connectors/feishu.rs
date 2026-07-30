@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::path::{Path as FsPath, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
@@ -20,10 +21,15 @@ use crate::redaction::redact_text;
 use crate::sandbox::SandboxManager;
 use crate::state::AppState;
 
+// The setup URL has no TTL supplied by lark-cli. This is a caller-facing
+// refresh recommendation only; the server does not invalidate setup after it.
+const SETUP_URL_DISPLAY_TTL_SECONDS: u64 = 300;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum DeviceAuthorizationCompletion {
     Completed,
     Pending { detail: String },
+    Expired { detail: String },
     Failed { detail: String },
 }
 
@@ -39,6 +45,180 @@ pub(super) async fn status(state: &AppState, user_id: &str) -> Value {
         "detail": detail,
         "metadata": metadata
     })
+}
+
+/// Return every application-enabled user scope, grouped by namespace and
+/// marked according to the current user's access token.
+pub(super) async fn permissions(state: &AppState, user_id: &str) -> Result<Value, ApiError> {
+    let Some(lark) = lark_binary(state) else {
+        return Err(ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Feishu permission probe is unavailable because lark-cli is not installed.",
+        ));
+    };
+
+    let (connected, detail, metadata) = cli_login_status(state, user_id).await;
+    if metadata.get("has_app_config").and_then(Value::as_bool) != Some(true) {
+        return Ok(json!({
+            "capabilities": {},
+            "probe_status": "not_configured",
+            "detail": detail
+        }));
+    }
+    if metadata.get("auth_status_error").and_then(Value::as_bool) == Some(true) {
+        return Err(ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Feishu permission probe could not verify the current user authorization.",
+        ));
+    }
+    if metadata
+        .get("auth_status_inconclusive")
+        .and_then(Value::as_bool)
+        == Some(true)
+    {
+        return Err(ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            "Feishu permission probe returned an inconclusive authorization status.",
+        ));
+    }
+
+    let output = match run_lark(state, user_id, &lark, &["auth", "scopes"], None, 15).await {
+        Ok(output) => output,
+        Err(_) => {
+            return Err(ApiError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Feishu permission probe could not list application scopes.",
+            ));
+        }
+    };
+    if !output.status.success() {
+        return Err(ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            "Feishu permission probe could not list application scopes.",
+        ));
+    }
+    let text = String::from_utf8_lossy(&output.stdout).to_string()
+        + "\n"
+        + &String::from_utf8_lossy(&output.stderr);
+    let status = first_json_object(&text).ok_or_else(|| {
+        ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            "Feishu permission probe returned invalid application scope data.",
+        )
+    })?;
+    let enabled_scopes = enabled_user_scopes(&status);
+    let granted_scopes = if connected {
+        user_scopes_for_permission_probe(state, user_id, &lark).await?
+    } else {
+        BTreeSet::new()
+    };
+    Ok(json!({
+        "capabilities": scope_capabilities(&enabled_scopes, &granted_scopes),
+        "probe_status": if connected {"ready"} else {"not_authorized"},
+        "detail": detail
+    }))
+}
+
+async fn user_scopes_for_permission_probe(
+    state: &AppState,
+    user_id: &str,
+    lark: &FsPath,
+) -> Result<BTreeSet<String>, ApiError> {
+    let output = run_lark(state, user_id, lark, &["auth", "status"], None, 10)
+        .await
+        .map_err(|_| {
+            ApiError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Feishu permission probe could not read current user scopes.",
+            )
+        })?;
+    if !output.status.success() {
+        return Err(ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            "Feishu permission probe could not read current user scopes.",
+        ));
+    }
+    let text = String::from_utf8_lossy(&output.stdout).to_string()
+        + "\n"
+        + &String::from_utf8_lossy(&output.stderr);
+    let status = first_json_object(&text).ok_or_else(|| {
+        ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            "Feishu permission probe returned invalid current user scope data.",
+        )
+    })?;
+    Ok(user_granted_scopes(&status))
+}
+
+async fn user_scopes_from_status(
+    state: &AppState,
+    user_id: &str,
+    lark: &FsPath,
+) -> BTreeSet<String> {
+    let args = lark_user_status_args();
+    let Ok(output) = run_lark(state, user_id, lark, &args, None, 10).await else {
+        return BTreeSet::new();
+    };
+    if !output.status.success() {
+        return BTreeSet::new();
+    }
+    let text = String::from_utf8_lossy(&output.stdout).to_string()
+        + "\n"
+        + &String::from_utf8_lossy(&output.stderr);
+    first_json_object(&text)
+        .map(|status| user_granted_scopes(&status))
+        .unwrap_or_default()
+}
+
+fn lark_user_status_args() -> [&'static str; 3] {
+    ["auth", "status", "--verify"]
+}
+
+fn user_granted_scopes(status: &Value) -> BTreeSet<String> {
+    let scope = status
+        .pointer("/identities/user/scope")
+        .and_then(Value::as_str)
+        .or_else(|| status.get("scope").and_then(Value::as_str))
+        .unwrap_or("");
+    scope
+        .split_ascii_whitespace()
+        .map(str::trim)
+        .filter(|scope| !scope.is_empty())
+        .map(ToOwned::to_owned)
+        .collect()
+}
+
+fn enabled_user_scopes(status: &Value) -> BTreeSet<String> {
+    status
+        .get("userScopes")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::trim)
+        .filter(|scope| !scope.is_empty())
+        .map(ToOwned::to_owned)
+        .collect()
+}
+
+fn scope_capabilities(
+    enabled_scopes: &BTreeSet<String>,
+    granted_scopes: &BTreeSet<String>,
+) -> Value {
+    let mut namespaces = Map::new();
+    for scope in enabled_scopes {
+        let namespace = scope
+            .split_once(':')
+            .map(|(prefix, _)| prefix)
+            .unwrap_or(scope);
+        let entry = namespaces
+            .entry(namespace.to_string())
+            .or_insert_with(|| Value::Object(Map::new()));
+        if let Some(scopes) = entry.as_object_mut() {
+            scopes.insert(scope.clone(), json!(granted_scopes.contains(scope)));
+        }
+    }
+    Value::Object(namespaces)
 }
 
 /// Execute a lark-cli business command for exactly one Ripple user. The
@@ -114,6 +294,133 @@ pub(crate) async fn invoke_for_agent(
     }))
 }
 
+/// Extract explicit user scopes from trusted lark-cli permission errors. The
+/// CLI may return a structured `permission_violations` payload, a structured
+/// `missing_scope` error, or the known plaintext
+/// `insufficient permissions (required scope: ...)` error.
+/// Model output never influences the scopes requested by the control plane.
+pub(crate) fn missing_user_scopes_from_cli_result(result: &Value) -> BTreeSet<String> {
+    let mut scopes = BTreeSet::new();
+    let failed = result.get("ok").and_then(Value::as_bool) == Some(false);
+    for key in ["stdout", "stderr"] {
+        let Some(text) = result.get(key).and_then(Value::as_str) else {
+            continue;
+        };
+        if let Some(value) = first_json_object(text) {
+            collect_permission_violation_scopes(&value, &mut scopes);
+            if failed {
+                collect_missing_scope_error_scopes(&value, &mut scopes);
+            }
+        }
+        if failed {
+            collect_lark_plaintext_required_scopes(text, &mut scopes);
+        }
+    }
+    scopes
+}
+
+fn collect_lark_plaintext_required_scopes(text: &str, scopes: &mut BTreeSet<String>) {
+    const PREFIX: &str = "insufficient permissions (required scope:";
+
+    for (index, _) in text.match_indices(PREFIX) {
+        let scope = &text[index + PREFIX.len()..];
+        let Some(end) = scope.find(')') else {
+            continue;
+        };
+        add_valid_scope(&scope[..end], scopes);
+    }
+}
+
+fn collect_missing_scope_error_scopes(value: &Value, scopes: &mut BTreeSet<String>) {
+    match value {
+        Value::Array(values) => {
+            for value in values {
+                collect_missing_scope_error_scopes(value, scopes);
+            }
+        }
+        Value::Object(object) => {
+            if object.get("type").and_then(Value::as_str) == Some("missing_scope") {
+                if let Some(message) = object.get("message").and_then(Value::as_str) {
+                    collect_missing_scope_message_scopes(message, scopes);
+                }
+            }
+            for value in object.values() {
+                if value.is_object() || value.is_array() {
+                    collect_missing_scope_error_scopes(value, scopes);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn collect_missing_scope_message_scopes(message: &str, scopes: &mut BTreeSet<String>) {
+    const PREFIX: &str = "missing required scope(s):";
+
+    let Some(required_scopes) = message.trim().strip_prefix(PREFIX) else {
+        return;
+    };
+    for scope in required_scopes.split(',') {
+        add_valid_scope(scope, scopes);
+    }
+}
+
+fn collect_permission_violation_scopes(value: &Value, scopes: &mut BTreeSet<String>) {
+    match value {
+        Value::Array(values) => {
+            for value in values {
+                collect_permission_violation_scopes(value, scopes);
+            }
+        }
+        Value::Object(object) => {
+            for (key, value) in object {
+                if key == "permission_violations" {
+                    collect_scopes_from_permission_violation(value, scopes);
+                }
+                collect_permission_violation_scopes(value, scopes);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn collect_scopes_from_permission_violation(value: &Value, scopes: &mut BTreeSet<String>) {
+    match value {
+        Value::String(scope) => add_valid_scope(scope, scopes),
+        Value::Array(values) => {
+            for value in values {
+                collect_scopes_from_permission_violation(value, scopes);
+            }
+        }
+        Value::Object(object) => {
+            for key in ["scope", "scopes", "missing_scopes", "required_scopes"] {
+                if let Some(value) = object.get(key) {
+                    collect_scopes_from_permission_violation(value, scopes);
+                }
+            }
+            for value in object.values() {
+                if value.is_object() || value.is_array() {
+                    collect_scopes_from_permission_violation(value, scopes);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn add_valid_scope(value: &str, scopes: &mut BTreeSet<String>) {
+    let scope = value.trim();
+    if !scope.is_empty()
+        && scope.len() <= 256
+        && scope.contains(':')
+        && scope
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b':' | b'_' | b'-' | b'.'))
+    {
+        scopes.insert(scope.to_string());
+    }
+}
+
 /// CLI update notices are service-maintenance metadata, not part of a user's
 /// requested Feishu operation. Keep them out of the agent-visible tool result
 /// so they cannot leak into the user-facing answer.
@@ -136,10 +443,28 @@ fn strip_lark_update_notice(stdout: &str) -> String {
     serde_json::to_string(&output).unwrap_or_else(|_| stdout.to_string())
 }
 
-pub(super) async fn auth_start(
+pub(super) async fn auth_start_with_recommendation(
     state: &AppState,
     user_id: &str,
     payload: &Value,
+) -> Result<Json<Value>, ApiError> {
+    auth_start_for_request(state, user_id, payload, None).await
+}
+
+pub(super) async fn auth_start_for_scopes(
+    state: &AppState,
+    user_id: &str,
+    payload: &Value,
+    requested_scopes: &BTreeSet<String>,
+) -> Result<Json<Value>, ApiError> {
+    auth_start_for_request(state, user_id, payload, Some(requested_scopes)).await
+}
+
+async fn auth_start_for_request(
+    state: &AppState,
+    user_id: &str,
+    payload: &Value,
+    requested_scopes: Option<&BTreeSet<String>>,
 ) -> Result<Json<Value>, ApiError> {
     let app_id = payload
         .get("app_id")
@@ -179,7 +504,6 @@ pub(super) async fn auth_start(
 
     let force_new_setup = value_as_bool(payload.get("force_new_setup")).unwrap_or(false);
     let force_new_user_auth = value_as_bool(payload.get("force_new_user_auth")).unwrap_or(false);
-    let requested_scopes = requested_user_scopes(payload);
 
     let (ok, msg) = ensure_cli_config(state, user_id, force_new_setup).await?;
     state.sandboxes.write_nsjail_config(user_id)?;
@@ -189,7 +513,10 @@ pub(super) async fn auth_start(
             true,
             "awaiting_setup",
             "Open the setup URL to finish Feishu configuration.",
-            json!({"setup_url": msg}),
+            json!({
+                "setup_url": msg,
+                "expires_in_seconds": SETUP_URL_DISPLAY_TTL_SECONDS
+            }),
         )));
     }
     if !ok {
@@ -202,15 +529,22 @@ pub(super) async fn auth_start(
         )));
     }
 
-    let (connected, _detail, metadata) = cli_login_status(state, user_id).await;
-    if connected && !force_new_user_auth && requested_scopes.is_empty() {
-        return Ok(Json(action_response(
-            "feishu",
-            true,
-            "authorized",
-            "Feishu user authorization is already ready for this user.",
-            json!({}),
-        )));
+    let (_connected, _detail, metadata) = cli_login_status(state, user_id).await;
+    let granted_scopes = if let Some(lark) = lark_binary(state) {
+        user_scopes_from_status(state, user_id, &lark).await
+    } else {
+        BTreeSet::new()
+    };
+    if let Some(requested_scopes) = requested_scopes {
+        if can_reuse_user_authorization(requested_scopes, &granted_scopes, force_new_user_auth) {
+            return Ok(Json(action_response(
+                "feishu",
+                true,
+                "authorized",
+                "Feishu user authorization is already ready for this user.",
+                json!({}),
+            )));
+        }
     }
     if status_needs_setup(&metadata) {
         let (ok, msg) = ensure_cli_config(state, user_id, true).await?;
@@ -221,7 +555,10 @@ pub(super) async fn auth_start(
                 true,
                 "awaiting_setup",
                 "Open the setup URL to finish Feishu configuration.",
-                json!({"setup_url": msg}),
+                json!({
+                    "setup_url": msg,
+                    "expires_in_seconds": SETUP_URL_DISPLAY_TTL_SECONDS
+                }),
             )));
         }
         if !ok {
@@ -235,7 +572,17 @@ pub(super) async fn auth_start(
         }
     }
 
-    let data = match start_lark_user_auth(state, user_id, &requested_scopes).await {
+    let auth_result = match requested_scopes {
+        Some(requested_scopes) => {
+            let authorization_scopes = granted_scopes
+                .union(requested_scopes)
+                .cloned()
+                .collect::<BTreeSet<_>>();
+            start_lark_user_auth(state, user_id, &authorization_scopes).await
+        }
+        None => start_lark_recommended_user_auth(state, user_id).await,
+    };
+    let data = match auth_result {
         Ok(data) => data,
         Err(err) => {
             return Ok(Json(action_response(
@@ -275,11 +622,26 @@ pub(super) async fn auth_complete(
             json!({}),
         )));
     }
-    let complete_result = complete_lark_user_auth(state, user_id, device_code).await;
+    let required_scopes = requested_scopes_from_completion_payload(payload);
+    let completion = complete_lark_user_auth(state, user_id, device_code)
+        .await
+        .unwrap_or_else(|error| DeviceAuthorizationCompletion::Failed {
+            detail: error.to_string(),
+        });
     state.sandboxes.write_nsjail_config(user_id)?;
     let (connected, status_detail, status_metadata) =
         confirm_user_authorization(state, user_id).await;
-    if connected {
+    let granted_scopes = if connected {
+        if let Some(lark) = lark_binary(state) {
+            user_scopes_from_status(state, user_id, &lark).await
+        } else {
+            BTreeSet::new()
+        }
+    } else {
+        BTreeSet::new()
+    };
+    let missing_scopes = missing_required_scopes(&required_scopes, &granted_scopes);
+    if connected && (required_scopes.is_empty() || missing_scopes.is_empty()) {
         return Ok(Json(action_response(
             "feishu",
             true,
@@ -288,11 +650,29 @@ pub(super) async fn auth_complete(
             json!({}),
         )));
     }
-
-    let completion =
-        complete_result.unwrap_or_else(|error| DeviceAuthorizationCompletion::Failed {
-            detail: error.to_string(),
-        });
+    if matches!(completion, DeviceAuthorizationCompletion::Completed) && !missing_scopes.is_empty()
+    {
+        let scopes = missing_scopes.into_iter().collect::<Vec<_>>();
+        return Ok(Json(action_response(
+            "feishu",
+            false,
+            "auth_failed",
+            &format!(
+                "飞书授权已完成，但未授予任务所需权限：{}。请确认飞书应用已启用这些权限并通过管理员审批，然后重新发起任务。",
+                scopes.join(", ")
+            ),
+            json!({
+                "missing_scopes": scopes,
+                "required_action_type": "awaiting_admin_authorization"
+            }),
+        )));
+    }
+    let retryable_expiration = matches!(&completion, DeviceAuthorizationCompletion::Expired { .. });
+    let permission_approval_required = matches!(
+        &completion,
+        DeviceAuthorizationCompletion::Failed { detail }
+            if is_auth_pending_approval_message(detail)
+    );
     let (stage, ok, message, device_code_finalized) = match completion {
         DeviceAuthorizationCompletion::Completed => (
             "pending",
@@ -303,6 +683,12 @@ pub(super) async fn auth_complete(
         DeviceAuthorizationCompletion::Pending { detail } => (
             "pending",
             true,
+            detail,
+            false,
+        ),
+        DeviceAuthorizationCompletion::Expired { detail } => (
+            "auth_failed",
+            false,
             detail,
             false,
         ),
@@ -327,10 +713,63 @@ pub(super) async fn auth_complete(
         &message,
         json!({
             "device_code_finalized": device_code_finalized,
+            "retryable_reason": retryable_expiration.then_some("device_code_expired"),
+            "required_action_type": permission_approval_required
+                .then_some("awaiting_admin_authorization"),
             "status_detail": status_detail,
             "status_metadata": status_metadata
         }),
     )))
+}
+
+fn requested_scopes_from_completion_payload(payload: &Value) -> BTreeSet<String> {
+    payload
+        .get("required_scopes")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::trim)
+        .filter(|scope| !scope.is_empty() && scope.len() <= 256)
+        .filter(|scope| {
+            scope.bytes().all(|byte| {
+                byte.is_ascii_alphanumeric() || matches!(byte, b':' | b'_' | b'-' | b'.')
+            })
+        })
+        .map(str::to_string)
+        .collect()
+}
+
+fn missing_required_scopes(
+    required_scopes: &BTreeSet<String>,
+    granted_scopes: &BTreeSet<String>,
+) -> BTreeSet<String> {
+    required_scopes
+        .iter()
+        .filter(|scope| !feishu_scope_is_granted(scope, granted_scopes))
+        .cloned()
+        .collect()
+}
+
+fn feishu_scope_is_granted(scope: &str, granted_scopes: &BTreeSet<String>) -> bool {
+    granted_scopes.contains(scope)
+        || match scope {
+            "contact:user.basic_profile:readonly" => {
+                granted_scopes.contains("contact:user.base:readonly")
+            }
+            "contact:user.base:readonly" => {
+                granted_scopes.contains("contact:user.basic_profile:readonly")
+            }
+            _ => false,
+        }
+}
+
+fn can_reuse_user_authorization(
+    requested_scopes: &BTreeSet<String>,
+    granted_scopes: &BTreeSet<String>,
+    force_new_user_auth: bool,
+) -> bool {
+    !force_new_user_auth && missing_required_scopes(requested_scopes, granted_scopes).is_empty()
 }
 
 pub(super) async fn disconnect(state: &AppState, user_id: &str) -> Result<Json<Value>, ApiError> {
@@ -382,7 +821,6 @@ async fn run_lark_with_sandbox(
     timeout_seconds: u64,
 ) -> Result<std::process::Output, ApiError> {
     sandboxes.prepare_lark_cli_credentials(user_id)?;
-    sandboxes.write_nsjail_config(user_id)?;
     let argv = sandboxes.nsjail_exec_argv(user_id, sandboxes.lark_cli_sandbox_binary(), args)?;
     let mut command = Command::new(&argv[0]);
     command
@@ -492,11 +930,12 @@ async fn cli_login_status(state: &AppState, user_id: &str) -> (bool, String, Val
     let output = match run_lark(state, user_id, &lark, &["auth", "status"], None, 10).await {
         Ok(output) => output,
         Err(err) => {
+            metadata.insert("auth_status_error".to_string(), json!(true));
             return (
                 false,
                 format!("Feishu auth status check failed: {err:?}"),
                 Value::Object(metadata),
-            )
+            );
         }
     };
     let text = String::from_utf8_lossy(&output.stdout).to_string()
@@ -540,12 +979,14 @@ async fn cli_login_status(state: &AppState, user_id: &str) -> (bool, String, Val
         }
     }
     if output.status.success() {
+        metadata.insert("auth_status_inconclusive".to_string(), json!(true));
         (
             false,
             "Feishu user authorization status is inconclusive.".to_string(),
             Value::Object(metadata),
         )
     } else {
+        metadata.insert("auth_status_error".to_string(), json!(true));
         (false, command_tail(&output), Value::Object(metadata))
     }
 }
@@ -801,23 +1242,12 @@ fn first_url_in_text(text: &str) -> Option<String> {
 async fn start_lark_user_auth(
     state: &AppState,
     user_id: &str,
-    requested_scopes: &[String],
+    scopes: &BTreeSet<String>,
 ) -> anyhow::Result<Value> {
     let Some(lark) = lark_binary(state) else {
         anyhow::bail!("lark-cli is not installed.");
     };
-    let mut args = vec![
-        "auth".to_string(),
-        "login".to_string(),
-        "--no-wait".to_string(),
-        "--json".to_string(),
-        "--domain".to_string(),
-        "all".to_string(),
-    ];
-    if !requested_scopes.is_empty() {
-        args.push("--scope".to_string());
-        args.push(requested_scopes.join(","));
-    }
+    let args = lark_user_auth_args(scopes)?;
     let arg_refs = args.iter().map(String::as_str).collect::<Vec<_>>();
     let output = run_lark(state, user_id, &lark, &arg_refs, None, 20)
         .await
@@ -840,36 +1270,61 @@ async fn start_lark_user_auth(
     })
 }
 
-fn requested_user_scopes(payload: &Value) -> Vec<String> {
-    let mut scopes = Vec::new();
-    let Some(values) = payload.get("requested_scopes").and_then(Value::as_array) else {
-        return scopes;
+async fn start_lark_recommended_user_auth(
+    state: &AppState,
+    user_id: &str,
+) -> anyhow::Result<Value> {
+    let Some(lark) = lark_binary(state) else {
+        anyhow::bail!("lark-cli is not installed.");
     };
-    for value in values {
-        let Some(scope) = value.as_str().map(str::trim) else {
-            continue;
-        };
-        if is_valid_user_scope(scope) && !scopes.iter().any(|existing| existing == scope) {
-            scopes.push(scope.to_string());
-        }
+    let args = lark_recommended_user_auth_args();
+    let arg_refs = args.iter().map(String::as_str).collect::<Vec<_>>();
+    let output = run_lark(state, user_id, &lark, &arg_refs, None, 20)
+        .await
+        .map_err(|err| anyhow::anyhow!("{err:?}"))?;
+    if !output.status.success() {
+        anyhow::bail!(
+            "lark-cli auth login --recommend --no-wait failed (exit {}): {}",
+            output.status.code().unwrap_or(-1),
+            command_tail(&output)
+        );
     }
-    scopes
+    let merged = String::from_utf8_lossy(&output.stdout).to_string()
+        + "\n"
+        + &String::from_utf8_lossy(&output.stderr);
+    let parsed = first_json_object(&merged).ok_or_else(|| {
+        anyhow::anyhow!("Unable to parse lark-cli auth login --recommend --no-wait JSON output")
+    })?;
+    auth_start_payload(&parsed).ok_or_else(|| {
+        anyhow::anyhow!(
+            "lark-cli auth login --recommend --no-wait output is missing oauth_url or device_code"
+        )
+    })
 }
 
-fn is_valid_user_scope(scope: &str) -> bool {
-    scope.len() <= 128
-        && scope.contains(':')
-        && scope
-            .bytes()
-            .next()
-            .is_some_and(|byte| byte.is_ascii_alphanumeric())
-        && scope
-            .bytes()
-            .last()
-            .is_some_and(|byte| byte.is_ascii_alphanumeric())
-        && scope
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b':' | b'_' | b'-' | b'.'))
+fn lark_recommended_user_auth_args() -> Vec<String> {
+    vec![
+        "auth".to_string(),
+        "login".to_string(),
+        "--no-wait".to_string(),
+        "--json".to_string(),
+        "--recommend".to_string(),
+    ]
+}
+
+fn lark_user_auth_args(scopes: &BTreeSet<String>) -> anyhow::Result<Vec<String>> {
+    let scope_value = scopes.iter().cloned().collect::<Vec<_>>().join(" ");
+    if scope_value.is_empty() {
+        anyhow::bail!("Feishu user authorization requires at least one scope.");
+    }
+    Ok(vec![
+        "auth".to_string(),
+        "login".to_string(),
+        "--no-wait".to_string(),
+        "--json".to_string(),
+        "--scope".to_string(),
+        scope_value,
+    ])
 }
 
 async fn complete_lark_user_auth(
@@ -907,10 +1362,14 @@ fn classify_device_authorization_failure(output: &str) -> DeviceAuthorizationCom
     let normalized = auth_error_code(output)
         .unwrap_or_else(|| detail.to_ascii_lowercase())
         .to_ascii_lowercase();
+    if ["expired", "invalid_device"]
+        .into_iter()
+        .any(|marker| normalized.contains(marker))
+    {
+        return DeviceAuthorizationCompletion::Expired { detail };
+    }
     if is_auth_pending_approval_message(&normalized)
         || [
-            "expired",
-            "invalid_device",
             "invalid_grant",
             "access_denied",
             "authorization_denied",
@@ -1076,6 +1535,95 @@ mod tests {
     }
 
     #[test]
+    fn recommended_auth_uses_only_the_recommend_flag() {
+        assert_eq!(
+            lark_recommended_user_auth_args(),
+            vec!["auth", "login", "--no-wait", "--json", "--recommend"]
+        );
+    }
+
+    #[test]
+    fn extracts_only_structured_missing_scopes_from_permission_violation() {
+        let result = json!({
+            "stdout": "prefix {\"error\":{\"type\":\"missing_scope\",\"permission_violations\":[{\"scopes\":[\"base:app:readonly\",\"space:document:write\"]}]}}",
+            "stderr": "permission_violations: im:message should not be parsed from plain text"
+        });
+
+        assert_eq!(
+            missing_user_scopes_from_cli_result(&result),
+            [
+                "base:app:readonly".to_string(),
+                "space:document:write".to_string(),
+            ]
+            .into_iter()
+            .collect()
+        );
+    }
+
+    #[test]
+    fn extracts_required_scope_from_lark_plaintext_permission_error() {
+        let result = json!({
+            "ok": false,
+            "stdout": "Error: insufficient permissions (required scope: mail:user_mailbox:readonly)"
+        });
+
+        assert_eq!(
+            missing_user_scopes_from_cli_result(&result),
+            ["mail:user_mailbox:readonly".to_string()]
+                .into_iter()
+                .collect()
+        );
+    }
+
+    #[test]
+    fn extracts_required_scopes_from_lark_missing_scope_json_error() {
+        let result = json!({
+            "ok": false,
+            "stderr": "{\"error\":{\"type\":\"missing_scope\",\"message\":\"missing required scope(s): contact:user.basic_profile:readonly, task:task:write\"}}"
+        });
+
+        assert_eq!(
+            missing_user_scopes_from_cli_result(&result),
+            [
+                "contact:user.basic_profile:readonly".to_string(),
+                "task:task:write".to_string(),
+            ]
+            .into_iter()
+            .collect()
+        );
+    }
+
+    #[test]
+    fn completion_rejects_existing_token_missing_the_requested_scope() {
+        let payload = json!({
+            "device_code": "device-123",
+            "required_scopes": [
+                "contact:user:search",
+                "mail:user_mailbox.message:send"
+            ]
+        });
+        let required = requested_scopes_from_completion_payload(&payload);
+        let granted = ["contact:user:search".to_string()].into_iter().collect();
+
+        assert_eq!(
+            missing_required_scopes(&required, &granted),
+            ["mail:user_mailbox.message:send".to_string()]
+                .into_iter()
+                .collect()
+        );
+    }
+
+    #[test]
+    fn ignores_plaintext_scope_marker_from_successful_cli_output() {
+        let result = json!({
+            "ok": true,
+            "stdout": "quoted text: insufficient permissions (required scope: mail:user_mailbox:readonly)"
+        });
+
+        assert!(missing_user_scopes_from_cli_result(&result).is_empty());
+    }
+
+    #[test]
     fn pending_approval_is_terminal_device_auth_failure() {
         let message = "authorization failed: Unable to authorize. The app is pending approval.";
 
@@ -1100,12 +1648,12 @@ mod tests {
     }
 
     #[test]
-    fn expired_device_code_is_terminal() {
+    fn expired_device_code_is_retryable() {
         let output = r#"{"error":{"code":"expired_token","message":"device code expired"}}"#;
 
         assert_eq!(
             classify_device_authorization_failure(output),
-            DeviceAuthorizationCompletion::Failed {
+            DeviceAuthorizationCompletion::Expired {
                 detail: output.to_string()
             }
         );
@@ -1146,17 +1694,135 @@ mod tests {
     }
 
     #[test]
-    fn requested_user_scopes_keeps_only_valid_unique_scope_identifiers() {
-        let scopes = requested_user_scopes(&json!({
-            "requested_scopes": [
-                "im:message.send_as_user",
-                "im:message.send_as_user",
-                "not a scope",
-                42
+    fn user_auth_requests_only_requested_scopes() {
+        let scopes = ["im:message", "im:message.send_as_user"]
+            .into_iter()
+            .map(str::to_string)
+            .collect();
+        let args = lark_user_auth_args(&scopes).unwrap();
+
+        assert_eq!(
+            args,
+            vec![
+                "auth",
+                "login",
+                "--no-wait",
+                "--json",
+                "--scope",
+                "im:message im:message.send_as_user"
+            ]
+        );
+        assert!(!args.iter().any(|arg| arg == "--domain"));
+        assert!(!args.iter().any(|arg| arg == "--recommend"));
+    }
+
+    #[test]
+    fn groups_enabled_scopes_and_marks_user_grants() {
+        let granted_scopes = user_granted_scopes(&json!({
+            "identities": {
+                "user": {
+                    "scope": "docx:document drive:drive:readonly mail:user_mailbox.message:readonly"
+                }
+            }
+        }));
+        let enabled_scopes = enabled_user_scopes(&json!({
+            "userScopes": [
+                "docx:document",
+                "docx:document:create",
+                "drive:drive:readonly",
+                "drive:file:upload",
+                "mail:user_mailbox.message:readonly",
+                "mail:user_mailbox.message:send"
             ]
         }));
+        let capabilities = scope_capabilities(&enabled_scopes, &granted_scopes);
 
-        assert_eq!(scopes, vec!["im:message.send_as_user".to_string()]);
+        assert_eq!(
+            capabilities.pointer("/docx/docx:document"),
+            Some(&json!(true))
+        );
+        assert_eq!(
+            capabilities.pointer("/docx/docx:document:create"),
+            Some(&json!(false))
+        );
+        assert_eq!(
+            capabilities.pointer("/drive/drive:file:upload"),
+            Some(&json!(false))
+        );
+        assert_eq!(
+            capabilities.pointer("/mail/mail:user_mailbox.message:send"),
+            Some(&json!(false))
+        );
+    }
+
+    #[test]
+    fn falls_back_to_top_level_scope_for_older_lark_cli_status() {
+        let scopes = user_granted_scopes(&json!({
+            "scope": "drive:file:upload mail:user_mailbox.message:send"
+        }));
+
+        assert_eq!(scopes.len(), 2);
+        assert!(scopes.contains("drive:file:upload"));
+        assert!(scopes.contains("mail:user_mailbox.message:send"));
+    }
+
+    #[test]
+    fn authorization_scope_check_verifies_the_token_with_feishu() {
+        assert_eq!(
+            lark_user_status_args().as_slice(),
+            ["auth", "status", "--verify"]
+        );
+    }
+
+    #[test]
+    fn authorization_reuses_verified_token_only_when_all_scopes_are_granted() {
+        let requested = ["contact:user:search", "mail:user_mailbox.message:send"]
+            .into_iter()
+            .map(str::to_string)
+            .collect();
+        let granted = [
+            "contact:user:search",
+            "mail:user_mailbox.message:send",
+            "mail:user_mailbox.message:modify",
+        ]
+        .into_iter()
+        .map(str::to_string)
+        .collect();
+
+        assert!(can_reuse_user_authorization(&requested, &granted, false));
+    }
+
+    #[test]
+    fn authorization_starts_again_for_missing_scopes_or_explicit_reauth() {
+        let requested = ["mail:user_mailbox.message:send".to_string()]
+            .into_iter()
+            .collect();
+        let missing = BTreeSet::new();
+        let granted = ["mail:user_mailbox.message:send".to_string()]
+            .into_iter()
+            .collect();
+
+        assert!(!can_reuse_user_authorization(&requested, &missing, false));
+        assert!(!can_reuse_user_authorization(&requested, &granted, true));
+    }
+
+    #[test]
+    fn contact_base_scope_aliases_do_not_force_reauthorization() {
+        let requested = [
+            "contact:user.basic_profile:readonly",
+            "contact:user.base:readonly",
+            "task:task:write",
+        ]
+        .into_iter()
+        .map(str::to_string)
+        .collect();
+        let granted = ["contact:user.base:readonly", "task:task:write"]
+            .into_iter()
+            .map(str::to_string)
+            .collect();
+
+        assert!(missing_required_scopes(&requested, &granted).is_empty());
+        assert!(can_reuse_user_authorization(&requested, &granted, false));
     }
 
     #[tokio::test]

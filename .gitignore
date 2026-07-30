@@ -265,6 +265,7 @@ src/interfaces/mobile/android/
 
 # Local Ripple runtime state
 .ripple/
+.ripple.nas-symlink-*
 
 # Config files with sensitive data
 config/settings.yaml

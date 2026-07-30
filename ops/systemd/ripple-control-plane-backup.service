@@ -1,0 +1,23 @@
+[Unit]
+Description=Create a verified Ripple control-plane SQLite snapshot on NAS
+Wants=network-online.target
+After=network-online.target
+ConditionPathIsDirectory=/root/ripple/.ripple
+ConditionPathIsMountPoint=/nas
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/root/ripple
+Environment=PATH=/root/miniconda3/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=RIPPLE_BACKUP_MODE=control
+Environment=RIPPLE_BACKUP_SOURCE=/root/ripple/.ripple
+Environment=RIPPLE_BACKUP_NAS_MOUNT=/nas
+Environment=RIPPLE_BACKUP_DEST=/nas/ripple-data/backups/ripple-local
+Environment=RIPPLE_BACKUP_RETENTION_DAYS=7
+ExecStart=/root/ripple/scripts/backup-ripple-runtime-to-nas.sh
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+TimeoutStartSec=30min

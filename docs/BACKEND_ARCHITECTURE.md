@@ -65,12 +65,19 @@ crates/ripple-server/
 
 运行时模型：
 
-- 默认数据库位置是 `.ripple/ripple.sqlite`；生产通常通过 `.ripple -> /nas/ripple-data/ripple-runtime` symlink 放到持久目录。
+- 默认数据库位置是 `.ripple/ripple.sqlite`。线上运行中的 SQLite 必须位于单机本地文件系统；不要通过 NFS、SMB 或其他网络文件系统承载其 WAL 文件。
 - SQLite 使用 WAL，运行时会同时出现 `ripple.sqlite-wal` 和 `ripple.sqlite-shm`。
 - 表内统一带 `user_id`，查询和写入都必须保持 user scope。
 - `Storage::open` 初始化表结构、补齐必要 schema column，并记录 `schema_migrations`。
 - session message append、session meta update、run status 更新、task trigger/action update 这类状态变化应保持短事务。
 - `/v1` response shape 不因 SQLite 存储改变而破坏旧客户端。
+
+本地 SQLite 部署约定：
+
+- 单机部署可以把仓库根目录 `.ripple/` 设为本地实体目录，以承载 `ripple.sqlite` 和 `audit.jsonl`。不要把在线 `.ripple/` 软链接到 NAS。
+- 如果 `external_agents.codex.sqlite_root` 被设置，Codex app-server 的每个用户 SQLite 会放到 `<sqlite_root>/users/<user_id>/sqlite/`；`CODEX_HOME`、service auth、workspace、credentials 和 agent artifact 不会因此改路径。
+- 控制面数据库备份必须使用 SQLite `.backup` / Backup API 生成逻辑快照，而不是复制运行中的 `sqlite`、`-wal`、`-shm` 文件。NAS 可以保存备份，但不是在线数据库文件系统。
+- `sandbox.workspaces_root`、`sandbox.sandboxes_root` 和 `sandbox.caches_root` 仍按各自配置生效；不要因为迁移 `.ripple/` 而隐式迁移 workspace 或 connector credentials。
 
 旧文件状态不会在服务启动时自动迁移。需要时显式运行一次：
 

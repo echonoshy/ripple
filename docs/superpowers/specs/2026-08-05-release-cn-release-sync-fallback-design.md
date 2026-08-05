@@ -31,7 +31,13 @@ and must not remain as the current repository design.
 
 ## Domestic Model Configuration
 
-Keep the existing public preset IDs to avoid breaking clients:
+The primary client contract is the actual Coding Plan model name. When a
+client supplies `model`, Ripple must try that exact model first without
+rewriting it. This supports names such as `glm-latest`,
+`glm-5-2-260617`, and other models currently available to the subscription.
+
+Keep the existing public preset IDs only as compatibility defaults for clients
+that omit a model or still send a legacy preset:
 
 - `codex-low`
 - `codex-medium`
@@ -39,8 +45,10 @@ Keep the existing public preset IDs to avoid breaking clients:
 - `codex-xhigh`
 
 Change each preset's underlying `openai-codex` model from `gpt-5.5` to
-`glm-latest`, preserving its existing reasoning effort. Configure this explicit
-fallback chain in the domestic runtime settings:
+`glm-latest`, preserving its existing reasoning effort. The server default
+remains `codex-medium`, so an omitted model resolves to `glm-latest` with medium
+effort. Configure this explicit fallback chain in the domestic runtime
+settings:
 
 ```yaml
 model:
@@ -55,15 +63,18 @@ Do not add GPT fallback entries to the domestic runtime. Do not rename the
 public `codex-*` presets or require a client release. Filtering the broader
 Codex model catalog returned by `/v1/models` is outside this synchronization;
 the preset entries must nevertheless report `glm-latest` as their underlying
-model after the change.
+model after the change. A client-supplied actual model remains caller-visible
+and is not replaced by the compatibility preset.
 
 ## Fallback Runtime Behavior
 
 Reuse the upstream implementation unchanged:
 
-1. Resolve the requested preset to its actual model and effort.
-2. Try the requested model first, followed by the configured chain with model
-   names de-duplicated.
+1. Preserve a client-supplied actual model name; resolve only recognized
+   presets or the omitted-model default to their configured actual model and
+   effort.
+2. Try that requested or resolved model first, followed by the configured chain
+   with model names de-duplicated.
 3. Fall back only for model capacity, unsupported model, entitlement, or model
    sampling HTTP 429/502/503/504 failures.
 4. Do not retry after assistant output, tool activity, file changes, approvals,
@@ -89,6 +100,8 @@ host's Python 3.8; do not change Record runtime behavior.
 - Run the Record helper unit tests with the host `python3`.
 - Confirm the final source and runtime configuration contain no GPT fallback
   entries and that all `codex-*` presets resolve to `glm-latest`.
+- Confirm an actual model supplied by a client is attempted unchanged, while
+  an omitted model and each legacy `codex-*` preset resolve to `glm-latest`.
 - Re-run minimal direct Coding Plan probes for the primary and both fallback
   models.
 - Build the server, drain active work, restart exactly one listener, and prove

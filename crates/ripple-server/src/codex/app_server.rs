@@ -167,6 +167,7 @@ fn classify_model_failure(error: &Value) -> Option<ModelFailureClass> {
         "unsupported model",
         "model is unsupported",
         "model is not supported",
+        "model does not support the coding plan feature",
         "unknown model",
         "model does not exist",
     ]
@@ -3903,6 +3904,20 @@ mod tests {
             "The 'ripple-fallback-probe-unavailable' model is not supported when using Codex with a ChatGPT account."
         );
         assert!(failure.retry_safe);
+    }
+
+    #[test]
+    fn model_failure_accepts_volcengine_coding_plan_unsupported_model_shape() {
+        let error = json!({
+            "additionalDetails": null,
+            "codexErrorInfo": "other",
+            "message": "unexpected status 404 Not Found: The requested model does not support the coding plan feature. Please refer to the documentation to select a compatible model."
+        });
+
+        assert_eq!(
+            classify_model_failure(&error),
+            Some(ModelFailureClass::Unsupported)
+        );
     }
 
     #[test]

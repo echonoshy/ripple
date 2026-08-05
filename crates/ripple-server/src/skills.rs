@@ -943,7 +943,10 @@ mod tests {
                 max_source_bytes: 64 * 1024 * 1024,
                 conversion_timeout_seconds: 120,
             },
-            skills: SkillsConfig { shared_dirs },
+            skills: SkillsConfig {
+                shared_dirs,
+                ..SkillsConfig::default()
+            },
             public_base_url: None,
             feishu: FeishuConfig::default(),
             gogcli_oauth: GogcliOAuthConfig {
@@ -1454,10 +1457,13 @@ metadata:
         assert!(!names.contains(&"frontend-design"));
         assert!(!names.contains(&"ripple-automations"));
         assert!(!names.contains(&"ripple-ui-explainer"));
+        assert!(names.contains(&"record-artifact-synthesis"));
         assert!(names.contains(&"viaim-product-support"));
 
         let rendered = render_skill_manifest(&config, None);
         assert!(!rendered.contains("ripple:ripple-ui-explainer"));
+        assert!(rendered.contains("ripple:record-artifact-synthesis"));
+        assert!(rendered.contains("fully regenerate one Record-derived summary"));
         assert!(rendered.contains("ripple:viaim-product-support"));
         assert!(rendered.contains("software/device context"));
     }

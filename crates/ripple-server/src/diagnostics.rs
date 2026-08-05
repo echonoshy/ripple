@@ -805,6 +805,7 @@ mod tests {
             },
             skills: SkillsConfig {
                 shared_dirs: vec!["skills/*".to_string()],
+                ..SkillsConfig::default()
             },
             public_base_url: None,
             feishu: Default::default(),

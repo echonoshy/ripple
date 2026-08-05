@@ -309,6 +309,7 @@ fn test_config(root: &Path) -> AppConfig {
         },
         skills: SkillsConfig {
             shared_dirs: Vec::new(),
+            ..SkillsConfig::default()
         },
         public_base_url: None,
         feishu: FeishuConfig::default(),

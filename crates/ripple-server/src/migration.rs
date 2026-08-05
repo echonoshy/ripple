@@ -342,6 +342,7 @@ mod tests {
             },
             skills: SkillsConfig {
                 shared_dirs: Vec::new(),
+                ..SkillsConfig::default()
             },
             public_base_url: None,
             feishu: FeishuConfig::default(),

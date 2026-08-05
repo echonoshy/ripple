@@ -182,6 +182,16 @@ pub struct CodexConfig {
 #[derive(Clone, Debug)]
 pub struct SkillsConfig {
     pub shared_dirs: Vec<String>,
+    pub auto_select_record_artifact_synthesis: bool,
+}
+
+impl Default for SkillsConfig {
+    fn default() -> Self {
+        Self {
+            shared_dirs: Vec::new(),
+            auto_select_record_artifact_synthesis: true,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -393,6 +403,7 @@ struct RawCodex {
 #[derive(Debug, Default, Deserialize)]
 struct RawSkills {
     shared_dirs: Option<Vec<String>>,
+    auto_select_record_artifact_synthesis: Option<bool>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -694,6 +705,9 @@ impl AppConfig {
                 shared_dirs: skills_raw
                     .shared_dirs
                     .unwrap_or_else(|| vec!["skills/*".to_string()]),
+                auto_select_record_artifact_synthesis: skills_raw
+                    .auto_select_record_artifact_synthesis
+                    .unwrap_or(true),
             },
             public_base_url,
             feishu,
@@ -1184,6 +1198,100 @@ mod tests {
 
         let config = loaded.expect("load default config");
         assert_eq!(config.skills.shared_dirs, vec!["skills/*".to_string()]);
+        assert!(config.skills.auto_select_record_artifact_synthesis);
+    }
+
+    #[test]
+    fn parses_record_artifact_synthesis_global_toggle() {
+        let config = with_temp_config(
+            "record-artifact-synthesis",
+            "server:\n  api_keys: [test-key]\nskills:\n  auto_select_record_artifact_synthesis: false\n",
+            AppConfig::load,
+        )
+        .expect("load config");
+
+        assert!(!config.skills.auto_select_record_artifact_synthesis);
+    }
+
+    #[test]
+    fn model_fallback_chain_defaults_to_disabled() {
+        let config = with_temp_config(
+            "model-fallback-disabled",
+            "server:\n  api_keys: [test-key]\n",
+            AppConfig::load,
+        )
+        .expect("load config");
+
+        assert!(config.model_fallback_chain.is_empty());
+    }
+
+    #[test]
+    fn parses_model_fallback_chain_in_order() {
+        let config = with_temp_config(
+            "model-fallback",
+            "model:\n  fallback_chain:\n    - model: gpt-5.6-luna\n      reasoning_effort: low\n    - model: gpt-5.6-terra\n      reasoning_effort: low\n    - model: gpt-5.5\n      reasoning_effort: low\nserver:\n  api_keys: [test-key]\n",
+            AppConfig::load,
+        )
+        .expect("load config");
+
+        assert_eq!(config.model_fallback_chain.len(), 3);
+        assert_eq!(config.model_fallback_chain[0].model, "gpt-5.6-luna");
+        assert_eq!(
+            config.model_fallback_chain[0].reasoning_effort.as_deref(),
+            Some("low")
+        );
+        assert_eq!(config.model_fallback_chain[1].model, "gpt-5.6-terra");
+        assert_eq!(config.model_fallback_chain[2].model, "gpt-5.5");
+    }
+
+    #[test]
+    fn rejects_invalid_model_fallback_entries() {
+        let missing_model = with_temp_config(
+            "model-fallback-missing-model",
+            "model:\n  fallback_chain:\n    - model: '  '\n      reasoning_effort: low\nserver:\n  api_keys: [test-key]\n",
+            AppConfig::load,
+        )
+        .expect_err("empty fallback model should fail");
+        assert!(missing_model
+            .to_string()
+            .contains("fallback_chain[0].model"));
+
+        let invalid_effort = with_temp_config(
+            "model-fallback-invalid-effort",
+            "model:\n  fallback_chain:\n    - model: gpt-5.6-luna\n      reasoning_effort: fastest\nserver:\n  api_keys: [test-key]\n",
+            AppConfig::load,
+        )
+        .expect_err("invalid fallback effort should fail");
+        assert!(invalid_effort
+            .to_string()
+            .contains("fallback_chain[0].reasoning_effort"));
+    }
+
+    #[test]
+    fn model_attempts_keep_original_first_and_deduplicate_by_model() {
+        let config = with_temp_config(
+            "model-fallback-attempts",
+            "model:\n  fallback_chain:\n    - model: gpt-5.6-luna\n      reasoning_effort: low\n    - model: gpt-5.6-terra\n      reasoning_effort: low\n    - model: gpt-5.5\n      reasoning_effort: low\nserver:\n  api_keys: [test-key]\n",
+            AppConfig::load,
+        )
+        .expect("load config");
+
+        let attempts = config.model_attempts("gpt-5.6-luna", Some("high"));
+        assert_eq!(
+            attempts
+                .iter()
+                .map(|attempt| (attempt.model.as_str(), attempt.reasoning_effort.as_deref()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("gpt-5.6-luna", Some("high")),
+                ("gpt-5.6-terra", Some("low")),
+                ("gpt-5.5", Some("low")),
+            ]
+        );
+
+        let last_model = config.model_attempts("gpt-5.5", Some("medium"));
+        assert_eq!(last_model.len(), 1);
+        assert_eq!(last_model[0].reasoning_effort.as_deref(), Some("medium"));
     }
 
     #[test]

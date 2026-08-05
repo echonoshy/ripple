@@ -279,3 +279,6 @@ skills:
   # 路径相对于项目根目录，或使用 ~ 展开为绝对路径
   shared_dirs:
     - "skills/lark"
+    - "skills/record-artifact-synthesis"
+  # 对所有用户的完整 Record 摘要/脑图/标题生成请求自动选择该 skill。
+  auto_select_record_artifact_synthesis: true

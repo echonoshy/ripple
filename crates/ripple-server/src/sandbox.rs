@@ -937,6 +937,7 @@ mod tests {
             cors: crate::config::CorsConfig::default(),
             default_model: "codex-test".to_string(),
             model_presets: Default::default(),
+            model_fallback_chain: Vec::new(),
             logging: crate::config::LoggingConfig {
                 level: "debug".to_string(),
             },
@@ -996,6 +997,7 @@ mod tests {
             },
             skills: SkillsConfig {
                 shared_dirs: Vec::new(),
+                ..SkillsConfig::default()
             },
             public_base_url: None,
             feishu: FeishuConfig::default(),

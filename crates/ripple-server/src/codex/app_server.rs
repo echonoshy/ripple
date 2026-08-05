@@ -52,6 +52,197 @@ const TAIL_CHARS: usize = 64_000;
 const CODEX_NATIVE_INPUT_TYPES: &[&str] = &["text", "image", "localImage"];
 const THREAD_NOTIFICATION_QUEUE: &str = "__thread__";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ModelFailureClass {
+    Capacity,
+    Unsupported,
+    Entitlement,
+    TransientHttp,
+}
+
+impl ModelFailureClass {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Capacity => "capacity",
+            Self::Unsupported => "unsupported",
+            Self::Entitlement => "entitlement",
+            Self::TransientHttp => "transient_http",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct TurnFailure {
+    message: String,
+    http_status: Option<u16>,
+    class: Option<ModelFailureClass>,
+    retry_safe: bool,
+    buffered_notifications: Vec<Value>,
+}
+
+enum TurnOutcome {
+    Completed(String),
+    Failed(TurnFailure),
+}
+
+struct TurnAttemptResult {
+    thread_id: String,
+    turn_id: String,
+    notifications: mpsc::UnboundedReceiver<Value>,
+    outcome: TurnOutcome,
+    thread_resumed: bool,
+}
+
+fn turn_error_value(message: &Value) -> Option<&Value> {
+    message
+        .pointer("/params/turn/error")
+        .or_else(|| message.pointer("/params/error"))
+        .or_else(|| message.get("error"))
+}
+
+fn error_message(error: &Value) -> String {
+    let message = error
+        .get("message")
+        .and_then(Value::as_str)
+        .or_else(|| error.as_str())
+        .unwrap_or("codex turn failed");
+    serde_json::from_str::<Value>(message)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("detail")
+                .or_else(|| value.get("message"))
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| message.to_string())
+}
+
+fn error_http_status(error: &Value) -> Option<u16> {
+    error
+        .pointer("/codexErrorInfo/httpStatusCode")
+        .and_then(Value::as_u64)
+        .and_then(|status| u16::try_from(status).ok())
+}
+
+fn classify_model_failure(error: &Value) -> Option<ModelFailureClass> {
+    let message = error_message(error).to_ascii_lowercase();
+    let status = error_http_status(error);
+    let is_non_model_failure = [
+        "access token",
+        "refresh token",
+        "authentication",
+        "unauthorized",
+        "sandbox",
+        "permission denied",
+        "approval",
+        "timed out",
+        "timeout",
+        "cancelled",
+        "canceled",
+        "interrupted",
+        "tool failed",
+        "tool error",
+    ]
+    .iter()
+    .any(|term| message.contains(term));
+    if is_non_model_failure || matches!(status, Some(401)) {
+        return None;
+    }
+
+    if [
+        "at capacity",
+        "capacity",
+        "overloaded",
+        "rate limit",
+        "too many requests",
+    ]
+    .iter()
+    .any(|term| message.contains(term))
+    {
+        return Some(ModelFailureClass::Capacity);
+    }
+    if [
+        "model not found",
+        "unsupported model",
+        "model is unsupported",
+        "model is not supported",
+        "unknown model",
+        "model does not exist",
+    ]
+    .iter()
+    .any(|term| message.contains(term))
+    {
+        return Some(ModelFailureClass::Unsupported);
+    }
+    if [
+        "model is not available for your account",
+        "model not available for your account",
+        "model is not enabled",
+        "no access to model",
+        "does not have access to model",
+        "not entitled to",
+    ]
+    .iter()
+    .any(|term| message.contains(term))
+    {
+        return Some(ModelFailureClass::Entitlement);
+    }
+    if matches!(status, Some(429 | 502 | 503 | 504)) {
+        return Some(ModelFailureClass::TransientHttp);
+    }
+    None
+}
+
+fn turn_failure_from_message(message: &Value, retry_safe: bool) -> Option<TurnFailure> {
+    let error = turn_error_value(message)?;
+    let class = classify_model_failure(error);
+    Some(TurnFailure {
+        message: error_message(error),
+        http_status: error_http_status(error),
+        class,
+        retry_safe: retry_safe && class.is_some(),
+        buffered_notifications: Vec::new(),
+    })
+}
+
+fn turn_activity_blocks_fallback(message: &Value) -> bool {
+    let method = message.get("method").and_then(Value::as_str).unwrap_or("");
+    if method == "item/agentMessage/delta" {
+        return message
+            .pointer("/params/delta")
+            .and_then(Value::as_str)
+            .is_some_and(|delta| !delta.is_empty());
+    }
+    if method.contains("requestApproval")
+        || method == "item/tool/requestUserInput"
+        || method == "item/tool/call"
+    {
+        return true;
+    }
+    if !matches!(method, "item/started" | "item/completed") {
+        return false;
+    }
+    match message.pointer("/params/item/type").and_then(Value::as_str) {
+        Some("agentMessage") => {
+            completed_final_agent_message(message).is_some_and(|text| !text.is_empty())
+        }
+        Some("commandExecution" | "fileChange" | "mcpToolCall" | "dynamicToolCall") => true,
+        _ => false,
+    }
+}
+
+fn is_buffered_failure_notification(message: &Value) -> bool {
+    let method = message.get("method").and_then(Value::as_str);
+    matches!(method, Some("error" | "turn/error"))
+        || (method == Some("thread/status/changed")
+            && message
+                .pointer("/params/status/type")
+                .or_else(|| message.pointer("/params/status"))
+                .and_then(Value::as_str)
+                == Some("systemError"))
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ServiceAuthFingerprint {
     len: u64,
@@ -596,6 +787,17 @@ impl CodexAppServerProvider {
         let mut thread_id = None;
         let mut turn_id = None;
         let mut thread_resumed = false;
+        let (selected_model, selected_effort) = request
+            .model
+            .clone()
+            .map(|model| (model, request.effort.clone()))
+            .unwrap_or_else(|| self.config.resolve_model(None));
+        let model_attempts = self
+            .config
+            .model_attempts(&selected_model, selected_effort.as_deref());
+        let mut attempt_index = 0_usize;
+        let mut attempt_thread_id: Option<String> = None;
+        let mut fallback_used = false;
 
         let mut turn_rx = None;
         let mut session = self.session_for_request(&request).await?;
@@ -626,17 +828,123 @@ impl CodexAppServerProvider {
                 if self.take_cancelled_before_turn(&job_id).await {
                     break (AgentRunnerStatus::Cancelled, None);
                 }
+                let attempt = &model_attempts[attempt_index];
+                let mut attempt_request = request.clone();
+                attempt_request.model = Some(attempt.model.clone());
+                attempt_request.effort = attempt.reasoning_effort.clone();
                 match self
-                    .run_turn(&request, &job_id, &events_file, &mut sequence, &session)
+                    .run_turn(
+                        &attempt_request,
+                        &job_id,
+                        &events_file,
+                        &mut sequence,
+                        &session,
+                        attempt_thread_id.as_deref(),
+                    )
                     .await
                 {
-                    Ok((ids, rx, text, resumed)) => {
-                        thread_id = Some(ids.0);
-                        turn_id = Some(ids.1);
-                        turn_rx = Some(rx);
-                        output_text = text;
-                        thread_resumed = resumed;
-                        break (AgentRunnerStatus::Completed, None);
+                    Ok(result) => {
+                        let TurnAttemptResult {
+                            thread_id: current_thread_id,
+                            turn_id: current_turn_id,
+                            notifications,
+                            outcome,
+                            thread_resumed: current_thread_resumed,
+                        } = result;
+                        thread_resumed |= current_thread_resumed;
+                        match outcome {
+                            TurnOutcome::Completed(text) => {
+                                thread_id = Some(current_thread_id);
+                                turn_id = Some(current_turn_id);
+                                turn_rx = Some(notifications);
+                                output_text = text;
+                                if fallback_used {
+                                    tracing::info!(
+                                        job_id,
+                                        attempt = attempt_index + 1,
+                                        model = attempt.model,
+                                        reasoning_effort = ?attempt.reasoning_effort,
+                                        "Codex model fallback completed"
+                                    );
+                                }
+                                break (AgentRunnerStatus::Completed, None);
+                            }
+                            TurnOutcome::Failed(failure) => {
+                                session
+                                    .unregister_turn(&current_thread_id, &current_turn_id)
+                                    .await;
+                                drop(notifications);
+                                thread_id = Some(current_thread_id.clone());
+                                turn_id = Some(current_turn_id.clone());
+
+                                let next_attempt = model_attempts.get(attempt_index + 1);
+                                if failure.retry_safe && next_attempt.is_some() {
+                                    let reuse_thread = persistent_thread(&request);
+                                    let rollback = if reuse_thread {
+                                        session
+                                            .request(
+                                                "thread/rollback",
+                                                json!({
+                                                    "threadId": current_thread_id,
+                                                    "numTurns": 1
+                                                }),
+                                            )
+                                            .await
+                                            .map(|_| ())
+                                    } else {
+                                        Ok(())
+                                    };
+                                    if rollback.is_ok() {
+                                        let next_attempt = next_attempt.expect("checked above");
+                                        tracing::info!(
+                                            job_id,
+                                            attempt = attempt_index + 2,
+                                            from_model = attempt.model,
+                                            to_model = next_attempt.model,
+                                            reasoning_effort = ?next_attempt.reasoning_effort,
+                                            failure_class = failure
+                                                .class
+                                                .map(ModelFailureClass::as_str),
+                                            http_status = failure.http_status,
+                                            thread_id = current_thread_id,
+                                            turn_id = current_turn_id,
+                                            thread_reused = reuse_thread,
+                                            "Codex model fallback started"
+                                        );
+                                        self.clear_job_transient_state(&job_id).await;
+                                        attempt_thread_id =
+                                            reuse_thread.then_some(current_thread_id.clone());
+                                        attempt_index += 1;
+                                        fallback_used = true;
+                                        continue;
+                                    }
+                                    if let Err(rollback_err) = rollback {
+                                        tracing::warn!(
+                                            job_id,
+                                            thread_id = current_thread_id,
+                                            turn_id = current_turn_id,
+                                            model = attempt.model,
+                                            error = %rollback_err,
+                                            "Codex model fallback rollback failed"
+                                        );
+                                    }
+                                }
+
+                                for notification in failure.buffered_notifications {
+                                    append_event(
+                                        &events_file,
+                                        &mut sequence,
+                                        &job_id,
+                                        &request.provider,
+                                        "codex.notification",
+                                        None,
+                                        json!({ "message": notification }),
+                                    )
+                                    .await?;
+                                }
+                                break (AgentRunnerStatus::Failed, Some(failure.message));
+                            }
+                        }
                     }
                     Err(err) => {
                         let stderr_tail = session.stderr_tail_since(stderr_start).await;
@@ -799,12 +1107,8 @@ impl CodexAppServerProvider {
         events_file: &Path,
         sequence: &mut u64,
         session: &Arc<CodexAppServerSession>,
-    ) -> anyhow::Result<(
-        (String, String),
-        mpsc::UnboundedReceiver<Value>,
-        String,
-        bool,
-    )> {
+        existing_thread_id: Option<&str>,
+    ) -> anyhow::Result<TurnAttemptResult> {
         session.ensure_initialized().await?;
         let workspace_root = request
             .metadata
@@ -820,9 +1124,12 @@ impl CodexAppServerProvider {
             .unwrap_or_else(|| request.cwd.clone());
         let permission_config =
             thread_config_for_request(&workspace_root, &permission_root, &self.config, request);
-        let (thread_id, thread_resumed) = self
-            .ensure_thread(request, session, &permission_config)
-            .await?;
+        let (thread_id, thread_resumed) = if let Some(thread_id) = existing_thread_id {
+            (thread_id.to_string(), false)
+        } else {
+            self.ensure_thread(request, session, &permission_config)
+                .await?
+        };
         let additional_context_epoch = self.additional_context_epoch(&thread_id).await;
 
         let turn_result = session
@@ -852,7 +1159,7 @@ impl CodexAppServerProvider {
                 turn_id: turn_id.clone(),
             },
         );
-        let output = self
+        let outcome = self
             .collect_turn(
                 request,
                 job_id,
@@ -864,7 +1171,13 @@ impl CodexAppServerProvider {
                 &mut rx,
             )
             .await?;
-        Ok(((thread_id, turn_id), rx, output, thread_resumed))
+        Ok(TurnAttemptResult {
+            thread_id,
+            turn_id,
+            notifications: rx,
+            outcome,
+            thread_resumed,
+        })
     }
 
     async fn collect_turn(
@@ -877,14 +1190,62 @@ impl CodexAppServerProvider {
         sequence: &mut u64,
         session: &Arc<CodexAppServerSession>,
         rx: &mut mpsc::UnboundedReceiver<Value>,
-    ) -> anyhow::Result<String> {
+    ) -> anyhow::Result<TurnOutcome> {
         let mut legacy_output_parts = Vec::new();
         let mut final_output_text = String::new();
         let mut phases: HashMap<String, Option<String>> = HashMap::new();
         let mut context_compaction_seen = false;
+        let mut fallback_blocked = false;
+        let mut buffered_notifications = Vec::new();
         let deadline = Duration::from_secs(request.max_runtime_seconds.max(1));
         let collect = async {
             while let Some(message) = rx.recv().await {
+                if is_buffered_failure_notification(&message) {
+                    buffered_notifications.push(message);
+                    continue;
+                }
+                if is_turn_completed(&message, thread_id, turn_id)
+                    && message
+                        .pointer("/params/turn/status")
+                        .and_then(Value::as_str)
+                        == Some("failed")
+                {
+                    buffered_notifications.push(message.clone());
+                    let source = turn_error_value(&message).map(|_| &message).or_else(|| {
+                        buffered_notifications
+                            .iter()
+                            .rev()
+                            .find(|notification| turn_error_value(notification).is_some())
+                    });
+                    let mut failure = source
+                        .and_then(|notification| {
+                            turn_failure_from_message(notification, !fallback_blocked)
+                        })
+                        .unwrap_or_else(|| TurnFailure {
+                            message: "codex turn failed".to_string(),
+                            http_status: None,
+                            class: None,
+                            retry_safe: false,
+                            buffered_notifications: Vec::new(),
+                        });
+                    if failure.class.is_none() {
+                        for notification in buffered_notifications.drain(..) {
+                            append_event(
+                                events_file,
+                                sequence,
+                                job_id,
+                                &request.provider,
+                                "codex.notification",
+                                None,
+                                json!({ "message": notification }),
+                            )
+                            .await?;
+                        }
+                        anyhow::bail!(failure.message);
+                    }
+                    failure.buffered_notifications = std::mem::take(&mut buffered_notifications);
+                    return Ok::<_, anyhow::Error>(TurnOutcome::Failed(failure));
+                }
                 append_event(
                     events_file,
                     sequence,
@@ -895,6 +1256,7 @@ impl CodexAppServerProvider {
                     json!({ "message": message }),
                 )
                 .await?;
+                fallback_blocked |= turn_activity_blocks_fallback(&message);
                 if let Some(approval) = parse_approval_request(&message, job_id, request) {
                     self.pending_approvals
                         .lock()
@@ -957,14 +1319,27 @@ impl CodexAppServerProvider {
                         .pointer("/params/turn/status")
                         .and_then(Value::as_str);
                     if turn_status == Some("interrupted") {
-                        return Ok::<_, anyhow::Error>(legacy_output_parts.join(""));
+                        return Ok::<_, anyhow::Error>(TurnOutcome::Completed(
+                            legacy_output_parts.join(""),
+                        ));
                     }
-                    if turn_status == Some("failed") {
-                        anyhow::bail!("codex turn failed");
+                    for notification in buffered_notifications.drain(..) {
+                        append_event(
+                            events_file,
+                            sequence,
+                            job_id,
+                            &request.provider,
+                            "codex.notification",
+                            None,
+                            json!({ "message": notification }),
+                        )
+                        .await?;
                     }
-                    return Ok(final_output_text
-                        .clone()
-                        .if_empty_then(|| legacy_output_parts.join("")));
+                    return Ok(TurnOutcome::Completed(
+                        final_output_text
+                            .clone()
+                            .if_empty_then(|| legacy_output_parts.join("")),
+                    ));
                 }
             }
             anyhow::bail!("codex app-server notification stream ended before turn completion")
@@ -3436,6 +3811,118 @@ mod tests {
     }
 
     #[test]
+    fn model_failure_extracts_capacity_status_and_message() {
+        let completed = json!({
+            "method": "turn/completed",
+            "params": {
+                "threadId": "thread-1",
+                "turn": {
+                    "id": "turn-1",
+                    "status": "failed",
+                    "error": {
+                        "message": "Selected model is at capacity. Please try a different model.",
+                        "codexErrorInfo": {"httpStatusCode": 503}
+                    }
+                }
+            }
+        });
+
+        let failure = turn_failure_from_message(&completed, true).expect("turn failure");
+        assert_eq!(failure.class, Some(ModelFailureClass::Capacity));
+        assert_eq!(failure.http_status, Some(503));
+        assert_eq!(
+            failure.message,
+            "Selected model is at capacity. Please try a different model."
+        );
+        assert!(failure.retry_safe);
+    }
+
+    #[test]
+    fn model_failure_rejects_auth_permissions_timeout_and_cancel() {
+        for (message, status) in [
+            ("Your access token is invalid", 401),
+            ("sandbox denied access to the workspace", 403),
+            ("request timed out", 504),
+            ("turn was cancelled", 503),
+        ] {
+            let error = json!({
+                "message": message,
+                "codexErrorInfo": {"httpStatusCode": status}
+            });
+            assert_eq!(classify_model_failure(&error), None, "{message}");
+        }
+    }
+
+    #[test]
+    fn model_failure_accepts_supported_model_unavailable_errors() {
+        let cases = [
+            ("model is overloaded", 503, ModelFailureClass::Capacity),
+            ("model not found", 404, ModelFailureClass::Unsupported),
+            (
+                "model is not available for your account",
+                403,
+                ModelFailureClass::Entitlement,
+            ),
+            (
+                "upstream service unavailable",
+                502,
+                ModelFailureClass::TransientHttp,
+            ),
+        ];
+        for (message, status, expected) in cases {
+            let error = json!({
+                "message": message,
+                "codexErrorInfo": {"httpStatusCode": status}
+            });
+            assert_eq!(classify_model_failure(&error), Some(expected), "{message}");
+        }
+    }
+
+    #[test]
+    fn model_failure_accepts_real_codex_unsupported_model_shape() {
+        let completed = json!({
+            "method": "turn/completed",
+            "params": {
+                "threadId": "thread-1",
+                "turn": {
+                    "id": "turn-1",
+                    "status": "failed",
+                    "error": {
+                        "additionalDetails": null,
+                        "codexErrorInfo": "other",
+                        "message": "{\"detail\":\"The 'ripple-fallback-probe-unavailable' model is not supported when using Codex with a ChatGPT account.\"}"
+                    }
+                }
+            }
+        });
+
+        let failure = turn_failure_from_message(&completed, true).expect("turn failure");
+        assert_eq!(failure.class, Some(ModelFailureClass::Unsupported));
+        assert_eq!(
+            failure.message,
+            "The 'ripple-fallback-probe-unavailable' model is not supported when using Codex with a ChatGPT account."
+        );
+        assert!(failure.retry_safe);
+    }
+
+    #[test]
+    fn turn_activity_marks_output_tools_and_user_interactions_unsafe() {
+        let blocking = [
+            json!({"method": "item/agentMessage/delta", "params": {"delta": "hello"}}),
+            json!({"method": "item/started", "params": {"item": {"type": "commandExecution"}}}),
+            json!({"method": "item/fileChange/requestApproval", "id": 1, "params": {}}),
+            json!({"method": "item/tool/requestUserInput", "id": 2, "params": {}}),
+        ];
+        for message in blocking {
+            assert!(turn_activity_blocks_fallback(&message), "{message}");
+        }
+        assert!(!turn_activity_blocks_fallback(&json!({
+            "method": "item/started",
+            "params": {"item": {"type": "reasoning"}}
+        })));
+    }
+
+    #[test]
     fn service_codex_auth_relogin_message_names_service_home() {
         let config = test_config();
         let message = service_codex_auth_relogin_message(&config);
@@ -3590,6 +4077,7 @@ mod tests {
             cors: CorsConfig::default(),
             default_model: "codex-medium".to_string(),
             model_presets: BTreeMap::new(),
+            model_fallback_chain: Vec::new(),
             logging: LoggingConfig {
                 level: "debug".to_string(),
             },
@@ -3648,6 +4136,7 @@ mod tests {
             },
             skills: SkillsConfig {
                 shared_dirs: vec!["skills/*".to_string()],
+                ..SkillsConfig::default()
             },
             public_base_url: None,
             feishu: FeishuConfig::default(),

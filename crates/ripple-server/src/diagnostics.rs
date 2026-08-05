@@ -746,6 +746,7 @@ mod tests {
             cors: CorsConfig::default(),
             default_model: "codex-medium".to_string(),
             model_presets: Default::default(),
+            model_fallback_chain: Vec::new(),
             logging: LoggingConfig {
                 level: "debug".to_string(),
             },
@@ -804,6 +805,7 @@ mod tests {
             },
             skills: SkillsConfig {
                 shared_dirs: vec!["skills/*".to_string()],
+                ..SkillsConfig::default()
             },
             public_base_url: None,
             feishu: Default::default(),

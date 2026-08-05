@@ -459,6 +459,7 @@ INSERT INTO logs (
             cors: CorsConfig::default(),
             default_model: "codex-medium".to_string(),
             model_presets: BTreeMap::new(),
+            model_fallback_chain: Vec::new(),
             logging: LoggingConfig {
                 level: "debug".to_string(),
             },
@@ -517,6 +518,7 @@ INSERT INTO logs (
             },
             skills: SkillsConfig {
                 shared_dirs: vec!["skills/*".to_string()],
+                ..SkillsConfig::default()
             },
             public_base_url: None,
             feishu: FeishuConfig::default(),

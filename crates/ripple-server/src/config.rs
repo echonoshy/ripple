@@ -25,6 +25,7 @@ pub struct AppConfig {
     pub cors: CorsConfig,
     pub default_model: String,
     pub model_presets: BTreeMap<String, ModelPreset>,
+    pub model_fallback_chain: Vec<ModelFallback>,
     pub logging: LoggingConfig,
     pub storage: StorageConfig,
     pub sandbox: SandboxConfig,
@@ -43,6 +44,14 @@ pub struct ModelPreset {
     pub model: String,
     pub reasoning_effort: Option<String>,
 }
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ModelFallback {
+    pub model: String,
+    pub reasoning_effort: Option<String>,
+}
+
+pub type ModelAttempt = ModelFallback;
 
 #[derive(Clone, Debug)]
 pub struct LoggingConfig {
@@ -173,6 +182,16 @@ pub struct CodexConfig {
 #[derive(Clone, Debug)]
 pub struct SkillsConfig {
     pub shared_dirs: Vec<String>,
+    pub auto_select_record_artifact_synthesis: bool,
+}
+
+impl Default for SkillsConfig {
+    fn default() -> Self {
+        Self {
+            shared_dirs: Vec::new(),
+            auto_select_record_artifact_synthesis: true,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -349,6 +368,13 @@ struct RawCliTool {
 struct RawModel {
     default: Option<String>,
     presets: Option<BTreeMap<String, BTreeMap<String, serde_yaml::Value>>>,
+    fallback_chain: Option<Vec<RawModelFallback>>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct RawModelFallback {
+    model: Option<String>,
+    reasoning_effort: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -377,6 +403,7 @@ struct RawCodex {
 #[derive(Debug, Default, Deserialize)]
 struct RawSkills {
     shared_dirs: Option<Vec<String>>,
+    auto_select_record_artifact_synthesis: Option<bool>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -470,6 +497,7 @@ impl AppConfig {
         let skills_raw = raw.skills.unwrap_or_default();
 
         let model_presets = parse_model_presets(model.presets.unwrap_or_default());
+        let model_fallback_chain = parse_model_fallback_chain(model.fallback_chain)?;
         let default_model = model.default.unwrap_or_else(|| "codex-medium".to_string());
         let sandbox_sandboxes_root = resolve_path(
             &repo_root,
@@ -565,6 +593,7 @@ impl AppConfig {
             },
             default_model,
             model_presets,
+            model_fallback_chain,
             logging: LoggingConfig {
                 level: clean_config_string(logging.level.as_deref())
                     .unwrap_or_else(|| "debug".to_string()),
@@ -676,6 +705,9 @@ impl AppConfig {
                 shared_dirs: skills_raw
                     .shared_dirs
                     .unwrap_or_else(|| vec!["skills/*".to_string()]),
+                auto_select_record_artifact_synthesis: skills_raw
+                    .auto_select_record_artifact_synthesis
+                    .unwrap_or(true),
             },
             public_base_url,
             feishu,
@@ -703,6 +735,29 @@ impl AppConfig {
             return (preset.model.clone(), preset.reasoning_effort.clone());
         }
         (alias.to_string(), None)
+    }
+
+    pub fn model_attempts(&self, model: &str, effort: Option<&str>) -> Vec<ModelAttempt> {
+        let mut seen = BTreeSet::new();
+        let mut attempts = Vec::with_capacity(self.model_fallback_chain.len() + 1);
+        let model = model.trim();
+        if seen.insert(model.to_string()) {
+            attempts.push(ModelAttempt {
+                model: model.to_string(),
+                reasoning_effort: effort.map(str::to_string),
+            });
+        }
+        let fallback_start = self
+            .model_fallback_chain
+            .iter()
+            .position(|fallback| fallback.model == model)
+            .map_or(0, |index| index + 1);
+        for fallback in self.model_fallback_chain.iter().skip(fallback_start) {
+            if seen.insert(fallback.model.clone()) {
+                attempts.push(fallback.clone());
+            }
+        }
+        attempts
     }
 
     pub fn codex_home_path(&self) -> PathBuf {
@@ -1012,6 +1067,32 @@ fn parse_model_presets(
         .collect()
 }
 
+fn parse_model_fallback_chain(
+    raw: Option<Vec<RawModelFallback>>,
+) -> anyhow::Result<Vec<ModelFallback>> {
+    raw.unwrap_or_default()
+        .into_iter()
+        .enumerate()
+        .map(|(index, fallback)| {
+            let model = clean_config_string(fallback.model.as_deref()).ok_or_else(|| {
+                anyhow::anyhow!("model.fallback_chain[{index}].model must not be empty")
+            })?;
+            let reasoning_effort = clean_config_string(fallback.reasoning_effort.as_deref());
+            if let Some(effort) = reasoning_effort.as_deref() {
+                if !matches!(effort, "low" | "medium" | "high" | "xhigh") {
+                    anyhow::bail!(
+                        "model.fallback_chain[{index}].reasoning_effort must be one of low, medium, high, xhigh"
+                    );
+                }
+            }
+            Ok(ModelFallback {
+                model,
+                reasoning_effort,
+            })
+        })
+        .collect()
+}
+
 pub fn resolve_path(base: &Path, value: &str) -> PathBuf {
     let path = PathBuf::from(value);
     if path.is_absolute() {
@@ -1117,6 +1198,100 @@ mod tests {
 
         let config = loaded.expect("load default config");
         assert_eq!(config.skills.shared_dirs, vec!["skills/*".to_string()]);
+        assert!(config.skills.auto_select_record_artifact_synthesis);
+    }
+
+    #[test]
+    fn parses_record_artifact_synthesis_global_toggle() {
+        let config = with_temp_config(
+            "record-artifact-synthesis",
+            "server:\n  api_keys: [test-key]\nskills:\n  auto_select_record_artifact_synthesis: false\n",
+            AppConfig::load,
+        )
+        .expect("load config");
+
+        assert!(!config.skills.auto_select_record_artifact_synthesis);
+    }
+
+    #[test]
+    fn model_fallback_chain_defaults_to_disabled() {
+        let config = with_temp_config(
+            "model-fallback-disabled",
+            "server:\n  api_keys: [test-key]\n",
+            AppConfig::load,
+        )
+        .expect("load config");
+
+        assert!(config.model_fallback_chain.is_empty());
+    }
+
+    #[test]
+    fn parses_model_fallback_chain_in_order() {
+        let config = with_temp_config(
+            "model-fallback",
+            "model:\n  fallback_chain:\n    - model: gpt-5.6-luna\n      reasoning_effort: low\n    - model: gpt-5.6-terra\n      reasoning_effort: low\n    - model: gpt-5.5\n      reasoning_effort: low\nserver:\n  api_keys: [test-key]\n",
+            AppConfig::load,
+        )
+        .expect("load config");
+
+        assert_eq!(config.model_fallback_chain.len(), 3);
+        assert_eq!(config.model_fallback_chain[0].model, "gpt-5.6-luna");
+        assert_eq!(
+            config.model_fallback_chain[0].reasoning_effort.as_deref(),
+            Some("low")
+        );
+        assert_eq!(config.model_fallback_chain[1].model, "gpt-5.6-terra");
+        assert_eq!(config.model_fallback_chain[2].model, "gpt-5.5");
+    }
+
+    #[test]
+    fn rejects_invalid_model_fallback_entries() {
+        let missing_model = with_temp_config(
+            "model-fallback-missing-model",
+            "model:\n  fallback_chain:\n    - model: '  '\n      reasoning_effort: low\nserver:\n  api_keys: [test-key]\n",
+            AppConfig::load,
+        )
+        .expect_err("empty fallback model should fail");
+        assert!(missing_model
+            .to_string()
+            .contains("fallback_chain[0].model"));
+
+        let invalid_effort = with_temp_config(
+            "model-fallback-invalid-effort",
+            "model:\n  fallback_chain:\n    - model: gpt-5.6-luna\n      reasoning_effort: fastest\nserver:\n  api_keys: [test-key]\n",
+            AppConfig::load,
+        )
+        .expect_err("invalid fallback effort should fail");
+        assert!(invalid_effort
+            .to_string()
+            .contains("fallback_chain[0].reasoning_effort"));
+    }
+
+    #[test]
+    fn model_attempts_keep_original_first_and_deduplicate_by_model() {
+        let config = with_temp_config(
+            "model-fallback-attempts",
+            "model:\n  fallback_chain:\n    - model: gpt-5.6-luna\n      reasoning_effort: low\n    - model: gpt-5.6-terra\n      reasoning_effort: low\n    - model: gpt-5.5\n      reasoning_effort: low\nserver:\n  api_keys: [test-key]\n",
+            AppConfig::load,
+        )
+        .expect("load config");
+
+        let attempts = config.model_attempts("gpt-5.6-luna", Some("high"));
+        assert_eq!(
+            attempts
+                .iter()
+                .map(|attempt| (attempt.model.as_str(), attempt.reasoning_effort.as_deref()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("gpt-5.6-luna", Some("high")),
+                ("gpt-5.6-terra", Some("low")),
+                ("gpt-5.5", Some("low")),
+            ]
+        );
+
+        let last_model = config.model_attempts("gpt-5.5", Some("medium"));
+        assert_eq!(last_model.len(), 1);
+        assert_eq!(last_model[0].reasoning_effort.as_deref(), Some("medium"));
     }
 
     #[test]

@@ -287,6 +287,7 @@ mod tests {
             cors: CorsConfig::default(),
             default_model: "codex-test".to_string(),
             model_presets: BTreeMap::new(),
+            model_fallback_chain: Vec::new(),
             logging: LoggingConfig {
                 level: "debug".to_string(),
             },
@@ -341,6 +342,7 @@ mod tests {
             },
             skills: SkillsConfig {
                 shared_dirs: Vec::new(),
+                ..SkillsConfig::default()
             },
             public_base_url: None,
             feishu: FeishuConfig::default(),

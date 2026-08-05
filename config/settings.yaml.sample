@@ -8,6 +8,16 @@ model:
   # 默认 Codex 预设
   default: "codex-medium"
 
+  # 当前模型因容量、可用性或模型级上游错误失败，且尚无输出/工具副作用时，按顺序静默降级。
+  # 删除或设为空列表可禁用自动降级。
+  fallback_chain:
+    - model: "gpt-5.6-luna"
+      reasoning_effort: "low"
+    - model: "gpt-5.6-terra"
+      reasoning_effort: "low"
+    - model: "gpt-5.5"
+      reasoning_effort: "low"
+
   # 模型预设（/models 查看，/model <别名> 切换）
   # reasoning_effort 目前作为 UI/响应元数据保留，实际执行由 Codex app-server 处理。
   presets:
@@ -269,3 +279,6 @@ skills:
   # 路径相对于项目根目录，或使用 ~ 展开为绝对路径
   shared_dirs:
     - "skills/lark"
+    - "skills/record-artifact-synthesis"
+  # 对所有用户的完整 Record 摘要/脑图/标题生成请求自动选择该 skill。
+  auto_select_record_artifact_synthesis: true

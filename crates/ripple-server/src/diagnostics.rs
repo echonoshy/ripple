@@ -746,6 +746,7 @@ mod tests {
             cors: CorsConfig::default(),
             default_model: "codex-medium".to_string(),
             model_presets: Default::default(),
+            model_fallback_chain: Vec::new(),
             logging: LoggingConfig {
                 level: "debug".to_string(),
             },

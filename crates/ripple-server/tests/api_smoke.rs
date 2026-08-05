@@ -11,7 +11,8 @@ use axum::http::{header, Method, Request, StatusCode};
 use ripple_server::api::{auth::AuthClaimRequest, router};
 use ripple_server::config::{
     ApiDocsConfig, AppConfig, CodexConfig, CorsConfig, DocumentPreviewConfig, FeishuConfig,
-    GogcliOAuthConfig, LoggingConfig, SandboxConfig, SecurityConfig, SkillsConfig, UserAuthConfig,
+    GogcliOAuthConfig, LoggingConfig, ModelFallback, SandboxConfig, SecurityConfig, SkillsConfig,
+    UserAuthConfig,
 };
 use ripple_server::jobs::AgentRunCreateRequest;
 use ripple_server::sessions::CreateSessionInput;
@@ -34,6 +35,7 @@ fn test_config(root: &Path) -> AppConfig {
         cors: CorsConfig::default(),
         default_model: "codex-test".to_string(),
         model_presets: BTreeMap::new(),
+        model_fallback_chain: Vec::new(),
         logging: LoggingConfig {
             level: "debug".to_string(),
         },
@@ -461,6 +463,27 @@ fn fail_turn(thread_id: &str, turn_id: &str, item_id: &str, text: &str) {
     ));
 }
 
+fn fail_model_turn(thread_id: &str, turn_id: &str) {
+    let error = "{\"message\":\"Selected model is at capacity. Please try a different model.\",\"codexErrorInfo\":{\"httpStatusCode\":503}}";
+    send(format!(
+        "{{\"method\":\"thread/status/changed\",\"params\":{{\"threadId\":{},\"status\":{{\"type\":\"systemError\"}}}}}}",
+        json_string(thread_id)
+    ));
+    send(format!(
+        "{{\"method\":\"error\",\"params\":{{\"threadId\":{},\"turnId\":{},\"error\":{}}}}}",
+        json_string(thread_id),
+        json_string(turn_id),
+        error
+    ));
+    send(format!(
+        "{{\"method\":\"turn/completed\",\"params\":{{\"threadId\":{},\"turnId\":{},\"turn\":{{\"id\":{},\"status\":\"failed\",\"error\":{}}}}}}}",
+        json_string(thread_id),
+        json_string(turn_id),
+        json_string(turn_id),
+        error
+    ));
+}
+
 fn emit_runtime_events(thread_id: &str, turn_id: &str) {
     let thread_id = json_string(thread_id);
     let turn_id = json_string(turn_id);
@@ -608,6 +631,12 @@ fn main() {
             (Some(id), Some("thread/archive")) => {
                 send(format!("{{\"id\":{},\"result\":{{}}}}", id.raw_json()));
             }
+            (Some(id), Some("thread/rollback")) => {
+                send(format!(
+                    "{{\"id\":{},\"error\":{{\"code\":-32600,\"message\":\"thread rollback requires persisted thread history\"}}}}",
+                    id.raw_json()
+                ));
+            }
             (Some(id), Some("turn/start")) => {
                 turn_counter += 1;
                 let thread_id = extract_string_field(&line, "threadId")
@@ -620,6 +649,25 @@ fn main() {
                     json_string(&turn_id)
                 ));
 
+                let model = extract_string_field(&line, "model").unwrap_or_default();
+                if line.contains("[model-fallback-side-effect]") && model == "gpt-5.6-luna" {
+                    send(format!(
+                        "{{\"method\":\"item/started\",\"params\":{{\"threadId\":{},\"turnId\":{},\"item\":{{\"id\":\"cmd-fallback\",\"type\":\"commandExecution\",\"command\":\"echo changed\"}}}}}}",
+                        json_string(&thread_id),
+                        json_string(&turn_id)
+                    ));
+                    fail_model_turn(&thread_id, &turn_id);
+                    continue;
+                }
+                if line.contains("[model-fallback]")
+                    && (model == "gpt-5.6-luna"
+                        || (line.contains("[model-fallback-to-5.5]")
+                            && model == "gpt-5.6-terra"))
+                {
+                    fail_model_turn(&thread_id, &turn_id);
+                    continue;
+                }
+
                 let text = if line.contains("[env-check]") {
                     if std::env::var("RIPPLE_SECRET_SHOULD_NOT_LEAK").is_ok() {
                         "env leaked".to_string()
@@ -630,6 +678,8 @@ fn main() {
                     } else {
                         "env clean proxy missing".to_string()
                     }
+                } else if line.contains("[model-fallback]") {
+                    format!("fallback completed {model}")
                 } else if line.contains("strict chat-title generator") {
                     title_generation_text().to_string()
                 } else if line.contains("\"outputSchema\"") {
@@ -3988,6 +4038,161 @@ async fn runs_route_completes_with_fake_codex_app_server() {
 }
 
 #[tokio::test]
+async fn model_fallback_retries_capacity_failure_without_exposing_intermediate_error() {
+    let root = std::env::temp_dir().join(format!("ripple-model-fallback-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let mut config = test_config_with_codex_executable(&root, fake_codex);
+    config.model_fallback_chain = vec![
+        ModelFallback {
+            model: "gpt-5.6-luna".to_string(),
+            reasoning_effort: Some("low".to_string()),
+        },
+        ModelFallback {
+            model: "gpt-5.6-terra".to_string(),
+            reasoning_effort: Some("low".to_string()),
+        },
+        ModelFallback {
+            model: "gpt-5.5".to_string(),
+            reasoning_effort: Some("low".to_string()),
+        },
+    ];
+    let (_state, app) = test_state_and_app_with_config(config);
+
+    let (status, created) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/runs",
+        json!({
+            "prompt": "[model-fallback] finish on terra",
+            "model": "gpt-5.6-luna",
+            "max_runtime_seconds": 5
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let job_id = created.get("job_id").and_then(Value::as_str).unwrap();
+    let final_run = wait_for_completed_run(app.clone(), job_id).await;
+    assert_eq!(
+        final_run.get("stdout_tail").and_then(Value::as_str),
+        Some("fallback completed gpt-5.6-terra")
+    );
+
+    let response = app
+        .oneshot(request(
+            Method::GET,
+            &format!("/v1/runs/{job_id}/events?from_start=true&follow=false"),
+            Value::Null,
+            true,
+        ))
+        .await
+        .unwrap();
+    let events = response_text(response).await;
+    assert!(!events.contains("codex.model_fallback"));
+    assert!(!events.contains("Selected model is at capacity"));
+    assert!(!events.contains("systemError"));
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn model_fallback_continues_to_last_configured_model() {
+    let root = std::env::temp_dir().join(format!("ripple-model-fallback-last-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let mut config = test_config_with_codex_executable(&root, fake_codex);
+    config.model_fallback_chain = vec![
+        ModelFallback {
+            model: "gpt-5.6-luna".to_string(),
+            reasoning_effort: Some("low".to_string()),
+        },
+        ModelFallback {
+            model: "gpt-5.6-terra".to_string(),
+            reasoning_effort: Some("low".to_string()),
+        },
+        ModelFallback {
+            model: "gpt-5.5".to_string(),
+            reasoning_effort: Some("low".to_string()),
+        },
+    ];
+    let (_state, app) = test_state_and_app_with_config(config);
+
+    let (status, created) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/runs",
+        json!({
+            "prompt": "[model-fallback] [model-fallback-to-5.5] finish last",
+            "model": "gpt-5.6-luna",
+            "max_runtime_seconds": 5
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let job_id = created.get("job_id").and_then(Value::as_str).unwrap();
+    let final_run = wait_for_completed_run(app, job_id).await;
+    assert_eq!(
+        final_run.get("stdout_tail").and_then(Value::as_str),
+        Some("fallback completed gpt-5.5")
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn model_fallback_stops_after_turn_side_effect() {
+    let root = std::env::temp_dir().join(format!(
+        "ripple-model-fallback-side-effect-{}",
+        Uuid::new_v4()
+    ));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let mut config = test_config_with_codex_executable(&root, fake_codex);
+    config.model_fallback_chain = vec![
+        ModelFallback {
+            model: "gpt-5.6-luna".to_string(),
+            reasoning_effort: Some("low".to_string()),
+        },
+        ModelFallback {
+            model: "gpt-5.6-terra".to_string(),
+            reasoning_effort: Some("low".to_string()),
+        },
+    ];
+    let (_state, app) = test_state_and_app_with_config(config);
+
+    let (status, created) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/runs",
+        json!({
+            "prompt": "[model-fallback] [model-fallback-side-effect] do not retry",
+            "model": "gpt-5.6-luna",
+            "max_runtime_seconds": 5
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let job_id = created.get("job_id").and_then(Value::as_str).unwrap();
+    let final_run = wait_for_terminal_run(app.clone(), job_id).await;
+    assert_eq!(
+        final_run.get("status").and_then(Value::as_str),
+        Some("failed")
+    );
+
+    let response = app
+        .oneshot(request(
+            Method::GET,
+            &format!("/v1/runs/{job_id}/events?from_start=true&follow=false"),
+            Value::Null,
+            true,
+        ))
+        .await
+        .unwrap();
+    let events = response_text(response).await;
+    assert!(!events.contains("codex.model_fallback"));
+    assert!(events.contains("Selected model is at capacity"));
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
 async fn draining_keeps_new_runs_queued_until_dispatch_resumes() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let fake_codex = write_fake_codex_app_server(&root);
@@ -4360,6 +4565,27 @@ async fn wait_for_completed_run(app: axum::Router, job_id: &str) -> Value {
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
     panic!("run {job_id} should complete");
+}
+
+async fn wait_for_terminal_run(app: axum::Router, job_id: &str) -> Value {
+    for _ in 0..80 {
+        let (status, run) = call(
+            app.clone(),
+            Method::GET,
+            &format!("/v1/runs/{job_id}"),
+            Value::Null,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        if matches!(
+            run.get("status").and_then(Value::as_str),
+            Some("completed" | "failed" | "cancelled")
+        ) {
+            return run;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    panic!("run {job_id} should reach a terminal status");
 }
 
 #[tokio::test]

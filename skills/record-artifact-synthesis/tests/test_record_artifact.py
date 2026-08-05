@@ -3,6 +3,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Optional
 
 
 SCRIPT = Path(__file__).parents[1] / "scripts" / "record_artifact.sh"
@@ -22,8 +23,8 @@ class RecordArtifactHelperTest(unittest.TestCase):
         self.temp_dir.cleanup()
 
     def run_helper(
-        self, *arguments: str, input_text: str | None = None
-    ) -> subprocess.CompletedProcess[str]:
+        self, *arguments: str, input_text: Optional[str] = None
+    ) -> subprocess.CompletedProcess:
         return subprocess.run(
             ["bash", str(SCRIPT), *arguments],
             cwd=self.root,

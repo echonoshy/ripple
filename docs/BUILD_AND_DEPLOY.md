@@ -245,7 +245,7 @@ cp config/settings.yaml.sample config/settings.yaml
 - `server.sandbox.workspaces_root`：生产如需把用户 workspace 放到独立磁盘或 NAS，在这里配置。
 - `external_agents.codex.codex_home`：服务端 Codex 登录态目录。
 - `external_agents.codex.max_workers_per_pool` / `max_total_pool_workers`：Codex app-server worker pool 上限。
-- connector OAuth 配置，例如 Google Workspace / Feishu。
+- connector OAuth 配置，例如 Google Workspace / Feishu。Google Workspace 生产 Client 的企业管理员申请、授权和交付流程见 [GOOGLE_WORKSPACE_PRODUCTION_OAUTH_ADMIN_GUIDE.md](GOOGLE_WORKSPACE_PRODUCTION_OAUTH_ADMIN_GUIDE.md)。
 
 生产部署统一通过 `codex-multi-auth` 启动 Codex app-server，并使用多 Codex 账号池做 runtime rotation，按本文后面的“后端部署”章节配置。
 

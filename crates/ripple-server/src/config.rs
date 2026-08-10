@@ -161,6 +161,17 @@ pub struct CodexConfig {
     pub enabled: bool,
     pub codex_executable: String,
     pub app_server_args: Vec<String>,
+    /// Whether workers use the service Codex `auth.json`.
+    ///
+    /// Keep enabled for ChatGPT/OpenAI-backed Codex sessions. Custom providers
+    /// that authenticate through `provider_env_keys` can disable it.
+    pub requires_service_auth: bool,
+    /// Environment variable names required by the configured model provider.
+    ///
+    /// Values are inherited by the trusted Codex app-server process and are
+    /// excluded from model-facing shell commands by the managed permissions
+    /// profile.
+    pub provider_env_keys: Vec<String>,
     pub codex_home: Option<PathBuf>,
     /// Optional local root for Codex app-server's per-user SQLite state.
     ///
@@ -389,6 +400,8 @@ struct RawCodex {
     enabled: Option<bool>,
     codex_executable: Option<String>,
     app_server_args: Option<Vec<String>>,
+    requires_service_auth: Option<bool>,
+    provider_env_keys: Option<Vec<String>>,
     codex_home: Option<String>,
     sqlite_root: Option<String>,
     approval_policy: Option<serde_yaml::Value>,
@@ -650,6 +663,8 @@ impl AppConfig {
                         "stdio://".to_string(),
                     ]
                 }),
+                requires_service_auth: codex_raw.requires_service_auth.unwrap_or(true),
+                provider_env_keys: parse_provider_env_keys(codex_raw.provider_env_keys)?,
                 codex_home: Some(
                     clean_config_string(codex_raw.codex_home.as_deref())
                         .map(|value| resolve_path(&repo_root, &value))
@@ -830,6 +845,37 @@ fn validate_runtime_config(config: &AppConfig) -> anyhow::Result<()> {
         );
     }
     Ok(())
+}
+
+fn parse_provider_env_keys(raw: Option<Vec<String>>) -> anyhow::Result<Vec<String>> {
+    const RESERVED: &[&str] = &["CODEX_HOME", "HOME", "PATH", "SHELL", "USER"];
+
+    let mut seen = BTreeSet::new();
+    let mut keys = Vec::new();
+    for (index, value) in raw.unwrap_or_default().into_iter().enumerate() {
+        let key = value.trim();
+        let valid =
+            key.as_bytes()
+                .first()
+                .is_some_and(|byte| byte.is_ascii_uppercase() || *byte == b'_')
+                && key.as_bytes().iter().all(|byte| {
+                    byte.is_ascii_uppercase() || byte.is_ascii_digit() || *byte == b'_'
+                });
+        if !valid {
+            anyhow::bail!(
+                "external_agents.codex.provider_env_keys[{index}] must match [A-Z_][A-Z0-9_]*"
+            );
+        }
+        if RESERVED.contains(&key) {
+            anyhow::bail!(
+                "external_agents.codex.provider_env_keys[{index}] cannot override reserved environment variable {key}"
+            );
+        }
+        if seen.insert(key.to_string()) {
+            keys.push(key.to_string());
+        }
+    }
+    Ok(keys)
 }
 
 pub fn default_codex_approval_policy() -> JsonValue {
@@ -1218,6 +1264,35 @@ mod tests {
         .expect("load config");
 
         assert!(!config.skills.auto_select_record_artifact_synthesis);
+    }
+
+    #[test]
+    fn parses_and_deduplicates_provider_env_keys() {
+        let config = with_temp_config(
+            "provider-env-keys",
+            "external_agents:\n  codex:\n    requires_service_auth: false\n    provider_env_keys: [ARK_API_KEY, ARK_API_KEY]\nserver:\n  api_keys: [test-key]\n",
+            AppConfig::load,
+        )
+        .expect("load config");
+
+        assert!(!config.codex.requires_service_auth);
+        assert_eq!(config.codex.provider_env_keys, vec!["ARK_API_KEY"]);
+    }
+
+    #[test]
+    fn rejects_invalid_or_reserved_provider_env_keys() {
+        for (name, key) in [("invalid", "ark-api-key"), ("reserved", "CODEX_HOME")] {
+            let error = with_temp_config(
+                name,
+                &format!(
+                    "external_agents:\n  codex:\n    provider_env_keys: [{key}]\nserver:\n  api_keys: [test-key]\n"
+                ),
+                AppConfig::load,
+            )
+            .expect_err("invalid provider environment key should fail");
+
+            assert!(error.to_string().contains("provider_env_keys[0]"));
+        }
     }
 
     #[test]

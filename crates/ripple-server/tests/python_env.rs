@@ -287,6 +287,8 @@ fn test_config(root: &Path) -> AppConfig {
             enabled: true,
             codex_executable: "codex".to_string(),
             app_server_args: Vec::new(),
+            requires_service_auth: true,
+            provider_env_keys: Vec::new(),
             codex_home: None,
             sqlite_root: None,
             approval_policy: serde_json::json!("never"),

@@ -68,6 +68,8 @@ fn test_config(root: &Path) -> AppConfig {
             enabled: true,
             codex_executable: "codex".to_string(),
             app_server_args: Vec::new(),
+            requires_service_auth: true,
+            provider_env_keys: Vec::new(),
             codex_home: None,
             sqlite_root: None,
             approval_policy: serde_json::json!("never"),
@@ -670,7 +672,15 @@ fn main() {
                     continue;
                 }
 
-                let text = if line.contains("[env-check]") {
+                let text = if line.contains("[provider-env-check]") {
+                    if std::env::var("RIPPLE_TEST_PROVIDER_API_KEY").ok().as_deref()
+                        == Some("provider-secret")
+                    {
+                        "provider env present".to_string()
+                    } else {
+                        "provider env missing".to_string()
+                    }
+                } else if line.contains("[env-check]") {
                     if std::env::var("RIPPLE_SECRET_SHOULD_NOT_LEAK").is_ok() {
                         "env leaked".to_string()
                     } else if std::env::var("HTTP_PROXY").ok().as_deref()
@@ -6750,6 +6760,33 @@ async fn codex_app_server_does_not_inherit_server_secret_env() {
         Some(response_output_text(&chat)),
         Some("env clean proxy present")
     );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn codex_app_server_inherits_only_configured_provider_env() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let mut config = test_config_with_codex_executable(&root, fake_codex);
+    config.codex.requires_service_auth = false;
+    config.codex.provider_env_keys = vec!["RIPPLE_TEST_PROVIDER_API_KEY".to_string()];
+    let (_state, app) = test_state_and_app_with_config(config);
+
+    std::env::set_var("RIPPLE_TEST_PROVIDER_API_KEY", "provider-secret");
+    let (status, chat) = call_response(
+        app,
+        json!({
+            "model": "codex-test",
+            "messages": [{"role": "user", "content": "[provider-env-check] inspect environment"}],
+            "stream": false
+        }),
+    )
+    .await;
+    std::env::remove_var("RIPPLE_TEST_PROVIDER_API_KEY");
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(response_output_text(&chat), "provider env present");
 
     let _ = std::fs::remove_dir_all(root);
 }

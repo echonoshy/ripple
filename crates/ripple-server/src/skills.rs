@@ -1459,11 +1459,15 @@ metadata:
         assert!(!names.contains(&"frontend-design"));
         assert!(!names.contains(&"ripple-automations"));
         assert!(!names.contains(&"ripple-ui-explainer"));
+        assert!(names.contains(&"finance-change-tracking"));
+        assert!(names.contains(&"finance-research-brief"));
         assert!(names.contains(&"record-artifact-synthesis"));
         assert!(names.contains(&"viaim-product-support"));
 
         let rendered = render_skill_manifest(&config, None);
         assert!(!rendered.contains("ripple:ripple-ui-explainer"));
+        assert!(rendered.contains("ripple:finance-change-tracking"));
+        assert!(rendered.contains("ripple:finance-research-brief"));
         assert!(rendered.contains("ripple:record-artifact-synthesis"));
         assert!(rendered.contains("fully regenerate one Record-derived summary"));
         assert!(rendered.contains("ripple:viaim-product-support"));

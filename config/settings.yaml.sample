@@ -55,6 +55,13 @@ external_agents:
     # apps/plugins/bundled skill instructions，并启用 request_permissions_tool /
     # exec_permission_approvals，让目录外访问通过 Ripple approval bridge 审批。
     app_server_args: ["app-server", "--listen", "stdio://"]
+    # 自定义模型 Provider 所需的密钥环境变量名。这里只填写变量名，不填写密钥值。
+    # Ripple 只把这些变量传给 Codex app-server，并从模型 shell 环境中排除。
+    # 国内百炼 Token Plan 部署设置为 ["ARK_API_KEY"]；默认 Codex 登录保持空列表。
+    provider_env_keys: []
+    # 默认 Codex/OpenAI 登录需要共享服务端 auth.json。国内百炼使用 env_key 鉴权，
+    # 应设为 false，避免继续依赖或暴露国外 Codex 订阅凭证。
+    requires_service_auth: true
     # 独立服务端 CODEX_HOME。管理员用
     #   CODEX_HOME=/path/to/.ripple/codex-service-home codex login
     # 登录一次；不要复用开发者个人 ~/.codex，避免继承 yolo/danger-full-access 配置。

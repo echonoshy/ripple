@@ -495,6 +495,8 @@ INSERT INTO logs (
                     "--listen".to_string(),
                     "stdio://".to_string(),
                 ],
+                requires_service_auth: true,
+                provider_env_keys: Vec::new(),
                 codex_home: Some(root.join(".ripple/codex-service-home")),
                 sqlite_root: None,
                 approval_policy: serde_json::json!("never"),

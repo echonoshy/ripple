@@ -177,6 +177,12 @@ Ripple 采用控制面 / 执行面分离：
 Codex 授权是服务端统一授权，不是 per-user Codex 授权：
 
 - 生产建议为服务端 Codex 配置独立 `CODEX_HOME`，例如 `.ripple/codex-service-home`。
+- 国外默认 Codex/OpenAI 链路共享服务端 `auth.json`；自定义 Provider 可以通过
+  `external_agents.codex.requires_service_auth: false` 禁用该依赖。
+- 国内部署只使用百炼 Token Plan，不再使用火山 Provider。百炼 Provider 定义放在服务端
+  `CODEX_HOME/config.toml`，密钥只通过 `provider_env_keys` 指定的 root-only 进程环境传入。
+- `provider_env_keys` 中的变量必须同时从 model-facing shell 环境排除，不能暴露给用户 workspace、
+  shell 命令或 connector CLI。
 - 不要把 Codex `auth.json` 复制、挂载或保存到 `sandboxes/<uid>/workspace/`。
 - user sandbox 只保存用户文件和 per-user connector 凭证。
 - `run_app_server_in_user_sandbox` 默认必须为 `false`。

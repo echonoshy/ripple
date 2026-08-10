@@ -43,8 +43,9 @@ use protocol::{
 };
 use runtime_env::{
     codex_home_for_user, codex_runtime_home_for_user, codex_sqlite_home_for_user,
-    connector_credential_env, hardened_app_server_args, inherit_env_allowlist, node_runtime_paths,
-    read_json_string_field, requires_service_codex_auth, runtime_path, INHERITED_NETWORK_ENV,
+    connector_credential_env, hardened_app_server_args, inherit_env_allowlist,
+    inherit_required_env, node_runtime_paths, read_json_string_field, requires_service_codex_auth,
+    runtime_path, INHERITED_NETWORK_ENV,
 };
 pub use types::{AgentRunnerRequest, AgentRunnerResult, AgentRunnerStatus};
 
@@ -167,6 +168,7 @@ fn classify_model_failure(error: &Value) -> Option<ModelFailureClass> {
         "unsupported model",
         "model is unsupported",
         "model is not supported",
+        "model does not support the coding plan feature",
         "unknown model",
         "model does not exist",
     ]
@@ -321,11 +323,10 @@ impl CodexAppServerSession {
         ensure_ripple_py_wrapper(&self.config)?;
         crate::runtime_checks::ensure_codex_linux_sandbox_prerequisites(&self.config).await?;
         let sandbox_manager = SandboxManager::new(self.config.clone());
-        if sandbox_manager.service_codex_auth_file().exists()
-            || requires_service_codex_auth(&self.config)
-        {
-            sandbox_manager.ensure_user_codex_home_auth_link(&self.user_key)?;
-        }
+        let link_service_auth = (self.config.codex.requires_service_auth
+            && sandbox_manager.service_codex_auth_file().exists())
+            || requires_service_codex_auth(&self.config);
+        sandbox_manager.ensure_user_codex_home_links(&self.user_key, link_service_auth)?;
         let codex_home = codex_home_for_user(&self.config, &self.user_key)?;
         let runtime_home = codex_runtime_home_for_user(&self.config, &self.user_key)?;
         let sqlite_home = codex_sqlite_home_for_user(&self.config, &self.user_key)?;
@@ -338,6 +339,7 @@ impl CodexAppServerSession {
         command.kill_on_drop(true);
         command.env_clear();
         inherit_env_allowlist(&mut command, INHERITED_NETWORK_ENV);
+        inherit_required_env(&mut command, &self.config.codex.provider_env_keys)?;
         let app_server_args = hardened_app_server_args(&self.config.codex.app_server_args);
         command
             .args(&app_server_args)
@@ -949,7 +951,8 @@ impl CodexAppServerProvider {
                     Err(err) => {
                         let stderr_tail = session.stderr_tail_since(stderr_start).await;
                         let combined_error = format!("{err}\n{stderr_tail}");
-                        if !service_auth_refresh_attempted
+                        if self.config.codex.requires_service_auth
+                            && !service_auth_refresh_attempted
                             && codex_error_needs_service_auth_refresh(&combined_error)
                         {
                             service_auth_refresh_attempted = true;
@@ -3521,6 +3524,7 @@ mod tests {
     #[test]
     fn pool_generation_includes_serialized_approval_policy() {
         let mut config = test_config();
+        config.codex.provider_env_keys = vec!["ARK_API_KEY".to_string()];
         config.codex.approval_policy = json!({
             "granular": {
                 "sandbox_approval": true,
@@ -3535,6 +3539,7 @@ mod tests {
 
         assert!(generation.contains("\"granular\""));
         assert!(generation.contains("\"request_permissions\":true"));
+        assert!(generation.contains("ARK_API_KEY"));
     }
 
     #[test]
@@ -3788,6 +3793,10 @@ mod tests {
 
         assert!(requires_service_codex_auth(&config));
 
+        config.codex.requires_service_auth = false;
+        assert!(!requires_service_codex_auth(&config));
+
+        config.codex.requires_service_auth = true;
         config.codex.codex_executable = "/tmp/fake-codex-app-server".to_string();
         config.codex.app_server_args.clear();
 
@@ -3903,6 +3912,20 @@ mod tests {
             "The 'ripple-fallback-probe-unavailable' model is not supported when using Codex with a ChatGPT account."
         );
         assert!(failure.retry_safe);
+    }
+
+    #[test]
+    fn model_failure_accepts_coding_plan_unsupported_model_shape() {
+        let error = json!({
+            "additionalDetails": null,
+            "codexErrorInfo": "other",
+            "message": "unexpected status 404 Not Found: The requested model does not support the coding plan feature. Please select a compatible model."
+        });
+
+        assert_eq!(
+            classify_model_failure(&error),
+            Some(ModelFailureClass::Unsupported)
+        );
     }
 
     #[test]
@@ -4113,6 +4136,8 @@ mod tests {
                     "--listen".to_string(),
                     "stdio://".to_string(),
                 ],
+                requires_service_auth: true,
+                provider_env_keys: Vec::new(),
                 codex_home: Some(root.join(".ripple/codex-service-home")),
                 sqlite_root: None,
                 approval_policy: serde_json::json!("never"),

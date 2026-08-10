@@ -196,6 +196,8 @@ fn thread_permission_config_with_user(
             json!("none"),
         );
     }
+    let mut shell_environment_exclusions = vec!["CODEX_HOME".to_string()];
+    shell_environment_exclusions.extend(config.codex.provider_env_keys.iter().cloned());
     json!({
         "features.image_generation": false,
         "default_permissions": RIPPLE_CODEX_PERMISSION_PROFILE,
@@ -205,7 +207,7 @@ fn thread_permission_config_with_user(
                 "network": {"enabled": config.codex.network_access}
             }
         },
-        "shell_environment_policy": {"exclude": ["CODEX_HOME"]}
+        "shell_environment_policy": {"exclude": shell_environment_exclusions}
     })
 }
 
@@ -474,6 +476,7 @@ mod tests {
         std::fs::create_dir_all(&workspace).expect("create workspace");
         let mut config = test_config();
         config.codex.codex_home = Some(config.repo_root.join(".ripple/codex-service-home"));
+        config.codex.provider_env_keys = vec!["ARK_API_KEY".to_string()];
 
         let permissions = thread_permission_config(&workspace, &config);
         let filesystem = permissions
@@ -496,7 +499,7 @@ mod tests {
         assert_eq!(workspace_rules.get("."), Some(&json!("write")));
         assert_eq!(
             permissions.pointer("/shell_environment_policy/exclude"),
-            Some(&json!(["CODEX_HOME"]))
+            Some(&json!(["CODEX_HOME", "ARK_API_KEY"]))
         );
 
         let _ = std::fs::remove_dir_all(workspace);
@@ -867,6 +870,8 @@ mod tests {
                     "--listen".to_string(),
                     "stdio://".to_string(),
                 ],
+                requires_service_auth: true,
+                provider_env_keys: Vec::new(),
                 codex_home: None,
                 sqlite_root: None,
                 approval_policy: serde_json::json!("never"),

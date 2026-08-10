@@ -1,7 +1,7 @@
 use serde_json::Value;
 use sqlx::{Row, SqlitePool};
 
-pub const CURRENT_SCHEMA_VERSION: i64 = 18;
+pub const CURRENT_SCHEMA_VERSION: i64 = 19;
 
 const SCHEMA_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS sessions (
@@ -13,6 +13,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     max_turns INTEGER NOT NULL,
     caller_system_prompt TEXT,
     context_folder_path TEXT,
+    session_kind TEXT NOT NULL DEFAULT 'workspace',
+    shared_folder_id TEXT,
     total_input_tokens INTEGER NOT NULL DEFAULT 0,
     total_output_tokens INTEGER NOT NULL DEFAULT 0,
     last_input_tokens INTEGER NOT NULL DEFAULT 0,
@@ -262,7 +264,11 @@ pub(super) async fn initialize_schema(pool: &SqlitePool) -> anyhow::Result<()> {
 }
 
 async fn ensure_schema_columns(pool: &SqlitePool) -> anyhow::Result<()> {
-    for statement in ["ALTER TABLE sessions ADD COLUMN task_callback_url TEXT"] {
+    for statement in [
+        "ALTER TABLE sessions ADD COLUMN task_callback_url TEXT",
+        "ALTER TABLE sessions ADD COLUMN session_kind TEXT NOT NULL DEFAULT 'workspace'",
+        "ALTER TABLE sessions ADD COLUMN shared_folder_id TEXT",
+    ] {
         let _ = sqlx::query(statement).execute(pool).await;
     }
     let mut rows = sqlx::query("PRAGMA table_info(sessions)")
@@ -505,6 +511,7 @@ async fn ensure_schema_migrations(pool: &SqlitePool) -> anyhow::Result<()> {
         (16_i64, "task_session_response_metadata"),
         (17_i64, "caller_owned_task_response_ids"),
         (18_i64, "prepared_feishu_mail_v1"),
+        (19_i64, "shared_folder_sessions_v1"),
     ] {
         sqlx::query("INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (?, ?)")
             .bind(version)

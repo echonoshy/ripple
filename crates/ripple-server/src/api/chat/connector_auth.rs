@@ -1972,6 +1972,8 @@ mod tests {
             title: "Test".to_string(),
             pinned: false,
             context_folder_path: None,
+            session_kind: "workspace".to_string(),
+            shared_folder_id: None,
             model: "codex-test".to_string(),
             max_turns: 20,
             caller_system_prompt: None,

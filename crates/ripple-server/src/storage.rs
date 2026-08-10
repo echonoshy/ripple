@@ -198,7 +198,7 @@ impl Storage {
             r#"
             INSERT INTO sessions (
                 user_id, session_id, title, pinned, model, max_turns, caller_system_prompt,
-                context_folder_path,
+                context_folder_path, session_kind, shared_folder_id,
                 total_input_tokens, total_output_tokens, last_input_tokens,
                 created_at, last_active, status, message_count,
                 pending_question, pending_options_json, pending_permission_request_json,
@@ -206,7 +206,7 @@ impl Storage {
                 codex_synced_message_count,
                 memory_disabled, plan_steps_json, plan_progress_json, task_callback_url
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(user_id, session_id) DO UPDATE SET
                 title = excluded.title,
                 pinned = excluded.pinned,
@@ -214,6 +214,8 @@ impl Storage {
                 max_turns = excluded.max_turns,
                 caller_system_prompt = excluded.caller_system_prompt,
                 context_folder_path = excluded.context_folder_path,
+                session_kind = excluded.session_kind,
+                shared_folder_id = excluded.shared_folder_id,
                 total_input_tokens = excluded.total_input_tokens,
                 total_output_tokens = excluded.total_output_tokens,
                 last_input_tokens = excluded.last_input_tokens,
@@ -242,6 +244,8 @@ impl Storage {
         .bind(i64::from(record.max_turns))
         .bind(&record.caller_system_prompt)
         .bind(&record.context_folder_path)
+        .bind(&record.session_kind)
+        .bind(&record.shared_folder_id)
         .bind(u64_to_i64(record.total_input_tokens)?)
         .bind(u64_to_i64(record.total_output_tokens)?)
         .bind(u64_to_i64(record.last_input_tokens)?)
@@ -300,7 +304,7 @@ impl Storage {
             r#"
             SELECT user_id, session_id, title, model, max_turns, caller_system_prompt,
                    pinned,
-                   context_folder_path,
+                   context_folder_path, session_kind, shared_folder_id,
                    total_input_tokens, total_output_tokens, last_input_tokens,
                    created_at, last_active, status, message_count,
                    pending_question, pending_options_json, pending_permission_request_json,
@@ -327,7 +331,7 @@ impl Storage {
             r#"
             SELECT user_id, session_id, title, model, max_turns, caller_system_prompt,
                    pinned,
-                   context_folder_path,
+                   context_folder_path, session_kind, shared_folder_id,
                    total_input_tokens, total_output_tokens, last_input_tokens,
                    created_at, last_active, status, message_count,
                    pending_question, pending_options_json, pending_permission_request_json,
@@ -818,6 +822,8 @@ impl Storage {
             max_turns: i64_to_u32(row.get::<i64, _>("max_turns"))?,
             caller_system_prompt: row.get("caller_system_prompt"),
             context_folder_path: row.get("context_folder_path"),
+            session_kind: row.get("session_kind"),
+            shared_folder_id: row.get("shared_folder_id"),
             total_input_tokens: i64_to_u64(row.get::<i64, _>("total_input_tokens"))?,
             total_output_tokens: i64_to_u64(row.get::<i64, _>("total_output_tokens"))?,
             last_input_tokens: i64_to_u64(row.get::<i64, _>("last_input_tokens"))?,
@@ -975,6 +981,8 @@ mod tests {
             title: "hello".to_string(),
             pinned: true,
             context_folder_path: Some("/workspace/demo".to_string()),
+            session_kind: "workspace".to_string(),
+            shared_folder_id: None,
             model: "codex-test".to_string(),
             max_turns: 200,
             caller_system_prompt: None,
@@ -1075,6 +1083,8 @@ mod tests {
             title: "tokens".to_string(),
             pinned: false,
             context_folder_path: None,
+            session_kind: "workspace".to_string(),
+            shared_folder_id: None,
             model: "codex-test".to_string(),
             max_turns: 200,
             caller_system_prompt: None,
@@ -1125,6 +1135,8 @@ mod tests {
             title: "tokens".to_string(),
             pinned: false,
             context_folder_path: None,
+            session_kind: "workspace".to_string(),
+            shared_folder_id: None,
             model: "codex-test".to_string(),
             max_turns: 200,
             caller_system_prompt: None,
@@ -1194,6 +1206,8 @@ mod tests {
             title: "tokens".to_string(),
             pinned: false,
             context_folder_path: None,
+            session_kind: "workspace".to_string(),
+            shared_folder_id: None,
             model: "codex-test".to_string(),
             max_turns: 200,
             caller_system_prompt: None,
@@ -1259,6 +1273,8 @@ mod tests {
             title: "tokens".to_string(),
             pinned: false,
             context_folder_path: None,
+            session_kind: "workspace".to_string(),
+            shared_folder_id: None,
             model: "codex-test".to_string(),
             max_turns: 200,
             caller_system_prompt: None,
@@ -1428,6 +1444,8 @@ mod tests {
             title: "legacy".to_string(),
             pinned: false,
             context_folder_path: None,
+            session_kind: "workspace".to_string(),
+            shared_folder_id: None,
             model: "codex-test".to_string(),
             max_turns: 200,
             caller_system_prompt: None,

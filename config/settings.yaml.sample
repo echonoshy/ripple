@@ -97,6 +97,8 @@ server:
   # 因等待空闲连接而过早失败。
   storage:
     sqlite_max_connections: 50
+    # 共享目录问答只会访问此根目录下由请求指定的一级子目录。
+    shared_folders_root: ".ripple/shared-folders"
   # 用户 connector 暴露 allowlist。省略时为兼容旧配置，会启用全部内置 connector。
   # 下例只暴露飞书；运行时 Codex 能力不受此列表影响。
   enabled_connectors:

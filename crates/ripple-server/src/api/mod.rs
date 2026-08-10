@@ -167,6 +167,9 @@ pub fn router(state: AppState) -> Router {
         .routes(utoipa_axum::routes!(models::codex_runtime_info))
         .routes(utoipa_axum::routes!(models::system_info))
         .routes(utoipa_axum::routes!(chat::create_response))
+        .routes(utoipa_axum::routes!(
+            chat::shared_folder::create_shared_folder_response
+        ))
         .routes(utoipa_axum::routes!(chat::create_task_session_response))
         .routes(utoipa_axum::routes!(health::ready))
         .routes(utoipa_axum::routes!(health::doctor))
@@ -615,6 +618,7 @@ mod tests {
             },
             storage: crate::config::StorageConfig {
                 sqlite_max_connections: 50,
+                shared_folders_root: std::path::PathBuf::from(".ripple/shared-folders"),
             },
             sandbox: SandboxConfig {
                 sandboxes_root: root.join("sandboxes"),

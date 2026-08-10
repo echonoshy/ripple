@@ -21,6 +21,73 @@ pub fn thread_permission_config_for_user(
     thread_permission_config_with_user(Some(user_id), workspace_root, permission_root, config)
 }
 
+pub fn thread_permission_config_for_shared_folder(
+    _user_id: &str,
+    _worker_root: &Path,
+    _user_workspace_root: &Path,
+    runtime_cwd: &Path,
+    _shared_folders_root: &Path,
+    shared_folder_root: &Path,
+    parser_env_root: &Path,
+    parser_python: &Path,
+    config: &AppConfig,
+) -> Value {
+    let mut filesystem = serde_json::Map::new();
+    filesystem.insert(":minimal".to_string(), json!("read"));
+    filesystem.insert(
+        config.sandbox.sandboxes_root.to_string_lossy().to_string(),
+        json!("none"),
+    );
+
+    let mut runtime_rules = serde_json::Map::new();
+    runtime_rules.insert(".".to_string(), json!("write"));
+    filesystem.insert(
+        runtime_cwd.to_string_lossy().to_string(),
+        Value::Object(runtime_rules),
+    );
+    let mut shared_rules = serde_json::Map::new();
+    shared_rules.insert(".".to_string(), json!("read"));
+    filesystem.insert(
+        shared_folder_root.to_string_lossy().to_string(),
+        Value::Object(shared_rules),
+    );
+    filesystem.insert(parser_env_root.to_string_lossy().to_string(), json!("read"));
+    filesystem.insert(
+        config.codex_home_path().to_string_lossy().to_string(),
+        json!("none"),
+    );
+    if let Some(home) = std::env::var_os("HOME") {
+        filesystem.insert(
+            Path::new(&home)
+                .join(".codex")
+                .to_string_lossy()
+                .to_string(),
+            json!("none"),
+        );
+    }
+
+    json!({
+        "features.image_generation": false,
+        "default_permissions": RIPPLE_CODEX_PERMISSION_PROFILE,
+        "permissions": {
+            RIPPLE_CODEX_PERMISSION_PROFILE: {
+                "filesystem": filesystem,
+                "network": {"enabled": false}
+            }
+        },
+        "shell_environment_policy": {
+            "exclude": ["CODEX_HOME", "UV_INDEX_URL", "UV_DEFAULT_INDEX", "PIP_INDEX_URL"],
+            "set": {
+                "HOME": runtime_cwd,
+                "XDG_CONFIG_HOME": runtime_cwd.join(".config"),
+                "TMPDIR": runtime_cwd.join(".tmp"),
+                "PYTHONDONTWRITEBYTECODE": "1",
+                "RIPPLE_SHARED_FILE_PYTHON": parser_python
+            }
+        }
+    })
+}
+
 fn thread_permission_config_with_user(
     user_id: Option<&str>,
     workspace_root: &Path,
@@ -365,7 +432,10 @@ mod tests {
 
     use serde_json::{json, Value};
 
-    use super::{thread_permission_config, thread_permission_config_for_user};
+    use super::{
+        thread_permission_config, thread_permission_config_for_shared_folder,
+        thread_permission_config_for_user,
+    };
     use crate::config::{
         AppConfig, CodexConfig, CorsConfig, FeishuConfig, GogcliOAuthConfig, LoggingConfig,
         SandboxConfig, SecurityConfig, SkillsConfig,
@@ -391,6 +461,69 @@ mod tests {
         assert!(!workspace_rules.contains_key(".codex/skills"));
 
         let _ = std::fs::remove_dir_all(workspace);
+    }
+
+    #[test]
+    fn shared_folder_profile_denies_workspace_and_allows_selected_tree_read_only() {
+        let config = test_config();
+        let workspace = config.sandbox.sandboxes_root.join("alice/workspace");
+        let runtime_cwd = config
+            .sandbox
+            .sandboxes_root
+            .join("alice/sessions/shared/shared-folder-cwd");
+        let shared_root = config.repo_root.join("shared-folders");
+        let selected = shared_root.join("a-folder");
+        let parser_env = config.sandbox.python_envs_root.join("shared-parser");
+        let parser_python = parser_env.join("bin/python");
+        std::fs::create_dir_all(&workspace).expect("create workspace");
+        std::fs::create_dir_all(&runtime_cwd).expect("create runtime cwd");
+        std::fs::create_dir_all(selected.join("reports/2026")).expect("create shared tree");
+
+        let permissions = thread_permission_config_for_shared_folder(
+            "alice",
+            &runtime_cwd,
+            &workspace,
+            &runtime_cwd,
+            &shared_root,
+            &selected,
+            &parser_env,
+            &parser_python,
+            &config,
+        );
+        let filesystem = permissions
+            .pointer("/permissions/ripple_workspace/filesystem")
+            .and_then(Value::as_object)
+            .expect("filesystem permissions");
+
+        assert_eq!(
+            filesystem.get(config.sandbox.sandboxes_root.to_string_lossy().as_ref()),
+            Some(&json!("none"))
+        );
+        assert!(!filesystem.contains_key(workspace.to_string_lossy().as_ref()));
+        assert!(!filesystem.contains_key(shared_root.to_string_lossy().as_ref()));
+        assert_eq!(
+            filesystem.get(selected.to_string_lossy().as_ref()),
+            Some(&json!({".": "read"}))
+        );
+        assert_eq!(
+            filesystem.get(runtime_cwd.to_string_lossy().as_ref()),
+            Some(&json!({".": "write"}))
+        );
+        assert_eq!(
+            filesystem.get(parser_env.to_string_lossy().as_ref()),
+            Some(&json!("read"))
+        );
+        assert_eq!(
+            permissions.pointer("/permissions/ripple_workspace/network/enabled"),
+            Some(&json!(false))
+        );
+        assert!(!filesystem.contains_key(config.sandbox.caches_root.to_string_lossy().as_ref()));
+        assert_eq!(
+            permissions.pointer("/shell_environment_policy/set/RIPPLE_SHARED_FILE_PYTHON"),
+            Some(&json!(parser_python))
+        );
+
+        let _ = std::fs::remove_dir_all(&config.repo_root);
     }
 
     #[test]
@@ -837,6 +970,7 @@ mod tests {
             },
             storage: crate::config::StorageConfig {
                 sqlite_max_connections: 50,
+                shared_folders_root: std::path::PathBuf::from(".ripple/shared-folders"),
             },
             sandbox: SandboxConfig {
                 sandboxes_root: root.join("sandboxes"),

@@ -61,6 +61,7 @@ pub struct LoggingConfig {
 #[derive(Clone, Debug)]
 pub struct StorageConfig {
     pub sqlite_max_connections: u32,
+    pub shared_folders_root: PathBuf,
 }
 
 #[derive(Clone, Debug)]
@@ -331,6 +332,7 @@ struct RawDocumentPreview {
 #[derive(Debug, Default, Deserialize)]
 struct RawStorage {
     sqlite_max_connections: Option<u32>,
+    shared_folders_root: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -603,6 +605,11 @@ impl AppConfig {
                     .sqlite_max_connections
                     .unwrap_or(DEFAULT_SQLITE_MAX_CONNECTIONS)
                     .max(1),
+                shared_folders_root: storage
+                    .shared_folders_root
+                    .as_deref()
+                    .map(|value| resolve_path(&repo_root, value))
+                    .unwrap_or_else(|| repo_root.join(".ripple/shared-folders")),
             },
             sandbox: SandboxConfig {
                 sandboxes_root: sandbox_sandboxes_root,
@@ -1790,6 +1797,26 @@ server:
         .expect("load config");
 
         assert_eq!(config.storage.sqlite_max_connections, 50);
+    }
+
+    #[test]
+    fn parses_shared_folders_root_relative_to_repo() {
+        let config = with_temp_config(
+            "shared-folders-root",
+            r#"
+server:
+  api_keys: ["test-key"]
+  storage:
+    shared_folders_root: "data/shared-folders"
+"#,
+            AppConfig::load,
+        )
+        .expect("load config");
+
+        assert_eq!(
+            config.storage.shared_folders_root,
+            config.repo_root.join("data/shared-folders")
+        );
     }
 
     #[test]

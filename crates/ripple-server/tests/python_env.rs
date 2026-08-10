@@ -260,6 +260,7 @@ fn test_config(root: &Path) -> AppConfig {
         },
         storage: ripple_server::config::StorageConfig {
             sqlite_max_connections: 50,
+            shared_folders_root: root.join("shared-folders"),
         },
         sandbox: SandboxConfig {
             sandboxes_root: root.join("sandboxes"),

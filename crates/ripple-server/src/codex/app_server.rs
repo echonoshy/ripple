@@ -24,7 +24,8 @@ use crate::api::connectors::{invoke_feishu_for_agent, missing_user_scopes_from_c
 use crate::api::tasks::persist_task_update;
 use crate::codex::approvals::{approval_response_for_action, CodexApproval};
 use crate::codex::permissions::{
-    thread_permission_config_for_user, RIPPLE_CODEX_PERMISSION_PROFILE,
+    thread_permission_config_for_shared_folder, thread_permission_config_for_user,
+    RIPPLE_CODEX_PERMISSION_PROFILE,
 };
 use crate::config::AppConfig;
 use crate::mail_render::{render_mail, MailPrepareInput};
@@ -1138,7 +1139,7 @@ impl CodexAppServerProvider {
                 turn_start_params(
                     &thread_id,
                     request,
-                    &self.config.codex.approval_policy,
+                    approval_policy_for_request(request, &self.config.codex.approval_policy),
                     additional_context_epoch,
                 ),
             )
@@ -1739,7 +1740,7 @@ impl CodexAppServerProvider {
                 let mut resume_params = json!({
                     "threadId": thread_id,
                     "cwd": request.cwd,
-                    "approvalPolicy": self.config.codex.approval_policy.clone(),
+                    "approvalPolicy": approval_policy_for_request(request, &self.config.codex.approval_policy),
                     "config": permission_config,
                     "permissions": RIPPLE_CODEX_PERMISSION_PROFILE,
                     "excludeTurns": true
@@ -1763,7 +1764,7 @@ impl CodexAppServerProvider {
 
         let mut start_params = json!({
             "cwd": request.cwd,
-            "approvalPolicy": self.config.codex.approval_policy.clone(),
+            "approvalPolicy": approval_policy_for_request(request, &self.config.codex.approval_policy),
             "ephemeral": !persistent_thread,
             "serviceName": "ripple",
             "config": permission_config,
@@ -2553,14 +2554,77 @@ fn thread_config_for_request(
     request: &AgentRunnerRequest,
 ) -> Value {
     let user_id = request.user_id.as_deref().unwrap_or("default");
-    let mut thread_config =
-        thread_permission_config_for_user(user_id, workspace_root, permission_root, config);
+    let shared_folders_root = request
+        .metadata
+        .get("shared_folders_root")
+        .and_then(Value::as_str)
+        .map(Path::new);
+    let user_workspace_root = request
+        .metadata
+        .get("user_workspace_root")
+        .and_then(Value::as_str)
+        .map(Path::new);
+    let shared_folder_root = request
+        .metadata
+        .get("shared_folder_root")
+        .and_then(Value::as_str)
+        .map(Path::new);
+    let parser_env_root = request
+        .metadata
+        .get("shared_file_parser_env_root")
+        .and_then(Value::as_str)
+        .map(Path::new);
+    let parser_python = request
+        .metadata
+        .get("shared_file_parser_python")
+        .and_then(Value::as_str)
+        .map(Path::new);
+    let mut thread_config = match (
+        shared_folders_root,
+        user_workspace_root,
+        shared_folder_root,
+        parser_env_root,
+        parser_python,
+    ) {
+        (
+            Some(shared_folders_root),
+            Some(user_workspace_root),
+            Some(shared_folder_root),
+            Some(parser_env_root),
+            Some(parser_python),
+        ) => thread_permission_config_for_shared_folder(
+            user_id,
+            workspace_root,
+            user_workspace_root,
+            permission_root,
+            shared_folders_root,
+            shared_folder_root,
+            parser_env_root,
+            parser_python,
+            config,
+        ),
+        _ => thread_permission_config_for_user(user_id, workspace_root, permission_root, config),
+    };
     if let Some(object) = thread_config.as_object_mut() {
         if image_generation_enabled_for_request(request) {
             object.insert("features.image_generation".to_string(), json!(true));
         }
     }
     thread_config
+}
+
+fn approval_policy_for_request<'a>(request: &AgentRunnerRequest, default: &'a Value) -> &'a Value {
+    static NEVER: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    if request
+        .metadata
+        .get("shared_folder_response")
+        .and_then(Value::as_bool)
+        == Some(true)
+    {
+        NEVER.get_or_init(|| json!("never"))
+    } else {
+        default
+    }
 }
 
 fn add_base_instructions(params: &mut Value, request: &AgentRunnerRequest) {
@@ -2581,6 +2645,14 @@ fn add_base_instructions(params: &mut Value, request: &AgentRunnerRequest) {
 }
 
 fn add_task_dynamic_tools(params: &mut Value, request: &AgentRunnerRequest) {
+    if request
+        .metadata
+        .get("shared_folder_response")
+        .and_then(Value::as_bool)
+        == Some(true)
+    {
+        return;
+    }
     if request.session_id.is_none() || request.metadata.get("chat_user_input").is_none() {
         return;
     }
@@ -4083,6 +4155,7 @@ mod tests {
             },
             storage: crate::config::StorageConfig {
                 sqlite_max_connections: 50,
+                shared_folders_root: std::path::PathBuf::from(".ripple/shared-folders"),
             },
             sandbox: SandboxConfig {
                 sandboxes_root: root.join("sandboxes"),

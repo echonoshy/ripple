@@ -76,6 +76,16 @@ pub struct AgentRunCreateRequest {
     pub task_response: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct SharedFolderRunScope {
+    pub(crate) user_workspace_root: PathBuf,
+    pub(crate) shared_folders_root: PathBuf,
+    pub(crate) shared_folder_root: PathBuf,
+    pub(crate) shared_folder_id: String,
+    pub(crate) parser_env_root: PathBuf,
+    pub(crate) parser_python: PathBuf,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct AgentRunInfo {
     pub job_id: String,
@@ -166,6 +176,27 @@ impl JobManager {
         .await
     }
 
+    pub(crate) async fn start_shared_folder(
+        &self,
+        create: AgentRunCreateRequest,
+        user_id: String,
+        session_id: String,
+        workspace_root: PathBuf,
+        runtime_dir: PathBuf,
+        scope: SharedFolderRunScope,
+    ) -> anyhow::Result<AgentRunInfo> {
+        self.start_scoped(
+            create,
+            user_id,
+            Some(session_id),
+            workspace_root,
+            runtime_dir,
+            BTreeMap::new(),
+            Some(scope),
+        )
+        .await
+    }
+
     pub(crate) async fn start_with_additional_context(
         &self,
         create: AgentRunCreateRequest,
@@ -175,6 +206,29 @@ impl JobManager {
         runtime_dir: PathBuf,
         additional_context: BTreeMap<String, String>,
     ) -> anyhow::Result<AgentRunInfo> {
+        self.start_scoped(
+            create,
+            user_id,
+            session_id,
+            workspace_root,
+            runtime_dir,
+            additional_context,
+            None,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn start_scoped(
+        &self,
+        create: AgentRunCreateRequest,
+        user_id: String,
+        session_id: Option<String>,
+        workspace_root: PathBuf,
+        runtime_dir: PathBuf,
+        additional_context: BTreeMap<String, String>,
+        shared_folder_scope: Option<SharedFolderRunScope>,
+    ) -> anyhow::Result<AgentRunInfo> {
         if create.provider != "codex" && create.provider != "auto" {
             anyhow::bail!("Only the codex provider is supported");
         }
@@ -182,27 +236,69 @@ impl JobManager {
         if prompt.is_empty() {
             anyhow::bail!("prompt is required");
         }
-        let image_generation_enabled = user_requested_image_generation(
-            create.chat_user_input.as_deref().unwrap_or(prompt.as_str()),
-        );
-        let cwd = resolve_workspace_cwd(create.cwd.as_deref(), &workspace_root)?;
+        let image_generation_enabled = shared_folder_scope.is_none()
+            && user_requested_image_generation(
+                create.chat_user_input.as_deref().unwrap_or(prompt.as_str()),
+            );
+        let cwd = if shared_folder_scope.is_some() {
+            resolve_shared_response_cwd(create.cwd.as_deref(), &runtime_dir)?
+        } else {
+            resolve_workspace_cwd(create.cwd.as_deref(), &workspace_root)?
+        };
         let job_id = format!("agent-{}", &Uuid::new_v4().simple().to_string()[..8]);
         let job_dir = runtime_dir.join("external-agents").join(&job_id);
         let events_file = job_dir.join("events.jsonl");
-        let mut replay =
-            StoredJobReplay::new(&create, workspace_root.clone(), runtime_dir.clone())?;
+        let worker_root = if shared_folder_scope.is_some() {
+            cwd.clone()
+        } else {
+            workspace_root.clone()
+        };
+        let mut replay = StoredJobReplay::new(&create, worker_root.clone(), runtime_dir.clone())?;
+        replay.shared_folder_scope = shared_folder_scope.clone();
         replay.additional_context = additional_context;
         let now = now_iso();
         let mut metadata = json!({
             "job_id": job_id,
             "route": "agent_runner",
             "signals": [],
-            "sandbox_cwd": sandbox_cwd_for_host_path(&cwd, &workspace_root),
-            "workspace_root": workspace_root,
+            "sandbox_cwd": if shared_folder_scope.is_some() {
+                "/shared-response-runtime".to_string()
+            } else {
+                sandbox_cwd_for_host_path(&cwd, &workspace_root)
+            },
+            "workspace_root": worker_root,
             "permission_root": cwd,
             "image_generation_enabled": image_generation_enabled
         });
         if let Some(object) = metadata.as_object_mut() {
+            if let Some(scope) = &shared_folder_scope {
+                object.insert("shared_folder_response".to_string(), json!(true));
+                object.insert(
+                    "user_workspace_root".to_string(),
+                    json!(scope.user_workspace_root),
+                );
+                object.insert(
+                    "shared_folders_root".to_string(),
+                    json!(scope.shared_folders_root),
+                );
+                object.insert(
+                    "shared_folder_root".to_string(),
+                    json!(scope.shared_folder_root),
+                );
+                object.insert(
+                    "shared_folder_id".to_string(),
+                    json!(scope.shared_folder_id),
+                );
+                object.insert(
+                    "shared_file_parser_env_root".to_string(),
+                    json!(scope.parser_env_root),
+                );
+                object.insert(
+                    "shared_file_parser_python".to_string(),
+                    json!(scope.parser_python),
+                );
+                object.insert("image_generation_enabled".to_string(), json!(false));
+            }
             if let Some(session_id) = &session_id {
                 object.insert("session_id".to_string(), json!(session_id));
             }
@@ -1240,6 +1336,7 @@ struct StoredJobReplay {
     additional_context: BTreeMap<String, String>,
     attempt: u64,
     max_attempts: u64,
+    shared_folder_scope: Option<SharedFolderRunScope>,
 }
 
 impl StoredJobReplay {
@@ -1261,6 +1358,7 @@ impl StoredJobReplay {
             additional_context: BTreeMap::new(),
             attempt: 0,
             max_attempts: 2,
+            shared_folder_scope: None,
         })
     }
 
@@ -1284,6 +1382,7 @@ impl StoredJobReplay {
             "additional_context": self.additional_context,
             "attempt": self.attempt,
             "max_attempts": self.max_attempts,
+            "shared_folder_scope": self.shared_folder_scope,
         })
     }
 
@@ -1319,6 +1418,12 @@ impl StoredJobReplay {
                 .and_then(Value::as_u64)
                 .unwrap_or(1)
                 .max(1),
+            shared_folder_scope: record
+                .get("shared_folder_scope")
+                .filter(|value| !value.is_null())
+                .cloned()
+                .map(serde_json::from_value)
+                .transpose()?,
         })
     }
 }
@@ -1619,6 +1724,26 @@ pub(crate) fn resolve_workspace_cwd(
     };
     if !resolved.starts_with(&root) {
         anyhow::bail!("cwd must stay inside the user workspace");
+    }
+    Ok(resolved)
+}
+
+fn resolve_shared_response_cwd(
+    raw_cwd: Option<&str>,
+    runtime_dir: &Path,
+) -> anyhow::Result<PathBuf> {
+    let runtime_dir = runtime_dir.canonicalize()?;
+    let raw_cwd = raw_cwd
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("shared-folder response cwd is required"))?;
+    let candidate = PathBuf::from(raw_cwd);
+    if !candidate.is_absolute() {
+        anyhow::bail!("shared-folder response cwd must be absolute");
+    }
+    let resolved = candidate.canonicalize()?;
+    if !resolved.starts_with(&runtime_dir) {
+        anyhow::bail!("shared-folder response cwd must stay inside the session runtime");
     }
     Ok(resolved)
 }

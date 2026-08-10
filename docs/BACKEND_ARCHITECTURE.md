@@ -29,6 +29,7 @@ crates/ripple-server/
 - Notion、Google Workspace、Feishu/Lark、Bilibili connector 授权、状态、账号列表和断开。
 - Codex app-server JSON-RPC provider、worker pool、session 级 chat/compaction 互斥、目录级 permission root、`/v1/runs`、`/v1/responses`。
 - Responses-style subset `/v1/responses` 非流式和 SSE 响应、Codex event 映射、token usage 持久化、workspace attachment 和 image 事件导入。
+- Shared Folder Responses 通过独立 `POST /v1/shared-folders/responses` 提供固定 SSE 问答；session 创建时绑定一个共享目录，Codex thread 只能递归只读该目录，不可访问 user workspace、其他共享目录、connector 或网络。详细设计见 `docs/SHARED_FOLDER_RESPONSES_DESIGN.md`。
 - 模型厂商兼容不在 Ripple 内实现 OpenAI-compatible proxy 或厂商 adapter；该边界由 Codex app-server 的 `model_provider` / Responses API 支持负责。
 - Codex approval bridge、session stop/delete/context clear/suspend/resume、sandbox teardown cancellation。
 - Task Sessions 对外入口 `POST /v1/task-sessions/responses`，确认前使用 SSE 对话，确认后通过 callback 返回执行状态和结果。

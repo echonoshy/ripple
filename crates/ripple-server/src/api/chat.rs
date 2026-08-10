@@ -44,6 +44,7 @@ mod project_context;
 mod prompt;
 mod recent_context;
 mod session_actions;
+pub(crate) mod shared_folder;
 mod title;
 mod wire;
 
@@ -2654,6 +2655,11 @@ async fn load_or_create_session(
     if let Some(session_id) = request.session_id.as_deref() {
         validate_session_id(session_id).map_err(ApiError::bad_request)?;
         if let Some(session) = state.sessions.load(user_id, session_id).await? {
+            if session.is_shared_folder() {
+                return Err(ApiError::conflict(
+                    "shared-folder sessions cannot be used with /v1/responses",
+                ));
+            }
             return Ok(session);
         }
     }
@@ -4160,6 +4166,8 @@ mod tests {
             title: String::new(),
             pinned: false,
             context_folder_path: None,
+            session_kind: "workspace".to_string(),
+            shared_folder_id: None,
             model: "codex-test".to_string(),
             max_turns: 200,
             caller_system_prompt: None,
@@ -4224,6 +4232,8 @@ mod tests {
             title: String::new(),
             pinned: false,
             context_folder_path: None,
+            session_kind: "workspace".to_string(),
+            shared_folder_id: None,
             model: "codex-test".to_string(),
             max_turns: 200,
             caller_system_prompt: None,
@@ -4391,6 +4401,8 @@ mod tests {
             title: String::new(),
             pinned: false,
             context_folder_path: None,
+            session_kind: "workspace".to_string(),
+            shared_folder_id: None,
             model: "codex-test".to_string(),
             max_turns: 200,
             caller_system_prompt: None,
@@ -4491,6 +4503,7 @@ mod tests {
             },
             storage: crate::config::StorageConfig {
                 sqlite_max_connections: 50,
+                shared_folders_root: std::path::PathBuf::from(".ripple/shared-folders"),
             },
             sandbox: SandboxConfig {
                 sandboxes_root: root.join("sandboxes"),
@@ -5563,6 +5576,8 @@ mod tests {
             title: String::new(),
             pinned: false,
             context_folder_path: None,
+            session_kind: "workspace".to_string(),
+            shared_folder_id: None,
             model: "codex-medium".to_string(),
             max_turns: 200,
             caller_system_prompt: None,
@@ -5699,6 +5714,8 @@ mod tests {
             title: String::new(),
             pinned: false,
             context_folder_path: None,
+            session_kind: "workspace".to_string(),
+            shared_folder_id: None,
             model: "codex-test".to_string(),
             max_turns: 200,
             caller_system_prompt: None,

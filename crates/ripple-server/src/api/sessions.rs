@@ -854,6 +854,11 @@ pub async fn compact_session_context(
     let Some(session) = state.sessions.load(&user_id, &session_id).await? else {
         return Err(ApiError::not_found("Session not found"));
     };
+    if session.is_shared_folder() {
+        return Err(ApiError::conflict(
+            "Shared-folder sessions use Codex automatic context compaction",
+        ));
+    }
     if session.status_kind().is_busy() {
         return Err(ApiError::conflict("Session is currently running"));
     }

@@ -41,6 +41,7 @@ fn test_config(root: &Path) -> AppConfig {
         },
         storage: ripple_server::config::StorageConfig {
             sqlite_max_connections: 50,
+            shared_folders_root: root.join("shared-folders"),
         },
         sandbox: SandboxConfig {
             sandboxes_root: root.join("sandboxes"),
@@ -1950,6 +1951,39 @@ fn test_state_and_app(root: &Path) -> (AppState, axum::Router) {
     (state, app)
 }
 
+fn seed_shared_file_parser_env(root: &Path) {
+    let env_path = root.join("cache/python-envs/shared-file-parser-test");
+    let python_executable = env_path.join("bin/python");
+    let lock_path = root
+        .join("cache/python-env-locks")
+        .join("shared-file-parser-test.requirements.txt");
+    let marker_path = root
+        .join("cache/python-env-locks")
+        .join("shared-file-parser-v1.json");
+    fs::create_dir_all(python_executable.parent().unwrap()).unwrap();
+    fs::create_dir_all(lock_path.parent().unwrap()).unwrap();
+    fs::write(&python_executable, "#!/bin/sh\nexit 0\n").unwrap();
+    fs::write(&lock_path, "test lock").unwrap();
+    fs::write(
+        &marker_path,
+        serde_json::to_vec_pretty(&json!({
+            "env_key": "shared-file-parser-test",
+            "env_path": env_path,
+            "base_python_executable": "/usr/bin/python3",
+            "python_executable": python_executable,
+            "lock_path": lock_path,
+            "requirements": [
+                "openpyxl==3.1.5",
+                "pypdf==5.0.0",
+                "python-docx==1.1.2",
+                "python-pptx==1.0.2"
+            ]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+}
+
 fn test_state_and_app_with_config(config: AppConfig) -> (AppState, axum::Router) {
     let state = AppState::new(config);
     let app = router(state.clone());
@@ -2181,6 +2215,188 @@ async fn router_serves_core_control_plane_routes() {
 }
 
 #[tokio::test]
+async fn shared_folder_responses_enforces_request_and_session_scope_before_execution() {
+    let root = std::env::temp_dir().join(format!("ripple-shared-response-api-{}", Uuid::new_v4()));
+    fs::create_dir_all(root.join("shared-folders/a-folder/nested")).unwrap();
+    fs::create_dir_all(root.join("shared-folders/b-folder")).unwrap();
+    fs::write(
+        root.join("shared-folders/a-folder/nested/report.txt"),
+        "shared content",
+    )
+    .unwrap();
+    let (state, app) = test_state_and_app(&root);
+
+    let unknown_field = app
+        .clone()
+        .oneshot(request(
+            Method::POST,
+            "/v1/shared-folders/responses",
+            json!({
+                "req_id": "req-unknown",
+                "session_id": "shared-unknown",
+                "shared_folder": "a-folder",
+                "input": "summarize",
+                "stream": true
+            }),
+            true,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(unknown_field.status(), StatusCode::BAD_REQUEST);
+
+    let missing_folder = app
+        .clone()
+        .oneshot(request(
+            Method::POST,
+            "/v1/shared-folders/responses",
+            json!({
+                "req_id": "req-missing",
+                "session_id": "shared-missing",
+                "shared_folder": "missing-folder",
+                "input": "summarize"
+            }),
+            true,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(missing_folder.status(), StatusCode::NOT_FOUND);
+
+    state
+        .sessions
+        .create_session_with_id(
+            "smoke-user",
+            CreateSessionInput {
+                model: None,
+                max_turns: None,
+                system_prompt: None,
+                context_folder_path: None,
+            },
+            Some("workspace-session"),
+        )
+        .await
+        .unwrap();
+    let workspace_session = app
+        .clone()
+        .oneshot(request(
+            Method::POST,
+            "/v1/shared-folders/responses",
+            json!({
+                "req_id": "req-workspace",
+                "session_id": "workspace-session",
+                "shared_folder": "a-folder",
+                "input": "summarize"
+            }),
+            true,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(workspace_session.status(), StatusCode::CONFLICT);
+
+    state
+        .sessions
+        .create_shared_folder_session_with_id("smoke-user", "shared-bound-a", "a-folder", None)
+        .await
+        .unwrap();
+    let changed_folder = app
+        .clone()
+        .oneshot(request(
+            Method::POST,
+            "/v1/shared-folders/responses",
+            json!({
+                "req_id": "req-folder-change",
+                "session_id": "shared-bound-a",
+                "shared_folder": "b-folder",
+                "input": "summarize"
+            }),
+            true,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(changed_folder.status(), StatusCode::CONFLICT);
+
+    let (workspace_response_status, _) = call_response(
+        app,
+        json!({
+            "session_id": "shared-bound-a",
+            "messages": [{"role": "user", "content": "use workspace mode"}],
+            "stream": false
+        }),
+    )
+    .await;
+    assert_eq!(workspace_response_status, StatusCode::CONFLICT);
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn shared_folder_responses_streams_and_persists_bound_codex_thread() {
+    let root =
+        std::env::temp_dir().join(format!("ripple-shared-response-stream-{}", Uuid::new_v4()));
+    fs::create_dir_all(root.join("shared-folders/a-folder/nested")).unwrap();
+    fs::write(
+        root.join("shared-folders/a-folder/nested/report.txt"),
+        "shared content",
+    )
+    .unwrap();
+    seed_shared_file_parser_env(&root);
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+
+    let response = app
+        .oneshot(request(
+            Method::POST,
+            "/v1/shared-folders/responses",
+            json!({
+                "req_id": " req-shared-1 ",
+                "session_id": "shared-session-1",
+                "shared_folder": "a-folder",
+                "input": "summarize recursively",
+                "model": "codex-test"
+            }),
+            true,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok()),
+        Some("text/event-stream")
+    );
+    assert_eq!(
+        response
+            .headers()
+            .get("x-ripple-req-id")
+            .and_then(|value| value.to_str().ok()),
+        Some("req-shared-1")
+    );
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body = String::from_utf8(body.to_vec()).unwrap();
+    assert!(body.contains("event: response.created"), "{body}");
+    assert!(body.contains("event: response.completed"), "{body}");
+    assert!(body.contains("fake codex completed"), "{body}");
+    assert!(body.contains("\"shared_folder\":\"a-folder\""), "{body}");
+    assert!(!body.contains(root.to_string_lossy().as_ref()), "{body}");
+
+    let session = state
+        .sessions
+        .load("smoke-user", "shared-session-1")
+        .await
+        .unwrap()
+        .expect("shared session");
+    assert_eq!(session.session_kind, "shared_folder");
+    assert_eq!(session.shared_folder_id.as_deref(), Some("a-folder"));
+    assert_eq!(session.codex_thread_id.as_deref(), Some("thread-1"));
+    assert_eq!(session.status, "idle");
+    assert_eq!(session.message_count, 2);
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[tokio::test]
 async fn openapi_docs_are_public_and_keep_v1_auth_unchanged() {
     let root = std::env::temp_dir().join(format!("ripple-openapi-docs-{}", Uuid::new_v4()));
     let (_state, app) = test_state_and_app(&root);
@@ -2210,6 +2426,7 @@ async fn openapi_docs_are_public_and_keep_v1_auth_unchanged() {
         ("/v1/runtime/codex", "get"),
         ("/v1/info", "get"),
         ("/v1/responses", "post"),
+        ("/v1/shared-folders/responses", "post"),
         ("/v1/health/ready", "get"),
         ("/v1/diagnostics/doctor", "get"),
         ("/v1/users/me", "get"),

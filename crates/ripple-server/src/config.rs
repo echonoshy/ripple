@@ -1,5 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use serde::Deserialize;
 use serde_json::{json, Value as JsonValue};
@@ -143,6 +143,7 @@ pub struct SandboxConfig {
     pub lark_cli_install_root: Option<PathBuf>,
     pub notion_cli_install_root: Option<PathBuf>,
     pub gogcli_cli_install_root: Option<PathBuf>,
+    pub gogcli_data_subdir: PathBuf,
     pub cli_tools: Vec<CliToolConfig>,
     pub pypi_mirror_url: Option<String>,
     pub npm_registry_url: Option<String>,
@@ -364,6 +365,7 @@ struct RawSandbox {
     lark_cli_install_root: Option<String>,
     notion_cli_install_root: Option<String>,
     gogcli_cli_install_root: Option<String>,
+    gogcli_data_subdir: Option<String>,
     cli_tools: Option<Vec<RawCliTool>>,
     pypi_mirror_url: Option<String>,
     npm_registry_url: Option<String>,
@@ -567,6 +569,12 @@ impl AppConfig {
         } else {
             None
         };
+        let gogcli_data_subdir = parse_gogcli_data_subdir(
+            sandbox
+                .gogcli_data_subdir
+                .as_deref()
+                .unwrap_or(".config/gogcli"),
+        )?;
 
         let config = Self {
             repo_root: repo_root.clone(),
@@ -647,6 +655,7 @@ impl AppConfig {
                 lark_cli_install_root,
                 notion_cli_install_root,
                 gogcli_cli_install_root,
+                gogcli_data_subdir,
                 cli_tools: parse_cli_tools(&repo_root, sandbox.cli_tools)?,
                 pypi_mirror_url: sandbox.pypi_mirror_url,
                 npm_registry_url: sandbox.npm_registry_url,
@@ -1088,6 +1097,21 @@ fn clean_config_string(value: Option<&str>) -> Option<String> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string)
+}
+
+fn parse_gogcli_data_subdir(value: &str) -> anyhow::Result<PathBuf> {
+    let path = PathBuf::from(value.trim());
+    if path.as_os_str().is_empty()
+        || path.is_absolute()
+        || path
+            .components()
+            .any(|component| !matches!(component, Component::Normal(_)))
+        || !path.starts_with(".config")
+        || path == Path::new(".config")
+    {
+        anyhow::bail!("sandbox.gogcli_data_subdir must be a relative child path below .config");
+    }
+    Ok(path)
 }
 
 fn parse_model_presets(
@@ -1814,6 +1838,46 @@ server:
             config.sandbox.workspaces_root,
             Some(config.repo_root.join("nas/workspaces"))
         );
+    }
+
+    #[test]
+    fn parses_gogcli_data_subdir() {
+        let config = with_temp_config(
+            "gogcli-data-subdir",
+            r#"
+server:
+  api_keys: ["test-key"]
+  sandbox:
+    gogcli_data_subdir: ".config/google-workspace"
+"#,
+            AppConfig::load,
+        )
+        .expect("load config");
+
+        assert_eq!(
+            config.sandbox.gogcli_data_subdir,
+            std::path::PathBuf::from(".config/google-workspace")
+        );
+    }
+
+    #[test]
+    fn rejects_unsafe_gogcli_data_subdir() {
+        for value in ["/tmp/gogcli", "../gogcli", ".local/share/gogcli", ".config"] {
+            let result = with_temp_config(
+                "unsafe-gogcli-data-subdir",
+                &format!(
+                    "server:\n  api_keys: [test-key]\n  sandbox:\n    gogcli_data_subdir: {value:?}\n"
+                ),
+                AppConfig::load,
+            );
+            let error = result.expect_err("unsafe gogcli data subdir must fail");
+            assert!(
+                error.to_string().contains(
+                    "sandbox.gogcli_data_subdir must be a relative child path below .config"
+                ),
+                "unexpected error for {value}: {error}"
+            );
+        }
     }
 
     #[test]

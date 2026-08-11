@@ -124,7 +124,6 @@ pub(crate) async fn connector_status_value(
     connector_name: &str,
 ) -> Result<Value, ApiError> {
     ensure_connector_enabled(state, connector_name)?;
-    let workspace = state.sandboxes.workspace_dir(user_id)?;
     let credentials = state.sandboxes.credentials_dir(user_id)?;
     let mut status = match connector_name {
         "notion" => {
@@ -133,7 +132,7 @@ pub(crate) async fn connector_status_value(
             json!({"name": connector_name, "connected": connected, "required": !connected, "detail": if connected {"Notion token is stored for this user."} else {"Notion token is missing for this user."}, "metadata": {}})
         }
         "google_workspace" => {
-            let has_keyring = workspace.join(".config/gogcli/keyring").exists();
+            let has_keyring = state.sandboxes.gogcli_keyring_dir(user_id)?.exists();
             let accounts = if has_keyring {
                 if let Some(gog) = google_workspace::gog_binary(state) {
                     google_workspace::list_accounts(state, user_id, &gog, true, 30)

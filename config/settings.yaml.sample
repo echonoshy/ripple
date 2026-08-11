@@ -241,6 +241,9 @@ server:
     # 正式部署到 NAS 时可改成挂载目录，例如:
     #   /mnt/ripple-workspaces
     # workspaces_root: "/mnt/ripple-workspaces"
+    # gogcli 的每用户数据目录，相对于各自 workspace；必须位于 .config/ 下。
+    # 宿主路径由 workspaces_root + user_id 派生，nsjail 内映射到 /workspace。
+    gogcli_data_subdir: ".config/gogcli"
     # 跨 user 共享的包管理器缓存（uv / corepack / pnpm）
     # caches_root: ".ripple/sandboxes-cache"
     # 跨 user 共享的只读 Python 依赖环境（由 python/python3 wrapper 创建和复用）

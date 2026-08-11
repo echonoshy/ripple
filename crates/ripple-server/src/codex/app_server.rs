@@ -436,6 +436,10 @@ impl CodexAppServerSession {
             command.env(key, value);
         }
         if self.config.sandbox.gogcli_cli_install_root.is_some() {
+            command.env(
+                "GOG_DATA_DIR",
+                self.cwd.join(&self.config.sandbox.gogcli_data_subdir),
+            );
             command.env("GOG_KEYRING_BACKEND", "file");
             let pass_file = credentials_dir.join("gogcli-keyring.pass");
             if let Ok(password) = tokio::fs::read_to_string(pass_file).await {
@@ -4197,6 +4201,7 @@ mod tests {
                 lark_cli_install_root: None,
                 notion_cli_install_root: None,
                 gogcli_cli_install_root: None,
+                gogcli_data_subdir: std::path::PathBuf::from(".config/gogcli"),
                 cli_tools: Vec::new(),
                 pypi_mirror_url: None,
                 npm_registry_url: None,

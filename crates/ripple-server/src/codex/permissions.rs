@@ -265,6 +265,13 @@ fn thread_permission_config_with_user(
     }
     let mut shell_environment_exclusions = vec!["CODEX_HOME".to_string()];
     shell_environment_exclusions.extend(config.codex.provider_env_keys.iter().cloned());
+    let mut shell_environment_set = serde_json::Map::new();
+    if config.sandbox.gogcli_cli_install_root.is_some() {
+        shell_environment_set.insert(
+            "GOG_DATA_DIR".to_string(),
+            json!(workspace_root.join(&config.sandbox.gogcli_data_subdir)),
+        );
+    }
     json!({
         "features.image_generation": false,
         "default_permissions": RIPPLE_CODEX_PERMISSION_PROFILE,
@@ -274,7 +281,10 @@ fn thread_permission_config_with_user(
                 "network": {"enabled": config.codex.network_access}
             }
         },
-        "shell_environment_policy": {"exclude": shell_environment_exclusions}
+        "shell_environment_policy": {
+            "exclude": shell_environment_exclusions,
+            "set": shell_environment_set
+        }
     })
 }
 
@@ -431,6 +441,7 @@ fn current_user_bilibili_credential_file(
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
+    use std::path::PathBuf;
 
     use serde_json::{json, Value};
 
@@ -950,6 +961,24 @@ mod tests {
         let _ = std::fs::remove_dir_all(&config.repo_root);
     }
 
+    #[test]
+    fn profile_sets_configured_gogcli_data_dir() {
+        let mut config = test_config();
+        config.sandbox.gogcli_cli_install_root = Some(config.repo_root.join("vendor/gogcli-cli"));
+        config.sandbox.gogcli_data_subdir = PathBuf::from(".config/google-workspace");
+        let workspace = config.repo_root.join("sandboxes/alice/workspace");
+
+        let permissions =
+            thread_permission_config_for_user("alice", &workspace, &workspace, &config);
+
+        assert_eq!(
+            permissions.pointer("/shell_environment_policy/set/GOG_DATA_DIR"),
+            Some(&json!(workspace.join(".config/google-workspace")))
+        );
+
+        let _ = std::fs::remove_dir_all(&config.repo_root);
+    }
+
     fn test_config() -> AppConfig {
         let root = std::env::temp_dir().join(format!(
             "ripple-permissions-config-{}",
@@ -992,6 +1021,7 @@ mod tests {
                 lark_cli_install_root: None,
                 notion_cli_install_root: None,
                 gogcli_cli_install_root: None,
+                gogcli_data_subdir: std::path::PathBuf::from(".config/gogcli"),
                 cli_tools: Vec::new(),
                 pypi_mirror_url: None,
                 npm_registry_url: None,

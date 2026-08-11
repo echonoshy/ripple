@@ -395,8 +395,7 @@ pub(super) async fn disconnect(
 
 async fn disconnect_all(state: &AppState, user_id: &str) -> Result<Json<Value>, ApiError> {
     clear_pending_oauth_for_user(state, user_id);
-    let workspace = state.sandboxes.workspace_dir(user_id)?;
-    let keyring = workspace.join(".config/gogcli/keyring");
+    let keyring = state.sandboxes.gogcli_keyring_dir(user_id)?;
     let keyring_removed = if keyring.exists() {
         tokio::fs::remove_dir_all(&keyring).await?;
         true
@@ -740,8 +739,8 @@ async fn register_client_config(
 
     let pending = state
         .sandboxes
-        .workspace_dir(user_id)?
-        .join(".config/gogcli/.pending-client.json");
+        .gogcli_data_dir(user_id)?
+        .join(".pending-client.json");
     if let Some(parent) = pending.parent() {
         tokio::fs::create_dir_all(parent).await?;
     }
@@ -751,15 +750,16 @@ async fn register_client_config(
     )
     .await?;
     set_mode_0600(&pending).await?;
+    let pending_sandbox_path = state
+        .sandboxes
+        .gogcli_sandbox_data_dir()
+        .join(".pending-client.json");
+    let pending_sandbox_path = pending_sandbox_path.to_string_lossy().to_string();
     let output = run_gog(
         state,
         user_id,
         gog,
-        &[
-            "auth",
-            "credentials",
-            "/workspace/.config/gogcli/.pending-client.json",
-        ],
+        &["auth", "credentials", &pending_sandbox_path],
         None,
         30,
     )

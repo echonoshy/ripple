@@ -331,7 +331,7 @@ impl SandboxManager {
                 .is_file(),
             has_notion_token: self.notion_config_file(user_id)?.is_file(),
             has_gogcli_client_config: self.gogcli_client_config_file(user_id)?.is_file(),
-            has_gogcli_login: has_gogcli_login(&workspace),
+            has_gogcli_login: has_gogcli_login(&self.gogcli_data_dir(user_id)?),
         }))
     }
 
@@ -345,6 +345,20 @@ impl SandboxManager {
 
     pub fn gogcli_keyring_pass_file(&self, user_id: &str) -> anyhow::Result<PathBuf> {
         Ok(self.credentials_dir(user_id)?.join("gogcli-keyring.pass"))
+    }
+
+    pub fn gogcli_data_dir(&self, user_id: &str) -> anyhow::Result<PathBuf> {
+        Ok(self
+            .workspace_dir(user_id)?
+            .join(&self.config.sandbox.gogcli_data_subdir))
+    }
+
+    pub fn gogcli_keyring_dir(&self, user_id: &str) -> anyhow::Result<PathBuf> {
+        Ok(self.gogcli_data_dir(user_id)?.join("keyring"))
+    }
+
+    pub fn gogcli_sandbox_data_dir(&self) -> PathBuf {
+        Path::new("/workspace").join(&self.config.sandbox.gogcli_data_subdir)
     }
 
     pub fn bilibili_config_file(&self, user_id: &str) -> anyhow::Result<PathBuf> {
@@ -675,6 +689,10 @@ keep_env: false
                 "XDG_CONFIG_HOME".to_string(),
                 "/workspace/.config".to_string(),
             ));
+            env.push((
+                "GOG_DATA_DIR".to_string(),
+                self.gogcli_sandbox_data_dir().to_string_lossy().to_string(),
+            ));
             env.push(("GOG_KEYRING_BACKEND".to_string(), "file".to_string()));
             if let Ok(password) = std::fs::read_to_string(self.gogcli_keyring_pass_file(user_id)?) {
                 let password = password.trim();
@@ -762,8 +780,8 @@ pub fn workspace_size_bytes(workspace: &Path) -> u64 {
         .sum()
 }
 
-fn has_gogcli_login(workspace: &Path) -> bool {
-    let keyring = workspace.join(".config/gogcli/keyring");
+fn has_gogcli_login(data_dir: &Path) -> bool {
+    let keyring = data_dir.join("keyring");
     if !keyring.is_dir() {
         return false;
     }
@@ -973,6 +991,7 @@ mod tests {
                 lark_cli_install_root: Some(lark_root),
                 notion_cli_install_root: Some(notion_root),
                 gogcli_cli_install_root: Some(gog_root),
+                gogcli_data_subdir: PathBuf::from(".config/gogcli"),
                 cli_tools: vec![CliToolConfig {
                     name: "bilibili".to_string(),
                     install_root: bilibili_root,
@@ -1055,6 +1074,7 @@ mod tests {
         assert!(cfg.contains("NODE_COMPILE_CACHE=/node-compile-cache"));
         assert!(cfg.contains(r#"options: "size=64M""#));
         assert!(cfg.contains("NOTION_API_TOKEN=secret_test"));
+        assert!(cfg.contains("GOG_DATA_DIR=/workspace/.config/gogcli"));
         assert!(cfg.contains("GOG_KEYRING_PASSWORD=pw"));
         assert!(cfg.contains(r#"dst: "/connector-credentials/lark-cli""#));
         assert!(cfg.contains("LARKSUITE_CLI_CONFIG_DIR=/connector-credentials/lark-cli/config"));

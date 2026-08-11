@@ -16,9 +16,6 @@ use crate::sessions::SessionRecord;
 use crate::state::AppState;
 
 const FEISHU_CLASSIFICATION_MAX_RUNTIME_SECONDS: u64 = 20;
-// Keep this concrete: the service's configured model aliases can be valid for
-// normal chat routing while unsupported by the ChatGPT-backed Codex runtime.
-const FEISHU_CLASSIFICATION_MODEL: &str = "gpt-5.5";
 const FEISHU_AUTHORIZATION_CONTEXT_TURNS: usize = 8;
 const FEISHU_AUTHORIZATION_CONTEXT_MESSAGE_MAX_CHARS: usize = 1_500;
 
@@ -448,6 +445,7 @@ async fn classify_feishu_authorization_for_task(
         .iter()
         .map(|profile| profile.id.clone())
         .collect::<Vec<_>>();
+    let (classification_model, _) = state.config.resolve_model(None);
     let prompt = feishu_task_classification_prompt(task_description, &profile_ids);
     let create = AgentRunCreateRequest {
         prompt: prompt.clone(),
@@ -457,7 +455,7 @@ async fn classify_feishu_authorization_for_task(
         client_context: None,
         cwd: Some("/workspace".to_string()),
         input_items: vec![json!({"type": "text", "text": prompt})],
-        model: Some(FEISHU_CLASSIFICATION_MODEL.to_string()),
+        model: Some(classification_model),
         effort: None,
         summary: None,
         output_schema: Some(feishu_task_classification_output_schema(&profile_ids)),

@@ -620,7 +620,7 @@ mod tests {
         std::fs::create_dir_all(&workspace).expect("create workspace");
         let mut config = test_config();
         config.codex.codex_home = Some(config.repo_root.join(".ripple/codex-service-home"));
-        config.codex.provider_env_keys = vec!["ARK_API_KEY".to_string()];
+        config.codex.provider_env_keys = vec!["BAILIAN_API_KEY".to_string()];
 
         let permissions = thread_permission_config(&workspace, &config);
         let filesystem = permissions
@@ -643,7 +643,7 @@ mod tests {
         assert_eq!(workspace_rules.get("."), Some(&json!("write")));
         assert_eq!(
             permissions.pointer("/shell_environment_policy/exclude"),
-            Some(&json!(["CODEX_HOME", "ARK_API_KEY"]))
+            Some(&json!(["CODEX_HOME", "BAILIAN_API_KEY"]))
         );
 
         let _ = std::fs::remove_dir_all(workspace);

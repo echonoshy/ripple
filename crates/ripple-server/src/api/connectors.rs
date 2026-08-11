@@ -1033,6 +1033,31 @@ fn now_epoch_seconds() -> u64 {
 }
 
 async fn codex_status(state: &AppState) -> Value {
+    if !state.config.codex.requires_service_auth {
+        let missing_keys = state
+            .config
+            .codex
+            .provider_env_keys
+            .iter()
+            .filter(|key| std::env::var_os(key).map_or(true, |value| value.is_empty()))
+            .cloned()
+            .collect::<Vec<_>>();
+        let connected = missing_keys.is_empty();
+        return json!({
+            "name": "openai_codex",
+            "connected": connected,
+            "required": !connected,
+            "detail": if connected {
+                "Codex custom provider credentials are configured."
+            } else {
+                "Codex custom provider credentials are missing."
+            },
+            "metadata": {
+                "auth_source": "provider_env",
+                "missing_env_keys": missing_keys
+            }
+        });
+    }
     let mut command = tokio::process::Command::new(&state.config.codex.codex_executable);
     command.args(["login", "status"]);
     command.env("CODEX_HOME", state.config.codex_home_path());

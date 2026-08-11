@@ -94,8 +94,8 @@ pub fn connector_definitions() -> &'static [ConnectorDefinition] {
         },
         ConnectorDefinition {
             name: "openai_codex",
-            display_name: "OpenAI Codex",
-            description: "Server-side Codex CLI login used by the app-server executor.",
+            display_name: "Codex Runtime",
+            description: "Server-side Codex app-server execution runtime.",
             auth_type: "cli",
             kind: "runtime_capability",
             auth_flow: "none",

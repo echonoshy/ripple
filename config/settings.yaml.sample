@@ -11,27 +11,25 @@ model:
   # 当前模型因容量、可用性或模型级上游错误失败，且尚无输出/工具副作用时，按顺序静默降级。
   # 删除或设为空列表可禁用自动降级。
   fallback_chain:
-    - model: "gpt-5.6-luna"
+    - model: "qwen3.6-flash"
       reasoning_effort: "low"
-    - model: "gpt-5.6-terra"
-      reasoning_effort: "low"
-    - model: "gpt-5.5"
+    - model: "qwen3.7-max"
       reasoning_effort: "low"
 
   # 模型预设（/models 查看，/model <别名> 切换）
   # reasoning_effort 目前作为 UI/响应元数据保留，实际执行由 Codex app-server 处理。
   presets:
     codex-low:
-      openai-codex: "gpt-5.5"
+      codex: "qwen3.7-plus"
       reasoning_effort: "low"
     codex-medium:
-      openai-codex: "gpt-5.5"
+      codex: "qwen3.7-plus"
       reasoning_effort: "medium"
     codex-high:
-      openai-codex: "gpt-5.5"
+      codex: "qwen3.7-plus"
       reasoning_effort: "high"
     codex-xhigh:
-      openai-codex: "gpt-5.5"
+      codex: "qwen3.7-plus"
       reasoning_effort: "xhigh"
 
 # Codex app-server runner 配置
@@ -57,11 +55,11 @@ external_agents:
     app_server_args: ["app-server", "--listen", "stdio://"]
     # 自定义模型 Provider 所需的密钥环境变量名。这里只填写变量名，不填写密钥值。
     # Ripple 只把这些变量传给 Codex app-server，并从模型 shell 环境中排除。
-    # 国内百炼 Token Plan 部署设置为 ["ARK_API_KEY"]；默认 Codex 登录保持空列表。
-    provider_env_keys: []
+    # 百炼 Token Plan 密钥使用 root-only 进程环境传入，不写入仓库配置。
+    provider_env_keys: ["BAILIAN_API_KEY"]
     # 默认 Codex/OpenAI 登录需要共享服务端 auth.json。国内百炼使用 env_key 鉴权，
     # 应设为 false，避免继续依赖或暴露国外 Codex 订阅凭证。
-    requires_service_auth: true
+    requires_service_auth: false
     # 独立服务端 CODEX_HOME。管理员用
     #   CODEX_HOME=/path/to/.ripple/codex-service-home codex login
     # 登录一次；不要复用开发者个人 ~/.codex，避免继承 yolo/danger-full-access 配置。

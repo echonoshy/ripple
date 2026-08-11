@@ -1294,18 +1294,18 @@ mod tests {
     fn parses_and_deduplicates_provider_env_keys() {
         let config = with_temp_config(
             "provider-env-keys",
-            "external_agents:\n  codex:\n    requires_service_auth: false\n    provider_env_keys: [ARK_API_KEY, ARK_API_KEY]\nserver:\n  api_keys: [test-key]\n",
+            "external_agents:\n  codex:\n    requires_service_auth: false\n    provider_env_keys: [BAILIAN_API_KEY, BAILIAN_API_KEY]\nserver:\n  api_keys: [test-key]\n",
             AppConfig::load,
         )
         .expect("load config");
 
         assert!(!config.codex.requires_service_auth);
-        assert_eq!(config.codex.provider_env_keys, vec!["ARK_API_KEY"]);
+        assert_eq!(config.codex.provider_env_keys, vec!["BAILIAN_API_KEY"]);
     }
 
     #[test]
     fn rejects_invalid_or_reserved_provider_env_keys() {
-        for (name, key) in [("invalid", "ark-api-key"), ("reserved", "CODEX_HOME")] {
+        for (name, key) in [("invalid", "bailian-api-key"), ("reserved", "CODEX_HOME")] {
             let error = with_temp_config(
                 name,
                 &format!(

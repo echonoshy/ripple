@@ -3600,7 +3600,7 @@ mod tests {
     #[test]
     fn pool_generation_includes_serialized_approval_policy() {
         let mut config = test_config();
-        config.codex.provider_env_keys = vec!["ARK_API_KEY".to_string()];
+        config.codex.provider_env_keys = vec!["BAILIAN_API_KEY".to_string()];
         config.codex.approval_policy = json!({
             "granular": {
                 "sandbox_approval": true,
@@ -3615,7 +3615,7 @@ mod tests {
 
         assert!(generation.contains("\"granular\""));
         assert!(generation.contains("\"request_permissions\":true"));
-        assert!(generation.contains("ARK_API_KEY"));
+        assert!(generation.contains("BAILIAN_API_KEY"));
     }
 
     #[test]

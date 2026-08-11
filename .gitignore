@@ -269,6 +269,7 @@ src/interfaces/mobile/android/
 
 # Config files with sensitive data
 config/settings.yaml
+config/settings.yaml.bak.*
 
 # Spyder project settings
 .spyderproject

@@ -20,7 +20,9 @@ mod protocol;
 mod runtime_env;
 mod types;
 
-use crate::api::connectors::{invoke_feishu_for_agent, missing_user_scopes_from_cli_result};
+use crate::api::connectors::{
+    invoke_feishu_for_agent, invoke_google_workspace_for_agent, missing_user_scopes_from_cli_result,
+};
 use crate::api::tasks::persist_task_update;
 use crate::codex::approvals::{approval_response_for_action, CodexApproval};
 use crate::codex::permissions::{
@@ -1525,6 +1527,71 @@ impl CodexAppServerProvider {
                     Err(err) => (false, format!("{err:?}")),
                 }
             }
+        } else if namespace == "codex_app" && tool == "google_workspace_cli" {
+            let user_id = request.user_id.as_deref().unwrap_or("default");
+            let args = dynamic_tool_string_args(&arguments, "google_workspace_cli");
+            match args {
+                Ok(args) => {
+                    if request
+                        .metadata
+                        .get("task_response")
+                        .and_then(Value::as_bool)
+                        == Some(true)
+                    {
+                        let confirmed = match request.session_id.as_deref() {
+                            Some(session_id) => self
+                                .storage
+                                .load_session(user_id, session_id)
+                                .await?
+                                .as_ref()
+                                .map(task_session_execution_is_confirmed)
+                                .unwrap_or(false),
+                            None => false,
+                        };
+                        if !confirmed {
+                            let output = json!({
+                                "ok": false,
+                                "code": "task_confirmation_required",
+                                "connector": "google_workspace",
+                                "message": "Confirm task execution before calling Google Workspace."
+                            });
+                            return_dynamic_tool_response(
+                                session,
+                                request_id,
+                                false,
+                                serde_json::to_string(&output)
+                                    .unwrap_or_else(|_| "{\"ok\":false}".to_string()),
+                            )
+                            .await?;
+                            return Ok(true);
+                        }
+                    }
+                    let sandboxes = SandboxManager::new(self.config.clone());
+                    match invoke_google_workspace_for_agent(
+                        &self.config,
+                        &sandboxes,
+                        user_id,
+                        &args,
+                    )
+                    .await
+                    {
+                        Ok(output) => {
+                            let success =
+                                output.get("ok").and_then(Value::as_bool).unwrap_or(false);
+                            (
+                                success,
+                                serde_json::to_string(&output)
+                                    .unwrap_or_else(|_| "{\"ok\":false}".to_string()),
+                            )
+                        }
+                        Err(err) => (false, format!("{err:?}")),
+                    }
+                }
+                Err(output) => (
+                    false,
+                    serde_json::to_string(&output).unwrap_or_else(|_| "{\"ok\":false}".to_string()),
+                ),
+            }
         } else if namespace == "codex_app" && tool == "feishu_cli" {
             let user_id = request.user_id.as_deref().unwrap_or("default");
             let args = match arguments.get("args").and_then(Value::as_array) {
@@ -2686,6 +2753,13 @@ fn add_task_dynamic_tools(params: &mut Value, request: &AgentRunnerRequest) {
                 "inputSchema": feishu_cli_input_schema(),
                 "deferLoading": false
             }),
+            json!({
+                "namespace": "codex_app",
+                "name": "google_workspace_cli",
+                "description": "Run one gog Google Workspace command for the current Ripple user. Pass arguments after gog. Start with [\"--json\",\"auth\",\"list\"] to select an account, then explicitly pass --account for every business command. Use --readonly for reads. Authentication and configuration are Ripple-owned; if code=connector_auth_required, request standard Google Workspace authorization.",
+                "inputSchema": google_workspace_cli_input_schema(),
+                "deferLoading": false
+            }),
         ];
         if request
             .metadata
@@ -2841,6 +2915,40 @@ fn feishu_cli_input_schema() -> Value {
     })
 }
 
+fn google_workspace_cli_input_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "args": {
+                "type": "array",
+                "description": "Arguments after gog, for example [\"--account\",\"alice@example.com\",\"--json\",\"--readonly\",\"gmail\",\"search\",\"newer_than:7d\",\"--max\",\"5\"].",
+                "items": {"type": "string"},
+                "minItems": 1,
+                "maxItems": 64
+            }
+        },
+        "required": ["args"],
+        "additionalProperties": false
+    })
+}
+
+fn dynamic_tool_string_args(arguments: &Value, tool: &str) -> Result<Vec<String>, Value> {
+    match arguments.get("args").and_then(Value::as_array) {
+        Some(values) => values
+            .iter()
+            .map(|value| value.as_str().map(str::to_string))
+            .collect::<Option<Vec<_>>>()
+            .ok_or_else(|| {
+                json!({
+                    "ok": false,
+                    "code": "invalid_arguments",
+                    "message": format!("{tool} args must be an array of strings.")
+                })
+            }),
+        None => Ok(Vec::new()),
+    }
+}
+
 fn prepare_feishu_mail_input_schema() -> Value {
     json!({
         "type": "object",
@@ -2986,6 +3094,15 @@ fn task_progress_content(arguments: &Value) -> anyhow::Result<String> {
         anyhow::bail!("task progress content must not exceed 1000 bytes");
     }
     Ok(content.to_string())
+}
+
+fn task_session_execution_is_confirmed(session: &SessionRecord) -> bool {
+    session
+        .pending_control_request
+        .as_ref()
+        .and_then(|value| value.get("type"))
+        .and_then(Value::as_str)
+        == Some("task_execution")
 }
 
 async fn persist_prepared_feishu_mail(
@@ -3674,7 +3791,7 @@ mod tests {
             .get("dynamicTools")
             .and_then(Value::as_array)
             .expect("dynamic task tools");
-        assert_eq!(tools.len(), 3);
+        assert_eq!(tools.len(), 4);
         let tool = &tools[0];
         assert_eq!(
             tool.get("namespace").and_then(Value::as_str),
@@ -3706,6 +3823,13 @@ mod tests {
         assert!(feishu_tool
             .pointer("/inputSchema/properties/args")
             .is_some());
+        let google_tool = tools
+            .iter()
+            .find(|tool| tool.get("name").and_then(Value::as_str) == Some("google_workspace_cli"))
+            .expect("Google Workspace CLI tool");
+        assert!(google_tool
+            .pointer("/inputSchema/properties/args")
+            .is_some());
 
         let mut task_request = request;
         task_request.metadata["task_response"] = json!(true);
@@ -3714,7 +3838,7 @@ mod tests {
         let task_tools = task_params["dynamicTools"]
             .as_array()
             .expect("task session dynamic tools");
-        assert_eq!(task_tools.len(), 7);
+        assert_eq!(task_tools.len(), 8);
         let prepare_mail_tool = task_tools
             .iter()
             .find(|tool| tool.get("name").and_then(Value::as_str) == Some("prepare_feishu_mail"))

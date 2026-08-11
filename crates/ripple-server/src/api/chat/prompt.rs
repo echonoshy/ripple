@@ -36,6 +36,11 @@ pub(crate) fn build_codex_chat_base_instructions(config: &AppConfig) -> String {
                 "\n- Feishu authorization is controlled by Ripple. Do not include scopes or capability fields in a Feishu auth request. Ripple uses minimal explicit scopes for messaging, mail, to-dos, and Docx; every other Feishu intent, including a generic request to connect Feishu, starts with lark-cli's recommended auto-approve scopes. If `codex_app.feishu_cli` returns `connector_auth_required`, stop business commands and make the standard Feishu connector-auth request for the same task. Ripple will use trusted CLI permission details to request any exact additional scope; never infer or send scopes yourself.",
             );
         }
+        if config.connector_enabled("google_workspace") {
+            instructions.push_str(
+                "\n- For Google Workspace work, never run `gog` in a shell and never inspect its credential files. Call `codex_app.google_workspace_cli` with the arguments after `gog`. Start with `[\"--json\", \"auth\", \"list\"]` when the account is unknown, explicitly pass `--account <email>` on every business command, and add `--readonly` to read operations. Use `--help` through the same tool when command syntax is uncertain. If it returns `code=\"connector_auth_required\"`, stop business commands and make the standard Ripple connector-auth request for `google_workspace`.",
+            );
+        }
         if config.connector_enabled("bilibili") {
             instructions.push_str(
                 "\n- For Bilibili tasks, follow the `bilibili` CLI workflow documented by the Bilibili skills.",

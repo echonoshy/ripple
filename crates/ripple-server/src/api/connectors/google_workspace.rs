@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::path::{Path as FsPath, PathBuf};
 use std::process::Stdio;
 
@@ -16,12 +15,14 @@ use super::{
     action_response, clean_config_url, command_tail, ensure_sandbox_exists, filter_nsjail_stderr,
     looks_like_email, now_epoch_seconds, remove_file_if_exists,
     restart_codex_runtime_for_credential_change, set_mode_0600, tail, value_as_bool,
-    write_secret_json, AccountsQuery,
+    write_secret_json, AccountsQuery, ConnectorAuthContext,
 };
 use crate::api::ApiError;
-use crate::config::GogcliOAuthClient;
-use crate::connector_runtime::PendingGogcliOAuth;
+use crate::config::{AppConfig, GogcliOAuthClient};
+use crate::redaction::redact_text;
+use crate::sandbox::SandboxManager;
 use crate::state::AppState;
+use crate::storage::{sha256_hex, GoogleOAuthTransactionRecord};
 use crate::user::user_id_from_headers;
 
 const OAUTH_CALLBACK_PATH: &str = "/v1/sandboxes/gogcli/oauth/callback";
@@ -76,6 +77,7 @@ pub(super) async fn auth_start(
     state: &AppState,
     user_id: &str,
     request_base_url: Option<&str>,
+    auth_context: Option<&ConnectorAuthContext>,
 ) -> Result<Json<Value>, ApiError> {
     let Some(gog) = gog_binary(state) else {
         return Ok(Json(action_response(
@@ -83,7 +85,7 @@ pub(super) async fn auth_start(
             false,
             "missing_cli",
             "gogcli is not installed. Ask an administrator to run scripts/install-gogcli-cli.sh.",
-            json!({}),
+            json!({"required_action_type": "awaiting_admin_authorization"}),
         )));
     };
 
@@ -93,7 +95,7 @@ pub(super) async fn auth_start(
             false,
             "server_config_required",
             "Google Workspace assisted OAuth callback is not configured. Configure server.gogcli_oauth.callback_url or server.public_base_url.",
-            json!({}),
+            json!({"required_action_type": "awaiting_admin_authorization"}),
         )));
     };
 
@@ -119,7 +121,7 @@ pub(super) async fn auth_start(
                 &format!(
                     "Google Workspace OAuth client is not configured. Configure server.gogcli_oauth.client and allow redirect URI: {callback_hint}"
                 ),
-                json!({}),
+                json!({"required_action_type": "awaiting_admin_authorization"}),
             )));
         };
         if let Err(err) = register_client_config(state, user_id, &gog, &client_json).await {
@@ -146,7 +148,7 @@ pub(super) async fn auth_start(
     let oauth_state = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
     let oauth_url =
         build_workspace_oauth_url(&client_config.client_id, &callback_url, &oauth_state)?;
-    register_pending_oauth(state, &oauth_state, user_id, &callback_url);
+    register_pending_oauth(state, &oauth_state, user_id, &callback_url, auth_context).await?;
     Ok(Json(action_response(
         "google_workspace",
         true,
@@ -191,8 +193,16 @@ pub(super) async fn auth_complete(
     }
 
     if let Some(oauth_state) = extract_oauth_state(callback_url) {
-        if let Some(pending) = pop_pending_oauth(state, &oauth_state) {
+        if let Some(pending) = claim_pending_oauth(state, &oauth_state).await? {
             if pending.user_id != user_id {
+                finish_pending_oauth(
+                    state,
+                    &pending,
+                    "failed",
+                    Some("invalid_request"),
+                    Some("OAuth state belongs to a different Ripple user."),
+                )
+                .await;
                 return Ok(Json(action_response(
                     "google_workspace",
                     false,
@@ -201,7 +211,9 @@ pub(super) async fn auth_complete(
                     json!({}),
                 )));
             }
-            return complete_oauth_callback(state, pending, callback_url).await;
+            let result = complete_oauth_callback(state, pending.clone(), callback_url).await;
+            finish_pending_oauth_from_result(state, &pending, &result).await;
+            return result;
         }
     }
 
@@ -394,7 +406,7 @@ pub(super) async fn disconnect(
 }
 
 async fn disconnect_all(state: &AppState, user_id: &str) -> Result<Json<Value>, ApiError> {
-    clear_pending_oauth_for_user(state, user_id);
+    clear_pending_oauth_for_user(state, user_id).await?;
     let keyring = state.sandboxes.gogcli_keyring_dir(user_id)?;
     let keyring_removed = if keyring.exists() {
         tokio::fs::remove_dir_all(&keyring).await?;
@@ -470,16 +482,27 @@ pub(crate) async fn gogcli_oauth_callback(
         );
     }
 
-    let Some(pending) = pop_pending_oauth(&state, &oauth_state) else {
-        return oauth_html(
-            StatusCode::BAD_REQUEST,
-            "Google 授权已过期",
-            "找不到匹配的 OAuth 登录请求，可能已经超过 10 分钟或服务已重启。请回到 Ripple 重新发起授权。",
-        );
-    };
+    let pending =
+        match claim_pending_oauth(&state, &oauth_state).await {
+            Ok(Some(pending)) => pending,
+            Ok(None) => return oauth_html(
+                StatusCode::BAD_REQUEST,
+                "Google 授权已过期",
+                "找不到匹配的 OAuth 登录请求，可能已经超过 10 分钟。请回到 Ripple 重新发起授权。",
+            ),
+            Err(error) => return error.into_response(),
+        };
 
     if let Some(provider_error) = query.error.as_deref() {
         let detail = query.error_description.as_deref().unwrap_or(provider_error);
+        finish_pending_oauth(
+            &state,
+            &pending,
+            "failed",
+            Some("auth_failed"),
+            Some(detail),
+        )
+        .await;
         return oauth_html(
             StatusCode::BAD_REQUEST,
             "Google 授权被拒绝",
@@ -488,6 +511,14 @@ pub(crate) async fn gogcli_oauth_callback(
     }
 
     if query.code.as_deref().unwrap_or("").trim().is_empty() {
+        finish_pending_oauth(
+            &state,
+            &pending,
+            "failed",
+            Some("invalid_request"),
+            Some("OAuth callback is missing code."),
+        )
+        .await;
         return oauth_html(
             StatusCode::BAD_REQUEST,
             "Google 授权失败",
@@ -497,7 +528,9 @@ pub(crate) async fn gogcli_oauth_callback(
 
     let callback_url =
         build_callback_auth_url(&pending.redirect_uri, uri.query().unwrap_or_default());
-    match complete_oauth_callback(&state, pending.clone(), &callback_url).await {
+    let result = complete_oauth_callback(&state, pending.clone(), &callback_url).await;
+    finish_pending_oauth_from_result(&state, &pending, &result).await;
+    match result {
         Ok(Json(value)) => {
             if value.get("ok").and_then(Value::as_bool) == Some(true) {
                 oauth_html(
@@ -566,6 +599,180 @@ async fn run_gog(
     .map_err(|_| ApiError::new(StatusCode::GATEWAY_TIMEOUT, "gog command timed out"))?
     .map(filter_nsjail_stderr)
     .map_err(ApiError::from)
+}
+
+/// Execute one gog business command for exactly one Ripple user. The caller
+/// supplies argv only; credentials, data paths, and nsjail remain server-owned.
+pub(crate) async fn invoke_for_agent(
+    config: &AppConfig,
+    sandboxes: &SandboxManager,
+    user_id: &str,
+    args: &[String],
+) -> Result<Value, ApiError> {
+    if !config.connector_enabled("google_workspace") {
+        return Ok(json!({
+            "ok": false,
+            "code": "connector_disabled",
+            "connector": "google_workspace",
+            "message": "Google Workspace connector is disabled on this server."
+        }));
+    }
+    if let Err(message) = validate_agent_gog_args(args) {
+        return Ok(json!({
+            "ok": false,
+            "code": "invalid_arguments",
+            "connector": "google_workspace",
+            "message": message
+        }));
+    }
+    let Some(root) = config.sandbox.gogcli_cli_install_root.as_ref() else {
+        return Ok(json!({
+            "ok": false,
+            "code": "connector_unavailable",
+            "connector": "google_workspace",
+            "message": "gogcli is not installed on this server."
+        }));
+    };
+    if !root.join("current/bin/gog").is_file() {
+        return Ok(json!({
+            "ok": false,
+            "code": "connector_unavailable",
+            "connector": "google_workspace",
+            "message": "gogcli is not installed on this server."
+        }));
+    }
+
+    sandboxes.write_nsjail_config(user_id)?;
+    let mut owned_args = vec!["--no-input".to_string(), "--wrap-untrusted".to_string()];
+    owned_args.extend(args.iter().cloned());
+    let argv_refs = owned_args.iter().map(String::as_str).collect::<Vec<_>>();
+    let argv =
+        sandboxes.nsjail_exec_argv(user_id, sandboxes.gogcli_sandbox_binary(), &argv_refs)?;
+    let output = tokio::time::timeout(
+        std::time::Duration::from_secs(120),
+        Command::new(&argv[0])
+            .args(&argv[1..])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output(),
+    )
+    .await
+    .map_err(|_| ApiError::new(StatusCode::GATEWAY_TIMEOUT, "gog command timed out"))??;
+    let output = filter_nsjail_stderr(output);
+    let stdout = redact_text(&String::from_utf8_lossy(&output.stdout));
+    let stderr = redact_text(&String::from_utf8_lossy(&output.stderr));
+    let auth_required = output.status.code() == Some(4)
+        || [
+            "login required",
+            "not authenticated",
+            "invalid_grant",
+            "unauthorized_client",
+        ]
+        .iter()
+        .any(|needle| {
+            stdout.to_ascii_lowercase().contains(needle)
+                || stderr.to_ascii_lowercase().contains(needle)
+        });
+    if auth_required {
+        return Ok(json!({
+            "ok": false,
+            "code": "connector_auth_required",
+            "connector": "google_workspace",
+            "message": "Google Workspace authorization is required for this user."
+        }));
+    }
+    Ok(json!({
+        "ok": output.status.success(),
+        "connector": "google_workspace",
+        "exit_code": output.status.code(),
+        "stdout": stdout,
+        "stderr": stderr
+    }))
+}
+
+fn validate_agent_gog_args(args: &[String]) -> Result<(), &'static str> {
+    if args.is_empty()
+        || args.len() > 64
+        || args
+            .iter()
+            .any(|arg| arg.is_empty() || arg.len() > 4096 || arg.contains('\0'))
+    {
+        return Err("google_workspace_cli requires 1-64 non-empty arguments.");
+    }
+    if args.iter().any(|arg| {
+        matches!(
+            arg.as_str(),
+            "login" | "logout" | "config" | "backup" | "update"
+        ) || arg == "--access-token"
+            || arg.starts_with("--access-token=")
+            || arg == "--home"
+            || arg.starts_with("--home=")
+            || arg == "--client"
+            || arg.starts_with("--client=")
+    }) {
+        return Err("Google authentication and configuration are managed by Ripple.");
+    }
+    let auth_position = args.iter().position(|arg| arg == "auth");
+    if let Some(index) = auth_position {
+        if args.get(index + 1).map(String::as_str) != Some("list") {
+            return Err(
+                "Only `auth list` is available; Google authorization is managed by Ripple.",
+            );
+        }
+        return Ok(());
+    }
+    let has_account = args.iter().enumerate().any(|(index, arg)| {
+        arg.starts_with("--account=") && arg.len() > "--account=".len()
+            || (arg == "--account" && args.get(index + 1).is_some_and(|value| !value.is_empty()))
+            || (arg.starts_with("-a=") && arg.len() > 3)
+    });
+    if !has_account {
+        return Err(
+            "Google Workspace business commands must explicitly specify --account <email>.",
+        );
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod agent_tool_tests {
+    use super::validate_agent_gog_args;
+
+    fn args(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| value.to_string()).collect()
+    }
+
+    #[test]
+    fn agent_gog_args_require_an_explicit_business_account() {
+        assert!(validate_agent_gog_args(&args(&[
+            "--account",
+            "alice@example.com",
+            "--json",
+            "--readonly",
+            "gmail",
+            "search",
+            "newer_than:7d",
+        ]))
+        .is_ok());
+        assert!(
+            validate_agent_gog_args(&args(&["--json", "gmail", "search", "newer_than:7d",]))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn agent_gog_args_allow_account_listing_but_reject_auth_mutation() {
+        assert!(validate_agent_gog_args(&args(&["--json", "auth", "list"])).is_ok());
+        assert!(validate_agent_gog_args(&args(&["auth", "remove", "alice@example.com",])).is_err());
+        assert!(validate_agent_gog_args(&args(&[
+            "--access-token",
+            "secret",
+            "gmail",
+            "search",
+            "newer_than:7d",
+        ]))
+        .is_err());
+    }
 }
 
 async fn ensure_keyring_password(state: &AppState, user_id: &str) -> Result<String, ApiError> {
@@ -853,50 +1060,108 @@ fn build_workspace_oauth_url(
     Ok(url.to_string())
 }
 
-fn register_pending_oauth(state: &AppState, oauth_state: &str, user_id: &str, redirect_uri: &str) {
-    let now = now_epoch_seconds();
-    let pending = PendingGogcliOAuth {
-        user_id: user_id.to_string(),
-        redirect_uri: redirect_uri.to_string(),
-        expires_at: now + OAUTH_PENDING_TTL_SECONDS,
-    };
-    let mut values = state
-        .connector_runtime
-        .gogcli_oauth
-        .lock()
-        .expect("pending oauth lock poisoned");
-    cleanup_expired_oauth_locked(&mut values, now);
-    values.insert(oauth_state.to_string(), pending);
+async fn register_pending_oauth(
+    state: &AppState,
+    oauth_state: &str,
+    user_id: &str,
+    redirect_uri: &str,
+    auth_context: Option<&ConnectorAuthContext>,
+) -> Result<(), ApiError> {
+    state
+        .storage
+        .create_google_oauth_transaction(&GoogleOAuthTransactionRecord {
+            state_hash: oauth_state_hash(oauth_state),
+            user_id: user_id.to_string(),
+            session_id: auth_context.map(|context| context.session_id.clone()),
+            resume_mode: auth_context
+                .map(|context| context.resume_mode.clone())
+                .unwrap_or_else(|| "connector_page".to_string()),
+            redirect_uri: redirect_uri.to_string(),
+            status: "pending".to_string(),
+            failure_stage: None,
+            failure_message: None,
+            expires_at: now_epoch_seconds() + OAUTH_PENDING_TTL_SECONDS,
+        })
+        .await
+        .map_err(ApiError::from)
 }
 
-fn pop_pending_oauth(state: &AppState, oauth_state: &str) -> Option<PendingGogcliOAuth> {
-    let now = now_epoch_seconds();
-    let mut values = state
-        .connector_runtime
-        .gogcli_oauth
-        .lock()
-        .expect("pending oauth lock poisoned");
-    cleanup_expired_oauth_locked(&mut values, now);
-    values
-        .remove(oauth_state)
-        .filter(|pending| pending.expires_at >= now)
+async fn claim_pending_oauth(
+    state: &AppState,
+    oauth_state: &str,
+) -> Result<Option<GoogleOAuthTransactionRecord>, ApiError> {
+    state
+        .storage
+        .claim_google_oauth_transaction(&oauth_state_hash(oauth_state), now_epoch_seconds())
+        .await
+        .map_err(ApiError::from)
 }
 
-pub(super) fn clear_pending_oauth_for_user(state: &AppState, user_id: &str) -> usize {
-    let now = now_epoch_seconds();
-    let mut values = state
-        .connector_runtime
-        .gogcli_oauth
-        .lock()
-        .expect("pending oauth lock poisoned");
-    cleanup_expired_oauth_locked(&mut values, now);
-    let before = values.len();
-    values.retain(|_, pending| pending.user_id != user_id);
-    before.saturating_sub(values.len())
+pub(super) async fn clear_pending_oauth_for_user(
+    state: &AppState,
+    user_id: &str,
+) -> Result<u64, ApiError> {
+    state
+        .storage
+        .cancel_google_oauth_transactions_for_user(user_id)
+        .await
+        .map_err(ApiError::from)
 }
 
-fn cleanup_expired_oauth_locked(values: &mut HashMap<String, PendingGogcliOAuth>, now: u64) {
-    values.retain(|_, pending| pending.expires_at >= now);
+pub(crate) fn oauth_state_hash(oauth_state: &str) -> String {
+    sha256_hex(oauth_state.trim().as_bytes())
+}
+
+async fn finish_pending_oauth(
+    state: &AppState,
+    pending: &GoogleOAuthTransactionRecord,
+    status: &str,
+    failure_stage: Option<&str>,
+    failure_message: Option<&str>,
+) {
+    if let Err(error) = state
+        .storage
+        .finish_google_oauth_transaction(
+            &pending.state_hash,
+            status,
+            failure_stage,
+            failure_message,
+        )
+        .await
+    {
+        tracing::warn!(%error, "failed to persist Google OAuth result");
+    }
+}
+
+async fn finish_pending_oauth_from_result(
+    state: &AppState,
+    pending: &GoogleOAuthTransactionRecord,
+    result: &Result<Json<Value>, ApiError>,
+) {
+    match result {
+        Ok(Json(value)) if value.get("ok").and_then(Value::as_bool) == Some(true) => {
+            finish_pending_oauth(state, pending, "authorized", None, None).await;
+        }
+        Ok(Json(value)) => {
+            let stage = value
+                .get("stage")
+                .and_then(Value::as_str)
+                .unwrap_or("auth_failed");
+            let message = value.get("detail").and_then(Value::as_str);
+            finish_pending_oauth(state, pending, "failed", Some(stage), message).await;
+        }
+        Err(_error) => {
+            let message = "Google OAuth callback failed.".to_string();
+            finish_pending_oauth(
+                state,
+                pending,
+                "failed",
+                Some("auth_failed"),
+                Some(&message),
+            )
+            .await;
+        }
+    }
 }
 
 fn extract_oauth_state(callback_url: &str) -> Option<String> {
@@ -936,7 +1201,7 @@ fn build_callback_auth_url(redirect_uri: &str, query_string: &str) -> String {
 
 async fn complete_oauth_callback(
     state: &AppState,
-    pending: PendingGogcliOAuth,
+    pending: GoogleOAuthTransactionRecord,
     callback_url: &str,
 ) -> Result<Json<Value>, ApiError> {
     let Some(gog) = gog_binary(state) else {

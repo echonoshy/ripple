@@ -31,6 +31,7 @@ pub(crate) use feishu::{
     cancel_setup as cancel_feishu_setup, invoke_for_agent as invoke_feishu_for_agent,
     missing_user_scopes_from_cli_result,
 };
+pub(crate) use google_workspace::invoke_for_agent as invoke_google_workspace_for_agent;
 
 /// Internal task-level authorization intent for Feishu. This is deliberately
 /// not part of the HTTP or model authorization protocol.
@@ -238,6 +239,7 @@ pub async fn connector_auth_start(
         &connector_name,
         &payload,
         request_base_url_from_headers(&headers).as_deref(),
+        None,
     )
     .await?;
     clear_pending_auth_if_action_authorized(&state, &user_id, &connector_name, &result.0).await;
@@ -250,6 +252,7 @@ pub(crate) async fn connector_auth_start_action(
     connector_name: &str,
     payload: &Value,
     request_base_url: Option<&str>,
+    auth_context: Option<&ConnectorAuthContext>,
 ) -> Result<Json<Value>, ApiError> {
     connector_auth_start_action_for_feishu_authorization(
         state,
@@ -258,6 +261,7 @@ pub(crate) async fn connector_auth_start_action(
         payload,
         request_base_url,
         None,
+        auth_context,
     )
     .await
 }
@@ -269,12 +273,15 @@ pub(crate) async fn connector_auth_start_action_for_feishu_authorization(
     payload: &Value,
     request_base_url: Option<&str>,
     feishu_authorization: Option<&FeishuAuthorizationRequest>,
+    auth_context: Option<&ConnectorAuthContext>,
 ) -> Result<Json<Value>, ApiError> {
     ensure_connector_enabled(state, connector_name)?;
     state.sandboxes.ensure_sandbox(user_id)?;
     match connector_name {
         "notion" => notion_auth_start(state, user_id, payload).await,
-        "google_workspace" => google_workspace::auth_start(state, user_id, request_base_url).await,
+        "google_workspace" => {
+            google_workspace::auth_start(state, user_id, request_base_url, auth_context).await
+        }
         "bilibili" => bilibili_auth_start(state, user_id).await,
         "feishu" => match feishu_authorization {
             Some(FeishuAuthorizationRequest::ExplicitScopes(scopes)) => {
@@ -446,6 +453,12 @@ pub struct AccountsQuery {
     check: Option<bool>,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct ConnectorAuthContext {
+    pub(crate) session_id: String,
+    pub(crate) resume_mode: String,
+}
+
 #[utoipa::path(
     get,
     path = "/connectors/{connector_name}/accounts",
@@ -529,7 +542,9 @@ async fn cancel_connector_auth_state(
         .cancel_pending_connector_auth(user_id, connector_name)
         .await?;
     let runtime_cancelled = match connector_name {
-        "google_workspace" => google_workspace::clear_pending_oauth_for_user(state, user_id) > 0,
+        "google_workspace" => {
+            google_workspace::clear_pending_oauth_for_user(state, user_id).await? > 0
+        }
         "feishu" => cancel_feishu_setup(state, user_id).await,
         "bilibili" => release_pending_bilibili_qr(state, user_id).is_some(),
         "notion" => false,

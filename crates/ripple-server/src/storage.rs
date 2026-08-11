@@ -14,6 +14,7 @@ use crate::config::{AppConfig, DEFAULT_SQLITE_MAX_CONNECTIONS};
 use crate::sessions::SessionRecord;
 
 mod auth;
+mod google_oauth;
 mod jobs;
 mod prepared_mail;
 mod schema;
@@ -24,6 +25,7 @@ pub use auth::{
     AuthInviteClaim, AuthInviteCreate, AuthInviteCreated, AuthSessionCreate, AuthSessionRecord,
     AuthUserRecord,
 };
+pub use google_oauth::GoogleOAuthTransactionRecord;
 pub use jobs::RunUsageStats;
 pub use schema::CURRENT_SCHEMA_VERSION;
 
@@ -587,6 +589,7 @@ impl Storage {
             "tasks",
             "documents",
             "file_refs",
+            "google_oauth_transactions",
             "user_profiles",
         ] {
             sqlx::query(&format!("DELETE FROM {table} WHERE user_id = ?"))
@@ -1401,6 +1404,55 @@ mod tests {
         let storage = Storage::open(root.join(".ripple/ripple.sqlite"))?;
 
         assert_eq!(storage.schema_version().await?, CURRENT_SCHEMA_VERSION);
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn google_oauth_transaction_survives_reopen_and_is_claimed_once() -> anyhow::Result<()> {
+        let root =
+            std::env::temp_dir().join(format!("ripple-storage-test-{}", uuid::Uuid::new_v4()));
+        let path = root.join(".ripple/ripple.sqlite");
+        let storage = Storage::open(&path)?;
+        storage
+            .create_google_oauth_transaction(&GoogleOAuthTransactionRecord {
+                state_hash: "state-hash".to_string(),
+                user_id: "alice".to_string(),
+                session_id: Some("task-session".to_string()),
+                resume_mode: "task_execution".to_string(),
+                redirect_uri: "https://oauth.example/callback".to_string(),
+                status: "pending".to_string(),
+                failure_stage: None,
+                failure_message: None,
+                expires_at: 2_000_000_000,
+            })
+            .await?;
+
+        let reopened = Storage::open(&path)?;
+        let claimed = reopened
+            .claim_google_oauth_transaction("state-hash", 1_900_000_000)
+            .await?
+            .expect("pending OAuth transaction");
+        assert_eq!(claimed.session_id.as_deref(), Some("task-session"));
+        assert_eq!(claimed.resume_mode, "task_execution");
+        assert!(reopened
+            .claim_google_oauth_transaction("state-hash", 1_900_000_000)
+            .await?
+            .is_none());
+        assert!(
+            reopened
+                .finish_google_oauth_transaction("state-hash", "authorized", None, None)
+                .await?
+        );
+        assert_eq!(
+            reopened
+                .google_oauth_transaction("state-hash", "alice")
+                .await?
+                .expect("stored OAuth transaction")
+                .status,
+            "authorized"
+        );
 
         let _ = std::fs::remove_dir_all(root);
         Ok(())

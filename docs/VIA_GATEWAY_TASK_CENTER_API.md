@@ -184,7 +184,7 @@ Agent 也可以生成其他语言的进度文案，例如：
 
 ### Connector 授权阶段
 
-`connector_auth` 的展示由调用方负责。服务端不根据调用方语言翻译，也不要求调用方展示 `content`。当前飞书阶段如下；调用方遇到未知 `stage` 必须保留通用授权入口或错误 fallback，不能假设枚举只有以下值。
+`connector_auth` 的展示由调用方负责。服务端不根据调用方语言翻译，也不要求调用方展示 `content`。当前飞书和 Google Workspace 阶段如下；调用方遇到未知 `stage` 必须保留通用授权入口或错误 fallback，不能假设枚举只有以下值。
 
 | `connector` | `stage` | 结构化数据 | 调用方展示/行为 |
 | --- | --- | --- | --- |
@@ -193,6 +193,9 @@ Agent 也可以生成其他语言的进度文案，例如：
 | `feishu` | `pending` | 可能没有新的 `auth_url` | 展示授权处理中/等待确认；不要把空 URL 当作可打开操作。 |
 | `feishu` | `authorized` | 不再需要 `connector_auth` action | 展示已授权或继续原任务。 |
 | `feishu` | `auth_failed`、`invalid_request` | 以 `error.connector`、`error.stage` 返回 | 展示本地化失败提示；不得返回或伪造 `required_action`。 |
+| `google_workspace` | `awaiting_browser_callback` | `auth_url` 指向本轮 Google OAuth 页面；`expires_in_seconds` 固定为 `600` | 打开本轮 URL；授权完成后以相同 `task_id` 提交下一条输入。 |
+| `google_workspace` | `authorized` | 不再需要 `connector_auth` action | 服务端恢复原始任务；确认后的任务继续使用已锁定的执行上下文。 |
+| `google_workspace` | `auth_failed`、`invalid_request` | 以 `error.connector`、`error.stage` 返回 | 展示本地化失败提示；重新授权必须使用服务端返回的新 URL。 |
 
 审批文本的内置解释：`允许`、`同意`、`确认`、`允许发送`、`继续` 为单次允许；`始终允许` 为本 Task Session 持续允许；`拒绝`、`不同意`、`取消`、`不要发送` 为拒绝。
 

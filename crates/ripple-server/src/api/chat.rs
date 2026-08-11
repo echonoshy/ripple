@@ -97,6 +97,7 @@ const TASK_SESSION_EXECUTION_INSTRUCTIONS: &str = r#"
 - After that tool succeeds, execute the task normally and return a concise user-facing result.
 - During execution, call `codex_app.task_progress` before each substantive new phase or external operation. Its required `content` is a concise user-visible progress update in the language of the task. Do not generate progress by translating tool names or narrating internal implementation details.
 - For a Feishu email in a task session, call `codex_app.prepare_feishu_mail` before asking for confirmation. It converts Markdown into server-controlled HTML and returns the exact preview. Show that complete preview verbatim. After confirmation, call `codex_app.task_execution_confirmed`, then call `codex_app.send_prepared_feishu_mail` with the same `prepared_mail_id`; never use the generic Feishu CLI tool to send mail in a task session. If sending returns `code="connector_auth_required"`, stop and make the standard Ripple connector-auth request for Feishu; after authorization, resume the same prepared mail without changing its recipients, subject, or body.
+- For Google Workspace tasks, use the standard Ripple connector-auth request for `google_workspace` whenever gog reports that authorization is required. After authorization, continue the same task without changing any already-confirmed recipients, files, calendar events, document ranges, or other mutation parameters. Never run a Google Workspace mutation before `codex_app.task_execution_confirmed` succeeds.
 "#;
 
 #[derive(Debug, Deserialize)]
@@ -4362,6 +4363,40 @@ mod tests {
     }
 
     #[test]
+    fn google_task_connector_auth_reuses_existing_public_protocol() {
+        let event = json!({
+            "type": "connector_auth_required",
+            "connector": "google_workspace",
+            "stage": "awaiting_browser_callback",
+            "message": "需要完成 Google Workspace 授权后继续执行。",
+            "action": {
+                "data": {
+                    "oauth_url": "https://accounts.google.com/o/oauth2/auth?state=abc",
+                    "expires_in_seconds": 600
+                }
+            }
+        });
+
+        assert_eq!(
+            task_connector_auth_status_data("task-001", Some("req-001"), &event),
+            json!({
+                "event": "task.status",
+                "task_id": "task-001",
+                "req_id": "req-001",
+                "status": "waiting_user",
+                "content": "需要完成 Google Workspace 授权后继续执行。",
+                "required_action": {
+                    "type": "connector_auth",
+                    "connector": "google_workspace",
+                    "stage": "awaiting_browser_callback",
+                    "auth_url": "https://accounts.google.com/o/oauth2/auth?state=abc",
+                    "expires_in_seconds": 600
+                }
+            })
+        );
+    }
+
+    #[test]
     fn task_awaiting_admin_authorization_uses_compact_required_action() {
         let event = json!({
             "type": "connector_auth_required",
@@ -4387,6 +4422,36 @@ mod tests {
                 "required_action": {
                     "type": "awaiting_admin_authorization",
                     "connector": "feishu"
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn google_server_configuration_uses_existing_admin_action_protocol() {
+        let event = json!({
+            "type": "connector_auth_required",
+            "connector": "google_workspace",
+            "stage": "server_config_required",
+            "message": "Google Workspace 授权还没有在服务端配置完成。",
+            "action": {
+                "data": {
+                    "required_action_type": "awaiting_admin_authorization"
+                }
+            }
+        });
+
+        assert_eq!(
+            task_connector_auth_status_data("task-001", Some("req-001"), &event),
+            json!({
+                "event": "task.status",
+                "task_id": "task-001",
+                "req_id": "req-001",
+                "status": "waiting_user",
+                "content": "Google Workspace 授权还没有在服务端配置完成。",
+                "required_action": {
+                    "type": "awaiting_admin_authorization",
+                    "connector": "google_workspace"
                 }
             })
         );

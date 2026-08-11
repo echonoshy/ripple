@@ -385,12 +385,11 @@ fn stream_shared_folder_response(args: SharedFolderStream) -> Response<Body> {
                         emitted,
                         usage,
                     ));
+                } else if current.status == "cancelled" {
+                    session.set_status(SessionStatus::Cancelled);
+                    let _ = state.sessions.save_record_if_exists(session.clone()).await;
                 } else {
-                    session.set_status(if current.status == "cancelled" {
-                        SessionStatus::Cancelled
-                    } else {
-                        SessionStatus::Failed
-                    });
+                    session.set_status(SessionStatus::Failed);
                     let _ = state.sessions.save_record_if_exists(session.clone()).await;
                     let message = current.error.as_deref().unwrap_or("Codex run failed");
                     let message = sanitize_shared_text(

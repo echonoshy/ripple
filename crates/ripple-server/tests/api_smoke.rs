@@ -2408,6 +2408,96 @@ async fn shared_folder_responses_streams_and_persists_bound_codex_thread() {
 }
 
 #[tokio::test]
+async fn stopped_shared_folder_stream_closes_without_error_event() {
+    let root = std::env::temp_dir().join(format!("ripple-shared-response-stop-{}", Uuid::new_v4()));
+    fs::create_dir_all(root.join("shared-folders/a-folder")).unwrap();
+    fs::write(
+        root.join("shared-folders/a-folder/report.txt"),
+        "shared content",
+    )
+    .unwrap();
+    seed_shared_file_parser_env(&root);
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (_state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+
+    let response = app
+        .clone()
+        .oneshot(request(
+            Method::POST,
+            "/v1/shared-folders/responses",
+            json!({
+                "req_id": "req-shared-stop",
+                "session_id": "shared-session-stop",
+                "shared_folder": "a-folder",
+                "input": "[slow] wait for stop",
+                "model": "codex-test"
+            }),
+            true,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let (status, stopped) = call(
+        app,
+        Method::POST,
+        "/v1/sessions/shared-session-stop/stop",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{stopped}");
+    assert_eq!(stopped.get("stopped").and_then(Value::as_bool), Some(true));
+
+    let body = response_text(response).await;
+    assert!(!body.contains("Codex run failed"), "{body}");
+    assert!(!body.contains("event: error"), "{body}");
+    assert!(!body.contains("response.completed"), "{body}");
+    assert!(body.ends_with("data: [DONE]\n\n"), "{body}");
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn failed_shared_folder_stream_still_emits_error_event() {
+    let root = std::env::temp_dir().join(format!("ripple-shared-response-fail-{}", Uuid::new_v4()));
+    fs::create_dir_all(root.join("shared-folders/a-folder")).unwrap();
+    fs::write(
+        root.join("shared-folders/a-folder/report.txt"),
+        "shared content",
+    )
+    .unwrap();
+    seed_shared_file_parser_env(&root);
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (_state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+
+    let response = app
+        .oneshot(request(
+            Method::POST,
+            "/v1/shared-folders/responses",
+            json!({
+                "req_id": "req-shared-fail",
+                "session_id": "shared-session-fail",
+                "shared_folder": "a-folder",
+                "input": "[fail] report a real failure",
+                "model": "codex-test"
+            }),
+            true,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = response_text(response).await;
+    assert!(body.contains("event: error"), "{body}");
+    assert!(body.contains("\"code\":\"server_error\""), "{body}");
+    assert!(body.ends_with("data: [DONE]\n\n"), "{body}");
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[tokio::test]
 async fn openapi_docs_are_public_and_keep_v1_auth_unchanged() {
     let root = std::env::temp_dir().join(format!("ripple-openapi-docs-{}", Uuid::new_v4()));
     let (_state, app) = test_state_and_app(&root);
@@ -7334,6 +7424,84 @@ async fn chat_stream_completes_with_fake_codex_app_server() {
     assert_eq!(reloaded.status, "idle");
     assert_eq!(reloaded.message_count, 2);
     assert_eq!(reloaded.codex_thread_id.as_deref(), Some("thread-1"));
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn stopped_chat_stream_closes_without_error_event() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (_state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+
+    let response = app
+        .clone()
+        .oneshot(response_request(
+            json!({
+                "model": "codex-test",
+                "messages": [{"role": "user", "content": "[slow] wait for stop"}],
+                "stream": true
+            }),
+            true,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let session_id = response
+        .headers()
+        .get("x-ripple-session-id")
+        .and_then(|value| value.to_str().ok())
+        .expect("session header")
+        .to_string();
+
+    let (status, stopped) = call(
+        app,
+        Method::POST,
+        &format!("/v1/sessions/{session_id}/stop"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{stopped}");
+    assert_eq!(stopped.get("stopped").and_then(Value::as_bool), Some(true));
+    assert_eq!(
+        stopped.get("status").and_then(Value::as_str),
+        Some("cancelled")
+    );
+
+    let body = response_text(response).await;
+    assert!(!body.contains("Codex run failed"), "{body}");
+    assert!(!body.contains("\"error\""), "{body}");
+    assert!(!body.contains("response.completed"), "{body}");
+    assert!(body.ends_with("data: [DONE]\n\n"), "{body}");
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn failed_chat_stream_still_emits_error_event() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (_state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+
+    let response = app
+        .oneshot(response_request(
+            json!({
+                "model": "codex-test",
+                "messages": [{"role": "user", "content": "[fail] report a real failure"}],
+                "stream": true
+            }),
+            true,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = response_text(response).await;
+    assert!(body.contains("\"error\""), "{body}");
+    assert!(body.contains("\"type\":\"server_error\""), "{body}");
+    assert!(body.ends_with("data: [DONE]\n\n"), "{body}");
 
     let _ = std::fs::remove_dir_all(root);
 }

@@ -30,10 +30,11 @@ Content-Type: application/json
 ## 被打断请求的 SSE 结束响应
 
 ```text
-data: {"error":{"message":"Codex run failed","type":"cancelled"},"event_version":1}
-
 data: [DONE]
 ```
+
+用户主动打断属于正常控制流。被打断的 SSE 不发送 `error` 或
+`response.completed` 事件，只发送 `[DONE]` 后关闭连接。
 
 ## 使用同一 Session 再次请求
 

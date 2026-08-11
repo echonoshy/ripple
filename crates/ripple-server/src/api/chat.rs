@@ -3407,10 +3407,10 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
                             );
                             session.pending_control_request = None;
                             let _ = state.sessions.save_record_if_exists(session.clone()).await;
-                        } else {
+                        } else if info.status != "cancelled" {
                             emit!(chat_stream_error_sse(true, &error_message, error_type,));
                         }
-                    } else {
+                    } else if info.status != "cancelled" {
                         emit!(chat_stream_error_sse(false, &error_message, error_type,));
                     }
                 }

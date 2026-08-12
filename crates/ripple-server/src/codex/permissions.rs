@@ -52,6 +52,13 @@ pub fn thread_permission_config_for_shared_folder(
         Value::Object(shared_rules),
     );
     filesystem.insert(parser_env_root.to_string_lossy().to_string(), json!("read"));
+    let codex_executable = Path::new(&config.codex.codex_executable);
+    if codex_executable.is_absolute() {
+        filesystem.insert(
+            codex_executable.to_string_lossy().to_string(),
+            json!("read"),
+        );
+    }
     filesystem.insert(
         config.codex_home_path().to_string_lossy().to_string(),
         json!("none"),
@@ -478,7 +485,8 @@ mod tests {
 
     #[test]
     fn shared_folder_profile_denies_workspace_and_allows_selected_tree_read_only() {
-        let config = test_config();
+        let mut config = test_config();
+        config.codex.codex_executable = "/opt/ripple-codex/current/codex".to_string();
         let workspace = config.sandbox.sandboxes_root.join("alice/workspace");
         let runtime_cwd = config
             .sandbox
@@ -524,6 +532,10 @@ mod tests {
         );
         assert_eq!(
             filesystem.get(parser_env.to_string_lossy().as_ref()),
+            Some(&json!("read"))
+        );
+        assert_eq!(
+            filesystem.get(config.codex.codex_executable.as_str()),
             Some(&json!("read"))
         );
         assert_eq!(

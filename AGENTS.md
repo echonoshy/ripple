@@ -166,6 +166,12 @@ App 设计语言：
 - `RIPPLE_CONFIG` 可指定配置路径。
 - API key、模型、Codex、connector、skill、server 参数放在 YAML 配置中。
 - 前端配置集中在 `app/package.json`、`vite.config.ts`、`eslint.config.mjs`、`tsconfig.json`。
+- 生产部署的共享目录根固定为 `/nas/ripple-data/shared-folders`，必须通过
+  `server.storage.shared_folders_root` 显式配置；仓库内 `.ripple/shared-folders` 只用于本地开发。
+- 共享目录根下只放一级 `<shared_folder_id>/` 目录，ID 必须匹配
+  `[a-zA-Z0-9_-]{1,64}`；选定的一级目录不能是符号链接，目录内容可递归组织。
+- 生产服务依赖的 `uv` 必须安装在不依赖登录用户 HOME 的稳定系统路径，并通过
+  `server.sandbox.uv_bin_dir` 显式配置；不要依赖服务进程启动时的 `PATH` 自动发现。
 
 ## Server / Codex 链路
 

@@ -124,9 +124,13 @@ X-Ripple-Session-Id: session_contract
 配置新增固定根目录：
 
 ```yaml
-storage:
-  shared_folders_root: /nas/ripple-data/shared-folders
+server:
+  storage:
+    shared_folders_root: /nas/ripple-data/shared-folders
 ```
+
+生产部署必须显式使用上述绝对路径；默认的仓库内 `.ripple/shared-folders` 只用于本地开发。
+根目录下只允许一级 `<shared_folder_id>/` 作为 API 可选目录，目录 ID 创建后应保持稳定。
 
 `shared_folder = "a-folder"` 只能解析为：
 

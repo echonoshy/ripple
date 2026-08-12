@@ -103,6 +103,8 @@ server:
   storage:
     sqlite_max_connections: 50
     # 共享目录问答只会访问此根目录下由请求指定的一级子目录。
+    # 本地开发可以使用仓库内目录；生产部署固定显式配置为：
+    # /nas/ripple-data/shared-folders
     shared_folders_root: ".ripple/shared-folders"
   # 用户 connector 暴露 allowlist。省略时为兼容旧配置，会启用全部内置 connector。
   # 下例只暴露飞书；运行时 Codex 能力不受此列表影响。
@@ -248,6 +250,8 @@ server:
     # python_envs_root: ".ripple/sandboxes-cache/python-envs"
     # python_env_uv_cache: ".ripple/sandboxes-cache/uv-cache"
     # python_env_max_packages: 20
+    # 生产部署应指向不依赖登录用户 HOME 的稳定系统安装目录，例如：
+    # uv_bin_dir: "/usr/local/bin"
 
     # 空闲自动挂起时间（秒），默认 30 分钟
     idle_suspend_seconds: 1800

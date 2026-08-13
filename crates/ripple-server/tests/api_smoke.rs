@@ -2327,23 +2327,72 @@ async fn shared_folder_responses_enforces_request_and_session_scope_before_execu
     .unwrap();
     let (state, app) = test_state_and_app(&root);
 
-    let unknown_field = app
+    let responses_compatible_missing_folder = app
         .clone()
         .oneshot(request(
             Method::POST,
             "/v1/shared-folders/responses",
             json!({
-                "req_id": "req-unknown",
-                "session_id": "shared-unknown",
-                "shared_folder": "a-folder",
-                "input": "summarize",
-                "stream": true
+                "model": "codex-test",
+                "input": [{
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": "summarize"}]
+                }],
+                "stream": false,
+                "instructions": "answer briefly",
+                "tools": [{"type": "web_search_preview"}],
+                "metadata": {
+                    "ripple_session_id": "shared-compatible",
+                    "shared_folder": "missing-folder",
+                    "ignored": {"nested": true}
+                },
+                "unknown_top_level": [1, 2, 3]
             }),
             true,
         ))
         .await
         .unwrap();
-    assert_eq!(unknown_field.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        responses_compatible_missing_folder.status(),
+        StatusCode::NOT_FOUND
+    );
+
+    let conflicting_session = app
+        .clone()
+        .oneshot(request(
+            Method::POST,
+            "/v1/shared-folders/responses",
+            json!({
+                "session_id": "shared-top-level",
+                "input": "summarize",
+                "metadata": {
+                    "ripple_session_id": "shared-metadata",
+                    "shared_folder": "a-folder"
+                }
+            }),
+            true,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(conflicting_session.status(), StatusCode::BAD_REQUEST);
+
+    let invalid_metadata_field = app
+        .clone()
+        .oneshot(request(
+            Method::POST,
+            "/v1/shared-folders/responses",
+            json!({
+                "input": "summarize",
+                "metadata": {
+                    "ripple_session_id": 42,
+                    "shared_folder": "a-folder"
+                }
+            }),
+            true,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(invalid_metadata_field.status(), StatusCode::BAD_REQUEST);
 
     let missing_folder = app
         .clone()
@@ -2449,11 +2498,24 @@ async fn shared_folder_responses_streams_and_persists_bound_codex_thread() {
             Method::POST,
             "/v1/shared-folders/responses",
             json!({
-                "req_id": " req-shared-1 ",
-                "session_id": "shared-session-1",
-                "shared_folder": "a-folder",
-                "input": "summarize recursively",
-                "model": "codex-test"
+                "model": "codex-test",
+                "input": [{
+                    "role": "user",
+                    "content": [{
+                        "type": "input_text",
+                        "text": "summarize recursively"
+                    }]
+                }],
+                "stream": true,
+                "instructions": "answer briefly",
+                "store": true,
+                "tools": [{"type": "web_search_preview"}],
+                "metadata": {
+                    "req_id": " req-shared-1 ",
+                    "ripple_session_id": "shared-session-1",
+                    "shared_folder": "a-folder",
+                    "ignored": "value"
+                }
             }),
             true,
         ))

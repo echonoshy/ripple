@@ -68,7 +68,7 @@
 - 调用方通过 `metadata.ripple_session_id` 或 `previous_response_id=resp_<session_id>` 传入的 session id 必须匹配 `[a-zA-Z0-9_-]{1,64}`。这是为了保证 session runtime 目录和 SQLite 主键都安全可控。
 - 调用方可通过 `metadata.req_id`、`metadata.client_req_id`、`metadata.external_req_id` 或 `metadata.request_id` 传入上游业务请求 ID。Ripple 会把该值写入 Codex job 的 `record_json.req_id` 和 `record_json.client_req_id`，便于后续从 SQLite 或 run 记录按业务请求反查 session/job/events。
 - `/v1/chat/completions` 不再注册；客户端和外部调用方必须使用 `/v1/responses`。
-- `POST /v1/shared-folders/responses` 是独立的固定 SSE 问答入口。调用方传入 `req_id`、`session_id`、`shared_folder` 和 Responses-style `input`；session 创建后不可切换共享目录，Codex 只能递归只读该目录。该接口的约束见 [SHARED_FOLDER_RESPONSES_DESIGN.md](SHARED_FOLDER_RESPONSES_DESIGN.md)。
+- `POST /v1/shared-folders/responses` 是独立的固定 SSE 问答入口。规范请求通过 `metadata.req_id`、`metadata.ripple_session_id`、`metadata.shared_folder` 传入 Ripple 标识，并携带 Responses-style `input`；`instructions` 可控制当前 turn 的回答语言、格式和结构，但不能覆盖服务端共享空间安全规则；其他未知 Responses 字段会被忽略。迁移期间继续接受旧顶层标识字段，但新旧值冲突会返回 `400`。session 创建后不可切换共享目录，Codex 只能递归只读该目录。该接口的约束见 [SHARED_FOLDER_RESPONSES_DESIGN.md](SHARED_FOLDER_RESPONSES_DESIGN.md)。
 
 ### 3.4 完整 Chat 请求示例
 

@@ -4,7 +4,7 @@
 
 ## 目标
 
-新增一个面向可信调用方的流式问答接口。调用方在每次请求中提供 `user_id`、`req_id`、`session_id` 和 `shared_folder`；Ripple 使用持久 Codex thread 管理会话上下文，并只允许该 thread 递归读取指定共享目录。
+新增一个面向可信调用方的流式问答接口。调用方通过请求头提供 `user_id`，通过 Responses `metadata` 提供 `req_id`、`ripple_session_id` 和 `shared_folder`；Ripple 使用持久 Codex thread 管理会话上下文，并只允许该 thread 递归读取指定共享目录。
 
 共享目录的创建、授权、内容更新和生命周期不属于本设计。调用方负责保证 `user_id` 有权使用传入的 `shared_folder`。
 
@@ -44,13 +44,20 @@ Content-Type: text/event-stream
 
 ```json
 {
-  "req_id": "req_001",
-  "session_id": "session_contract",
-  "shared_folder": "a-folder",
-  "input": "总结目录里的文件",
   "model": "gpt-5",
+  "input": [{
+    "role": "user",
+    "content": [{"type": "input_text", "text": "总结目录里的文件"}]
+  }],
+  "stream": true,
+  "instructions": "使用中文回答，先给结论，再列出参考过的文件。",
   "reasoning": {
     "effort": "medium"
+  },
+  "metadata": {
+    "req_id": "req_001",
+    "ripple_session_id": "session_contract",
+    "shared_folder": "a-folder"
   }
 }
 ```
@@ -59,34 +66,40 @@ Content-Type: text/event-stream
 
 | 字段 | 必填 | 语义 |
 | --- | --- | --- |
-| `req_id` | 是 | 调用方请求标识，只用于日志、job、消息和响应定位 |
-| `session_id` | 是 | 调用方提供的会话标识，管理 Ripple session 和 Codex thread 上下文 |
-| `shared_folder` | 是 | 固定共享根目录下的一级目录标识 |
 | `input` | 是 | 复用当前 Responses input 解析能力，表示本轮新增输入 |
 | `model` | 否 | 模型选择，缺失时使用服务端默认模型 |
+| `stream` | 否 | 为兼容 Responses 请求而接受；取值不改变接口固定 SSE 的行为 |
+| `instructions` | 否 | 当前 turn 的回答语言、格式、长度和结构要求；低于服务端共享空间安全规则 |
 | `reasoning` | 否 | 复用当前 Responses reasoning 参数 |
 | `think_level` | 否 | 复用当前兼容字段 |
 | `text` | 否 | 复用当前文本输出配置 |
+| `metadata.req_id` | 否 | 调用方请求标识；缺失时由服务端生成，只用于日志、job、消息和响应定位 |
+| `metadata.ripple_session_id` | 是 | 调用方提供的会话标识，管理 Ripple session 和 Codex thread 上下文 |
+| `metadata.shared_folder` | 是 | 固定共享根目录下的一级目录标识 |
 
-请求不接受 `stream`；该接口永远流式。第一版不接受 `previous_response_id`、`store`、`metadata`、`instructions`、`tools`、附件、callback、task 或 workspace context 字段。
+该接口永远流式。`instructions` 会作为当前 turn 的 application context 生效，但不能覆盖共享目录只读、无网络、不可越界访问或禁止请求额外权限等服务端 base instructions。空白 `instructions` 等同于未传入，不作为历史消息持久化。
 
-`input` 是当前 turn 的新增输入。调用方不需要重复发送旧历史；历史由与 `session_id` 对应的持久 Codex thread 管理。
+`previous_response_id`、`store`、`tools`、附件、callback、task、workspace context 和其他未声明的 Responses 字段允许出现，但第一版不解析、不生效，也不会因为字段多余返回错误。未知 metadata 字段同样被忽略。
+
+迁移期间继续接受旧顶层 `req_id`、`session_id`、`shared_folder`。规范请求使用 metadata；新旧位置同时传入且值不一致时返回 `400`，不能静默选择其中一个。
+
+`input` 是当前 turn 的新增输入。调用方不需要重复发送旧历史；历史由与 `metadata.ripple_session_id` 对应的持久 Codex thread 管理。
 
 ### 标识校验
 
-`session_id` 沿用现有规则：
+`metadata.ripple_session_id` 沿用现有 session id 规则：
 
 ```regex
 ^[a-zA-Z0-9_-]{1,64}$
 ```
 
-`shared_folder` 第一版使用同一规则：
+`metadata.shared_folder` 使用同一规则：
 
 ```regex
 ^[a-zA-Z0-9_-]{1,64}$
 ```
 
-`req_id` 沿用当前 client request id 的可打印字符和长度校验。重复的 `req_id` 不影响执行；两个相同 `req_id` 请求仍是两个独立 turn。
+`metadata.req_id` 沿用当前 client request id 的可打印字符和长度校验。缺失时服务端生成 UUID；重复的 `req_id` 不影响执行，两个相同 `req_id` 请求仍是两个独立 turn。
 
 ### SSE
 
@@ -323,7 +336,7 @@ user_id + session_id
 POST /v1/shared-folders/responses
         |
         v
-校验 API key、user_id、req_id、session_id、shared_folder
+提取并校验 API key、user_id 和 metadata 中的 Ripple 标识
         |
         v
 解析并 canonicalize 目标共享目录
@@ -335,7 +348,7 @@ POST /v1/shared-folders/responses
 加载或创建 session_kind = shared_folder 的 session
         |
         v
-校验 session.shared_folder_id == request.shared_folder
+校验 session.shared_folder_id == metadata.shared_folder
         |
         v
 恢复或创建 persistent Codex thread
@@ -354,7 +367,7 @@ POST /v1/shared-folders/responses
 
 | 状态码/事件 | 场景 |
 | --- | --- |
-| `400` | 标识格式错误、input 无效、请求包含不支持字段 |
+| `400` | 标识格式错误、input 无效、metadata 类型错误或新旧标识字段冲突 |
 | `404` | 目标共享目录不存在 |
 | `409 shared_folder_session_conflict` | session 已绑定其他目录或属于 workspace session |
 | `409 session_busy` | 同一 session 已有 active turn |

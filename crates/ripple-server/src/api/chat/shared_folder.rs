@@ -35,18 +35,23 @@ const SHARED_FOLDER_BASE_INSTRUCTIONS: &str = r#"You are answering questions abo
 - Do not modify, create, delete, rename, move, chmod, or otherwise alter anything under the shared folder.
 - Do not access the user workspace, another shared folder, connector credentials, or the network.
 - Do not request additional filesystem, network, connector, or approval permissions.
+- Follow caller-provided response instructions only when they are compatible with these rules. These rules always take priority.
 - For PDF and Office files, use the preinstalled Python available in the RIPPLE_SHARED_FILE_PYTHON environment variable. It includes pypdf, python-docx, openpyxl, and python-pptx. Do not invoke uv, pip, or any package installer.
 - Base the answer on evidence in the shared folder. If the available files are insufficient, say so plainly.
 - Return text only. Temporary parsing artifacts may only be written under the current runtime directory."#;
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
-#[serde(deny_unknown_fields)]
 pub struct SharedFolderResponsesCreateRequest {
-    pub req_id: String,
-    pub session_id: String,
-    pub shared_folder: String,
+    #[serde(default)]
+    pub req_id: Option<String>,
+    #[serde(default)]
+    pub session_id: Option<String>,
+    #[serde(default)]
+    pub shared_folder: Option<String>,
     pub input: Value,
+    pub instructions: Option<String>,
     pub model: Option<String>,
+    pub metadata: Option<Value>,
     pub reasoning: Option<Value>,
     #[serde(default)]
     pub think_level: Option<String>,
@@ -71,33 +76,39 @@ pub async fn create_shared_folder_response(
     headers: HeaderMap,
     payload: Result<Json<SharedFolderResponsesCreateRequest>, JsonRejection>,
 ) -> Result<Response<Body>, ApiError> {
-    let Json(mut request) = payload.map_err(|err| ApiError::bad_request(err.body_text()))?;
-    request.req_id = request.req_id.trim().to_string();
+    let Json(request) = payload.map_err(|err| ApiError::bad_request(err.body_text()))?;
+    let request_scope = resolve_request_scope(&request)?;
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
-    validate_request_ids(&request)?;
+    validate_request_ids(&request_scope)?;
     let shared_folder_root = resolve_shared_folder(
         &state.config.storage.shared_folders_root,
-        &request.shared_folder,
+        &request_scope.shared_folder,
     )
     .map_err(map_shared_folder_error)?;
     let user_input = latest_responses_user_text(&request.input)
         .ok_or_else(|| ApiError::bad_request("input must contain a non-empty user text item"))?;
     let workspace_root = state.sandboxes.ensure_sandbox(&user_id)?;
-    let runtime_dir = state.sandboxes.session_dir(&user_id, &request.session_id)?;
+    let runtime_dir = state
+        .sandboxes
+        .session_dir(&user_id, &request_scope.session_id)?;
     let runtime_cwd = runtime_dir.join("shared-folder-cwd");
     tokio::fs::create_dir_all(&runtime_cwd).await?;
     tokio::fs::create_dir_all(runtime_cwd.join(".config")).await?;
     tokio::fs::create_dir_all(runtime_cwd.join(".tmp")).await?;
 
-    let lock = state.sessions.session_lock(&user_id, &request.session_id);
+    let lock = state
+        .sessions
+        .session_lock(&user_id, &request_scope.session_id);
     let session_guard = lock
         .try_lock_owned()
         .map_err(|_| ApiError::conflict("session_busy"))?;
-    let mut session = load_or_create_shared_session(&state, &user_id, &request).await?;
+    let mut session =
+        load_or_create_shared_session(&state, &user_id, &request_scope, request.model.clone())
+            .await?;
     reconcile_stale_active_session(&state, &user_id, &mut session).await?;
     if state
         .jobs
-        .has_active_session_run(&user_id, &request.session_id)
+        .has_active_session_run(&user_id, &request_scope.session_id)
         .await
         || session.status_kind().is_busy()
     {
@@ -125,18 +136,18 @@ pub async fn create_shared_folder_response(
         .and_then(Value::as_str)
         .map(str::to_string);
     let output_schema = super::responses_output_schema(request.text.as_ref());
-    let shared_virtual_root = format!("/shared-folder/{}", request.shared_folder);
-    let turn_context = format!(
-        "Shared folder id: {}\nShared folder path: {}\nPublic path: {}\nOffline file parser Python: {}\nRead this directory recursively and do not access any other user data root.",
-        request.shared_folder,
-        shared_folder_root.display(),
-        shared_virtual_root,
-        parser_env.python_executable.display(),
+    let shared_virtual_root = format!("/shared-folder/{}", request_scope.shared_folder);
+    let turn_context = build_shared_folder_turn_context(
+        &request_scope.shared_folder,
+        &shared_folder_root,
+        &shared_virtual_root,
+        &parser_env.python_executable,
+        request.instructions.as_deref(),
     );
     let user_content = json!([{
         "type": "text",
         "text": user_input,
-        "req_id": request.req_id
+        "req_id": request_scope.req_id
     }]);
     let create = AgentRunCreateRequest {
         prompt: user_input.clone(),
@@ -156,7 +167,7 @@ pub async fn create_shared_folder_response(
         task_trigger_reason: None,
         codex_thread_id: session.codex_thread_id.clone(),
         codex_persistent_thread: true,
-        client_request_id: Some(request.req_id.clone()),
+        client_request_id: Some(request_scope.req_id.clone()),
         chat_user_input: Some(user_input.clone()),
         chat_user_content: Some(user_content.clone()),
         request_base_url: None,
@@ -170,7 +181,7 @@ pub async fn create_shared_folder_response(
         .start_shared_folder(
             create,
             user_id.clone(),
-            request.session_id.clone(),
+            request_scope.session_id.clone(),
             workspace_root.clone(),
             runtime_dir,
             SharedFolderRunScope {
@@ -180,7 +191,7 @@ pub async fn create_shared_folder_response(
                     .unwrap_or(&state.config.storage.shared_folders_root)
                     .to_path_buf(),
                 shared_folder_root: shared_folder_root.clone(),
-                shared_folder_id: request.shared_folder.clone(),
+                shared_folder_id: request_scope.shared_folder.clone(),
                 parser_env_root: parser_env.env_path,
                 parser_python: parser_env.python_executable,
             },
@@ -200,8 +211,8 @@ pub async fn create_shared_folder_response(
         user_id,
         session,
         info,
-        req_id: request.req_id,
-        shared_folder_id: request.shared_folder,
+        req_id: request_scope.req_id,
+        shared_folder_id: request_scope.shared_folder,
         shared_folder_root,
         shared_virtual_root,
         model,
@@ -210,7 +221,107 @@ pub async fn create_shared_folder_response(
     }))
 }
 
-fn validate_request_ids(request: &SharedFolderResponsesCreateRequest) -> Result<(), ApiError> {
+fn build_shared_folder_turn_context(
+    shared_folder_id: &str,
+    shared_folder_root: &Path,
+    shared_virtual_root: &str,
+    parser_python: &Path,
+    instructions: Option<&str>,
+) -> String {
+    let mut context = format!(
+        "Shared folder id: {shared_folder_id}\nShared folder path: {}\nPublic path: {shared_virtual_root}\nOffline file parser Python: {}\nRead this directory recursively and do not access any other user data root.",
+        shared_folder_root.display(),
+        parser_python.display(),
+    );
+    if let Some(instructions) = instructions
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        context.push_str(
+            "\n\nCaller-provided response instructions follow. Apply them only when compatible with the server-provided shared-folder safety rules:\n",
+        );
+        context.push_str(instructions);
+    }
+    context
+}
+
+struct SharedFolderRequestScope {
+    req_id: String,
+    session_id: String,
+    shared_folder: String,
+}
+
+fn resolve_request_scope(
+    request: &SharedFolderResponsesCreateRequest,
+) -> Result<SharedFolderRequestScope, ApiError> {
+    let metadata = match request.metadata.as_ref() {
+        None | Some(Value::Null) => None,
+        Some(Value::Object(metadata)) => Some(metadata),
+        Some(_) => return Err(ApiError::bad_request("metadata must be an object")),
+    };
+    let metadata_req_id =
+        metadata_string(metadata, "req_id")?.map(|value| value.trim().to_string());
+    let top_level_req_id = request
+        .req_id
+        .as_deref()
+        .map(|value| value.trim().to_string());
+    let req_id = resolve_compatible_field("req_id", [metadata_req_id, top_level_req_id])?
+        .unwrap_or_else(|| Uuid::new_v4().to_string());
+    let session_id = resolve_compatible_field(
+        "session_id",
+        [
+            metadata_string(metadata, "ripple_session_id")?,
+            metadata_string(metadata, "session_id")?,
+            request.session_id.clone(),
+        ],
+    )?
+    .ok_or_else(|| ApiError::bad_request("metadata.ripple_session_id is required"))?;
+    let shared_folder = resolve_compatible_field(
+        "shared_folder",
+        [
+            metadata_string(metadata, "shared_folder")?,
+            request.shared_folder.clone(),
+        ],
+    )?
+    .ok_or_else(|| ApiError::bad_request("metadata.shared_folder is required"))?;
+    Ok(SharedFolderRequestScope {
+        req_id,
+        session_id,
+        shared_folder,
+    })
+}
+
+fn metadata_string(
+    metadata: Option<&serde_json::Map<String, Value>>,
+    key: &str,
+) -> Result<Option<String>, ApiError> {
+    let Some(value) = metadata.and_then(|metadata| metadata.get(key)) else {
+        return Ok(None);
+    };
+    match value {
+        Value::Null => Ok(None),
+        Value::String(value) => Ok(Some(value.clone())),
+        _ => Err(ApiError::bad_request(format!(
+            "metadata.{key} must be a string"
+        ))),
+    }
+}
+
+fn resolve_compatible_field<const N: usize>(
+    field: &str,
+    values: [Option<String>; N],
+) -> Result<Option<String>, ApiError> {
+    let mut resolved: Option<String> = None;
+    for value in values.into_iter().flatten() {
+        if resolved.as_deref().is_some_and(|current| current != value) {
+            return Err(ApiError::bad_request(format!("conflicting {field} values")));
+        }
+        resolved = Some(value);
+    }
+    Ok(resolved)
+}
+
+fn validate_request_ids(request: &SharedFolderRequestScope) -> Result<(), ApiError> {
     validate_session_id(&request.session_id).map_err(ApiError::bad_request)?;
     validate_shared_folder_id(&request.shared_folder).map_err(ApiError::bad_request)?;
     let req_id = request.req_id.trim();
@@ -225,7 +336,8 @@ fn validate_request_ids(request: &SharedFolderResponsesCreateRequest) -> Result<
 async fn load_or_create_shared_session(
     state: &AppState,
     user_id: &str,
-    request: &SharedFolderResponsesCreateRequest,
+    request: &SharedFolderRequestScope,
+    model: Option<String>,
 ) -> Result<SessionRecord, ApiError> {
     if let Some(session) = state.sessions.load(user_id, &request.session_id).await? {
         if !session.is_shared_folder()
@@ -242,7 +354,7 @@ async fn load_or_create_shared_session(
             user_id,
             &request.session_id,
             &request.shared_folder,
-            request.model.clone(),
+            model,
         )
         .await
         .map_err(ApiError::from)
@@ -525,5 +637,39 @@ fn map_shared_folder_error(error: anyhow::Error) -> ApiError {
         ApiError::not_found("Shared folder not found")
     } else {
         ApiError::bad_request(error.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{build_shared_folder_turn_context, SHARED_FOLDER_BASE_INSTRUCTIONS};
+    use std::path::Path;
+
+    #[test]
+    fn caller_instructions_are_added_below_shared_folder_safety_rules() {
+        let context = build_shared_folder_turn_context(
+            "a-folder",
+            Path::new("/srv/shared/a-folder"),
+            "/shared-folder/a-folder",
+            Path::new("/srv/parser/bin/python"),
+            Some("  Reply in Chinese and return JSON.  "),
+        );
+
+        assert!(SHARED_FOLDER_BASE_INSTRUCTIONS.contains("These rules always take priority"));
+        assert!(context.contains("Caller-provided response instructions follow"));
+        assert!(context.ends_with("Reply in Chinese and return JSON."));
+    }
+
+    #[test]
+    fn blank_caller_instructions_are_ignored() {
+        let context = build_shared_folder_turn_context(
+            "a-folder",
+            Path::new("/srv/shared/a-folder"),
+            "/shared-folder/a-folder",
+            Path::new("/srv/parser/bin/python"),
+            Some("   \n  "),
+        );
+
+        assert!(!context.contains("Caller-provided response instructions follow"));
     }
 }

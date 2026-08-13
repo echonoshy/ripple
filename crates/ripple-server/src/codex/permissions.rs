@@ -5,6 +5,7 @@ use serde_json::{json, Value};
 
 use crate::config::{resolve_path, AppConfig};
 use crate::context_scope::resolve_context_scope;
+use crate::runtime_checks::resolve_executable;
 
 pub const RIPPLE_CODEX_PERMISSION_PROFILE: &str = "ripple_workspace";
 
@@ -63,15 +64,7 @@ pub fn thread_permission_config_for_shared_folder(
         config.codex_home_path().to_string_lossy().to_string(),
         json!("none"),
     );
-    if let Some(home) = std::env::var_os("HOME") {
-        filesystem.insert(
-            Path::new(&home)
-                .join(".codex")
-                .to_string_lossy()
-                .to_string(),
-            json!("none"),
-        );
-    }
+    add_host_codex_permissions(&mut filesystem, config);
 
     json!({
         "features.image_generation": false,
@@ -261,15 +254,7 @@ fn thread_permission_config_with_user(
             json!("read"),
         );
     }
-    if let Some(home) = std::env::var_os("HOME") {
-        filesystem.insert(
-            Path::new(&home)
-                .join(".codex")
-                .to_string_lossy()
-                .to_string(),
-            json!("none"),
-        );
-    }
+    add_host_codex_permissions(&mut filesystem, config);
     let mut shell_environment_exclusions = vec!["CODEX_HOME".to_string()];
     shell_environment_exclusions.extend(config.codex.provider_env_keys.iter().cloned());
     let mut shell_environment_set = serde_json::Map::new();
@@ -293,6 +278,65 @@ fn thread_permission_config_with_user(
             "set": shell_environment_set
         }
     })
+}
+
+fn add_host_codex_permissions(filesystem: &mut serde_json::Map<String, Value>, config: &AppConfig) {
+    if let Some(home) = std::env::var_os("HOME") {
+        protect_codex_home(filesystem, &Path::new(&home).join(".codex"));
+    }
+
+    let Some(resolved_executable) = resolve_executable(&config.codex.codex_executable) else {
+        return;
+    };
+    if resolved_executable.is_absolute() {
+        filesystem.insert(
+            resolved_executable.to_string_lossy().to_string(),
+            json!("read"),
+        );
+    }
+    let Ok(canonical_executable) = std::fs::canonicalize(&resolved_executable) else {
+        return;
+    };
+    filesystem.insert(
+        canonical_executable.to_string_lossy().to_string(),
+        json!("read"),
+    );
+    let Some((codex_home, releases_root)) = standalone_releases_layout(&canonical_executable)
+    else {
+        return;
+    };
+    protect_codex_home(filesystem, &codex_home);
+    filesystem.insert(releases_root.to_string_lossy().to_string(), json!("read"));
+}
+
+fn protect_codex_home(filesystem: &mut serde_json::Map<String, Value>, codex_home: &Path) {
+    filesystem.remove(codex_home.to_string_lossy().as_ref());
+    for protected_file in ["auth.json", "config.toml"] {
+        filesystem.insert(
+            codex_home
+                .join(protected_file)
+                .to_string_lossy()
+                .to_string(),
+            json!("none"),
+        );
+    }
+}
+
+fn standalone_releases_layout(canonical_executable: &Path) -> Option<(PathBuf, PathBuf)> {
+    let releases_root = canonical_executable.ancestors().find(|ancestor| {
+        ancestor.file_name().is_some_and(|name| name == "releases")
+            && ancestor
+                .parent()
+                .and_then(Path::file_name)
+                .is_some_and(|name| name == "standalone")
+            && ancestor
+                .parent()
+                .and_then(Path::parent)
+                .and_then(Path::file_name)
+                .is_some_and(|name| name == "packages")
+    })?;
+    let codex_home = releases_root.parent()?.parent()?.parent()?;
+    Some((codex_home.to_path_buf(), releases_root.to_path_buf()))
 }
 
 fn permission_rules_for_root(root: &Path, access: &str) -> serde_json::Map<String, Value> {
@@ -486,7 +530,20 @@ mod tests {
     #[test]
     fn shared_folder_profile_denies_workspace_and_allows_selected_tree_read_only() {
         let mut config = test_config();
-        config.codex.codex_executable = "/opt/ripple-codex/current/codex".to_string();
+        let host_codex_home = config.repo_root.join("host-home/.codex");
+        let releases_root = host_codex_home.join("packages/standalone/releases");
+        let codex_binary = releases_root.join("9.9.9-test/bin/codex");
+        let codex_launcher = config.repo_root.join("host-bin/codex");
+        std::fs::create_dir_all(codex_binary.parent().expect("codex binary parent"))
+            .expect("create codex release");
+        std::fs::create_dir_all(codex_launcher.parent().expect("codex launcher parent"))
+            .expect("create codex launcher parent");
+        std::fs::write(&codex_binary, b"test codex").expect("write codex binary");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&codex_binary, &codex_launcher).expect("link codex launcher");
+        #[cfg(not(unix))]
+        std::fs::copy(&codex_binary, &codex_launcher).expect("copy codex launcher");
+        config.codex.codex_executable = codex_launcher.to_string_lossy().to_string();
         let workspace = config.sandbox.sandboxes_root.join("alice/workspace");
         let runtime_cwd = config
             .sandbox
@@ -538,6 +595,22 @@ mod tests {
             filesystem.get(config.codex.codex_executable.as_str()),
             Some(&json!("read"))
         );
+        assert!(!filesystem.contains_key(host_codex_home.to_string_lossy().as_ref()));
+        assert_eq!(
+            filesystem.get(releases_root.to_string_lossy().as_ref()),
+            Some(&json!("read"))
+        );
+        for protected_file in ["auth.json", "config.toml"] {
+            assert_eq!(
+                filesystem.get(
+                    host_codex_home
+                        .join(protected_file)
+                        .to_string_lossy()
+                        .as_ref()
+                ),
+                Some(&json!("none"))
+            );
+        }
         assert_eq!(
             permissions.pointer("/permissions/ripple_workspace/network/enabled"),
             Some(&json!(false))
@@ -549,6 +622,61 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(&config.repo_root);
+    }
+
+    #[test]
+    fn standard_profile_resolves_standalone_releases_from_codex_launcher() {
+        let workspace =
+            std::env::temp_dir().join(format!("ripple-permissions-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&workspace).expect("create workspace");
+        let mut config = test_config();
+        let host_codex_home = workspace.join("host-home/.codex");
+        let releases_root = host_codex_home.join("packages/standalone/releases");
+        let codex_binary = releases_root.join("8.8.8-test/bin/codex");
+        let codex_launcher = workspace.join("host-bin/codex");
+        std::fs::create_dir_all(codex_binary.parent().expect("codex binary parent"))
+            .expect("create codex release");
+        std::fs::create_dir_all(codex_launcher.parent().expect("codex launcher parent"))
+            .expect("create codex launcher parent");
+        std::fs::write(&codex_binary, b"test codex").expect("write codex binary");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&codex_binary, &codex_launcher).expect("link codex launcher");
+        #[cfg(not(unix))]
+        std::fs::copy(&codex_binary, &codex_launcher).expect("copy codex launcher");
+        config.codex.codex_executable = codex_launcher.to_string_lossy().to_string();
+
+        let permissions = thread_permission_config(&workspace, &config);
+        let filesystem = permissions
+            .pointer("/permissions/ripple_workspace/filesystem")
+            .and_then(Value::as_object)
+            .expect("filesystem permissions");
+
+        assert!(!filesystem.contains_key(host_codex_home.to_string_lossy().as_ref()));
+        assert_eq!(
+            filesystem.get(releases_root.to_string_lossy().as_ref()),
+            Some(&json!("read"))
+        );
+        assert_eq!(
+            filesystem.get(codex_launcher.to_string_lossy().as_ref()),
+            Some(&json!("read"))
+        );
+        assert_eq!(
+            filesystem.get(codex_binary.to_string_lossy().as_ref()),
+            Some(&json!("read"))
+        );
+        for protected_file in ["auth.json", "config.toml"] {
+            assert_eq!(
+                filesystem.get(
+                    host_codex_home
+                        .join(protected_file)
+                        .to_string_lossy()
+                        .as_ref()
+                ),
+                Some(&json!("none"))
+            );
+        }
+
+        let _ = std::fs::remove_dir_all(workspace);
     }
 
     #[test]

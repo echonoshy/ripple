@@ -53,13 +53,6 @@ pub fn thread_permission_config_for_shared_folder(
         Value::Object(shared_rules),
     );
     filesystem.insert(parser_env_root.to_string_lossy().to_string(), json!("read"));
-    let codex_executable = Path::new(&config.codex.codex_executable);
-    if codex_executable.is_absolute() {
-        filesystem.insert(
-            codex_executable.to_string_lossy().to_string(),
-            json!("read"),
-        );
-    }
     filesystem.insert(
         config.codex_home_path().to_string_lossy().to_string(),
         json!("none"),
@@ -288,15 +281,15 @@ fn add_host_codex_permissions(filesystem: &mut serde_json::Map<String, Value>, c
     let Some(resolved_executable) = resolve_executable(&config.codex.codex_executable) else {
         return;
     };
-    if resolved_executable.is_absolute() {
-        filesystem.insert(
-            resolved_executable.to_string_lossy().to_string(),
-            json!("read"),
-        );
-    }
     let Ok(canonical_executable) = std::fs::canonicalize(&resolved_executable) else {
         return;
     };
+    // A configured launcher may be a symlink (for example
+    // /root/.local/bin/codex). Passing that logical file path to Codex's
+    // managed filesystem profile makes bubblewrap try to create a bind target
+    // at the symlink itself, which fails before any shell command can start.
+    // The app-server is launched outside this inner shell sandbox, so only the
+    // canonical executable and its release tree need to be readable here.
     filesystem.insert(
         canonical_executable.to_string_lossy().to_string(),
         json!("read"),
@@ -591,11 +584,12 @@ mod tests {
             filesystem.get(parser_env.to_string_lossy().as_ref()),
             Some(&json!("read"))
         );
+        assert_eq!(filesystem.get(config.codex.codex_executable.as_str()), None);
+        assert!(!filesystem.contains_key(host_codex_home.to_string_lossy().as_ref()));
         assert_eq!(
-            filesystem.get(config.codex.codex_executable.as_str()),
+            filesystem.get(codex_binary.to_string_lossy().as_ref()),
             Some(&json!("read"))
         );
-        assert!(!filesystem.contains_key(host_codex_home.to_string_lossy().as_ref()));
         assert_eq!(
             filesystem.get(releases_root.to_string_lossy().as_ref()),
             Some(&json!("read"))
@@ -656,10 +650,7 @@ mod tests {
             filesystem.get(releases_root.to_string_lossy().as_ref()),
             Some(&json!("read"))
         );
-        assert_eq!(
-            filesystem.get(codex_launcher.to_string_lossy().as_ref()),
-            Some(&json!("read"))
-        );
+        assert!(!filesystem.contains_key(codex_launcher.to_string_lossy().as_ref()));
         assert_eq!(
             filesystem.get(codex_binary.to_string_lossy().as_ref()),
             Some(&json!("read"))

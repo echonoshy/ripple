@@ -97,7 +97,7 @@ const TASK_SESSION_EXECUTION_INSTRUCTIONS: &str = r#"
 - After that tool succeeds, execute the task normally and return a concise user-facing result.
 - During execution, call `codex_app.task_progress` before each substantive new phase or external operation. Its required `content` is a concise user-visible progress update in the language of the task. Do not generate progress by translating tool names or narrating internal implementation details.
 - For a Feishu email in a task session, call `codex_app.prepare_feishu_mail` before asking for confirmation. It converts Markdown into server-controlled HTML and returns the exact preview. Show that complete preview verbatim. After confirmation, call `codex_app.task_execution_confirmed`, then call `codex_app.send_prepared_feishu_mail` with the same `prepared_mail_id`; never use the generic Feishu CLI tool to send mail in a task session. If sending returns `code="connector_auth_required"`, stop and make the standard Ripple connector-auth request for Feishu; after authorization, resume the same prepared mail without changing its recipients, subject, or body.
-- For Google Workspace tasks, use the standard Ripple connector-auth request for `google_workspace` whenever gog reports that authorization is required. After authorization, continue the same task without changing any already-confirmed recipients, files, calendar events, document ranges, or other mutation parameters. Never run a Google Workspace mutation before `codex_app.task_execution_confirmed` succeeds.
+- For Google Workspace tasks, call `codex_app.request_google_workspace_auth` whenever `codex_app.google_workspace_cli` reports that authorization is required, then stop Google Workspace operations for this turn. Never emit a connector-auth marker as text. After authorization, continue the same task without changing any already-confirmed recipients, files, calendar events, document ranges, or other mutation parameters. Never run a Google Workspace mutation before `codex_app.task_execution_confirmed` succeeds.
 "#;
 
 #[derive(Debug, Deserialize)]
@@ -2445,7 +2445,61 @@ async fn maybe_persist_model_connector_auth_request(
     info: &AgentRunInfo,
     resume_after_auth: bool,
 ) -> Result<Option<Value>, ApiError> {
-    let request = if let Some(request) = parse_model_connector_auth_request(output_text) {
+    let event_google_request = google_workspace_auth_request_from_run(info).await;
+    let persisted_google_request = state
+        .sessions
+        .load(user_id, &session.session_id)
+        .await?
+        .filter(|persisted| {
+            persisted
+                .pending_connector_auth
+                .as_ref()
+                .and_then(|pending| pending.get("connector"))
+                .and_then(Value::as_str)
+                == Some("google_workspace")
+                && persisted
+                    .pending_connector_auth
+                    .as_ref()
+                    .and_then(|pending| pending.get("stage"))
+                    .and_then(Value::as_str)
+                    == Some("requested")
+        });
+    let mut auth_user_input = user_input.to_string();
+    let request = if let Some(request) = event_google_request {
+        if let Some(persisted) = state.sessions.load(user_id, &session.session_id).await? {
+            *session = persisted;
+        }
+        auth_user_input = info
+            .metadata
+            .get("chat_user_input")
+            .and_then(Value::as_str)
+            .unwrap_or(user_input)
+            .to_string();
+        request
+    } else if let Some(persisted) = persisted_google_request {
+        let pending = persisted
+            .pending_connector_auth
+            .as_ref()
+            .expect("filtered Google authorization request");
+        auth_user_input = pending
+            .get("resume_user_input")
+            .and_then(Value::as_str)
+            .unwrap_or(user_input)
+            .to_string();
+        let request = ModelConnectorAuthRequest {
+            connector: "google_workspace".to_string(),
+            force_reauth: pending
+                .get("force_reauth")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            source: pending
+                .get("source")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+        };
+        *session = persisted;
+        request
+    } else if let Some(request) = parse_model_connector_auth_request(output_text) {
         request
     } else if pending_feishu_scope_upgrade(state, user_id, &session.session_id)
         .await?
@@ -2464,7 +2518,7 @@ async fn maybe_persist_model_connector_auth_request(
         user_id,
         session,
         &request,
-        user_input,
+        &auth_user_input,
         request_base_url,
         resume_after_auth,
     )
@@ -2490,6 +2544,49 @@ async fn maybe_persist_model_connector_auth_request(
         .save_record_if_exists(session.clone())
         .await?;
     Ok(Some(event))
+}
+
+async fn google_workspace_auth_request_from_run(
+    info: &AgentRunInfo,
+) -> Option<ModelConnectorAuthRequest> {
+    let events_file = info.events_file.as_deref()?;
+    let mut offset = 0_usize;
+    let mut request = None;
+    for event in read_events_from_offset(FsPath::new(events_file), &mut offset).await {
+        if event.get("type").and_then(Value::as_str) != Some("codex.notification")
+            || event
+                .pointer("/data/message/method")
+                .and_then(Value::as_str)
+                != Some("item/completed")
+            || event
+                .pointer("/data/message/params/item/type")
+                .and_then(Value::as_str)
+                != Some("dynamicToolCall")
+            || event
+                .pointer("/data/message/params/item/namespace")
+                .and_then(Value::as_str)
+                != Some("codex_app")
+            || event
+                .pointer("/data/message/params/item/tool")
+                .and_then(Value::as_str)
+                != Some("request_google_workspace_auth")
+            || event
+                .pointer("/data/message/params/item/success")
+                .and_then(Value::as_bool)
+                != Some(true)
+        {
+            continue;
+        }
+        request = Some(ModelConnectorAuthRequest {
+            connector: "google_workspace".to_string(),
+            force_reauth: event
+                .pointer("/data/message/params/item/arguments/force_reauth")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            source: Some("session_skill".to_string()),
+        });
+    }
+    request
 }
 
 #[utoipa::path(
@@ -4743,6 +4840,10 @@ mod tests {
         assert!(prompt.contains("Ask one consolidated clarification"));
         assert!(prompt.contains("instead of asking repeatedly"));
         assert!(prompt.contains("<ripple_connector_auth_request>"));
+        assert!(prompt.contains("codex_app.request_google_workspace_auth"));
+        assert!(
+            !prompt.contains("<ripple_connector_auth_request>{\"connector\":\"google_workspace\"")
+        );
         assert!(prompt.contains(
             "For product, company, support, or shared-knowledge questions, read the matching Available Skill before web_search"
         ));

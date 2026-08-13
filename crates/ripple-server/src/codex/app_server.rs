@@ -1416,6 +1416,34 @@ impl CodexAppServerProvider {
                 ),
                 Err(err) => (false, format!("{err:?}")),
             }
+        } else if namespace == "codex_app" && tool == "request_google_workspace_auth" {
+            let user_id = request.user_id.as_deref().unwrap_or("default");
+            if !self.config.connector_enabled("google_workspace") {
+                (
+                    false,
+                    "Google Workspace connector is not enabled".to_string(),
+                )
+            } else {
+                match persist_google_workspace_auth_request(
+                    &self.storage,
+                    user_id,
+                    request.session_id.as_deref(),
+                    request
+                        .metadata
+                        .get("chat_user_input")
+                        .and_then(Value::as_str),
+                    &arguments,
+                )
+                .await
+                {
+                    Ok(output) => (
+                        true,
+                        serde_json::to_string(&output)
+                            .unwrap_or_else(|_| "{\"ok\":true}".to_string()),
+                    ),
+                    Err(err) => (false, format!("{err:?}")),
+                }
+            }
         } else if namespace == "codex_app" && tool == "task_execution_confirmed" {
             if request
                 .metadata
@@ -2760,6 +2788,13 @@ fn add_task_dynamic_tools(params: &mut Value, request: &AgentRunnerRequest) {
                 "inputSchema": google_workspace_cli_input_schema(),
                 "deferLoading": false
             }),
+            json!({
+                "namespace": "codex_app",
+                "name": "request_google_workspace_auth",
+                "description": "Request Ripple-managed Google Workspace authorization for the current session. Call this when Google Workspace access is required and google_workspace_cli returns code=connector_auth_required, then stop all Google Workspace business operations for this turn.",
+                "inputSchema": google_workspace_auth_request_input_schema(),
+                "deferLoading": false
+            }),
         ];
         if request
             .metadata
@@ -2932,6 +2967,17 @@ fn google_workspace_cli_input_schema() -> Value {
     })
 }
 
+fn google_workspace_auth_request_input_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "force_reauth": {"type": "boolean"},
+            "reason": {"type": "string", "maxLength": 500}
+        },
+        "additionalProperties": false
+    })
+}
+
 fn dynamic_tool_string_args(arguments: &Value, tool: &str) -> Result<Vec<String>, Value> {
     match arguments.get("args").and_then(Value::as_array) {
         Some(values) => values
@@ -3049,6 +3095,47 @@ async fn persist_session_wait_user(
     session.pending_options = options.filter(|values| !values.is_empty());
     storage.save_session(&session).await?;
     Ok(json!({"ok": true, "question": question, "options": session.pending_options}))
+}
+
+async fn persist_google_workspace_auth_request(
+    storage: &Storage,
+    user_id: &str,
+    session_id: Option<&str>,
+    resume_user_input: Option<&str>,
+    arguments: &Value,
+) -> anyhow::Result<Value> {
+    let session_id =
+        session_id.context("request_google_workspace_auth requires a Ripple session")?;
+    let force_reauth = arguments
+        .get("force_reauth")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let reason = arguments
+        .get("reason")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("Google Workspace access is required");
+    if reason.len() > 500 {
+        anyhow::bail!("Google Workspace authorization reason must not exceed 500 bytes");
+    }
+    let Some(mut session) = storage.load_session(user_id, session_id).await? else {
+        anyhow::bail!("Ripple session not found");
+    };
+    session.pending_connector_auth = Some(json!({
+        "connector": "google_workspace",
+        "stage": "requested",
+        "force_reauth": force_reauth,
+        "reason": reason,
+        "source": "session_skill",
+        "resume_user_input": resume_user_input.unwrap_or_default()
+    }));
+    storage.save_session(&session).await?;
+    Ok(json!({
+        "ok": true,
+        "connector": "google_workspace",
+        "status": "authorization_requested"
+    }))
 }
 
 async fn persist_task_execution_confirmed(
@@ -3791,7 +3878,7 @@ mod tests {
             .get("dynamicTools")
             .and_then(Value::as_array)
             .expect("dynamic task tools");
-        assert_eq!(tools.len(), 4);
+        assert_eq!(tools.len(), 5);
         let tool = &tools[0];
         assert_eq!(
             tool.get("namespace").and_then(Value::as_str),
@@ -3830,6 +3917,15 @@ mod tests {
         assert!(google_tool
             .pointer("/inputSchema/properties/args")
             .is_some());
+        let google_auth_tool = tools
+            .iter()
+            .find(|tool| {
+                tool.get("name").and_then(Value::as_str) == Some("request_google_workspace_auth")
+            })
+            .expect("Google Workspace authorization tool");
+        assert!(google_auth_tool
+            .pointer("/inputSchema/properties/reason")
+            .is_some());
 
         let mut task_request = request;
         task_request.metadata["task_response"] = json!(true);
@@ -3838,7 +3934,7 @@ mod tests {
         let task_tools = task_params["dynamicTools"]
             .as_array()
             .expect("task session dynamic tools");
-        assert_eq!(task_tools.len(), 8);
+        assert_eq!(task_tools.len(), 9);
         let prepare_mail_tool = task_tools
             .iter()
             .find(|tool| tool.get("name").and_then(Value::as_str) == Some("prepare_feishu_mail"))

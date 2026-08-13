@@ -382,6 +382,38 @@ fn is_response(line: &str) -> bool {
     line.contains("\"result\":") || line.contains("\"error\":")
 }
 
+fn request_google_workspace_auth(
+    thread_id: &str,
+    turn_id: &str,
+    item_id: &str,
+    pending_dynamic_tools: &mut HashMap<String, (String, String, String, String)>,
+) {
+    let request_id = format!("dynamic-google-auth-{turn_id}");
+    let call_id = format!("call-google-auth-{turn_id}");
+    pending_dynamic_tools.insert(
+        request_id.clone(),
+        (
+            thread_id.to_string(),
+            turn_id.to_string(),
+            item_id.to_string(),
+            "Google Workspace authorization has been requested.".to_string(),
+        ),
+    );
+    send(format!(
+        "{{\"method\":\"item/started\",\"params\":{{\"threadId\":{},\"turnId\":{},\"item\":{{\"id\":{},\"type\":\"dynamicToolCall\",\"namespace\":\"codex_app\",\"tool\":\"request_google_workspace_auth\",\"arguments\":{{\"reason\":\"needs Gmail access\"}}}}}}}}",
+        json_string(thread_id),
+        json_string(turn_id),
+        json_string(&call_id)
+    ));
+    send(format!(
+        "{{\"id\":{},\"method\":\"item/tool/call\",\"params\":{{\"threadId\":{},\"turnId\":{},\"callId\":{},\"namespace\":\"codex_app\",\"tool\":\"request_google_workspace_auth\",\"arguments\":{{\"reason\":\"needs Gmail access\"}}}}}}",
+        json_string(&request_id),
+        json_string(thread_id),
+        json_string(turn_id),
+        json_string(&call_id)
+    ));
+}
+
 fn complete_pending_response(
     id: &RequestId,
     pending_approvals: &mut HashMap<String, (String, String, String, String)>,
@@ -394,6 +426,32 @@ fn complete_pending_response(
     if let Some((thread_id, turn_id, item_id, text)) = pending_approvals.remove(key) {
         complete_turn(&thread_id, &turn_id, &item_id, &text);
     } else if let Some((thread_id, turn_id, item_id, text)) = pending_dynamic_tools.remove(key) {
+        if text == "[request-google-auth]"
+            || text == "task execution completed"
+            || text.starts_with("[slow] task execution completed")
+        {
+            send(format!(
+                "{{\"method\":\"item/completed\",\"params\":{{\"threadId\":{},\"turnId\":{},\"item\":{{\"id\":\"task-confirmed\",\"type\":\"dynamicToolCall\",\"namespace\":\"codex_app\",\"tool\":\"task_execution_confirmed\",\"arguments\":{{\"content\":\"正在执行测试任务。\"}},\"success\":true}}}}}}",
+                json_string(&thread_id),
+                json_string(&turn_id)
+            ));
+        }
+        if text == "Google Workspace authorization has been requested." {
+            send(format!(
+                "{{\"method\":\"item/completed\",\"params\":{{\"threadId\":{},\"turnId\":{},\"item\":{{\"id\":\"google-auth-requested\",\"type\":\"dynamicToolCall\",\"namespace\":\"codex_app\",\"tool\":\"request_google_workspace_auth\",\"arguments\":{{\"reason\":\"needs Gmail access\"}},\"success\":true}}}}}}",
+                json_string(&thread_id),
+                json_string(&turn_id)
+            ));
+        }
+        if text == "[request-google-auth]" {
+            request_google_workspace_auth(
+                &thread_id,
+                &turn_id,
+                &item_id,
+                pending_dynamic_tools,
+            );
+            return;
+        }
         if text.starts_with("[slow]") {
             thread::sleep(Duration::from_millis(500));
         }
@@ -706,7 +764,7 @@ fn main() {
                         task_trigger_extraction_text().to_string()
                     }
                 } else if line.contains("[model-auth-alpha]") {
-                    "<ripple_connector_auth_request>{\"connector\":\"google_workspace\",\"force_reauth\":false,\"reason\":\"needs Gmail access\"}</ripple_connector_auth_request>".to_string()
+                    "Google Workspace authorization has been requested.".to_string()
                 } else if line.contains("[history-watermark-check]") {
                     let history_state = if line.contains("[history-watermark-old]") {
                         "history replayed"
@@ -773,6 +831,16 @@ fn main() {
                     continue;
                 }
 
+                if line.contains("[model-auth-alpha]") {
+                    request_google_workspace_auth(
+                        &thread_id,
+                        &turn_id,
+                        &item_id,
+                        &mut pending_dynamic_tools,
+                    );
+                    continue;
+                }
+
                 if line.contains("[task-confirm-execute]") {
                     if !thread_has_task_execution_tool
                         .get(&thread_id)
@@ -790,7 +858,7 @@ fn main() {
                     let dynamic_request_id = format!("dynamic-task-confirm-{turn_counter}");
                     let call_id = format!("call-task-confirm-{turn_counter}");
                     let completion_text = if line.contains("[task-confirm-auth]") {
-                        "<ripple_connector_auth_request>{\"connector\":\"google_workspace\",\"force_reauth\":false,\"reason\":\"needs Gmail access\"}</ripple_connector_auth_request>"
+                        "[request-google-auth]"
                     } else if line.contains("[task-confirm-slow]") {
                         "[slow] task execution completed"
                     } else {
@@ -806,13 +874,13 @@ fn main() {
                         ),
                     );
                     send(format!(
-                        "{{\"method\":\"item/started\",\"params\":{{\"threadId\":{},\"turnId\":{},\"item\":{{\"id\":{},\"type\":\"dynamicToolCall\",\"namespace\":\"codex_app\",\"tool\":\"task_execution_confirmed\",\"arguments\":{{}}}}}}}}",
+                        "{{\"method\":\"item/started\",\"params\":{{\"threadId\":{},\"turnId\":{},\"item\":{{\"id\":{},\"type\":\"dynamicToolCall\",\"namespace\":\"codex_app\",\"tool\":\"task_execution_confirmed\",\"arguments\":{{\"content\":\"正在执行测试任务。\"}}}}}}}}",
                         json_string(&thread_id),
                         json_string(&turn_id),
                         json_string(&call_id)
                     ));
                     send(format!(
-                        "{{\"id\":{},\"method\":\"item/tool/call\",\"params\":{{\"threadId\":{},\"turnId\":{},\"callId\":{},\"namespace\":\"codex_app\",\"tool\":\"task_execution_confirmed\",\"arguments\":{{}}}}}}",
+                        "{{\"id\":{},\"method\":\"item/tool/call\",\"params\":{{\"threadId\":{},\"turnId\":{},\"callId\":{},\"namespace\":\"codex_app\",\"tool\":\"task_execution_confirmed\",\"arguments\":{{\"content\":\"正在执行测试任务。\"}}}}}}",
                         json_string(&dynamic_request_id),
                         json_string(&thread_id),
                         json_string(&turn_id),
@@ -1230,8 +1298,20 @@ async fn task_session_explicit_confirmation_starts_callback_only_execution_statu
 async fn task_session_execution_connector_auth_posts_waiting_user_callback() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let fake_codex = write_fake_codex_app_server(&root);
-    let (state, app) =
-        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+    let mut config = test_config_with_fake_connector_cli(&root);
+    config.codex.codex_executable = fake_codex;
+    config.public_base_url = Some("https://ripple.example.test".to_string());
+    let (state, app) = test_state_and_app_with_config(config);
+    state.sandboxes.ensure_sandbox("smoke-user").unwrap();
+    let client_file = state
+        .sandboxes
+        .gogcli_client_config_file("smoke-user")
+        .unwrap();
+    fs::write(
+        client_file,
+        r#"{"web":{"client_id":"test-client","client_secret":"test-secret"}}"#,
+    )
+    .unwrap();
     let (callback_url, mut callbacks) = callback_collector().await;
 
     let response = app
@@ -1283,6 +1363,16 @@ async fn task_session_execution_connector_auth_posts_waiting_user_callback() {
             .and_then(Value::as_str),
         Some("google_workspace")
     );
+    assert_eq!(
+        waiting
+            .pointer("/required_action/stage")
+            .and_then(Value::as_str),
+        Some("awaiting_browser_callback")
+    );
+    assert!(waiting
+        .pointer("/required_action/auth_url")
+        .and_then(Value::as_str)
+        .is_some_and(|url| url.starts_with("https://accounts.google.com/")));
     assert!(!waiting
         .get("content")
         .and_then(Value::as_str)
@@ -6385,7 +6475,7 @@ async fn chat_route_starts_connector_auth_from_session_control_action() {
 }
 
 #[tokio::test]
-async fn chat_route_converts_model_connector_auth_request_to_event() {
+async fn chat_route_converts_structured_google_auth_request_to_event() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let fake_codex = write_fake_codex_app_server(&root);
     let (state, app) =
@@ -7507,7 +7597,7 @@ async fn failed_chat_stream_still_emits_error_event() {
 }
 
 #[tokio::test]
-async fn chat_stream_converts_model_connector_auth_request_to_event_without_leaking_protocol() {
+async fn chat_stream_converts_structured_google_auth_request_to_event() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let fake_codex = write_fake_codex_app_server(&root);
     let (state, app) =

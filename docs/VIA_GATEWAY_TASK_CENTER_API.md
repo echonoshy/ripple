@@ -6,6 +6,8 @@ Task Session 以一个稳定的 `task_id` 承载“确认前对话 + 确认后�
 POST /v1/task-sessions/responses
 ```
 
+Google Workspace 场景的请求字段、SSE/callback 输出字段、四种状态和 OAuth 阶段见 [TASK_SESSIONS_GOOGLE_WORKSPACE.md](TASK_SESSIONS_GOOGLE_WORKSPACE.md)。
+
 调用方不需要知道 Ripple 内部 session id，也不需要调用 approval 或 user-input resolve 接口。
 
 ## 1. 调用约定

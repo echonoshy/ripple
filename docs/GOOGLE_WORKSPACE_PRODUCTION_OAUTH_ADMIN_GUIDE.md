@@ -1,8 +1,28 @@
-# Google Workspace 生产 OAuth 企业管理员配置指南
+# Google Workspace 外部用户生产 OAuth 配置指南
 
-本文用于把 Ripple 的 Google Workspace OAuth 生产配置工作交给企业 Google Cloud / Google Workspace 管理员执行。
+本文用于配置面向外部用户的 Ripple Google Workspace OAuth。目标用户包括企业
+Google Workspace 账号和个人 Google 账号，因此 Google Auth Platform 的 Audience
+必须使用 `External`，不能使用只允许本组织成员授权的 `Internal`。
 
-目标是由企业统一创建和管理一个生产级 Google Web OAuth Client，供 Ripple Server 发起用户授权。每个最终用户仍使用自己的 Google 账号完成 OAuth consent，Ripple 不使用个人测试账号的 Client，也不使用 Service Account 或 Domain-wide Delegation 代替用户授权。
+目标是由企业统一创建和管理一个生产级 Google Web OAuth Client，供 Ripple Server
+发起用户授权。每个最终用户仍使用自己的 Google 账号完成 OAuth consent，Ripple
+不使用个人测试账号的 Client，也不使用 Service Account 或 Domain-wide Delegation
+代替用户授权。
+
+本文中的服务器地址全部通过域名表达，不写死机器 IP。示例统一使用：
+
+```text
+生产 API 域名：<RIPPLE_PUBLIC_HOST>
+生产 API 根地址：https://<RIPPLE_PUBLIC_HOST>
+Google callback：https://<RIPPLE_PUBLIC_HOST>/v1/sandboxes/gogcli/oauth/callback
+Ripple 上游地址：http://<RIPPLE_UPSTREAM_HOST>:<RIPPLE_PORT>
+```
+
+例如企业最终选择 `api.example.com` 后，再把全文中的 `<RIPPLE_PUBLIC_HOST>` 替换为
+`api.example.com`。如果 Nginx 和 Ripple 在同一台机器，`<RIPPLE_UPSTREAM_HOST>` 可以
+使用 `localhost`；如果通过容器或服务发现连接，则填写稳定的内部服务名。DNS 记录应
+指向当前生产入口，由基础设施配置维护；Google Cloud、Ripple YAML 和文档中都不要
+填写机器 IP。
 
 > 安全要求：Client Secret 只能通过企业密码管理器、Secret Manager 或其他受控渠道交付。不要通过聊天、工单正文、普通邮件或代码仓库传递。曾经在不安全渠道出现过的 Client Secret 必须废弃并重新创建。
 
@@ -74,7 +94,7 @@ Authorized redirect URI
 gogcli_oauth:
   auto_from_request: false
   auto_register_client: true
-  callback_url: "https://正式域名/v1/sandboxes/gogcli/oauth/callback"
+  callback_url: "https://<RIPPLE_PUBLIC_HOST>/v1/sandboxes/gogcli/oauth/callback"
   client:
     type: "web"
     client_id: "<CLIENT_ID>"
@@ -123,16 +143,17 @@ Client Secret 最好由管理员直接写入生产 Secret Manager 或部署系�
 
 ### 2.2 正式 OAuth 域名与 callback
 
-向管理员提供唯一、确定的生产 callback，例如：
+先选择一个长期稳定、由企业控制的生产域名。推荐让 Ripple 全部 `/v1` API 和
+Google callback 共用同一个 HTTPS API 域名：
 
 ```text
-https://oauth.example.com/v1/sandboxes/gogcli/oauth/callback
+https://<RIPPLE_PUBLIC_HOST>
 ```
 
-如果暂时继续使用现有地址，则完整值是：
+完整 Google callback 固定为：
 
 ```text
-https://test-oauth.weilai.ai/v1/sandboxes/gogcli/oauth/callback
+https://<RIPPLE_PUBLIC_HOST>/v1/sandboxes/gogcli/oauth/callback
 ```
 
 生产 callback 必须满足：
@@ -142,8 +163,115 @@ https://test-oauth.weilai.ai/v1/sandboxes/gogcli/oauth/callback
 - 无需登录即可接收 Google callback。
 - 路径、大小写、端口、结尾斜杠与 Google Console 登记值完全一致。
 - 从目标用户所在网络能够访问。
+- 反向代理必须保留 query string，Google 会附加 `code`、`state` 等参数。
+- 不经过会把 callback 重定向到登录页的前端路由、SSO 或 API key middleware。
 
-如果 `test-oauth.weilai.ai` 仍存在备案、拦截或公网访问问题，应先启用稳定的正式域名，再创建生产 Client。
+不要把临时测试域名、内网域名、动态端口、服务器裸 IP 或客户端地址登记为生产
+callback。机器迁移时只更新 DNS 和反向代理入口，不更改 Google callback；这是不把
+机器 IP 写死的主要原因。
+
+#### 2.2.1 配置 DNS
+
+在企业 DNS 中为 `<RIPPLE_PUBLIC_HOST>` 创建记录，让它解析到当前生产入口。入口可以
+是负载均衡器、反向代理或生产服务器。文档只记录域名，不记录具体 IP：
+
+```text
+Type: A / AAAA / CNAME
+Name: <由企业域名规划决定>
+Target: <由基础设施系统维护的生产入口>
+```
+
+验证解析：
+
+```bash
+dig +short <RIPPLE_PUBLIC_HOST>
+```
+
+这里的返回值可能随迁移、容灾或负载均衡调整而变化，不应复制进 Google Cloud 或
+Ripple 配置。
+
+#### 2.2.2 配置 HTTPS 和反向代理
+
+为 `<RIPPLE_PUBLIC_HOST>` 配置有效的公开 TLS 证书。Ripple 继续只监听内部端口，
+由 Nginx 等入口通过稳定的内部主机名代理。Nginx 示例：
+
+```nginx
+server {
+    listen 80;
+    server_name <RIPPLE_PUBLIC_HOST>;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name <RIPPLE_PUBLIC_HOST>;
+
+    ssl_certificate <TLS_FULLCHAIN_PATH>;
+    ssl_certificate_key <TLS_PRIVATE_KEY_PATH>;
+
+    location /v1/ {
+        proxy_pass http://<RIPPLE_UPSTREAM_HOST>:<RIPPLE_PORT>;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+        proxy_buffering off;
+    }
+}
+```
+
+如果 OAuth 使用独立子域名，也可以只代理 callback：
+
+```nginx
+location = /v1/sandboxes/gogcli/oauth/callback {
+    proxy_pass http://<RIPPLE_UPSTREAM_HOST>:<RIPPLE_PORT>;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+}
+```
+
+#### 2.2.3 在创建 Google Client 前验证 callback
+
+先验证公网请求确实到达 Ripple：
+
+```bash
+curl -i "https://<RIPPLE_PUBLIC_HOST>/v1/sandboxes/gogcli/oauth/callback"
+```
+
+没有 `state` 的人工请求应由 Ripple 返回 `400` 和“OAuth 回调缺少 state 参数”。这说明
+域名、TLS、反向代理和 Ripple route 已经连通。以下结果都不能继续创建生产 Client：
+
+| 结果 | 含义 |
+| --- | --- |
+| `404` | 代理路径或路由错误 |
+| `502` / `504` | 入口无法连接 Ripple |
+| TLS 证书错误 | HTTPS 尚未正确配置 |
+| 登录页或 SSO 跳转 | callback 被认证层拦截 |
+| 备案或域名拦截页 | 目标用户和 Google 无法可靠访问 |
+
+#### 2.2.4 callback 的作用
+
+callback 不是 Ripple 前端页面、Task Session 结果回调，也不是让用户复制粘贴的地址。
+它是 Google 完成 consent 后把用户浏览器送回 Ripple 的服务端入口：
+
+1. Ripple 生成随机 `state`，把它与当前 `user_id`、session 和 callback 绑定，保存
+   10 分钟。
+2. Ripple 生成 Google 授权 URL，其中 `redirect_uri` 就是本节的 callback。
+3. 用户在 Google 官方页面选择账号并点击 Allow。
+4. Google 将浏览器重定向到 `callback?code=...&state=...`。
+5. Ripple 校验并一次性消费 `state`，阻止过期、重复或不匹配的授权响应。
+6. Ripple 使用 authorization code、生产 Client ID/Secret 和同一个 callback 向 Google
+   token endpoint 换取 access token 和 refresh token。
+7. Ripple 获取用户真实邮箱，并把 refresh token 导入该 Ripple 用户独立的 gog
+   keyring，然后恢复原任务。
+
+Google 不会把用户密码交给 Ripple。callback 必须公开可达，是因为 Google 的浏览器
+跳转不会携带 Ripple API key；安全边界由 HTTPS、短时 authorization code、一次性
+`state`、用户隔离和服务端 Client Secret 共同保证。
 
 ### 2.3 当前 Ripple 实际申请的 scopes
 
@@ -251,7 +379,7 @@ APIs & Services → Enabled APIs & services
 7. 等待 DNS 生效后点击 Verify。
 8. 回到 Google Auth Platform，确认该根域名能够加入 Authorized domains。
 
-验证根域名后，可以在 OAuth 中使用其子域名，例如 `oauth.weilai.ai` 或 `test-oauth.weilai.ai`。
+验证根域名后，可以在 OAuth 中使用其子域名，例如 `<RIPPLE_PUBLIC_HOST>`。
 
 完成标准：Search Console 的 Domain Property 显示已验证，验证账号同时是生产 Project Owner/Editor。
 
@@ -293,12 +421,13 @@ Google Auth Platform → Branding
 Google Auth Platform → Audience
 ```
 
-1. 对外服务选择 `External`。
+1. 对外服务固定选择 `External`。
 2. 初次配置先保持 `Testing`。
 3. 把 Ripple 指定的企业测试账号加入 Test users。
 4. 完成 Client 创建和端到端测试后，再点击 `Publish App`，切换为 `In production`。
 
-不要选择 `Internal`，除非明确只允许同一个 Google Workspace / Cloud Identity Organization 内的员工使用。`Internal` 应用不能供外部 Google 账号正常授权。
+不要选择 `Internal`。本项目面向外部用户，`Internal` 应用不能供组织外的 Workspace
+账号或个人 Google 账号正常授权。
 
 完成标准：
 
@@ -359,7 +488,7 @@ Google Auth Platform → Clients
 6. 粘贴 Ripple 部署负责人提供的完整 callback，例如：
 
    ```text
-   https://oauth.example.com/v1/sandboxes/gogcli/oauth/callback
+   https://<RIPPLE_PUBLIC_HOST>/v1/sandboxes/gogcli/oauth/callback
    ```
 
 7. 检查以下细节：
@@ -411,21 +540,29 @@ Security → Access and data control → API controls
 ```yaml
 project_id: "<PRODUCTION_PROJECT_ID>"
 client_id: "<PRODUCTION_CLIENT_ID>.apps.googleusercontent.com"
-callback_url: "https://oauth.example.com/v1/sandboxes/gogcli/oauth/callback"
+callback_url: "https://<RIPPLE_PUBLIC_HOST>/v1/sandboxes/gogcli/oauth/callback"
 ```
 
-Client Secret 单独通过 Secret Manager 或一次性秘密渠道交付。Ripple 生产配置目标形态为：
+Client Secret 单独通过 Secret Manager 或一次性秘密渠道交付。部署系统应把秘密渲染到
+不进入 Git 的 root-only `config/settings.yaml`，不要通过前端或普通环境变量向用户任务
+暴露。Ripple 生产配置目标形态为：
 
 ```yaml
-gogcli_oauth:
-  auto_from_request: false
-  auto_register_client: true
-  callback_url: "https://oauth.example.com/v1/sandboxes/gogcli/oauth/callback"
-  client:
-    type: "web"
-    client_id: "<PRODUCTION_CLIENT_ID>.apps.googleusercontent.com"
-    client_secret: "<PRODUCTION_CLIENT_SECRET>"
-    project_id: "<PRODUCTION_PROJECT_ID>"
+server:
+  public_base_url: "https://<RIPPLE_PUBLIC_HOST>"
+
+  gogcli_oauth:
+    auto_from_request: false
+    auto_register_client: true
+    callback_url: "https://<RIPPLE_PUBLIC_HOST>/v1/sandboxes/gogcli/oauth/callback"
+    client:
+      type: "web"
+      client_id: "<PRODUCTION_CLIENT_ID>.apps.googleusercontent.com"
+      client_secret: "<PRODUCTION_CLIENT_SECRET>"
+      project_id: "<PRODUCTION_PROJECT_ID>"
+
+  sandbox:
+    gogcli_data_subdir: ".config/gogcli"
 ```
 
 说明：
@@ -549,7 +686,7 @@ Google Workspace 生产 OAuth 配置结果
 
 4. Google Auth Platform
 - App name:
-- Audience: External / Internal
+- Audience: External
 - Publishing status: Testing / In production
 - Branding status:
 - Data Access status:

@@ -344,12 +344,15 @@ pub(super) async fn disconnect(
         .and_then(Value::as_str)
         .unwrap_or("")
         .trim();
+    if email.is_empty() {
+        return disconnect_all(state, user_id).await;
+    }
     if !looks_like_email(email) {
         return Ok(Json(action_response(
             "google_workspace",
             false,
             "invalid_request",
-            "email is required.",
+            "email is invalid.",
             json!({}),
         )));
     }

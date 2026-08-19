@@ -109,9 +109,11 @@ pub struct ConfirmationRequest {
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ConnectorDisconnectRequest {
-    /// Google Workspace only: disconnect this account.
+    /// Google Workspace only: disconnect this account. When omitted, all
+    /// accounts belonging to the current Ripple user are disconnected.
     pub email: Option<String>,
-    /// Google Workspace only: remove all locally stored accounts.
+    /// Google Workspace compatibility flag: explicitly remove all locally
+    /// stored accounts. Omitting both fields has the same effect.
     pub all: Option<bool>,
 }
 

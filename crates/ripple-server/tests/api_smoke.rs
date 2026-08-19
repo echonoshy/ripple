@@ -5839,6 +5839,68 @@ async fn google_disconnect_supports_account_and_all_local_removal() {
 }
 
 #[tokio::test]
+async fn google_disconnect_without_selector_removes_only_current_users_local_authorization() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let (state, app) = test_state_and_app_with_config(test_config_with_fake_connector_cli(&root));
+
+    for user_id in ["smoke-user", "other-user"] {
+        state.sandboxes.ensure_sandbox(user_id).unwrap();
+        let keyring = state.sandboxes.gogcli_keyring_dir(user_id).unwrap();
+        fs::create_dir_all(&keyring).unwrap();
+        fs::write(
+            keyring.join(format!("{user_id}@example.com")),
+            "refresh-token",
+        )
+        .unwrap();
+        fs::write(
+            state.sandboxes.gogcli_keyring_pass_file(user_id).unwrap(),
+            "keyring-password",
+        )
+        .unwrap();
+    }
+
+    let (status, disconnected) = call(
+        app,
+        Method::POST,
+        "/v1/connectors/google_workspace/disconnect",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(disconnected.get("ok").and_then(Value::as_bool), Some(true));
+    assert_eq!(
+        disconnected.get("stage").and_then(Value::as_str),
+        Some("disconnected")
+    );
+    assert_eq!(
+        disconnected.pointer("/data/all").and_then(Value::as_bool),
+        Some(true)
+    );
+    assert!(!state
+        .sandboxes
+        .gogcli_keyring_dir("smoke-user")
+        .unwrap()
+        .exists());
+    assert!(!state
+        .sandboxes
+        .gogcli_keyring_pass_file("smoke-user")
+        .unwrap()
+        .exists());
+    assert!(state
+        .sandboxes
+        .gogcli_keyring_dir("other-user")
+        .unwrap()
+        .exists());
+    assert!(state
+        .sandboxes
+        .gogcli_keyring_pass_file("other-user")
+        .unwrap()
+        .exists());
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
 async fn connector_auth_cancel_route_is_idempotent_and_clears_pending_sessions() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let (state, app) = test_state_and_app(&root);

@@ -125,6 +125,11 @@ impl SandboxManager {
             }
             let service_auth = std::fs::canonicalize(&service_auth)?;
             Self::ensure_user_codex_home_file_link(&service_auth, &auth_link, "auth")?;
+        } else {
+            Self::remove_managed_user_codex_auth_link(
+                &self.service_codex_auth_file(),
+                &codex_home.join("auth.json"),
+            )?;
         }
 
         let service_config = self.config.codex_home_path().join("config.toml");
@@ -138,6 +143,46 @@ impl SandboxManager {
         }
 
         Ok(())
+    }
+
+    fn remove_managed_user_codex_auth_link(source: &Path, link: &Path) -> anyhow::Result<()> {
+        let metadata = match std::fs::symlink_metadata(link) {
+            Ok(metadata) => metadata,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(err) => return Err(err.into()),
+        };
+        if !metadata.file_type().is_symlink() {
+            anyhow::bail!(
+                "user Codex auth path {} exists but is not a managed symlink",
+                link.display()
+            );
+        }
+
+        let target = std::fs::read_link(link)?;
+        let resolved_target = if target.is_absolute() {
+            target
+        } else {
+            link.parent().unwrap_or_else(|| Path::new("")).join(target)
+        };
+        let points_to_service_auth = resolved_target == source
+            || std::fs::canonicalize(&resolved_target)
+                .ok()
+                .zip(std::fs::canonicalize(source).ok())
+                .is_some_and(|(resolved, expected)| resolved == expected);
+        if !points_to_service_auth {
+            anyhow::bail!(
+                "user Codex auth link {} points to {}, expected managed service auth {}",
+                link.display(),
+                resolved_target.display(),
+                source.display()
+            );
+        }
+
+        match std::fs::remove_file(link) {
+            Ok(()) => Ok(()),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(err) => Err(err.into()),
+        }
     }
 
     fn ensure_user_codex_home_file_link(
@@ -1301,6 +1346,74 @@ mod tests {
         assert!(metadata.file_type().is_symlink());
         assert_eq!(std::fs::canonicalize(&config_link).unwrap(), service_config);
         assert!(!user_home.join("auth.json").exists());
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn disabling_service_auth_removes_managed_user_auth_link() {
+        let root =
+            std::env::temp_dir().join(format!("ripple-sandbox-test-{}", uuid::Uuid::new_v4()));
+        let manager = SandboxManager::new(test_config(&root));
+        let service_auth = manager.service_codex_auth_file();
+        std::fs::create_dir_all(service_auth.parent().unwrap()).unwrap();
+        std::fs::write(&service_auth, r#"{"OPENAI_API_KEY":"test"}"#).unwrap();
+
+        let auth_link = manager.ensure_user_codex_home_auth_link("alice").unwrap();
+        assert!(std::fs::symlink_metadata(&auth_link)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+
+        manager
+            .ensure_user_codex_home_links("alice", false)
+            .unwrap();
+
+        assert!(std::fs::symlink_metadata(auth_link).is_err());
+        assert!(service_auth.is_file());
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn disabling_service_auth_removes_dangling_managed_user_auth_link() {
+        let root =
+            std::env::temp_dir().join(format!("ripple-sandbox-test-{}", uuid::Uuid::new_v4()));
+        let manager = SandboxManager::new(test_config(&root));
+        let service_auth = manager.service_codex_auth_file();
+        std::fs::create_dir_all(service_auth.parent().unwrap()).unwrap();
+        std::fs::write(&service_auth, r#"{"OPENAI_API_KEY":"test"}"#).unwrap();
+
+        let auth_link = manager.ensure_user_codex_home_auth_link("alice").unwrap();
+        std::fs::remove_file(&service_auth).unwrap();
+        assert!(std::fs::symlink_metadata(&auth_link).is_ok());
+        assert!(!auth_link.exists());
+
+        manager
+            .ensure_user_codex_home_links("alice", false)
+            .unwrap();
+
+        assert!(std::fs::symlink_metadata(auth_link).is_err());
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn disabling_service_auth_rejects_unmanaged_user_auth_path() {
+        let root =
+            std::env::temp_dir().join(format!("ripple-sandbox-test-{}", uuid::Uuid::new_v4()));
+        let manager = SandboxManager::new(test_config(&root));
+        let user_home = manager.codex_home_dir("alice").unwrap();
+        let auth_path = user_home.join("auth.json");
+        std::fs::create_dir_all(&user_home).unwrap();
+        std::fs::write(&auth_path, r#"{"OPENAI_API_KEY":"unmanaged"}"#).unwrap();
+
+        let err = manager
+            .ensure_user_codex_home_links("alice", false)
+            .expect_err("unmanaged auth file must not be deleted");
+
+        assert!(err.to_string().contains("not a managed symlink"));
+        assert!(auth_path.is_file());
 
         let _ = std::fs::remove_dir_all(root);
     }

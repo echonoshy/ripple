@@ -4782,6 +4782,19 @@ mod tests {
             .contains("send that same content without re-summarizing or omitting material"));
     }
 
+    #[test]
+    fn codex_instructions_reject_new_workspace_file_delivery() {
+        let root = std::env::temp_dir().join(format!("ripple-chat-test-{}", Uuid::new_v4()));
+        let instructions = build_codex_chat_base_instructions(&test_config(&root));
+
+        assert!(instructions.contains("Do not create any new file or directory in the workspace"));
+        assert!(instructions.contains("You may edit an existing file"));
+        assert!(instructions.contains("PDF, Word document, spreadsheet, image, archive"));
+        assert!(instructions.contains("provide the requested content directly in the conversation"));
+        assert!(instructions
+            .contains("Never claim that a file was created, exported, attached, or sent"));
+    }
+
     #[tokio::test]
     async fn codex_chat_context_omits_local_proxy_helper() {
         let root = std::env::temp_dir().join(format!("ripple-chat-test-{}", Uuid::new_v4()));
@@ -4829,14 +4842,17 @@ mod tests {
             "The selected context folder is the default work area and permission boundary"
         ));
         assert!(prompt.contains(
-            "Do not write derived inspection files into /workspace root unless the user explicitly asks for those files as deliverables"
+            "Never write derived inspection files or new deliverables into the workspace"
         ));
         assert!(prompt.contains("Do not use absolute `/workspace/...` paths in shell commands"));
         assert!(prompt.contains("translate it to a path relative to the current shell cwd"));
         assert!(!prompt.contains("write it under /workspace/outputs"));
         assert!(prompt.contains("- codex_image_generation: disabled_by_default"));
-        assert!(prompt.contains("Do not generate images unless the current user explicitly asks"));
-        assert!(prompt.contains("When creating or updating a skill"));
+        assert!(
+            prompt.contains("Image generation is unavailable while new file delivery is disabled")
+        );
+        assert!(prompt.contains("For skill updates"));
+        assert!(prompt.contains("For a new-skill request"));
         assert!(prompt.contains("Ask one consolidated clarification"));
         assert!(prompt.contains("instead of asking repeatedly"));
         assert!(prompt.contains("<ripple_connector_auth_request>"));
@@ -4962,7 +4978,8 @@ mod tests {
 
         assert!(prompt.contains("Context folder: /workspace/genius_club"));
         assert!(prompt.contains("default reading and search scope"));
-        assert!(prompt.contains("write new files under this folder"));
+        assert!(prompt.contains("Only modify files that already exist under this folder"));
+        assert!(!prompt.contains("write new files under this folder"));
         assert!(prompt.contains("Use web_search as a supplement"));
         assert!(prompt.contains("Folder Context Evidence"));
         assert!(prompt.contains("/workspace/genius_club/001.txt:1"));
@@ -4999,7 +5016,8 @@ mod tests {
         );
 
         assert!(prompt.contains("read-only collection structure"));
-        assert!(prompt.contains("Individual record directories are writable"));
+        assert!(prompt.contains("Existing files in individual record directories are writable"));
+        assert!(prompt.contains("do not create new files or directories"));
         assert!(!prompt.contains("write new files under this folder"));
 
         cleanup_test_root(&root).expect("cleanup test root");

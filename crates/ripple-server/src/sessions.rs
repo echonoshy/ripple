@@ -34,6 +34,10 @@ pub struct SessionRecord {
     pub pinned: bool,
     #[serde(default)]
     pub context_folder_path: Option<String>,
+    #[serde(default = "default_session_kind")]
+    pub session_kind: String,
+    #[serde(default)]
+    pub shared_folder_id: Option<String>,
     pub model: String,
     pub max_turns: u32,
     #[serde(default)]
@@ -134,6 +138,10 @@ impl SessionStatus {
 }
 
 impl SessionRecord {
+    pub(crate) fn is_shared_folder(&self) -> bool {
+        self.session_kind == "shared_folder"
+    }
+
     pub(crate) fn status_kind(&self) -> SessionStatus {
         SessionStatus::parse(&self.status)
     }
@@ -141,6 +149,10 @@ impl SessionRecord {
     pub(crate) fn set_status(&mut self, status: SessionStatus) {
         self.status = status.as_str().to_string();
     }
+}
+
+fn default_session_kind() -> String {
+    "workspace".to_string()
 }
 
 #[derive(Debug, Serialize)]
@@ -268,6 +280,8 @@ impl SessionManager {
             title: String::new(),
             pinned: false,
             context_folder_path,
+            session_kind: default_session_kind(),
+            shared_folder_id: None,
             model: input
                 .model
                 .unwrap_or_else(|| self.config.default_model.clone()),
@@ -298,6 +312,31 @@ impl SessionManager {
             .write()
             .await
             .insert((user_id.to_string(), session_id), session.clone());
+        Ok(session)
+    }
+
+    pub async fn create_shared_folder_session_with_id(
+        &self,
+        user_id: &str,
+        session_id: &str,
+        shared_folder_id: &str,
+        model: Option<String>,
+    ) -> anyhow::Result<SessionRecord> {
+        let mut session = self
+            .create_session_with_id(
+                user_id,
+                CreateSessionInput {
+                    model,
+                    max_turns: None,
+                    system_prompt: None,
+                    context_folder_path: None,
+                },
+                Some(session_id),
+            )
+            .await?;
+        session.session_kind = "shared_folder".to_string();
+        session.shared_folder_id = Some(shared_folder_id.to_string());
+        self.save_record(session.clone()).await?;
         Ok(session)
     }
 
@@ -439,6 +478,9 @@ impl SessionManager {
         }
         let mut detached_codex_thread_id = None;
         if let Some(context_folder_path) = context_folder_path {
+            if record.is_shared_folder() {
+                anyhow::bail!("shared-folder sessions cannot change context_folder_path");
+            }
             let next_context_folder_path =
                 self.normalize_context_folder_path(user_id, context_folder_path.as_deref())?;
             if record.context_folder_path != next_context_folder_path {
@@ -1130,6 +1172,7 @@ mod tests {
             },
             storage: crate::config::StorageConfig {
                 sqlite_max_connections: 50,
+                shared_folders_root: std::path::PathBuf::from(".ripple/shared-folders"),
             },
             sandbox: SandboxConfig {
                 sandboxes_root: root.join("sandboxes"),
@@ -1148,6 +1191,7 @@ mod tests {
                 lark_cli_install_root: None,
                 notion_cli_install_root: None,
                 gogcli_cli_install_root: None,
+                gogcli_data_subdir: std::path::PathBuf::from(".config/gogcli"),
                 cli_tools: Vec::new(),
                 pypi_mirror_url: None,
                 npm_registry_url: None,
@@ -1156,6 +1200,8 @@ mod tests {
                 enabled: true,
                 codex_executable: "codex".to_string(),
                 app_server_args: Vec::new(),
+                requires_service_auth: true,
+                provider_env_keys: Vec::new(),
                 codex_home: None,
                 sqlite_root: None,
                 approval_policy: serde_json::json!("never"),
@@ -1279,6 +1325,46 @@ mod tests {
         assert!(visible_ids.contains(&active.session_id));
         assert!(visible_ids.contains(&awaiting_auth.session_id));
         assert!(!visible_ids.contains(&suspended_draft.session_id));
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn shared_folder_session_persists_immutable_scope_fields() -> anyhow::Result<()> {
+        let root =
+            std::env::temp_dir().join(format!("ripple-shared-session-test-{}", Uuid::new_v4()));
+        let config = test_config(&root);
+        let manager = SessionManager::new(config.clone(), SandboxManager::new(config));
+
+        let session = manager
+            .create_shared_folder_session_with_id(
+                "alice",
+                "shared-session",
+                "a-folder",
+                Some("codex-test".to_string()),
+            )
+            .await?;
+
+        assert!(session.is_shared_folder());
+        assert_eq!(session.shared_folder_id.as_deref(), Some("a-folder"));
+        let loaded = manager
+            .load("alice", "shared-session")
+            .await?
+            .expect("persisted shared session");
+        assert!(loaded.is_shared_folder());
+        assert_eq!(loaded.shared_folder_id.as_deref(), Some("a-folder"));
+        assert!(manager
+            .update_session_metadata(
+                "alice",
+                "shared-session",
+                None,
+                None,
+                Some(Some("/workspace/other".to_string())),
+                None,
+            )
+            .await
+            .is_err());
 
         let _ = std::fs::remove_dir_all(root);
         Ok(())

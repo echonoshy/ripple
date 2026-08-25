@@ -41,6 +41,7 @@ fn test_config(root: &Path) -> AppConfig {
         },
         storage: ripple_server::config::StorageConfig {
             sqlite_max_connections: 50,
+            shared_folders_root: root.join("shared-folders"),
         },
         sandbox: SandboxConfig {
             sandboxes_root: root.join("sandboxes"),
@@ -59,6 +60,7 @@ fn test_config(root: &Path) -> AppConfig {
             lark_cli_install_root: None,
             notion_cli_install_root: None,
             gogcli_cli_install_root: None,
+            gogcli_data_subdir: std::path::PathBuf::from(".config/gogcli"),
             cli_tools: Vec::new(),
             pypi_mirror_url: None,
             npm_registry_url: None,
@@ -67,6 +69,8 @@ fn test_config(root: &Path) -> AppConfig {
             enabled: true,
             codex_executable: "codex".to_string(),
             app_server_args: Vec::new(),
+            requires_service_auth: true,
+            provider_env_keys: Vec::new(),
             codex_home: None,
             sqlite_root: None,
             approval_policy: serde_json::json!("never"),
@@ -378,6 +382,38 @@ fn is_response(line: &str) -> bool {
     line.contains("\"result\":") || line.contains("\"error\":")
 }
 
+fn request_google_workspace_auth(
+    thread_id: &str,
+    turn_id: &str,
+    item_id: &str,
+    pending_dynamic_tools: &mut HashMap<String, (String, String, String, String)>,
+) {
+    let request_id = format!("dynamic-google-auth-{turn_id}");
+    let call_id = format!("call-google-auth-{turn_id}");
+    pending_dynamic_tools.insert(
+        request_id.clone(),
+        (
+            thread_id.to_string(),
+            turn_id.to_string(),
+            item_id.to_string(),
+            "Google Workspace authorization has been requested.".to_string(),
+        ),
+    );
+    send(format!(
+        "{{\"method\":\"item/started\",\"params\":{{\"threadId\":{},\"turnId\":{},\"item\":{{\"id\":{},\"type\":\"dynamicToolCall\",\"namespace\":\"codex_app\",\"tool\":\"request_google_workspace_auth\",\"arguments\":{{\"reason\":\"needs Gmail access\"}}}}}}}}",
+        json_string(thread_id),
+        json_string(turn_id),
+        json_string(&call_id)
+    ));
+    send(format!(
+        "{{\"id\":{},\"method\":\"item/tool/call\",\"params\":{{\"threadId\":{},\"turnId\":{},\"callId\":{},\"namespace\":\"codex_app\",\"tool\":\"request_google_workspace_auth\",\"arguments\":{{\"reason\":\"needs Gmail access\"}}}}}}",
+        json_string(&request_id),
+        json_string(thread_id),
+        json_string(turn_id),
+        json_string(&call_id)
+    ));
+}
+
 fn complete_pending_response(
     id: &RequestId,
     pending_approvals: &mut HashMap<String, (String, String, String, String)>,
@@ -390,6 +426,32 @@ fn complete_pending_response(
     if let Some((thread_id, turn_id, item_id, text)) = pending_approvals.remove(key) {
         complete_turn(&thread_id, &turn_id, &item_id, &text);
     } else if let Some((thread_id, turn_id, item_id, text)) = pending_dynamic_tools.remove(key) {
+        if text == "[request-google-auth]"
+            || text == "task execution completed"
+            || text.starts_with("[slow] task execution completed")
+        {
+            send(format!(
+                "{{\"method\":\"item/completed\",\"params\":{{\"threadId\":{},\"turnId\":{},\"item\":{{\"id\":\"task-confirmed\",\"type\":\"dynamicToolCall\",\"namespace\":\"codex_app\",\"tool\":\"task_execution_confirmed\",\"arguments\":{{\"content\":\"正在执行测试任务。\"}},\"success\":true}}}}}}",
+                json_string(&thread_id),
+                json_string(&turn_id)
+            ));
+        }
+        if text == "Google Workspace authorization has been requested." {
+            send(format!(
+                "{{\"method\":\"item/completed\",\"params\":{{\"threadId\":{},\"turnId\":{},\"item\":{{\"id\":\"google-auth-requested\",\"type\":\"dynamicToolCall\",\"namespace\":\"codex_app\",\"tool\":\"request_google_workspace_auth\",\"arguments\":{{\"reason\":\"needs Gmail access\"}},\"success\":true}}}}}}",
+                json_string(&thread_id),
+                json_string(&turn_id)
+            ));
+        }
+        if text == "[request-google-auth]" {
+            request_google_workspace_auth(
+                &thread_id,
+                &turn_id,
+                &item_id,
+                pending_dynamic_tools,
+            );
+            return;
+        }
         if text.starts_with("[slow]") {
             thread::sleep(Duration::from_millis(500));
         }
@@ -669,7 +731,15 @@ fn main() {
                     continue;
                 }
 
-                let text = if line.contains("[env-check]") {
+                let text = if line.contains("[provider-env-check]") {
+                    if std::env::var("RIPPLE_TEST_PROVIDER_API_KEY").ok().as_deref()
+                        == Some("provider-secret")
+                    {
+                        "provider env present".to_string()
+                    } else {
+                        "provider env missing".to_string()
+                    }
+                } else if line.contains("[env-check]") {
                     if std::env::var("RIPPLE_SECRET_SHOULD_NOT_LEAK").is_ok() {
                         "env leaked".to_string()
                     } else if std::env::var("HTTP_PROXY").ok().as_deref()
@@ -694,7 +764,7 @@ fn main() {
                         task_trigger_extraction_text().to_string()
                     }
                 } else if line.contains("[model-auth-alpha]") {
-                    "<ripple_connector_auth_request>{\"connector\":\"google_workspace\",\"force_reauth\":false,\"reason\":\"needs Gmail access\"}</ripple_connector_auth_request>".to_string()
+                    "Google Workspace authorization has been requested.".to_string()
                 } else if line.contains("[history-watermark-check]") {
                     let history_state = if line.contains("[history-watermark-old]") {
                         "history replayed"
@@ -761,6 +831,16 @@ fn main() {
                     continue;
                 }
 
+                if line.contains("[model-auth-alpha]") {
+                    request_google_workspace_auth(
+                        &thread_id,
+                        &turn_id,
+                        &item_id,
+                        &mut pending_dynamic_tools,
+                    );
+                    continue;
+                }
+
                 if line.contains("[task-confirm-execute]") {
                     if !thread_has_task_execution_tool
                         .get(&thread_id)
@@ -778,7 +858,7 @@ fn main() {
                     let dynamic_request_id = format!("dynamic-task-confirm-{turn_counter}");
                     let call_id = format!("call-task-confirm-{turn_counter}");
                     let completion_text = if line.contains("[task-confirm-auth]") {
-                        "<ripple_connector_auth_request>{\"connector\":\"google_workspace\",\"force_reauth\":false,\"reason\":\"needs Gmail access\"}</ripple_connector_auth_request>"
+                        "[request-google-auth]"
                     } else if line.contains("[task-confirm-slow]") {
                         "[slow] task execution completed"
                     } else {
@@ -794,13 +874,13 @@ fn main() {
                         ),
                     );
                     send(format!(
-                        "{{\"method\":\"item/started\",\"params\":{{\"threadId\":{},\"turnId\":{},\"item\":{{\"id\":{},\"type\":\"dynamicToolCall\",\"namespace\":\"codex_app\",\"tool\":\"task_execution_confirmed\",\"arguments\":{{}}}}}}}}",
+                        "{{\"method\":\"item/started\",\"params\":{{\"threadId\":{},\"turnId\":{},\"item\":{{\"id\":{},\"type\":\"dynamicToolCall\",\"namespace\":\"codex_app\",\"tool\":\"task_execution_confirmed\",\"arguments\":{{\"content\":\"正在执行测试任务。\"}}}}}}}}",
                         json_string(&thread_id),
                         json_string(&turn_id),
                         json_string(&call_id)
                     ));
                     send(format!(
-                        "{{\"id\":{},\"method\":\"item/tool/call\",\"params\":{{\"threadId\":{},\"turnId\":{},\"callId\":{},\"namespace\":\"codex_app\",\"tool\":\"task_execution_confirmed\",\"arguments\":{{}}}}}}",
+                        "{{\"id\":{},\"method\":\"item/tool/call\",\"params\":{{\"threadId\":{},\"turnId\":{},\"callId\":{},\"namespace\":\"codex_app\",\"tool\":\"task_execution_confirmed\",\"arguments\":{{\"content\":\"正在执行测试任务。\"}}}}}}",
                         json_string(&dynamic_request_id),
                         json_string(&thread_id),
                         json_string(&turn_id),
@@ -1218,8 +1298,20 @@ async fn task_session_explicit_confirmation_starts_callback_only_execution_statu
 async fn task_session_execution_connector_auth_posts_waiting_user_callback() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let fake_codex = write_fake_codex_app_server(&root);
-    let (state, app) =
-        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+    let mut config = test_config_with_fake_connector_cli(&root);
+    config.codex.codex_executable = fake_codex;
+    config.public_base_url = Some("https://ripple.example.test".to_string());
+    let (state, app) = test_state_and_app_with_config(config);
+    state.sandboxes.ensure_sandbox("smoke-user").unwrap();
+    let client_file = state
+        .sandboxes
+        .gogcli_client_config_file("smoke-user")
+        .unwrap();
+    fs::write(
+        client_file,
+        r#"{"web":{"client_id":"test-client","client_secret":"test-secret"}}"#,
+    )
+    .unwrap();
     let (callback_url, mut callbacks) = callback_collector().await;
 
     let response = app
@@ -1271,6 +1363,16 @@ async fn task_session_execution_connector_auth_posts_waiting_user_callback() {
             .and_then(Value::as_str),
         Some("google_workspace")
     );
+    assert_eq!(
+        waiting
+            .pointer("/required_action/stage")
+            .and_then(Value::as_str),
+        Some("awaiting_browser_callback")
+    );
+    assert!(waiting
+        .pointer("/required_action/auth_url")
+        .and_then(Value::as_str)
+        .is_some_and(|url| url.starts_with("https://accounts.google.com/")));
     assert!(!waiting
         .get("content")
         .and_then(Value::as_str)
@@ -1950,6 +2052,39 @@ fn test_state_and_app(root: &Path) -> (AppState, axum::Router) {
     (state, app)
 }
 
+fn seed_shared_file_parser_env(root: &Path) {
+    let env_path = root.join("cache/python-envs/shared-file-parser-test");
+    let python_executable = env_path.join("bin/python");
+    let lock_path = root
+        .join("cache/python-env-locks")
+        .join("shared-file-parser-test.requirements.txt");
+    let marker_path = root
+        .join("cache/python-env-locks")
+        .join("shared-file-parser-v1.json");
+    fs::create_dir_all(python_executable.parent().unwrap()).unwrap();
+    fs::create_dir_all(lock_path.parent().unwrap()).unwrap();
+    std::os::unix::fs::symlink("/usr/bin/python3", &python_executable).unwrap();
+    fs::write(&lock_path, "test lock").unwrap();
+    fs::write(
+        &marker_path,
+        serde_json::to_vec_pretty(&json!({
+            "env_key": "shared-file-parser-test",
+            "env_path": env_path,
+            "base_python_executable": "/usr/bin/python3",
+            "python_executable": python_executable,
+            "lock_path": lock_path,
+            "requirements": [
+                "openpyxl==3.1.5",
+                "pypdf==5.0.0",
+                "python-docx==1.1.2",
+                "python-pptx==1.0.2"
+            ]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+}
+
 fn test_state_and_app_with_config(config: AppConfig) -> (AppState, axum::Router) {
     let state = AppState::new(config);
     let app = router(state.clone());
@@ -2181,6 +2316,340 @@ async fn router_serves_core_control_plane_routes() {
 }
 
 #[tokio::test]
+async fn shared_folder_responses_enforces_request_and_session_scope_before_execution() {
+    let root = std::env::temp_dir().join(format!("ripple-shared-response-api-{}", Uuid::new_v4()));
+    fs::create_dir_all(root.join("shared-folders/a-folder/nested")).unwrap();
+    fs::create_dir_all(root.join("shared-folders/b-folder")).unwrap();
+    fs::write(
+        root.join("shared-folders/a-folder/nested/report.txt"),
+        "shared content",
+    )
+    .unwrap();
+    let (state, app) = test_state_and_app(&root);
+
+    let responses_compatible_missing_folder = app
+        .clone()
+        .oneshot(request(
+            Method::POST,
+            "/v1/shared-folders/responses",
+            json!({
+                "model": "codex-test",
+                "input": [{
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": "summarize"}]
+                }],
+                "stream": false,
+                "instructions": "answer briefly",
+                "tools": [{"type": "web_search_preview"}],
+                "metadata": {
+                    "ripple_session_id": "shared-compatible",
+                    "shared_folder": "missing-folder",
+                    "ignored": {"nested": true}
+                },
+                "unknown_top_level": [1, 2, 3]
+            }),
+            true,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(
+        responses_compatible_missing_folder.status(),
+        StatusCode::NOT_FOUND
+    );
+
+    let conflicting_session = app
+        .clone()
+        .oneshot(request(
+            Method::POST,
+            "/v1/shared-folders/responses",
+            json!({
+                "session_id": "shared-top-level",
+                "input": "summarize",
+                "metadata": {
+                    "ripple_session_id": "shared-metadata",
+                    "shared_folder": "a-folder"
+                }
+            }),
+            true,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(conflicting_session.status(), StatusCode::BAD_REQUEST);
+
+    let invalid_metadata_field = app
+        .clone()
+        .oneshot(request(
+            Method::POST,
+            "/v1/shared-folders/responses",
+            json!({
+                "input": "summarize",
+                "metadata": {
+                    "ripple_session_id": 42,
+                    "shared_folder": "a-folder"
+                }
+            }),
+            true,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(invalid_metadata_field.status(), StatusCode::BAD_REQUEST);
+
+    let missing_folder = app
+        .clone()
+        .oneshot(request(
+            Method::POST,
+            "/v1/shared-folders/responses",
+            json!({
+                "req_id": "req-missing",
+                "session_id": "shared-missing",
+                "shared_folder": "missing-folder",
+                "input": "summarize"
+            }),
+            true,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(missing_folder.status(), StatusCode::NOT_FOUND);
+
+    state
+        .sessions
+        .create_session_with_id(
+            "smoke-user",
+            CreateSessionInput {
+                model: None,
+                max_turns: None,
+                system_prompt: None,
+                context_folder_path: None,
+            },
+            Some("workspace-session"),
+        )
+        .await
+        .unwrap();
+    let workspace_session = app
+        .clone()
+        .oneshot(request(
+            Method::POST,
+            "/v1/shared-folders/responses",
+            json!({
+                "req_id": "req-workspace",
+                "session_id": "workspace-session",
+                "shared_folder": "a-folder",
+                "input": "summarize"
+            }),
+            true,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(workspace_session.status(), StatusCode::CONFLICT);
+
+    state
+        .sessions
+        .create_shared_folder_session_with_id("smoke-user", "shared-bound-a", "a-folder", None)
+        .await
+        .unwrap();
+    let changed_folder = app
+        .clone()
+        .oneshot(request(
+            Method::POST,
+            "/v1/shared-folders/responses",
+            json!({
+                "req_id": "req-folder-change",
+                "session_id": "shared-bound-a",
+                "shared_folder": "b-folder",
+                "input": "summarize"
+            }),
+            true,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(changed_folder.status(), StatusCode::CONFLICT);
+
+    let (workspace_response_status, _) = call_response(
+        app,
+        json!({
+            "session_id": "shared-bound-a",
+            "messages": [{"role": "user", "content": "use workspace mode"}],
+            "stream": false
+        }),
+    )
+    .await;
+    assert_eq!(workspace_response_status, StatusCode::CONFLICT);
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn shared_folder_responses_streams_and_persists_bound_codex_thread() {
+    let root =
+        std::env::temp_dir().join(format!("ripple-shared-response-stream-{}", Uuid::new_v4()));
+    fs::create_dir_all(root.join("shared-folders/a-folder/nested")).unwrap();
+    fs::write(
+        root.join("shared-folders/a-folder/nested/report.txt"),
+        "shared content",
+    )
+    .unwrap();
+    seed_shared_file_parser_env(&root);
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+
+    let response = app
+        .oneshot(request(
+            Method::POST,
+            "/v1/shared-folders/responses",
+            json!({
+                "model": "codex-test",
+                "input": [{
+                    "role": "user",
+                    "content": [{
+                        "type": "input_text",
+                        "text": "summarize recursively"
+                    }]
+                }],
+                "stream": true,
+                "instructions": "answer briefly",
+                "store": true,
+                "tools": [{"type": "web_search_preview"}],
+                "metadata": {
+                    "req_id": " req-shared-1 ",
+                    "ripple_session_id": "shared-session-1",
+                    "shared_folder": "a-folder",
+                    "ignored": "value"
+                }
+            }),
+            true,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok()),
+        Some("text/event-stream")
+    );
+    assert_eq!(
+        response
+            .headers()
+            .get("x-ripple-req-id")
+            .and_then(|value| value.to_str().ok()),
+        Some("req-shared-1")
+    );
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body = String::from_utf8(body.to_vec()).unwrap();
+    assert!(body.contains("event: response.created"), "{body}");
+    assert!(body.contains("event: response.completed"), "{body}");
+    assert!(body.contains("fake codex completed"), "{body}");
+    assert!(body.contains("\"shared_folder\":\"a-folder\""), "{body}");
+    assert!(!body.contains(root.to_string_lossy().as_ref()), "{body}");
+
+    let session = state
+        .sessions
+        .load("smoke-user", "shared-session-1")
+        .await
+        .unwrap()
+        .expect("shared session");
+    assert_eq!(session.session_kind, "shared_folder");
+    assert_eq!(session.shared_folder_id.as_deref(), Some("a-folder"));
+    assert_eq!(session.codex_thread_id.as_deref(), Some("thread-1"));
+    assert_eq!(session.status, "idle");
+    assert_eq!(session.message_count, 2);
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn stopped_shared_folder_stream_closes_without_error_event() {
+    let root = std::env::temp_dir().join(format!("ripple-shared-response-stop-{}", Uuid::new_v4()));
+    fs::create_dir_all(root.join("shared-folders/a-folder")).unwrap();
+    fs::write(
+        root.join("shared-folders/a-folder/report.txt"),
+        "shared content",
+    )
+    .unwrap();
+    seed_shared_file_parser_env(&root);
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (_state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+
+    let response = app
+        .clone()
+        .oneshot(request(
+            Method::POST,
+            "/v1/shared-folders/responses",
+            json!({
+                "req_id": "req-shared-stop",
+                "session_id": "shared-session-stop",
+                "shared_folder": "a-folder",
+                "input": "[slow] wait for stop",
+                "model": "codex-test"
+            }),
+            true,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let (status, stopped) = call(
+        app,
+        Method::POST,
+        "/v1/sessions/shared-session-stop/stop",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{stopped}");
+    assert_eq!(stopped.get("stopped").and_then(Value::as_bool), Some(true));
+
+    let body = response_text(response).await;
+    assert!(!body.contains("Codex run failed"), "{body}");
+    assert!(!body.contains("event: error"), "{body}");
+    assert!(!body.contains("response.completed"), "{body}");
+    assert!(body.ends_with("data: [DONE]\n\n"), "{body}");
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn failed_shared_folder_stream_still_emits_error_event() {
+    let root = std::env::temp_dir().join(format!("ripple-shared-response-fail-{}", Uuid::new_v4()));
+    fs::create_dir_all(root.join("shared-folders/a-folder")).unwrap();
+    fs::write(
+        root.join("shared-folders/a-folder/report.txt"),
+        "shared content",
+    )
+    .unwrap();
+    seed_shared_file_parser_env(&root);
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (_state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+
+    let response = app
+        .oneshot(request(
+            Method::POST,
+            "/v1/shared-folders/responses",
+            json!({
+                "req_id": "req-shared-fail",
+                "session_id": "shared-session-fail",
+                "shared_folder": "a-folder",
+                "input": "[fail] report a real failure",
+                "model": "codex-test"
+            }),
+            true,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = response_text(response).await;
+    assert!(body.contains("event: error"), "{body}");
+    assert!(body.contains("\"code\":\"server_error\""), "{body}");
+    assert!(body.ends_with("data: [DONE]\n\n"), "{body}");
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[tokio::test]
 async fn openapi_docs_are_public_and_keep_v1_auth_unchanged() {
     let root = std::env::temp_dir().join(format!("ripple-openapi-docs-{}", Uuid::new_v4()));
     let (_state, app) = test_state_and_app(&root);
@@ -2210,6 +2679,7 @@ async fn openapi_docs_are_public_and_keep_v1_auth_unchanged() {
         ("/v1/runtime/codex", "get"),
         ("/v1/info", "get"),
         ("/v1/responses", "post"),
+        ("/v1/shared-folders/responses", "post"),
         ("/v1/health/ready", "get"),
         ("/v1/diagnostics/doctor", "get"),
         ("/v1/users/me", "get"),
@@ -5369,6 +5839,68 @@ async fn google_disconnect_supports_account_and_all_local_removal() {
 }
 
 #[tokio::test]
+async fn google_disconnect_without_selector_removes_only_current_users_local_authorization() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let (state, app) = test_state_and_app_with_config(test_config_with_fake_connector_cli(&root));
+
+    for user_id in ["smoke-user", "other-user"] {
+        state.sandboxes.ensure_sandbox(user_id).unwrap();
+        let keyring = state.sandboxes.gogcli_keyring_dir(user_id).unwrap();
+        fs::create_dir_all(&keyring).unwrap();
+        fs::write(
+            keyring.join(format!("{user_id}@example.com")),
+            "refresh-token",
+        )
+        .unwrap();
+        fs::write(
+            state.sandboxes.gogcli_keyring_pass_file(user_id).unwrap(),
+            "keyring-password",
+        )
+        .unwrap();
+    }
+
+    let (status, disconnected) = call(
+        app,
+        Method::POST,
+        "/v1/connectors/google_workspace/disconnect",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(disconnected.get("ok").and_then(Value::as_bool), Some(true));
+    assert_eq!(
+        disconnected.get("stage").and_then(Value::as_str),
+        Some("disconnected")
+    );
+    assert_eq!(
+        disconnected.pointer("/data/all").and_then(Value::as_bool),
+        Some(true)
+    );
+    assert!(!state
+        .sandboxes
+        .gogcli_keyring_dir("smoke-user")
+        .unwrap()
+        .exists());
+    assert!(!state
+        .sandboxes
+        .gogcli_keyring_pass_file("smoke-user")
+        .unwrap()
+        .exists());
+    assert!(state
+        .sandboxes
+        .gogcli_keyring_dir("other-user")
+        .unwrap()
+        .exists());
+    assert!(state
+        .sandboxes
+        .gogcli_keyring_pass_file("other-user")
+        .unwrap()
+        .exists());
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
 async fn connector_auth_cancel_route_is_idempotent_and_clears_pending_sessions() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let (state, app) = test_state_and_app(&root);
@@ -6067,7 +6599,7 @@ async fn chat_route_starts_connector_auth_from_session_control_action() {
 }
 
 #[tokio::test]
-async fn chat_route_converts_model_connector_auth_request_to_event() {
+async fn chat_route_converts_structured_google_auth_request_to_event() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let fake_codex = write_fake_codex_app_server(&root);
     let (state, app) =
@@ -6533,6 +7065,33 @@ async fn codex_app_server_does_not_inherit_server_secret_env() {
         Some(response_output_text(&chat)),
         Some("env clean proxy present")
     );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn codex_app_server_inherits_only_configured_provider_env() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let mut config = test_config_with_codex_executable(&root, fake_codex);
+    config.codex.requires_service_auth = false;
+    config.codex.provider_env_keys = vec!["RIPPLE_TEST_PROVIDER_API_KEY".to_string()];
+    let (_state, app) = test_state_and_app_with_config(config);
+
+    std::env::set_var("RIPPLE_TEST_PROVIDER_API_KEY", "provider-secret");
+    let (status, chat) = call_response(
+        app,
+        json!({
+            "model": "codex-test",
+            "messages": [{"role": "user", "content": "[provider-env-check] inspect environment"}],
+            "stream": false
+        }),
+    )
+    .await;
+    std::env::remove_var("RIPPLE_TEST_PROVIDER_API_KEY");
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(response_output_text(&chat), "provider env present");
 
     let _ = std::fs::remove_dir_all(root);
 }
@@ -7084,7 +7643,85 @@ async fn chat_stream_completes_with_fake_codex_app_server() {
 }
 
 #[tokio::test]
-async fn chat_stream_converts_model_connector_auth_request_to_event_without_leaking_protocol() {
+async fn stopped_chat_stream_closes_without_error_event() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (_state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+
+    let response = app
+        .clone()
+        .oneshot(response_request(
+            json!({
+                "model": "codex-test",
+                "messages": [{"role": "user", "content": "[slow] wait for stop"}],
+                "stream": true
+            }),
+            true,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let session_id = response
+        .headers()
+        .get("x-ripple-session-id")
+        .and_then(|value| value.to_str().ok())
+        .expect("session header")
+        .to_string();
+
+    let (status, stopped) = call(
+        app,
+        Method::POST,
+        &format!("/v1/sessions/{session_id}/stop"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{stopped}");
+    assert_eq!(stopped.get("stopped").and_then(Value::as_bool), Some(true));
+    assert_eq!(
+        stopped.get("status").and_then(Value::as_str),
+        Some("cancelled")
+    );
+
+    let body = response_text(response).await;
+    assert!(!body.contains("Codex run failed"), "{body}");
+    assert!(!body.contains("\"error\""), "{body}");
+    assert!(!body.contains("response.completed"), "{body}");
+    assert!(body.ends_with("data: [DONE]\n\n"), "{body}");
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn failed_chat_stream_still_emits_error_event() {
+    let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
+    let fake_codex = write_fake_codex_app_server(&root);
+    let (_state, app) =
+        test_state_and_app_with_config(test_config_with_codex_executable(&root, fake_codex));
+
+    let response = app
+        .oneshot(response_request(
+            json!({
+                "model": "codex-test",
+                "messages": [{"role": "user", "content": "[fail] report a real failure"}],
+                "stream": true
+            }),
+            true,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = response_text(response).await;
+    assert!(body.contains("\"error\""), "{body}");
+    assert!(body.contains("\"type\":\"server_error\""), "{body}");
+    assert!(body.ends_with("data: [DONE]\n\n"), "{body}");
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn chat_stream_converts_structured_google_auth_request_to_event() {
     let root = std::env::temp_dir().join(format!("ripple-api-smoke-{}", Uuid::new_v4()));
     let fake_codex = write_fake_codex_app_server(&root);
     let (state, app) =

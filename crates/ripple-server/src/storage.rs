@@ -13,6 +13,7 @@ use tokio::sync::OnceCell;
 use crate::config::{AppConfig, DEFAULT_SQLITE_MAX_CONNECTIONS};
 use crate::sessions::SessionRecord;
 mod auth;
+mod google_oauth;
 mod jobs;
 mod prepared_mail;
 mod schema;
@@ -23,6 +24,7 @@ pub use auth::{
     AuthInviteClaim, AuthInviteCreate, AuthInviteCreated, AuthSessionCreate, AuthSessionRecord,
     AuthUserRecord,
 };
+pub use google_oauth::GoogleOAuthTransactionRecord;
 pub use jobs::RunUsageStats;
 pub use schema::CURRENT_SCHEMA_VERSION;
 
@@ -197,7 +199,7 @@ impl Storage {
             r#"
             INSERT INTO sessions (
                 user_id, session_id, title, pinned, model, max_turns, caller_system_prompt,
-                context_folder_path,
+                context_folder_path, session_kind, shared_folder_id,
                 total_input_tokens, total_output_tokens, last_input_tokens,
                 created_at, last_active, status, message_count,
                 pending_question, pending_options_json, pending_permission_request_json,
@@ -205,7 +207,7 @@ impl Storage {
                 codex_synced_message_count,
                 memory_disabled, plan_steps_json, plan_progress_json, task_callback_url
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(user_id, session_id) DO UPDATE SET
                 title = excluded.title,
                 pinned = excluded.pinned,
@@ -213,6 +215,8 @@ impl Storage {
                 max_turns = excluded.max_turns,
                 caller_system_prompt = excluded.caller_system_prompt,
                 context_folder_path = excluded.context_folder_path,
+                session_kind = excluded.session_kind,
+                shared_folder_id = excluded.shared_folder_id,
                 total_input_tokens = excluded.total_input_tokens,
                 total_output_tokens = excluded.total_output_tokens,
                 last_input_tokens = excluded.last_input_tokens,
@@ -241,6 +245,8 @@ impl Storage {
         .bind(i64::from(record.max_turns))
         .bind(&record.caller_system_prompt)
         .bind(&record.context_folder_path)
+        .bind(&record.session_kind)
+        .bind(&record.shared_folder_id)
         .bind(u64_to_i64(record.total_input_tokens)?)
         .bind(u64_to_i64(record.total_output_tokens)?)
         .bind(u64_to_i64(record.last_input_tokens)?)
@@ -299,7 +305,7 @@ impl Storage {
             r#"
             SELECT user_id, session_id, title, model, max_turns, caller_system_prompt,
                    pinned,
-                   context_folder_path,
+                   context_folder_path, session_kind, shared_folder_id,
                    total_input_tokens, total_output_tokens, last_input_tokens,
                    created_at, last_active, status, message_count,
                    pending_question, pending_options_json, pending_permission_request_json,
@@ -326,7 +332,7 @@ impl Storage {
             r#"
             SELECT user_id, session_id, title, model, max_turns, caller_system_prompt,
                    pinned,
-                   context_folder_path,
+                   context_folder_path, session_kind, shared_folder_id,
                    total_input_tokens, total_output_tokens, last_input_tokens,
                    created_at, last_active, status, message_count,
                    pending_question, pending_options_json, pending_permission_request_json,
@@ -582,6 +588,7 @@ impl Storage {
             "tasks",
             "documents",
             "file_refs",
+            "google_oauth_transactions",
             "user_profiles",
         ] {
             sqlx::query(&format!("DELETE FROM {table} WHERE user_id = ?"))
@@ -817,6 +824,8 @@ impl Storage {
             max_turns: i64_to_u32(row.get::<i64, _>("max_turns"))?,
             caller_system_prompt: row.get("caller_system_prompt"),
             context_folder_path: row.get("context_folder_path"),
+            session_kind: row.get("session_kind"),
+            shared_folder_id: row.get("shared_folder_id"),
             total_input_tokens: i64_to_u64(row.get::<i64, _>("total_input_tokens"))?,
             total_output_tokens: i64_to_u64(row.get::<i64, _>("total_output_tokens"))?,
             last_input_tokens: i64_to_u64(row.get::<i64, _>("last_input_tokens"))?,
@@ -974,6 +983,8 @@ mod tests {
             title: "hello".to_string(),
             pinned: true,
             context_folder_path: Some("/workspace/demo".to_string()),
+            session_kind: "workspace".to_string(),
+            shared_folder_id: None,
             model: "codex-test".to_string(),
             max_turns: 200,
             caller_system_prompt: None,
@@ -1074,6 +1085,8 @@ mod tests {
             title: "tokens".to_string(),
             pinned: false,
             context_folder_path: None,
+            session_kind: "workspace".to_string(),
+            shared_folder_id: None,
             model: "codex-test".to_string(),
             max_turns: 200,
             caller_system_prompt: None,
@@ -1124,6 +1137,8 @@ mod tests {
             title: "tokens".to_string(),
             pinned: false,
             context_folder_path: None,
+            session_kind: "workspace".to_string(),
+            shared_folder_id: None,
             model: "codex-test".to_string(),
             max_turns: 200,
             caller_system_prompt: None,
@@ -1193,6 +1208,8 @@ mod tests {
             title: "tokens".to_string(),
             pinned: false,
             context_folder_path: None,
+            session_kind: "workspace".to_string(),
+            shared_folder_id: None,
             model: "codex-test".to_string(),
             max_turns: 200,
             caller_system_prompt: None,
@@ -1258,6 +1275,8 @@ mod tests {
             title: "tokens".to_string(),
             pinned: false,
             context_folder_path: None,
+            session_kind: "workspace".to_string(),
+            shared_folder_id: None,
             model: "codex-test".to_string(),
             max_turns: 200,
             caller_system_prompt: None,
@@ -1390,6 +1409,55 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn google_oauth_transaction_survives_reopen_and_is_claimed_once() -> anyhow::Result<()> {
+        let root =
+            std::env::temp_dir().join(format!("ripple-storage-test-{}", uuid::Uuid::new_v4()));
+        let path = root.join(".ripple/ripple.sqlite");
+        let storage = Storage::open(&path)?;
+        storage
+            .create_google_oauth_transaction(&GoogleOAuthTransactionRecord {
+                state_hash: "state-hash".to_string(),
+                user_id: "alice".to_string(),
+                session_id: Some("task-session".to_string()),
+                resume_mode: "task_execution".to_string(),
+                redirect_uri: "https://oauth.example/callback".to_string(),
+                status: "pending".to_string(),
+                failure_stage: None,
+                failure_message: None,
+                expires_at: 2_000_000_000,
+            })
+            .await?;
+
+        let reopened = Storage::open(&path)?;
+        let claimed = reopened
+            .claim_google_oauth_transaction("state-hash", 1_900_000_000)
+            .await?
+            .expect("pending OAuth transaction");
+        assert_eq!(claimed.session_id.as_deref(), Some("task-session"));
+        assert_eq!(claimed.resume_mode, "task_execution");
+        assert!(reopened
+            .claim_google_oauth_transaction("state-hash", 1_900_000_000)
+            .await?
+            .is_none());
+        assert!(
+            reopened
+                .finish_google_oauth_transaction("state-hash", "authorized", None, None)
+                .await?
+        );
+        assert_eq!(
+            reopened
+                .google_oauth_transaction("state-hash", "alice")
+                .await?
+                .expect("stored OAuth transaction")
+                .status,
+            "authorized"
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn new_schema_does_not_create_legacy_task_session_tables() -> anyhow::Result<()> {
         let root =
             std::env::temp_dir().join(format!("ripple-storage-test-{}", uuid::Uuid::new_v4()));
@@ -1427,6 +1495,8 @@ mod tests {
             title: "legacy".to_string(),
             pinned: false,
             context_folder_path: None,
+            session_kind: "workspace".to_string(),
+            shared_folder_id: None,
             model: "codex-test".to_string(),
             max_turns: 200,
             caller_system_prompt: None,

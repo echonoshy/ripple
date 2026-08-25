@@ -16,6 +16,7 @@ pub mod runtime_checks;
 pub mod sandbox;
 pub mod services;
 pub mod sessions;
+pub mod shared_folders;
 pub mod skills;
 pub mod state;
 pub mod storage;

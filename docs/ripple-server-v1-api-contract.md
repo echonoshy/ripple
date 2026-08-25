@@ -68,6 +68,7 @@
 - 调用方通过 `metadata.ripple_session_id` 或 `previous_response_id=resp_<session_id>` 传入的 session id 必须匹配 `[a-zA-Z0-9_-]{1,64}`。这是为了保证 session runtime 目录和 SQLite 主键都安全可控。
 - 调用方可通过 `metadata.req_id`、`metadata.client_req_id`、`metadata.external_req_id` 或 `metadata.request_id` 传入上游业务请求 ID。Ripple 会把该值写入 Codex job 的 `record_json.req_id` 和 `record_json.client_req_id`，便于后续从 SQLite 或 run 记录按业务请求反查 session/job/events。
 - `/v1/chat/completions` 不再注册；客户端和外部调用方必须使用 `/v1/responses`。
+- `POST /v1/shared-folders/responses` 是独立的固定 SSE 问答入口。规范请求通过 `metadata.req_id`、`metadata.ripple_session_id`、`metadata.shared_folder` 传入 Ripple 标识，并携带 Responses-style `input`；`instructions` 可控制当前 turn 的回答语言、格式和结构，但不能覆盖服务端共享空间安全规则；其他未知 Responses 字段会被忽略。迁移期间继续接受旧顶层标识字段，但新旧值冲突会返回 `400`。session 创建后不可切换共享目录，Codex 只能递归只读该目录。该接口的约束见 [SHARED_FOLDER_RESPONSES_DESIGN.md](SHARED_FOLDER_RESPONSES_DESIGN.md)。
 
 ### 3.4 完整 Chat 请求示例
 
@@ -196,7 +197,7 @@ Chat 主链路会向 Codex 暴露 `codex_app.task_update` 动态工具。它只�
 `GET /v1/connectors` 返回每个 connector 的可用管理入口。`user_connector` 会暴露 web/chat 授权能力、`auth_start_path`、可选 `auth_complete_path`、`auth_cancel_path`、`disconnect_path`、`accounts_path` 和能力标记；`runtime_capability` 不暴露 per-user 授权或断开入口。
 
 - `POST /v1/connectors/:connector_name/auth/cancel` 取消当前 user 的待授权状态，幂等返回 `{ ok, connector, cancelled }`。它会清理 connector runtime pending state，例如 Google assisted OAuth、Feishu setup 进程、Bilibili QR pending state，并清掉该 user 相关 session 的 pending connector auth。
-- `POST /v1/connectors/:connector_name/disconnect` 是本地断开。它删除 Ripple user sandbox 里的 token、keyring、cookie 或 CLI 配置，不承诺撤销 provider 侧授权。Google 支持 `{ email }` 删除单个本地账号 token，也支持 `{ all: true }` 清理本地 Google keyring。
+- `POST /v1/connectors/:connector_name/disconnect` 是本地断开。它删除 Ripple user sandbox 里的 token、keyring、cookie 或 CLI 配置，不承诺撤销 provider 侧授权。Google 默认与飞书一样无需请求体，一次性清理当前 user 的本地 Google keyring；仍兼容 `{ email }` 删除单个本地账号 token 和 `{ all: true }` 显式清理全部账号。
 - Feishu 授权由服务端内部决定，客户端和模型不传 scope、capability 等字段。默认仅对消息、邮件、个人待办和 Docx 使用最小显式 scope；未命中的其他飞书意图，以及没有具体任务的“连接飞书”，均使用 `lark-cli auth login --recommend`。业务 CLI 返回 `permission_violations` 时，服务端只信任 CLI 的结构化结果，保存缺失 scope 并在下一次标准重新授权中精确补权、恢复原任务；这不改变 `/v1` 请求或响应字段。部署方仍可通过 `server.feishu.authorization_rules` 为已接入能力定义更小的显式 scope。
 - `GET /v1/connectors/feishu/permissions` 返回当前 user 的 Feishu OAuth scope capabilities。scope 按第一个 `:` 前缀分组，`true` 表示应用和当前 user token 都拥有该 scope，`false` 表示应用已启用但当前 user token 未授予。成功响应额外带 `probe_status`：`ready`、`not_authorized` 或 `not_configured`。lark-cli、沙箱或 scope 解析异常必须返回 `502` / `503`，不得伪装成空权限。它不代表文档、群聊或云盘等资源自身 ACL 已授权。
 - `GET /v1/capabilities` 返回内部统一能力目录，合并 connectors、runtime capabilities、Ripple shared skills 和当前 user workspace skills；前端普通用户页面不直接展示 runtime capability 分类。runtime capability 条目会带 `runtime` 元数据，例如 Codex app-server stdio protocol、managed permission profile、workspace messages 方法，以及 image input 只接受 workspace/local/inline data image、拒绝远程 HTTP(S) URL 的策略。

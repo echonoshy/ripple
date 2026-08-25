@@ -8,7 +8,7 @@ use time::OffsetDateTime;
 use crate::api::connectors::{
     connector_auth_complete_action, connector_auth_start_action,
     connector_auth_start_action_for_feishu_authorization, connector_status_value,
-    ensure_connector_enabled, FeishuAuthorizationRequest,
+    ensure_connector_enabled, ConnectorAuthContext, FeishuAuthorizationRequest,
 };
 use crate::api::ApiError;
 use crate::jobs::AgentRunCreateRequest;
@@ -16,9 +16,6 @@ use crate::sessions::SessionRecord;
 use crate::state::AppState;
 
 const FEISHU_CLASSIFICATION_MAX_RUNTIME_SECONDS: u64 = 20;
-// Keep this concrete: the service's configured model aliases can be valid for
-// normal chat routing while unsupported by the ChatGPT-backed Codex runtime.
-const FEISHU_CLASSIFICATION_MODEL: &str = "gpt-5.5";
 const FEISHU_AUTHORIZATION_CONTEXT_TURNS: usize = 8;
 const FEISHU_AUTHORIZATION_CONTEXT_MESSAGE_MAX_CHARS: usize = 1_500;
 
@@ -94,10 +91,7 @@ pub(crate) fn parse_model_connector_auth_request(text: &str) -> Option<ModelConn
         .trim();
     let request: RawModelConnectorAuthRequest = serde_json::from_str(json_text).ok()?;
     let connector = request.connector.trim();
-    if !matches!(
-        connector,
-        "google_workspace" | "notion" | "feishu" | "bilibili"
-    ) {
+    if !matches!(connector, "notion" | "feishu" | "bilibili") {
         return None;
     }
     let source = request
@@ -178,6 +172,14 @@ pub(crate) async fn continue_pending_connector_auth(
 
     match connector.as_str() {
         "google_workspace" => {
+            if let Some(event) =
+                google_oauth_terminal_event(state, user_id, session, &pending).await?
+            {
+                return Ok(Some(ConnectorAuthDecision {
+                    event,
+                    resume_user_input: None,
+                }));
+            }
             let event = connector_auth_event(
                 "google_workspace",
                 "connector_auth_required",
@@ -283,6 +285,15 @@ async fn start_connector_auth_for_chat(
         });
     }
 
+    let google_auth_context =
+        (connector == "google_workspace" && resume_after_auth).then(|| ConnectorAuthContext {
+            session_id: session.session_id.clone(),
+            resume_mode: if task_execution_is_active(session) {
+                "task_execution".to_string()
+            } else {
+                "task_pre_confirmation".to_string()
+            },
+        });
     let mut action = if connector == "feishu" {
         connector_auth_start_action_for_feishu_authorization(
             state,
@@ -291,24 +302,35 @@ async fn start_connector_auth_for_chat(
             &payload,
             request_base_url,
             feishu_authorization.as_ref(),
+            None,
         )
         .await?
         .0
     } else {
-        connector_auth_start_action(state, user_id, connector, &payload, request_base_url)
-            .await?
-            .0
+        connector_auth_start_action(
+            state,
+            user_id,
+            connector,
+            &payload,
+            request_base_url,
+            google_auth_context.as_ref(),
+        )
+        .await?
+        .0
     };
+    if connector == "google_workspace" && resume_after_auth {
+        normalize_google_auth_action_for_task(&mut action);
+    }
     annotate_connector_auth_source(&mut action, source);
-    let resume_user_input = if connector == "notion" {
-        String::new()
-    } else if source == "connectors_page" {
-        String::new()
-    } else if connector == "feishu" && resume_after_auth {
-        "飞书授权已完成，请继续执行已经确认的任务。".to_string()
-    } else {
-        user_input.to_string()
-    };
+    let resume_user_input = initial_connector_resume_user_input(
+        connector,
+        source,
+        resume_after_auth,
+        google_auth_context
+            .as_ref()
+            .is_some_and(|context| context.resume_mode == "task_execution"),
+        user_input,
+    );
     let decision = decision_from_action(
         session,
         connector,
@@ -316,6 +338,9 @@ async fn start_connector_auth_for_chat(
         resume_user_input,
         resume_after_auth,
     )?;
+    if connector == "google_workspace" {
+        remember_google_oauth_transaction(session, &decision.event);
+    }
     if let Some(authorization) = feishu_authorization {
         remember_pending_feishu_authorization(session, &authorization);
     }
@@ -448,6 +473,7 @@ async fn classify_feishu_authorization_for_task(
         .iter()
         .map(|profile| profile.id.clone())
         .collect::<Vec<_>>();
+    let (classification_model, _) = state.config.resolve_model(None);
     let prompt = feishu_task_classification_prompt(task_description, &profile_ids);
     let create = AgentRunCreateRequest {
         prompt: prompt.clone(),
@@ -457,7 +483,7 @@ async fn classify_feishu_authorization_for_task(
         client_context: None,
         cwd: Some("/workspace".to_string()),
         input_items: vec![json!({"type": "text", "text": prompt})],
-        model: Some(FEISHU_CLASSIFICATION_MODEL.to_string()),
+        model: Some(classification_model),
         effort: None,
         summary: None,
         output_schema: Some(feishu_task_classification_output_schema(&profile_ids)),
@@ -664,10 +690,16 @@ async fn continue_notion_auth(
             resume_user_input: None,
         }));
     };
-    let mut action =
-        connector_auth_start_action(state, user_id, "notion", &json!({"api_token": token}), None)
-            .await?
-            .0;
+    let mut action = connector_auth_start_action(
+        state,
+        user_id,
+        "notion",
+        &json!({"api_token": token}),
+        None,
+        None,
+    )
+    .await?
+    .0;
     annotate_connector_auth_source(&mut action, pending_auth_source(pending));
     Ok(Some(decision_from_action(
         session,
@@ -738,6 +770,7 @@ async fn continue_feishu_auth(
             &json!({"force_new_user_auth": true}),
             None,
             Some(&authorization),
+            None,
         )
         .await?
         .0;
@@ -778,6 +811,7 @@ async fn continue_feishu_auth(
             &json!({}),
             None,
             Some(&authorization),
+            None,
         )
         .await?
         .0;
@@ -809,6 +843,7 @@ async fn continue_feishu_auth(
             &json!({"force_new_user_auth": true}),
             None,
             Some(&authorization),
+            None,
         )
         .await?
         .0;
@@ -1229,6 +1264,128 @@ fn pending_from_event(connector: &str, event: &Value, resume_user_input: String)
     Value::Object(pending)
 }
 
+fn remember_google_oauth_transaction(session: &mut SessionRecord, event: &Value) {
+    let Some(oauth_url) = event
+        .pointer("/action/data/oauth_url")
+        .and_then(Value::as_str)
+    else {
+        return;
+    };
+    let Ok(url) = url::Url::parse(oauth_url) else {
+        return;
+    };
+    let Some(oauth_state) = url
+        .query_pairs()
+        .find_map(|(key, value)| (key == "state").then(|| value.into_owned()))
+    else {
+        return;
+    };
+    let Some(pending) = session
+        .pending_connector_auth
+        .as_mut()
+        .and_then(Value::as_object_mut)
+    else {
+        return;
+    };
+    pending.insert(
+        "oauth_state_hash".to_string(),
+        json!(crate::api::connectors::google_workspace::oauth_state_hash(
+            &oauth_state
+        )),
+    );
+}
+
+fn normalize_google_auth_action_for_task(action: &mut Value) {
+    let stage = action.get("stage").and_then(Value::as_str).unwrap_or("");
+    if matches!(
+        stage,
+        "missing_cli" | "server_config_failed" | "server_config_invalid"
+    ) {
+        action["stage"] = json!("auth_failed");
+    }
+}
+
+fn initial_connector_resume_user_input(
+    connector: &str,
+    source: &str,
+    resume_after_auth: bool,
+    task_execution_active: bool,
+    user_input: &str,
+) -> String {
+    if connector == "notion" || source == "connectors_page" {
+        String::new()
+    } else if connector == "feishu" && resume_after_auth {
+        "飞书授权已完成，请继续执行已经确认的任务。".to_string()
+    } else if connector == "google_workspace" && task_execution_active {
+        "Google Workspace 授权已完成，请继续执行已经确认的任务。".to_string()
+    } else {
+        user_input.to_string()
+    }
+}
+
+async fn google_oauth_terminal_event(
+    state: &AppState,
+    user_id: &str,
+    session: &mut SessionRecord,
+    pending: &Value,
+) -> Result<Option<Value>, ApiError> {
+    let Some(state_hash) = pending
+        .get("oauth_state_hash")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(None);
+    };
+    let Some(transaction) = state
+        .storage
+        .google_oauth_transaction(state_hash, user_id)
+        .await
+        .map_err(ApiError::from)?
+    else {
+        return Ok(None);
+    };
+    let expired = transaction.expires_at
+        < u64::try_from(OffsetDateTime::now_utc().unix_timestamp()).unwrap_or(0);
+    let authorized_but_unavailable = transaction.status == "authorized";
+    if !expired
+        && !authorized_but_unavailable
+        && !matches!(transaction.status.as_str(), "failed" | "cancelled")
+    {
+        return Ok(None);
+    }
+    let stage = transaction
+        .failure_stage
+        .as_deref()
+        .filter(|stage| matches!(*stage, "auth_failed" | "invalid_request"))
+        .unwrap_or("auth_failed");
+    let message = transaction
+        .failure_message
+        .as_deref()
+        .filter(|message| !message.trim().is_empty())
+        .unwrap_or(if authorized_but_unavailable {
+            "Google Workspace 授权已保存，但账号状态校验失败，请重新发起授权。"
+        } else if expired {
+            "Google Workspace 授权已过期，请重新发起授权。"
+        } else {
+            "Google Workspace 授权失败，请重新发起授权。"
+        });
+    session.pending_connector_auth = None;
+    Ok(Some(connector_auth_event(
+        "google_workspace",
+        "connector_auth_required",
+        stage,
+        message,
+        Some(json!({
+            "name": "google_workspace",
+            "ok": false,
+            "stage": stage,
+            "detail": message,
+            "data": {}
+        })),
+    )))
+}
+
 fn connector_auth_event(
     connector: &str,
     event_type: &str,
@@ -1375,6 +1532,15 @@ fn connector_resume_user_input(
     }
 }
 
+fn task_execution_is_active(session: &SessionRecord) -> bool {
+    session
+        .pending_control_request
+        .as_ref()
+        .filter(|value| value.get("type").and_then(Value::as_str) == Some("task_execution"))
+        .and_then(|value| value.get("active").and_then(Value::as_bool))
+        .unwrap_or(false)
+}
+
 fn pending_stage<'a>(pending: &'a Value, fallback: &'a str) -> &'a str {
     pending
         .get("stage")
@@ -1425,9 +1591,11 @@ mod tests {
         expand_unique_feishu_profile_for_scopes, feishu_auth_action_needs_restart,
         feishu_authorization_context, feishu_authorization_for_profiles,
         feishu_authorization_from_pending_or_task, feishu_task_classification_output_schema,
-        feishu_task_classification_prompt, model_connector_auth_request_might_be_start,
+        feishu_task_classification_prompt, initial_connector_resume_user_input,
+        model_connector_auth_request_might_be_start, normalize_google_auth_action_for_task,
         parse_feishu_task_classification, parse_model_connector_auth_request,
         pending_feishu_required_scopes, preserve_pending_feishu_auth_context,
+        remember_google_oauth_transaction,
     };
     use crate::api::connectors::FeishuAuthorizationRequest;
     use crate::config::{FeishuAuthorizationProfile, FeishuConfig};
@@ -1435,19 +1603,92 @@ mod tests {
 
     #[test]
     fn parses_model_connector_auth_request_protocol() {
-        let request = parse_model_connector_auth_request(
+        assert!(parse_model_connector_auth_request(
             "<ripple_connector_auth_request>{\"connector\":\"google_workspace\",\"force_reauth\":false,\"reason\":\"needs Gmail access\"}</ripple_connector_auth_request>",
         )
-        .expect("request");
-
-        assert_eq!(request.connector, "google_workspace");
-        assert!(!request.force_reauth);
+        .is_none());
         assert!(parse_model_connector_auth_request("hello").is_none());
         let bilibili = parse_model_connector_auth_request(
             "<ripple_connector_auth_request>{\"connector\":\"bilibili\"}</ripple_connector_auth_request>"
         )
         .expect("bilibili request");
         assert_eq!(bilibili.connector, "bilibili");
+    }
+
+    #[test]
+    fn google_task_execution_uses_stable_resume_instruction() {
+        assert_eq!(
+            initial_connector_resume_user_input(
+                "google_workspace",
+                "session_skill",
+                true,
+                true,
+                "继续",
+            ),
+            "Google Workspace 授权已完成，请继续执行已经确认的任务。"
+        );
+        assert_eq!(
+            initial_connector_resume_user_input(
+                "google_workspace",
+                "session_skill",
+                true,
+                false,
+                "查询最近的 Gmail",
+            ),
+            "查询最近的 Gmail"
+        );
+    }
+
+    #[test]
+    fn google_task_auth_remembers_private_oauth_transaction_hash() {
+        let mut session = test_session_record();
+        session.pending_connector_auth = Some(json!({"connector": "google_workspace"}));
+        let event = json!({
+            "action": {
+                "data": {
+                    "oauth_url": "https://accounts.google.com/o/oauth2/auth?state=secret-state"
+                }
+            }
+        });
+
+        remember_google_oauth_transaction(&mut session, &event);
+
+        let expected_hash =
+            crate::api::connectors::google_workspace::oauth_state_hash("secret-state");
+        assert_eq!(
+            session
+                .pending_connector_auth
+                .as_ref()
+                .and_then(|pending| pending.get("oauth_state_hash"))
+                .and_then(Value::as_str),
+            Some(expected_hash.as_str())
+        );
+        assert!(event.pointer("/action/data/oauth_state_hash").is_none());
+    }
+
+    #[test]
+    fn google_task_auth_maps_server_failures_to_terminal_stage() {
+        for stage in [
+            "missing_cli",
+            "server_config_failed",
+            "server_config_invalid",
+        ] {
+            let mut action = json!({"stage": stage, "detail": "failed", "data": {}});
+            normalize_google_auth_action_for_task(&mut action);
+            assert_eq!(
+                action.get("stage").and_then(Value::as_str),
+                Some("auth_failed")
+            );
+        }
+        let mut admin = json!({
+            "stage": "server_config_required",
+            "data": {"required_action_type": "awaiting_admin_authorization"}
+        });
+        normalize_google_auth_action_for_task(&mut admin);
+        assert_eq!(
+            admin.get("stage").and_then(Value::as_str),
+            Some("server_config_required")
+        );
     }
 
     #[test]
@@ -1972,6 +2213,8 @@ mod tests {
             title: "Test".to_string(),
             pinned: false,
             context_folder_path: None,
+            session_kind: "workspace".to_string(),
+            shared_folder_id: None,
             model: "codex-test".to_string(),
             max_turns: 20,
             caller_system_prompt: None,

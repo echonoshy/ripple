@@ -13,7 +13,7 @@ use tokio::time::{sleep, Duration};
 
 use crate::api::chat::finalize_chat_run_for_session;
 use crate::api::run_public::{
-    public_run_value, sanitize_user_visible_text, sanitize_user_visible_value,
+    public_run_value, sanitize_run_visible_text, sanitize_run_visible_value,
 };
 use crate::api::users::assert_can_create_run;
 use crate::api::{paginate, ApiError, ListQuery};
@@ -153,6 +153,9 @@ pub async fn run_events(
     Query(query): Query<RunEventsQuery>,
 ) -> Result<Response<Body>, ApiError> {
     let user_id = user_id_from_headers(&headers).map_err(ApiError::bad_request)?;
+    let Some(info) = info_for_user(&state, &user_id, &job_id).await? else {
+        return Err(ApiError::not_found("Agent run not found"));
+    };
     let Some(events_file) = state.jobs.events_file_for_user(&job_id, &user_id).await? else {
         return Err(ApiError::not_found("Agent run events not found"));
     };
@@ -164,6 +167,7 @@ pub async fn run_events(
     let stream_user_id = user_id.clone();
     let stream_job_id = job_id.clone();
     let event_state = state.clone();
+    let event_run = info;
 
     let body_stream = stream! {
         let mut offset = initial_offset(&events_file, from_start).await;
@@ -171,14 +175,14 @@ pub async fn run_events(
         loop {
             let events = read_events_from_offset(&events_file, &mut offset).await;
             for event in events {
-                let public_event = sanitize_user_visible_value(&event_state, &stream_user_id, &event);
+                let public_event = sanitize_run_visible_value(&event_state, &stream_user_id, &event_run, &event);
                 yield Ok::<Bytes, Infallible>(sse_json(&public_event));
                 if let Some(plan_event) = extract_plan_update_event(&event) {
-                    let public_plan_event = sanitize_user_visible_value(&event_state, &stream_user_id, &plan_event);
+                    let public_plan_event = sanitize_run_visible_value(&event_state, &stream_user_id, &event_run, &plan_event);
                     yield Ok::<Bytes, Infallible>(sse_json(&public_plan_event));
                 }
                 if let Some(runtime_event) = extract_codex_runtime_event(&event) {
-                    let public_runtime_event = sanitize_user_visible_value(&event_state, &stream_user_id, &runtime_event);
+                    let public_runtime_event = sanitize_run_visible_value(&event_state, &stream_user_id, &event_run, &runtime_event);
                     yield Ok::<Bytes, Infallible>(sse_json(&public_runtime_event));
                 }
                 last_emit = now_epoch_seconds();
@@ -190,7 +194,13 @@ pub async fn run_events(
                 .ok()
                 .flatten()
                 .unwrap_or_else(|| "completed".to_string());
-            if TERMINAL_STATUSES.contains(&status.as_str()) {
+            if TERMINAL_STATUSES.contains(&status.as_str())
+                && event_run
+                    .metadata
+                    .get("shared_folder_response")
+                    .and_then(Value::as_bool)
+                    != Some(true)
+            {
                 if let Ok(workspace_root) = event_state.sandboxes.workspace_dir(&stream_user_id) {
                     if let Some(workspace_changes_event) =
                         workspace_files_changed_event(&event_state, &stream_user_id, &workspace_root).await
@@ -265,7 +275,7 @@ pub async fn run_output(
     }
     let bytes = tokio::fs::read(resolved).await?;
     let text = String::from_utf8_lossy(&bytes);
-    let text = sanitize_user_visible_text(&state, &user_id, &text);
+    let text = sanitize_run_visible_text(&state, &user_id, &info, &text);
     let mut response = Response::new(Body::from(text));
     response.headers_mut().insert(
         header::CONTENT_TYPE,
@@ -314,6 +324,16 @@ pub async fn steer_run(
     let Some(info) = info_for_user(&state, &user_id, &job_id).await? else {
         return Err(ApiError::not_found("Agent run not found"));
     };
+    if info
+        .metadata
+        .get("shared_folder_response")
+        .and_then(Value::as_bool)
+        == Some(true)
+    {
+        return Err(ApiError::conflict(
+            "Shared-folder responses do not support steering",
+        ));
+    }
     if !state.jobs.is_live_for_user(&job_id, &user_id).await {
         return Err(ApiError::conflict("Agent run is not active"));
     }

@@ -44,6 +44,7 @@ mod project_context;
 mod prompt;
 mod recent_context;
 mod session_actions;
+pub(crate) mod shared_folder;
 mod title;
 mod wire;
 
@@ -96,6 +97,7 @@ const TASK_SESSION_EXECUTION_INSTRUCTIONS: &str = r#"
 - After that tool succeeds, execute the task normally and return a concise user-facing result.
 - During execution, call `codex_app.task_progress` before each substantive new phase or external operation. Its required `content` is a concise user-visible progress update in the language of the task. Do not generate progress by translating tool names or narrating internal implementation details.
 - For a Feishu email in a task session, call `codex_app.prepare_feishu_mail` before asking for confirmation. It converts Markdown into server-controlled HTML and returns the exact preview. Show that complete preview verbatim. After confirmation, call `codex_app.task_execution_confirmed`, then call `codex_app.send_prepared_feishu_mail` with the same `prepared_mail_id`; never use the generic Feishu CLI tool to send mail in a task session. If sending returns `code="connector_auth_required"`, stop and make the standard Ripple connector-auth request for Feishu; after authorization, resume the same prepared mail without changing its recipients, subject, or body.
+- For Google Workspace tasks, call `codex_app.request_google_workspace_auth` whenever `codex_app.google_workspace_cli` reports that authorization is required, then stop Google Workspace operations for this turn. Never emit a connector-auth marker as text. After authorization, continue the same task without changing any already-confirmed recipients, files, calendar events, document ranges, or other mutation parameters. Never run a Google Workspace mutation before `codex_app.task_execution_confirmed` succeeds.
 "#;
 
 #[derive(Debug, Deserialize)]
@@ -2443,7 +2445,61 @@ async fn maybe_persist_model_connector_auth_request(
     info: &AgentRunInfo,
     resume_after_auth: bool,
 ) -> Result<Option<Value>, ApiError> {
-    let request = if let Some(request) = parse_model_connector_auth_request(output_text) {
+    let event_google_request = google_workspace_auth_request_from_run(info).await;
+    let persisted_google_request = state
+        .sessions
+        .load(user_id, &session.session_id)
+        .await?
+        .filter(|persisted| {
+            persisted
+                .pending_connector_auth
+                .as_ref()
+                .and_then(|pending| pending.get("connector"))
+                .and_then(Value::as_str)
+                == Some("google_workspace")
+                && persisted
+                    .pending_connector_auth
+                    .as_ref()
+                    .and_then(|pending| pending.get("stage"))
+                    .and_then(Value::as_str)
+                    == Some("requested")
+        });
+    let mut auth_user_input = user_input.to_string();
+    let request = if let Some(request) = event_google_request {
+        if let Some(persisted) = state.sessions.load(user_id, &session.session_id).await? {
+            *session = persisted;
+        }
+        auth_user_input = info
+            .metadata
+            .get("chat_user_input")
+            .and_then(Value::as_str)
+            .unwrap_or(user_input)
+            .to_string();
+        request
+    } else if let Some(persisted) = persisted_google_request {
+        let pending = persisted
+            .pending_connector_auth
+            .as_ref()
+            .expect("filtered Google authorization request");
+        auth_user_input = pending
+            .get("resume_user_input")
+            .and_then(Value::as_str)
+            .unwrap_or(user_input)
+            .to_string();
+        let request = ModelConnectorAuthRequest {
+            connector: "google_workspace".to_string(),
+            force_reauth: pending
+                .get("force_reauth")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            source: pending
+                .get("source")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+        };
+        *session = persisted;
+        request
+    } else if let Some(request) = parse_model_connector_auth_request(output_text) {
         request
     } else if pending_feishu_scope_upgrade(state, user_id, &session.session_id)
         .await?
@@ -2462,7 +2518,7 @@ async fn maybe_persist_model_connector_auth_request(
         user_id,
         session,
         &request,
-        user_input,
+        &auth_user_input,
         request_base_url,
         resume_after_auth,
     )
@@ -2488,6 +2544,49 @@ async fn maybe_persist_model_connector_auth_request(
         .save_record_if_exists(session.clone())
         .await?;
     Ok(Some(event))
+}
+
+async fn google_workspace_auth_request_from_run(
+    info: &AgentRunInfo,
+) -> Option<ModelConnectorAuthRequest> {
+    let events_file = info.events_file.as_deref()?;
+    let mut offset = 0_usize;
+    let mut request = None;
+    for event in read_events_from_offset(FsPath::new(events_file), &mut offset).await {
+        if event.get("type").and_then(Value::as_str) != Some("codex.notification")
+            || event
+                .pointer("/data/message/method")
+                .and_then(Value::as_str)
+                != Some("item/completed")
+            || event
+                .pointer("/data/message/params/item/type")
+                .and_then(Value::as_str)
+                != Some("dynamicToolCall")
+            || event
+                .pointer("/data/message/params/item/namespace")
+                .and_then(Value::as_str)
+                != Some("codex_app")
+            || event
+                .pointer("/data/message/params/item/tool")
+                .and_then(Value::as_str)
+                != Some("request_google_workspace_auth")
+            || event
+                .pointer("/data/message/params/item/success")
+                .and_then(Value::as_bool)
+                != Some(true)
+        {
+            continue;
+        }
+        request = Some(ModelConnectorAuthRequest {
+            connector: "google_workspace".to_string(),
+            force_reauth: event
+                .pointer("/data/message/params/item/arguments/force_reauth")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            source: Some("session_skill".to_string()),
+        });
+    }
+    request
 }
 
 #[utoipa::path(
@@ -2654,6 +2753,11 @@ async fn load_or_create_session(
     if let Some(session_id) = request.session_id.as_deref() {
         validate_session_id(session_id).map_err(ApiError::bad_request)?;
         if let Some(session) = state.sessions.load(user_id, session_id).await? {
+            if session.is_shared_folder() {
+                return Err(ApiError::conflict(
+                    "shared-folder sessions cannot be used with /v1/responses",
+                ));
+            }
             return Ok(session);
         }
     }
@@ -3400,10 +3504,10 @@ fn stream_chat_response(args: CodexChatStream) -> Response<Body> {
                             );
                             session.pending_control_request = None;
                             let _ = state.sessions.save_record_if_exists(session.clone()).await;
-                        } else {
+                        } else if info.status != "cancelled" {
                             emit!(chat_stream_error_sse(true, &error_message, error_type,));
                         }
-                    } else {
+                    } else if info.status != "cancelled" {
                         emit!(chat_stream_error_sse(false, &error_message, error_type,));
                     }
                 }
@@ -4160,6 +4264,8 @@ mod tests {
             title: String::new(),
             pinned: false,
             context_folder_path: None,
+            session_kind: "workspace".to_string(),
+            shared_folder_id: None,
             model: "codex-test".to_string(),
             max_turns: 200,
             caller_system_prompt: None,
@@ -4224,6 +4330,8 @@ mod tests {
             title: String::new(),
             pinned: false,
             context_folder_path: None,
+            session_kind: "workspace".to_string(),
+            shared_folder_id: None,
             model: "codex-test".to_string(),
             max_turns: 200,
             caller_system_prompt: None,
@@ -4352,6 +4460,40 @@ mod tests {
     }
 
     #[test]
+    fn google_task_connector_auth_reuses_existing_public_protocol() {
+        let event = json!({
+            "type": "connector_auth_required",
+            "connector": "google_workspace",
+            "stage": "awaiting_browser_callback",
+            "message": "需要完成 Google Workspace 授权后继续执行。",
+            "action": {
+                "data": {
+                    "oauth_url": "https://accounts.google.com/o/oauth2/auth?state=abc",
+                    "expires_in_seconds": 600
+                }
+            }
+        });
+
+        assert_eq!(
+            task_connector_auth_status_data("task-001", Some("req-001"), &event),
+            json!({
+                "event": "task.status",
+                "task_id": "task-001",
+                "req_id": "req-001",
+                "status": "waiting_user",
+                "content": "需要完成 Google Workspace 授权后继续执行。",
+                "required_action": {
+                    "type": "connector_auth",
+                    "connector": "google_workspace",
+                    "stage": "awaiting_browser_callback",
+                    "auth_url": "https://accounts.google.com/o/oauth2/auth?state=abc",
+                    "expires_in_seconds": 600
+                }
+            })
+        );
+    }
+
+    #[test]
     fn task_awaiting_admin_authorization_uses_compact_required_action() {
         let event = json!({
             "type": "connector_auth_required",
@@ -4382,6 +4524,36 @@ mod tests {
         );
     }
 
+    #[test]
+    fn google_server_configuration_uses_existing_admin_action_protocol() {
+        let event = json!({
+            "type": "connector_auth_required",
+            "connector": "google_workspace",
+            "stage": "server_config_required",
+            "message": "Google Workspace 授权还没有在服务端配置完成。",
+            "action": {
+                "data": {
+                    "required_action_type": "awaiting_admin_authorization"
+                }
+            }
+        });
+
+        assert_eq!(
+            task_connector_auth_status_data("task-001", Some("req-001"), &event),
+            json!({
+                "event": "task.status",
+                "task_id": "task-001",
+                "req_id": "req-001",
+                "status": "waiting_user",
+                "content": "Google Workspace 授权还没有在服务端配置完成。",
+                "required_action": {
+                    "type": "awaiting_admin_authorization",
+                    "connector": "google_workspace"
+                }
+            })
+        );
+    }
+
     #[tokio::test]
     async fn failed_task_connector_auth_never_emits_waiting_user_with_empty_url() {
         let now = now_iso();
@@ -4391,6 +4563,8 @@ mod tests {
             title: String::new(),
             pinned: false,
             context_folder_path: None,
+            session_kind: "workspace".to_string(),
+            shared_folder_id: None,
             model: "codex-test".to_string(),
             max_turns: 200,
             caller_system_prompt: None,
@@ -4491,6 +4665,7 @@ mod tests {
             },
             storage: crate::config::StorageConfig {
                 sqlite_max_connections: 50,
+                shared_folders_root: std::path::PathBuf::from(".ripple/shared-folders"),
             },
             sandbox: SandboxConfig {
                 sandboxes_root: root.join("sandboxes"),
@@ -4509,6 +4684,7 @@ mod tests {
                 lark_cli_install_root: None,
                 notion_cli_install_root: None,
                 gogcli_cli_install_root: None,
+                gogcli_data_subdir: std::path::PathBuf::from(".config/gogcli"),
                 cli_tools: Vec::new(),
                 pypi_mirror_url: None,
                 npm_registry_url: None,
@@ -4517,6 +4693,8 @@ mod tests {
                 enabled: true,
                 codex_executable: "codex".to_string(),
                 app_server_args: Vec::new(),
+                requires_service_auth: true,
+                provider_env_keys: Vec::new(),
                 codex_home: None,
                 sqlite_root: None,
                 approval_policy: serde_json::json!("never"),
@@ -4604,6 +4782,19 @@ mod tests {
             .contains("send that same content without re-summarizing or omitting material"));
     }
 
+    #[test]
+    fn codex_instructions_reject_new_workspace_file_delivery() {
+        let root = std::env::temp_dir().join(format!("ripple-chat-test-{}", Uuid::new_v4()));
+        let instructions = build_codex_chat_base_instructions(&test_config(&root));
+
+        assert!(instructions.contains("Do not create any new file or directory in the workspace"));
+        assert!(instructions.contains("You may edit an existing file"));
+        assert!(instructions.contains("PDF, Word document, spreadsheet, image, archive"));
+        assert!(instructions.contains("provide the requested content directly in the conversation"));
+        assert!(instructions
+            .contains("Never claim that a file was created, exported, attached, or sent"));
+    }
+
     #[tokio::test]
     async fn codex_chat_context_omits_local_proxy_helper() {
         let root = std::env::temp_dir().join(format!("ripple-chat-test-{}", Uuid::new_v4()));
@@ -4651,17 +4842,24 @@ mod tests {
             "The selected context folder is the default work area and permission boundary"
         ));
         assert!(prompt.contains(
-            "Do not write derived inspection files into /workspace root unless the user explicitly asks for those files as deliverables"
+            "Never write derived inspection files or new deliverables into the workspace"
         ));
         assert!(prompt.contains("Do not use absolute `/workspace/...` paths in shell commands"));
         assert!(prompt.contains("translate it to a path relative to the current shell cwd"));
         assert!(!prompt.contains("write it under /workspace/outputs"));
         assert!(prompt.contains("- codex_image_generation: disabled_by_default"));
-        assert!(prompt.contains("Do not generate images unless the current user explicitly asks"));
-        assert!(prompt.contains("When creating or updating a skill"));
+        assert!(
+            prompt.contains("Image generation is unavailable while new file delivery is disabled")
+        );
+        assert!(prompt.contains("For skill updates"));
+        assert!(prompt.contains("For a new-skill request"));
         assert!(prompt.contains("Ask one consolidated clarification"));
         assert!(prompt.contains("instead of asking repeatedly"));
         assert!(prompt.contains("<ripple_connector_auth_request>"));
+        assert!(prompt.contains("codex_app.request_google_workspace_auth"));
+        assert!(
+            !prompt.contains("<ripple_connector_auth_request>{\"connector\":\"google_workspace\"")
+        );
         assert!(prompt.contains(
             "For product, company, support, or shared-knowledge questions, read the matching Available Skill before web_search"
         ));
@@ -4780,7 +4978,8 @@ mod tests {
 
         assert!(prompt.contains("Context folder: /workspace/genius_club"));
         assert!(prompt.contains("default reading and search scope"));
-        assert!(prompt.contains("write new files under this folder"));
+        assert!(prompt.contains("Only modify files that already exist under this folder"));
+        assert!(!prompt.contains("write new files under this folder"));
         assert!(prompt.contains("Use web_search as a supplement"));
         assert!(prompt.contains("Folder Context Evidence"));
         assert!(prompt.contains("/workspace/genius_club/001.txt:1"));
@@ -4817,7 +5016,8 @@ mod tests {
         );
 
         assert!(prompt.contains("read-only collection structure"));
-        assert!(prompt.contains("Individual record directories are writable"));
+        assert!(prompt.contains("Existing files in individual record directories are writable"));
+        assert!(prompt.contains("do not create new files or directories"));
         assert!(!prompt.contains("write new files under this folder"));
 
         cleanup_test_root(&root).expect("cleanup test root");
@@ -5563,6 +5763,8 @@ mod tests {
             title: String::new(),
             pinned: false,
             context_folder_path: None,
+            session_kind: "workspace".to_string(),
+            shared_folder_id: None,
             model: "codex-medium".to_string(),
             max_turns: 200,
             caller_system_prompt: None,
@@ -5699,6 +5901,8 @@ mod tests {
             title: String::new(),
             pinned: false,
             context_folder_path: None,
+            session_kind: "workspace".to_string(),
+            shared_folder_id: None,
             model: "codex-test".to_string(),
             max_turns: 200,
             caller_system_prompt: None,

@@ -25,7 +25,7 @@ Use this for the BrainCircuit model button, Lite/Plus/Pro/Ultra labels, `/models
 | `codex-high` | Pro | `reasoning_effort: "high"` | More reasoning budget. Good for harder debugging, architecture, and multi-step implementation. |
 | `codex-xhigh` | Ultra | `reasoning_effort: "xhigh"` | Highest reasoning budget. Good for complex, high-stakes, or long-context analysis when speed/cost is less important. |
 
-Important: do not tell the user these are necessarily four different underlying model families. In the current sample config, all four map to `openai-codex: "gpt-5.5"` and differ by `reasoning_effort`. Deployments may change `config/settings.yaml`, so phrase it as "the current Ripple presets" unless you have inspected the live config.
+Important: do not tell the user these are necessarily four different underlying model families. In the current sample config, all four map to `codex: "qwen3.7-plus"` and differ by `reasoning_effort`. Deployments may change `config/settings.yaml`, so phrase it as "the current Ripple presets" unless you have inspected the live config.
 
 ## How The Menu Is Built
 

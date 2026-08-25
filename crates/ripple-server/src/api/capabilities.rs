@@ -308,7 +308,7 @@ pub(crate) fn lightweight_connector_statuses(
     if state.config.connector_enabled("google_workspace") {
         statuses.insert(
             "google_workspace".to_string(),
-            workspace.join(".config/gogcli/keyring").exists(),
+            state.sandboxes.gogcli_keyring_dir(user_id)?.exists(),
         );
     }
     if state.config.connector_enabled("notion") {

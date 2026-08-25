@@ -29,7 +29,9 @@ crates/ripple-server/
 - Notion、Google Workspace、Feishu/Lark、Bilibili connector 授权、状态、账号列表和断开。
 - Codex app-server JSON-RPC provider、worker pool、session 级 chat/compaction 互斥、目录级 permission root、`/v1/runs`、`/v1/responses`。
 - Responses-style subset `/v1/responses` 非流式和 SSE 响应、Codex event 映射、token usage 持久化、workspace attachment 和 image 事件导入。
+- Shared Folder Responses 通过独立 `POST /v1/shared-folders/responses` 提供固定 SSE 问答；session 创建时绑定一个共享目录，Codex thread 只能递归只读该目录，不可访问 user workspace、其他共享目录、connector 或网络。详细设计见 `docs/SHARED_FOLDER_RESPONSES_DESIGN.md`。
 - 模型厂商兼容不在 Ripple 内实现 OpenAI-compatible proxy 或厂商 adapter；该边界由 Codex app-server 的 `model_provider` / Responses API 支持负责。
+- 服务端 Codex `config.toml` 可共享给 per-user runtime；自定义 Provider 密钥只按配置变量名传给 app-server，并从 model-facing shell 环境排除。国外默认共享服务端 `auth.json`，国内百炼通过 `requires_service_auth: false` 使用独立 Provider 鉴权。
 - Codex approval bridge、session stop/delete/context clear/suspend/resume、sandbox teardown cancellation。
 - Task Sessions 对外入口 `POST /v1/task-sessions/responses`，确认前使用 SSE 对话，确认后通过 callback 返回执行状态和结果。
 - 内部 Tasks / TaskActions 状态、task event/progress、due time trigger loop，以及 chat-side `codex_app.task_update` 动态工具；旧 `/v1/tasks` / Task Trigger HTTP API 不再公开注册，`/v1/sessions/:session_id/tasks` 只作为 session 兼容读接口保留。

@@ -133,22 +133,32 @@ pub async fn system_info(State(state): State<AppState>) -> Json<Value> {
 }
 
 fn model_catalog_from_runtime(config: &AppConfig, runtime: &Value) -> Vec<Value> {
-    build_model_catalog(&config.model_presets, runtime)
+    build_model_catalog(
+        &config.model_presets,
+        runtime,
+        config.codex.requires_service_auth,
+    )
 }
 
-fn build_model_catalog(presets: &BTreeMap<String, ModelPreset>, runtime: &Value) -> Vec<Value> {
+fn build_model_catalog(
+    presets: &BTreeMap<String, ModelPreset>,
+    runtime: &Value,
+    include_runtime_models: bool,
+) -> Vec<Value> {
     let mut data = Vec::new();
     let mut seen = BTreeSet::new();
 
-    for item in runtime_model_items(runtime) {
-        let Some(entry) = runtime_model_entry(item) else {
-            continue;
-        };
-        let Some(id) = entry.get("id").and_then(Value::as_str) else {
-            continue;
-        };
-        if seen.insert(id.to_string()) {
-            data.push(entry);
+    if include_runtime_models {
+        for item in runtime_model_items(runtime) {
+            let Some(entry) = runtime_model_entry(item) else {
+                continue;
+            };
+            let Some(id) = entry.get("id").and_then(Value::as_str) else {
+                continue;
+            };
+            if seen.insert(id.to_string()) {
+                data.push(entry);
+            }
         }
     }
 
@@ -334,7 +344,7 @@ mod tests {
             }
         });
 
-        let catalog = build_model_catalog(&presets, &runtime);
+        let catalog = build_model_catalog(&presets, &runtime, true);
 
         assert_eq!(catalog.len(), 2);
         assert_eq!(
@@ -377,12 +387,41 @@ mod tests {
             }
         });
 
-        let catalog = build_model_catalog(&presets, &runtime);
+        let catalog = build_model_catalog(&presets, &runtime, true);
 
         assert_eq!(catalog.len(), 1);
         assert_eq!(
             catalog[0].get("source").and_then(Value::as_str),
             Some("codex_runtime")
+        );
+    }
+
+    #[test]
+    fn model_catalog_omits_builtin_runtime_models_for_provider_auth() {
+        let mut presets = BTreeMap::new();
+        presets.insert(
+            "codex-medium".to_string(),
+            ModelPreset {
+                model: "qwen3.7-plus".to_string(),
+                reasoning_effort: Some("medium".to_string()),
+            },
+        );
+        let runtime = json!({
+            "models": {
+                "data": ["gpt-5.5"]
+            }
+        });
+
+        let catalog = build_model_catalog(&presets, &runtime, false);
+
+        assert_eq!(catalog.len(), 1);
+        assert_eq!(
+            catalog[0].get("id").and_then(Value::as_str),
+            Some("codex-medium")
+        );
+        assert_eq!(
+            catalog[0].get("model").and_then(Value::as_str),
+            Some("qwen3.7-plus")
         );
     }
 }

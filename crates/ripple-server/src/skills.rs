@@ -896,6 +896,7 @@ mod tests {
             },
             storage: crate::config::StorageConfig {
                 sqlite_max_connections: 50,
+                shared_folders_root: std::path::PathBuf::from(".ripple/shared-folders"),
             },
             sandbox: SandboxConfig {
                 sandboxes_root: root.join("sandboxes"),
@@ -914,6 +915,7 @@ mod tests {
                 lark_cli_install_root: None,
                 notion_cli_install_root: None,
                 gogcli_cli_install_root: None,
+                gogcli_data_subdir: std::path::PathBuf::from(".config/gogcli"),
                 cli_tools: Vec::new(),
                 pypi_mirror_url: None,
                 npm_registry_url: None,
@@ -922,6 +924,8 @@ mod tests {
                 enabled: true,
                 codex_executable: "codex".to_string(),
                 app_server_args: Vec::new(),
+                requires_service_auth: true,
+                provider_env_keys: Vec::new(),
                 codex_home: None,
                 sqlite_root: None,
                 approval_policy: serde_json::json!("never"),
@@ -1457,11 +1461,15 @@ metadata:
         assert!(!names.contains(&"frontend-design"));
         assert!(!names.contains(&"ripple-automations"));
         assert!(!names.contains(&"ripple-ui-explainer"));
+        assert!(names.contains(&"finance-change-tracking"));
+        assert!(names.contains(&"finance-research-brief"));
         assert!(names.contains(&"record-artifact-synthesis"));
         assert!(names.contains(&"viaim-product-support"));
 
         let rendered = render_skill_manifest(&config, None);
         assert!(!rendered.contains("ripple:ripple-ui-explainer"));
+        assert!(rendered.contains("ripple:finance-change-tracking"));
+        assert!(rendered.contains("ripple:finance-research-brief"));
         assert!(rendered.contains("ripple:record-artifact-synthesis"));
         assert!(rendered.contains("fully regenerate one Record-derived summary"));
         assert!(rendered.contains("ripple:viaim-product-support"));

@@ -1057,6 +1057,7 @@ mod tests {
             },
             storage: crate::config::StorageConfig {
                 sqlite_max_connections: 50,
+                shared_folders_root: std::path::PathBuf::from(".ripple/shared-folders"),
             },
             sandbox: SandboxConfig {
                 sandboxes_root: root.join("sandboxes"),
@@ -1075,6 +1076,7 @@ mod tests {
                 lark_cli_install_root: None,
                 notion_cli_install_root: None,
                 gogcli_cli_install_root: None,
+                gogcli_data_subdir: std::path::PathBuf::from(".config/gogcli"),
                 cli_tools: Vec::new(),
                 pypi_mirror_url: None,
                 npm_registry_url: None,
@@ -1083,6 +1085,8 @@ mod tests {
                 enabled: true,
                 codex_executable: "codex".to_string(),
                 app_server_args: Vec::new(),
+                requires_service_auth: true,
+                provider_env_keys: Vec::new(),
                 codex_home: None,
                 sqlite_root: None,
                 approval_policy: serde_json::json!("never"),

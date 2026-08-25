@@ -83,6 +83,9 @@ pub(super) fn node_runtime_paths(runtime_home: &Path) -> NodeRuntimePaths {
 }
 
 pub(super) fn requires_service_codex_auth(config: &AppConfig) -> bool {
+    if !config.codex.requires_service_auth {
+        return false;
+    }
     let executable_name = Path::new(&config.codex.codex_executable)
         .file_name()
         .and_then(|name| name.to_str());
@@ -102,6 +105,16 @@ pub(super) fn inherit_env_allowlist(command: &mut Command, keys: &[&str]) {
             }
         }
     }
+}
+
+pub(super) fn inherit_required_env(command: &mut Command, keys: &[String]) -> anyhow::Result<()> {
+    for key in keys {
+        let Some(value) = std::env::var_os(key).filter(|value| !value.is_empty()) else {
+            anyhow::bail!("required Codex provider environment variable {key} is missing or empty");
+        };
+        command.env(key, value);
+    }
+    Ok(())
 }
 
 pub(super) async fn read_json_string_field(path: &Path, field: &str) -> Option<String> {
@@ -179,10 +192,24 @@ pub(super) fn runtime_path(
 
 #[cfg(test)]
 mod tests {
-    use super::INHERITED_NETWORK_ENV;
+    use tokio::process::Command;
+
+    use super::{inherit_required_env, INHERITED_NETWORK_ENV};
 
     #[test]
     fn inherits_ark_api_key_for_custom_coding_plan_providers() {
         assert!(INHERITED_NETWORK_ENV.contains(&"ARK_API_KEY"));
+    }
+
+    #[test]
+    fn required_provider_environment_must_be_present() {
+        let key = format!("RIPPLE_MISSING_PROVIDER_KEY_{}", uuid::Uuid::new_v4());
+        let mut command = Command::new("true");
+
+        let error = inherit_required_env(&mut command, &[key.clone()])
+            .expect_err("missing provider key should fail");
+
+        assert!(error.to_string().contains(&key));
+        assert!(!error.to_string().contains('='));
     }
 }

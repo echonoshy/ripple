@@ -23,7 +23,7 @@ pub(crate) fn public_run_value(state: &AppState, user_id: &str, run: &AgentRunIn
             json!(run.events_file.is_some()),
         );
     }
-    sanitize_user_visible_value(state, user_id, &value)
+    sanitize_run_visible_value(state, user_id, run, &value)
 }
 
 fn run_file_available(state: &AppState, user_id: &str, path: Option<&str>) -> bool {
@@ -49,6 +49,26 @@ pub(crate) fn sanitize_user_visible_value(state: &AppState, user_id: &str, value
 
 pub(crate) fn sanitize_user_visible_text(state: &AppState, user_id: &str, text: &str) -> String {
     let replacements = path_replacements(state, user_id);
+    sanitize_text_with_replacements(text, &replacements)
+}
+
+pub(crate) fn sanitize_run_visible_value(
+    state: &AppState,
+    user_id: &str,
+    run: &AgentRunInfo,
+    value: &Value,
+) -> Value {
+    let replacements = run_path_replacements(state, user_id, run);
+    sanitize_value_with_replacements(value, &replacements)
+}
+
+pub(crate) fn sanitize_run_visible_text(
+    state: &AppState,
+    user_id: &str,
+    run: &AgentRunInfo,
+    text: &str,
+) -> String {
+    let replacements = run_path_replacements(state, user_id, run);
     sanitize_text_with_replacements(text, &replacements)
 }
 
@@ -118,6 +138,65 @@ fn path_replacements(state: &AppState, user_id: &str) -> Vec<(String, String)> {
     }
     sort_replacements(&mut replacements);
     replacements
+}
+
+fn run_path_replacements(
+    state: &AppState,
+    user_id: &str,
+    run: &AgentRunInfo,
+) -> Vec<(String, String)> {
+    let mut replacements = path_replacements(state, user_id);
+    push_shared_folder_run_replacements(&mut replacements, run);
+    sort_replacements(&mut replacements);
+    replacements
+}
+
+fn push_shared_folder_run_replacements(
+    replacements: &mut Vec<(String, String)>,
+    run: &AgentRunInfo,
+) {
+    let shared_folder_root = run
+        .metadata
+        .get("shared_folder_root")
+        .and_then(Value::as_str);
+    let shared_folders_root = run
+        .metadata
+        .get("shared_folders_root")
+        .and_then(Value::as_str);
+    let shared_folder_id = run.metadata.get("shared_folder_id").and_then(Value::as_str);
+    if let (Some(root), Some(folder_id)) = (shared_folder_root, shared_folder_id) {
+        let virtual_root = format!("/shared-folder/{folder_id}");
+        push_path_replacements(
+            replacements,
+            Path::new(root),
+            &format!("{virtual_root}/"),
+            &virtual_root,
+        );
+        if let Ok(canonical) = Path::new(root).canonicalize() {
+            push_path_replacements(
+                replacements,
+                &canonical,
+                &format!("{virtual_root}/"),
+                &virtual_root,
+            );
+        }
+    }
+    if let Some(root) = shared_folders_root {
+        push_path_replacements(
+            replacements,
+            Path::new(root),
+            "/shared-folder/",
+            "/shared-folder",
+        );
+        if let Ok(canonical) = Path::new(root).canonicalize() {
+            push_path_replacements(
+                replacements,
+                &canonical,
+                "/shared-folder/",
+                "/shared-folder",
+            );
+        }
+    }
 }
 
 fn path_replacements_for_dirs(
@@ -283,5 +362,47 @@ mod tests {
         let sanitized = sanitize_text_with_replacements("](/home/lake/workspace", &replacements);
 
         assert_eq!(sanitized, "]([host path redacted]");
+    }
+
+    #[test]
+    fn shared_folder_run_paths_become_virtual_paths() {
+        let run = AgentRunInfo {
+            job_id: "job_1".to_string(),
+            provider: "codex".to_string(),
+            status: "completed".to_string(),
+            output_file: None,
+            events_file: None,
+            created_at: String::new(),
+            updated_at: String::new(),
+            exit_code: Some(0),
+            prompt_preview: None,
+            sandbox_cwd: None,
+            stdout_tail: String::new(),
+            stderr_tail: String::new(),
+            error: None,
+            req_id: None,
+            client_req_id: None,
+            pending_approval: None,
+            pending_user_input: None,
+            metadata: json!({
+                "shared_folders_root": "/mnt/private/shared",
+                "shared_folder_root": "/mnt/private/shared/a-folder",
+                "shared_folder_id": "a-folder",
+            }),
+        };
+        let mut replacements = Vec::new();
+        push_shared_folder_run_replacements(&mut replacements, &run);
+        sort_replacements(&mut replacements);
+
+        let sanitized = sanitize_text_with_replacements(
+            "read /mnt/private/shared/a-folder/nested/report.pdf",
+            &replacements,
+        );
+
+        assert_eq!(sanitized, "read /shared-folder/a-folder/nested/report.pdf");
+        assert_eq!(
+            sanitize_text_with_replacements("root /mnt/private/shared", &replacements),
+            "root /shared-folder"
+        );
     }
 }

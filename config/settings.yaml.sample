@@ -53,6 +53,13 @@ external_agents:
     # apps/plugins/bundled skill instructions，并启用 request_permissions_tool /
     # exec_permission_approvals，让目录外访问通过 Ripple approval bridge 审批。
     app_server_args: ["app-server", "--listen", "stdio://"]
+    # 自定义模型 Provider 所需的密钥环境变量名。这里只填写变量名，不填写密钥值。
+    # Ripple 只把这些变量传给 Codex app-server，并从模型 shell 环境中排除。
+    # 百炼 Token Plan 密钥使用 root-only 进程环境传入，不写入仓库配置。
+    provider_env_keys: ["BAILIAN_API_KEY"]
+    # 默认 Codex/OpenAI 登录需要共享服务端 auth.json。国内百炼使用 env_key 鉴权，
+    # 应设为 false，避免继续依赖或暴露国外 Codex 订阅凭证。
+    requires_service_auth: false
     # 独立服务端 CODEX_HOME。管理员用
     #   CODEX_HOME=/path/to/.ripple/codex-service-home codex login
     # 登录一次；不要复用开发者个人 ~/.codex，避免继承 yolo/danger-full-access 配置。
@@ -95,6 +102,10 @@ server:
   # 因等待空闲连接而过早失败。
   storage:
     sqlite_max_connections: 50
+    # 共享目录问答只会访问此根目录下由请求指定的一级子目录。
+    # 本地开发可以使用仓库内目录；生产部署固定显式配置为：
+    # /nas/ripple-data/shared-folders
+    shared_folders_root: ".ripple/shared-folders"
   # 用户 connector 暴露 allowlist。省略时为兼容旧配置，会启用全部内置 connector。
   # 下例只暴露飞书；运行时 Codex 能力不受此列表影响。
   enabled_connectors:
@@ -230,12 +241,17 @@ server:
     # 正式部署到 NAS 时可改成挂载目录，例如:
     #   /mnt/ripple-workspaces
     # workspaces_root: "/mnt/ripple-workspaces"
+    # gogcli 的每用户数据目录，相对于各自 workspace；必须位于 .config/ 下。
+    # 宿主路径由 workspaces_root + user_id 派生，nsjail 内映射到 /workspace。
+    gogcli_data_subdir: ".config/gogcli"
     # 跨 user 共享的包管理器缓存（uv / corepack / pnpm）
     # caches_root: ".ripple/sandboxes-cache"
     # 跨 user 共享的只读 Python 依赖环境（由 python/python3 wrapper 创建和复用）
     # python_envs_root: ".ripple/sandboxes-cache/python-envs"
     # python_env_uv_cache: ".ripple/sandboxes-cache/uv-cache"
     # python_env_max_packages: 20
+    # 生产部署应指向不依赖登录用户 HOME 的稳定系统安装目录，例如：
+    # uv_bin_dir: "/usr/local/bin"
 
     # 空闲自动挂起时间（秒），默认 30 分钟
     idle_suspend_seconds: 1800

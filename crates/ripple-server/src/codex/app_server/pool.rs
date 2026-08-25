@@ -35,6 +35,12 @@ pub(super) fn pool_generation(config: &AppConfig) -> String {
     [
         config.codex.codex_executable.as_str(),
         &config.codex.app_server_args.join("\u{1f}"),
+        if config.codex.requires_service_auth {
+            "service-auth"
+        } else {
+            "provider-auth"
+        },
+        &config.codex.provider_env_keys.join("\u{1f}"),
         approval_policy.as_str(),
         config.codex.sandbox_type.as_str(),
         if config.codex.network_access {

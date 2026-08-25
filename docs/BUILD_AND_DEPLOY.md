@@ -243,16 +243,23 @@ cp config/settings.yaml.sample config/settings.yaml
 - `server.user_auth`：仅用于开发/内测阶段的浏览器邀请制登录；生产部署默认关闭。
 - `server.host` / `server.port`：监听地址和端口，默认 `0.0.0.0:8810`。
 - `server.sandbox.workspaces_root`：生产如需把用户 workspace 放到独立磁盘或 NAS，在这里配置。
-- `external_agents.codex.codex_home`：服务端 Codex 登录态目录。
+- `external_agents.codex.codex_home`：服务端 Codex provider 配置目录。
 - `external_agents.codex.max_workers_per_pool` / `max_total_pool_workers`：Codex app-server worker pool 上限。
-- connector OAuth 配置，例如 Google Workspace / Feishu。
+- connector OAuth 配置，例如 Google Workspace / Feishu。Google Workspace 生产 Client 的企业管理员申请、授权和交付流程见 [GOOGLE_WORKSPACE_PRODUCTION_OAUTH_ADMIN_GUIDE.md](GOOGLE_WORKSPACE_PRODUCTION_OAUTH_ADMIN_GUIDE.md)。
 
-生产部署统一通过 `codex-multi-auth` 启动 Codex app-server，并使用多 Codex 账号池做 runtime rotation，按本文后面的“后端部署”章节配置。
+国内生产部署统一使用百炼 Token Plan，通过 Codex app-server 的自定义
+`model_provider` 直接调用 Responses-compatible endpoint。密钥只从 root-only
+进程环境注入，不使用 OpenAI 登录态或多账号代理。
 
-登录服务端 Codex：
+准备百炼进程环境：
 
 ```bash
-CODEX_HOME=.ripple/codex-service-home codex login
+install -d -m 700 /root/.config/ripple
+install -m 600 /dev/null /root/.config/ripple/bailian-token-plan.env
+# 写入 BAILIAN_API_KEY=<百炼 Token Plan key>，不要把值写入仓库。
+set -a
+. /root/.config/ripple/bailian-token-plan.env
+set +a
 ```
 
 启动后端：
@@ -282,7 +289,7 @@ curl -fsS \
   http://127.0.0.1:8810/v1/models
 ```
 
-`/v1/models` 会读取 Codex app-server 的 runtime model catalog，并合并 Ripple 现有 preset。这里不做 preset fallback；如果 runtime 模型目录不可用，应先修复 Codex app-server / `codex-multi-auth` 链路。
+`/v1/models` 会读取 Codex app-server 的 runtime model catalog，并合并 Ripple 现有 preset。这里不做 preset fallback；如果 runtime 模型目录不可用，应先修复 Codex app-server、百炼 provider 配置或密钥注入链路。
 
 ## 后端打包
 
@@ -322,7 +329,7 @@ cp config/settings.yaml.sample config/settings.yaml
 
 ## 后端部署
 
-本节是新 Linux 机器部署 `ripple-server` 的完整 runbook。目标是只读本文，就能把后端服务启动起来，并让 Codex app-server 通过 `codex-multi-auth` 多账号池运行。
+本节是新 Linux 机器部署 `ripple-server` 的完整 runbook。目标是只读本文，就能把后端服务启动起来，并让 Codex app-server 通过百炼 Token Plan 运行。
 
 生产主线固定为：
 
@@ -333,9 +340,9 @@ Trusted Web / Reverse Proxy
     | injects X-Ripple-User-Id, strips spoofed user headers
 Ripple Server :8810
     |
-codex-multi-auth-codex
-    |
 official Codex app-server
+    |
+百炼 Token Plan Responses endpoint
 ```
 
 生产环境不使用 `server.user_auth` 的轻量邀请码登录。该能力只用于开发、内测或没有上游用户系统时的临时验证。生产调用方由可信上游完成用户认证，注入 `X-Ripple-User-Id`，并使用服务级 API key 调用 Ripple。
@@ -350,7 +357,6 @@ official Codex app-server
 /nas/ripple-data/sandboxes-cache    # shared cache
 /nas/ripple-data/codex-service-home # 服务端 Codex home
 /nas/ripple-data/codex-runtime      # per-user Codex runtime home/sqlite
-/nas/ripple-data/codex-multi-auth   # codex-multi-auth 账号池和运行时状态
 ```
 
 ### 部署依赖分层
@@ -359,9 +365,9 @@ official Codex app-server
 | --- | --- |
 | HTTP 服务启动和 `/health` | `ripple-server` binary、配置文件、可写 runtime 目录 |
 | `/v1/health/ready` | SQLite/runtime 目录、`external_agents.codex.codex_executable` 可解析 |
-| 第一次 Codex 请求 | official Codex CLI、`codex-multi-auth-codex`、真实 `codex-real-*`、`bubblewrap`/`bwrap`、服务端 `CODEX_HOME/auth.json` |
+| 第一次 Codex 请求 | official Codex CLI、百炼 provider 配置、`BAILIAN_API_KEY`、`bubblewrap`/`bwrap` |
 | Python helper / executable skill | `python3`、`uv`、可写 `python_envs_root` 和 `python_env_uv_cache` |
-| Node/npm 任务和 `codex-multi-auth` | Node.js `>=18.17.0`、`npm` |
+| Node/npm 任务 | Node.js `>=18.17.0`、`npm` |
 | connector auth/status flow | `nsjail`、对应 connector CLI：`lark-cli`、`gog`、`ntn` 等 |
 | Office 文件预览 | LibreOffice 的 `soffice` |
 
@@ -408,7 +414,7 @@ sysctl --system
 
 ### 安装 Node.js 和 uv
 
-`codex-multi-auth@2.3.3` 要求 Node.js `>=18.17.0`。Ubuntu 22.04 默认仓库里的 `nodejs` 可能太旧，推荐装 Node.js 20：
+前端构建和部分 connector 工具要求较新的 Node.js。Ubuntu 22.04 默认仓库里的 `nodejs` 可能太旧，推荐装 Node.js 20：
 
 ```bash
 if ! node -e 'const [major, minor] = process.versions.node.split(".").map(Number); process.exit(major > 18 || (major === 18 && minor >= 17) ? 0 : 1)' 2>/dev/null; then
@@ -493,7 +499,7 @@ nsjail -Q -Mo --chroot / -- /bin/true
 
 如果源码构建时出现 protobuf header/API 不匹配，通常是 `PKG_CONFIG_PATH` 指到了机器上其他 protobuf 安装，例如 Mellanox/grpc。继续用上面的 `PKG_CONFIG_PATH=` 和 `PKG_CONFIG_LIBDIR=...` 强制使用系统 protobuf。
 
-### 安装 official Codex CLI 和 codex-multi-auth
+### 安装 official Codex CLI
 
 安装 official Codex CLI：
 
@@ -503,25 +509,8 @@ which codex
 codex --version
 ```
 
-把当前 official Codex CLI 固定成一个真实 CLI 入口路径，供 `codex-multi-auth` 包装器转发：
-
-```bash
-REAL_CODEX_BIN="$(readlink -f "$(which codex)")"
-ln -sf "$REAL_CODEX_BIN" /usr/bin/codex-real-0.142.5
-/usr/bin/codex-real-0.142.5 --version
-```
-
-版本号 `0.142.5` 是当前线上验证过的命名示例。换版本时，同步改 symlink 名字和 `settings.yaml` 里的 `CODEX_MULTI_AUTH_REAL_CODEX_BIN`。
-
-安装 `codex-multi-auth`：
-
-```bash
-npm install -g codex-multi-auth@2.3.3
-which codex-multi-auth
-which codex-multi-auth-codex
-codex-multi-auth --version
-codex-multi-auth-codex --version
-```
+生产配置中的 `external_agents.codex.codex_executable` 应填写上一步得到的稳定绝对路径。
+更新 Codex CLI 后，先验证版本和百炼链路，再切换生产路径。
 
 ### 放置 Ripple 发布包
 
@@ -556,46 +545,37 @@ mkdir -p "$RIPPLE_DATA_ROOT/sandboxes"
 mkdir -p "$RIPPLE_DATA_ROOT/sandboxes-cache"
 mkdir -p "$RIPPLE_DATA_ROOT/codex-service-home"
 mkdir -p "$RIPPLE_DATA_ROOT/codex-runtime"
-mkdir -p "$RIPPLE_DATA_ROOT/codex-multi-auth"
 
 chmod 700 "$RIPPLE_DATA_ROOT/codex-service-home"
-chmod 700 "$RIPPLE_DATA_ROOT/codex-multi-auth"
 
 cd /opt/ripple
 ln -sfn "$RIPPLE_DATA_ROOT/ripple-runtime" .ripple
 ```
 
-### 登录服务端 Codex 和 multi-auth 账号池
+### 配置百炼 Token Plan
 
-Ripple 每个 user 的 Codex runtime home 会通过 symlink 引用服务端 `codex-service-home/auth.json`。先登录一次服务端专用 Codex home：
+国内部署不登录 OpenAI，也不创建 `auth.json`。在服务端 Codex home 写入百炼 provider：
 
-```bash
-CODEX_HOME=/nas/ripple-data/codex-service-home codex login --device-auth
-test -f /nas/ripple-data/codex-service-home/auth.json
+```toml
+model = "qwen3.7-plus"
+model_provider = "Model_Studio_Token_Plan"
+model_supports_reasoning_summaries = true
+model_reasoning_effort = "medium"
+
+[model_providers.Model_Studio_Token_Plan]
+name = "Model_Studio_Token_Plan"
+base_url = "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
+env_key = "BAILIAN_API_KEY"
+wire_api = "responses"
 ```
 
-再登录 `codex-multi-auth` 账号池。需要几个账号就重复几次 `login`：
+文件保存为 `/nas/ripple-data/codex-service-home/config.toml`，权限设为 `600`。
+密钥单独保存在仓库外：
 
 ```bash
-export CODEX_MULTI_AUTH_DIR=/nas/ripple-data/codex-multi-auth
-
-codex-multi-auth login --device-auth
-codex-multi-auth login --device-auth
-codex-multi-auth list
-codex-multi-auth status
-codex-multi-auth check
-codex-multi-auth forecast --live
-```
-
-常用账号管理命令：
-
-```bash
-CODEX_MULTI_AUTH_DIR=/nas/ripple-data/codex-multi-auth codex-multi-auth list
-CODEX_MULTI_AUTH_DIR=/nas/ripple-data/codex-multi-auth codex-multi-auth switch 2
-CODEX_MULTI_AUTH_DIR=/nas/ripple-data/codex-multi-auth codex-multi-auth unpin
-CODEX_MULTI_AUTH_DIR=/nas/ripple-data/codex-multi-auth codex-multi-auth best --live
-CODEX_MULTI_AUTH_DIR=/nas/ripple-data/codex-multi-auth codex-multi-auth rotation status
-CODEX_MULTI_AUTH_DIR=/nas/ripple-data/codex-multi-auth codex-multi-auth report --live --json
+install -d -m 700 /root/.config/ripple
+install -m 600 /dev/null /root/.config/ripple/bailian-token-plan.env
+# 写入 BAILIAN_API_KEY=<百炼 Token Plan key>
 ```
 
 ### 配置 settings.yaml
@@ -606,20 +586,10 @@ CODEX_MULTI_AUTH_DIR=/nas/ripple-data/codex-multi-auth codex-multi-auth report -
 external_agents:
   codex:
     enabled: true
-    codex_executable: "/usr/bin/env"
-    app_server_args:
-      - "CODEX_MULTI_AUTH_DIR=/nas/ripple-data/codex-multi-auth"
-      - "CODEX_MULTI_AUTH_RUNTIME_ROTATION_PROXY=1"
-      - "CODEX_MULTI_AUTH_SYNC_CODEX_CLI=0"
-      - "CODEX_MULTI_AUTH_AUTO_SYNC_ON_STARTUP=0"
-      - "CODEX_AUTH_PER_PROJECT_ACCOUNTS=0"
-      - "CODEX_MULTI_AUTH_APP_BIND_INSTALL=0"
-      - "CODEX_MULTI_AUTH_APP_LAUNCHER_INSTALL=0"
-      - "CODEX_MULTI_AUTH_REAL_CODEX_BIN=/usr/bin/codex-real-0.142.5"
-      - "codex-multi-auth-codex"
-      - "app-server"
-      - "--listen"
-      - "stdio://"
+    codex_executable: "/usr/local/bin/codex"
+    app_server_args: ["app-server", "--listen", "stdio://"]
+    provider_env_keys: ["BAILIAN_API_KEY"]
+    requires_service_auth: false
     codex_home: "/nas/ripple-data/codex-service-home"
     approval_policy:
       granular:
@@ -663,23 +633,13 @@ server:
 
 关键点：
 
-- `codex_executable` 用 `/usr/bin/env`，因为需要在 argv 里注入 `CODEX_MULTI_AUTH_*` 环境变量。
-- `CODEX_MULTI_AUTH_RUNTIME_ROTATION_PROXY=1` 打开 runtime Responses proxy。
-- `CODEX_MULTI_AUTH_REAL_CODEX_BIN` 必须指向真实 official Codex CLI，不要指回 `codex-multi-auth-codex`。
-- `codex_home` 指向服务端专用 Codex home。
-- `CODEX_MULTI_AUTH_SYNC_CODEX_CLI=0` 和 `CODEX_MULTI_AUTH_AUTO_SYNC_ON_STARTUP=0` 用来避免启动时改写全局 Codex CLI 状态。
-- `CODEX_AUTH_PER_PROJECT_ACCOUNTS=0` 保持服务端统一账号池，不按项目拆账号池。
+- `codex_executable` 使用 official Codex CLI 的稳定绝对路径。
+- `codex_home` 指向只包含百炼 provider 配置的服务端专用 Codex home。
+- `provider_env_keys` 只声明变量名；密钥值由服务管理器从 root-only 文件注入。
+- `requires_service_auth: false` 禁止继续依赖 OpenAI `auth.json`。
 - `server.security.deployment_mode` 保持 `trusted-proxy`，由上游注入可信 `X-Ripple-User-Id`。
 - `server.user_auth.enabled` 生产保持 `false`。轻量邀请码登录只用于开发/内测。
 - `server.cors.allowed_origins` 生产只填明确 origin，不使用 `allow_any_origin`。
-
-如果想使用耗尽一个账号再切下一个的策略，可以在 `app_server_args` 里增加：
-
-```yaml
-      - "CODEX_AUTH_SCHEDULING_STRATEGY=sequential"
-```
-
-默认不加时使用 `codex-multi-auth` 的 `hybrid` 策略：综合账号健康、quota、session affinity、冷却时间和最近切换情况自动选择。
 
 ### 运行边界
 
@@ -749,6 +709,7 @@ Type=simple
 WorkingDirectory=/opt/ripple
 Environment=RIPPLE_CONFIG=/opt/ripple/config/settings.yaml
 Environment=RUST_LOG=info
+EnvironmentFile=/root/.config/ripple/bailian-token-plan.env
 ExecStart=/opt/ripple/ripple-server
 Restart=always
 RestartSec=3
@@ -772,8 +733,6 @@ command -v node
 command -v npm
 command -v soffice
 command -v codex
-command -v codex-multi-auth
-command -v codex-multi-auth-codex
 ```
 
 版本和 sandbox probe：
@@ -783,8 +742,6 @@ node --version
 npm --version
 uv --version
 codex --version
-codex-multi-auth --version
-codex-multi-auth-codex --version
 nsjail -Q -Mo --chroot / -- /bin/true
 bwrap --ro-bind / / --proc /proc --dev /dev --unshare-user --unshare-pid -- /bin/true
 ```
@@ -802,11 +759,11 @@ cd /opt/ripple
 ./ripple-server doctor --config /opt/ripple/config/settings.yaml
 ```
 
-触发一次 Codex 请求后，验证 multi-auth 进程链：
+触发一次 Codex 请求后，验证进程链：
 
 ```bash
 ps -eo pid,ppid,cmd \
-  | grep -E 'ripple-server|codex-multi-auth-codex|codex-real|app-server' \
+  | grep -E 'ripple-server|codex.*app-server' \
   | grep -v grep
 ```
 
@@ -814,30 +771,22 @@ ps -eo pid,ppid,cmd \
 
 ```text
 ripple-server
-node /usr/bin/codex-multi-auth-codex app-server --listen stdio:// ...
-/usr/bin/codex-real-0.142.5 app-server --listen stdio:// ... -c model_provider="codex-multi-auth-runtime-proxy"
+/usr/local/bin/codex app-server --listen stdio:// ...
 ```
 
-检查 runtime 文件：
+检查 provider 配置和 per-user runtime 链接：
 
 ```bash
-find /nas/ripple-data/codex-multi-auth -maxdepth 2 -type f | sort
-find /nas/ripple-data/codex-runtime/users -maxdepth 4 -name auth.json -printf '%p -> %l\n'
+grep -E '^(model|model_provider|base_url|env_key|wire_api)' \
+  /nas/ripple-data/codex-service-home/config.toml
+find /nas/ripple-data/codex-runtime/users -maxdepth 4 -name config.toml -printf '%p -> %l\n'
 ```
 
 期望：
 
-- `/nas/ripple-data/codex-multi-auth/openai-codex-accounts.json` 存在。
-- `/nas/ripple-data/codex-multi-auth/quota-cache.json`、`runtime-observability.json` 或 `usage/usage-ledger.jsonl` 在请求后有更新。
-- user runtime 下的 `codex-home/auth.json` 指向 `/nas/ripple-data/codex-service-home/auth.json`。
-
-账号池状态：
-
-```bash
-CODEX_MULTI_AUTH_DIR=/nas/ripple-data/codex-multi-auth codex-multi-auth status
-CODEX_MULTI_AUTH_DIR=/nas/ripple-data/codex-multi-auth codex-multi-auth rotation status
-CODEX_MULTI_AUTH_DIR=/nas/ripple-data/codex-multi-auth codex-multi-auth why-selected --json
-```
+- provider 是 `Model_Studio_Token_Plan`，endpoint 指向阿里百炼 Token Plan。
+- `env_key` 是 `BAILIAN_API_KEY`，配置文件内没有真实密钥。
+- user runtime 下的 `codex-home/config.toml` 指向服务端 provider 配置。
 
 如果前端从公网访问后端，需要确认：
 
@@ -966,45 +915,31 @@ Doctor 会检查 SQLite、目录权限、Codex executable、`bwrap` / Codex Linu
 Ripple 请求超时但 `/health` 正常时，优先检查 worker 启动链：
 
 ```bash
-ps -eo pid,ppid,cmd | grep -E 'codex-multi-auth-codex|codex-real|app-server' | grep -v grep
+ps -eo pid,ppid,cmd | grep -E 'codex.*app-server' | grep -v grep
 journalctl -u ripple-server -n 200 --no-pager
 ```
 
 常见原因：
 
-- `CODEX_MULTI_AUTH_REAL_CODEX_BIN` 指向不存在的路径。
-- `codex-multi-auth-codex` 不在服务进程 `PATH` 里。
+- `external_agents.codex.codex_executable` 指向不存在的路径。
 - `app_server_args` 里出现空字符串或顺序错误。
-- 服务端 `codex_home/auth.json` 不存在。
+- 服务进程没有加载 `BAILIAN_API_KEY`，或 provider 的 `env_key` 名称不一致。
+- 服务端 `codex_home/config.toml` 没有声明百炼 provider。
 - `bwrap` 或 user namespace probe 失败。
 
-账号池为空时，确认所有命令都带同一个 `CODEX_MULTI_AUTH_DIR`：
+只检查密钥是否存在，不要把密钥值输出到日志：
 
 ```bash
-CODEX_MULTI_AUTH_DIR=/nas/ripple-data/codex-multi-auth codex-multi-auth list
-CODEX_MULTI_AUTH_DIR=/nas/ripple-data/codex-multi-auth codex-multi-auth login --device-auth
-```
-
-账号被 pin 住、不自动切换时：
-
-```bash
-CODEX_MULTI_AUTH_DIR=/nas/ripple-data/codex-multi-auth codex-multi-auth status
-CODEX_MULTI_AUTH_DIR=/nas/ripple-data/codex-multi-auth codex-multi-auth unpin
-```
-
-所有账号都不可用时：
-
-```bash
-CODEX_MULTI_AUTH_DIR=/nas/ripple-data/codex-multi-auth codex-multi-auth report --live
-CODEX_MULTI_AUTH_DIR=/nas/ripple-data/codex-multi-auth codex-multi-auth check
-CODEX_MULTI_AUTH_DIR=/nas/ripple-data/codex-multi-auth codex-multi-auth verify-flagged
+set -a
+. /root/.config/ripple/bailian-token-plan.env
+set +a
+test -n "$BAILIAN_API_KEY"
 ```
 
 修改配置后没有生效时，重启 Ripple Server。必要时在维护窗口确认旧 worker 已退出：
 
 ```bash
-pkill -f 'codex-multi-auth-codex app-server' || true
-pkill -f 'codex-real-.* app-server' || true
+pkill -f '/usr/local/bin/codex app-server' || true
 ```
 
 ### 换机器迁移
@@ -1021,15 +956,14 @@ rsync -aH --numeric-ids /opt/ripple/ new-host:/opt/ripple/
 
 ```bash
 npm install -g @openai/codex
-npm install -g codex-multi-auth@2.3.3
-ln -sf "$(readlink -f "$(which codex)")" /usr/bin/codex-real-0.142.5
 
 cd /opt/ripple
 ln -sfn /nas/ripple-data/ripple-runtime .ripple
 RIPPLE_CONFIG=/opt/ripple/config/settings.yaml ./ripple-server
 ```
 
-如果没有迁移 `/nas/ripple-data/codex-service-home/auth.json` 或 `/nas/ripple-data/codex-multi-auth/openai-codex-accounts.json`，需要重新执行上面的服务端 Codex 登录和 `codex-multi-auth login --device-auth`。
+密钥文件位于仓库和 NAS 数据目录之外，需要通过单独的密钥管理流程迁移到
+`/root/.config/ripple/bailian-token-plan.env` 并保持 `600` 权限。不要把它放入 rsync 的普通发布包。
 
 ## 后端验证命令
 

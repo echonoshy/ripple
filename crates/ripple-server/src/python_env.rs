@@ -9,13 +9,19 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::config::AppConfig;
 
 const LOCK_TIMEOUT: Duration = Duration::from_secs(300);
+const SHARED_FILE_PARSER_REQUIREMENTS: &[&str] = &[
+    "openpyxl==3.1.5",
+    "pypdf==5.0.0",
+    "python-docx==1.1.2",
+    "python-pptx==1.0.2",
+];
 
 #[derive(Clone, Debug)]
 pub struct PythonEnvRequest {
@@ -73,20 +79,82 @@ impl PythonEnvKeyInput {
 #[derive(Clone, Debug)]
 pub struct PythonEnvManager {
     config: Arc<AppConfig>,
+    python_executable: PathBuf,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct PythonEnvInfo {
     pub env_key: String,
     pub env_path: PathBuf,
+    pub base_python_executable: PathBuf,
     pub python_executable: PathBuf,
     pub lock_path: PathBuf,
     pub requirements: Vec<String>,
 }
 
+pub fn ensure_shared_file_parser_env(config: Arc<AppConfig>) -> Result<PythonEnvInfo> {
+    let marker_path = config
+        .sandbox
+        .caches_root
+        .join("python-env-locks/shared-file-parser-v1.json");
+    if let Ok(text) = fs::read_to_string(&marker_path) {
+        if let Ok(info) = serde_json::from_str::<PythonEnvInfo>(&text) {
+            if valid_shared_file_parser_env(&config, &info) {
+                return Ok(info);
+            }
+        }
+    }
+
+    let request = PythonEnvRequest::new(
+        SHARED_FILE_PARSER_REQUIREMENTS
+            .iter()
+            .map(|value| (*value).to_string())
+            .collect(),
+        config.sandbox.python_env_max_packages,
+    )?;
+    let shared_python = PathBuf::from("/usr/bin/python3");
+    if !is_executable_file(&shared_python) {
+        anyhow::bail!(
+            "shared-file parser requires an executable system Python at {}",
+            shared_python.display()
+        );
+    }
+    let info = PythonEnvManager::with_python(config.clone(), shared_python).ensure(&request)?;
+    if let Some(parent) = marker_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let tmp_path = marker_path.with_extension(format!("{}.tmp", Uuid::new_v4().simple()));
+    fs::write(&tmp_path, serde_json::to_vec_pretty(&info)?)?;
+    fs::rename(&tmp_path, &marker_path)?;
+    set_file_readonly(&marker_path)?;
+    Ok(info)
+}
+
+fn valid_shared_file_parser_env(config: &AppConfig, info: &PythonEnvInfo) -> bool {
+    info.requirements
+        == SHARED_FILE_PARSER_REQUIREMENTS
+            .iter()
+            .map(|value| (*value).to_string())
+            .collect::<Vec<_>>()
+        && info.env_path.starts_with(&config.sandbox.python_envs_root)
+        && info.base_python_executable == Path::new("/usr/bin/python3")
+        && info.python_executable == info.env_path.join("bin/python")
+        && info.python_executable.is_file()
+        && fs::canonicalize(&info.python_executable).ok()
+            == fs::canonicalize(&info.base_python_executable).ok()
+        && info.lock_path.is_file()
+}
+
 impl PythonEnvManager {
     pub fn new(config: Arc<AppConfig>) -> Self {
-        Self { config }
+        Self::with_python(config, host_python3_executable())
+    }
+
+    fn with_python(config: Arc<AppConfig>, python_executable: PathBuf) -> Self {
+        Self {
+            config,
+            python_executable,
+        }
     }
 
     pub fn ensure(&self, request: &PythonEnvRequest) -> Result<PythonEnvInfo> {
@@ -94,7 +162,7 @@ impl PythonEnvManager {
         fs::create_dir_all(self.lock_root())?;
         fs::create_dir_all(&self.config.sandbox.python_env_uv_cache)?;
 
-        let python_tag = python_tag()?;
+        let python_tag = python_tag(&self.python_executable)?;
         let lock_content = self.compile_lock(request, &python_tag)?;
         let key_input = PythonEnvKeyInput {
             python_tag,
@@ -113,6 +181,7 @@ impl PythonEnvManager {
             return Ok(PythonEnvInfo {
                 env_key,
                 env_path,
+                base_python_executable: self.python_executable.clone(),
                 python_executable,
                 lock_path,
                 requirements: request.requirements.clone(),
@@ -124,6 +193,7 @@ impl PythonEnvManager {
             return Ok(PythonEnvInfo {
                 env_key,
                 env_path,
+                base_python_executable: self.python_executable.clone(),
                 python_executable,
                 lock_path,
                 requirements: request.requirements.clone(),
@@ -136,6 +206,7 @@ impl PythonEnvManager {
         Ok(PythonEnvInfo {
             env_key,
             env_path,
+            base_python_executable: self.python_executable.clone(),
             python_executable,
             lock_path,
             requirements: request.requirements.clone(),
@@ -168,13 +239,12 @@ impl PythonEnvManager {
             .arg("--output-file")
             .arg(&output_path)
             .arg("--generate-hashes")
-            .arg("--no-build")
             .arg("--only-binary")
             .arg(":all:")
             .arg("--cache-dir")
             .arg(&self.config.sandbox.python_env_uv_cache)
             .arg("--python")
-            .arg(host_python3_executable())
+            .arg(&self.python_executable)
             .output()
             .context("failed to run uv pip compile")?;
         if !output.status.success() {
@@ -201,7 +271,7 @@ impl PythonEnvManager {
             .uv_command()
             .arg("venv")
             .arg("--python")
-            .arg(host_python3_executable())
+            .arg(&self.python_executable)
             .arg(&tmp_env)
             .output()
             .context("failed to run uv venv")?;
@@ -221,7 +291,6 @@ impl PythonEnvManager {
             .arg("--python")
             .arg(&python)
             .arg(lock_path)
-            .arg("--no-build")
             .arg("--only-binary")
             .arg(":all:")
             .arg("--cache-dir")
@@ -502,11 +571,11 @@ fn canonical_lock_content(lock_content: &str) -> String {
         .join("\n")
 }
 
-fn python_tag() -> Result<String> {
-    let output = Command::new(host_python3_executable())
+fn python_tag(python_executable: &Path) -> Result<String> {
+    let output = Command::new(python_executable)
         .arg("-c")
         .arg(
-            "import sys, sysconfig; print(f\"{sys.implementation.name}-{sys.version_info.major}.{sys.version_info.minor}-{sysconfig.get_config_var('SOABI') or 'abi'}-{sysconfig.get_platform()}\")",
+            "import os, sys, sysconfig; print(f\"{sys.implementation.name}-{sys.version_info.major}.{sys.version_info.minor}-{sysconfig.get_config_var('SOABI') or 'abi'}-{sysconfig.get_platform()}-{os.path.realpath(sys.executable)}\")",
         )
         .output()
         .context("failed to inspect python3")?;

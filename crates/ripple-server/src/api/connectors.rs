@@ -31,6 +31,7 @@ pub(crate) use feishu::{
     cancel_setup as cancel_feishu_setup, invoke_for_agent as invoke_feishu_for_agent,
     missing_user_scopes_from_cli_result,
 };
+pub(crate) use google_workspace::invoke_for_agent as invoke_google_workspace_for_agent;
 
 /// Internal task-level authorization intent for Feishu. This is deliberately
 /// not part of the HTTP or model authorization protocol.
@@ -124,7 +125,6 @@ pub(crate) async fn connector_status_value(
     connector_name: &str,
 ) -> Result<Value, ApiError> {
     ensure_connector_enabled(state, connector_name)?;
-    let workspace = state.sandboxes.workspace_dir(user_id)?;
     let credentials = state.sandboxes.credentials_dir(user_id)?;
     let mut status = match connector_name {
         "notion" => {
@@ -133,7 +133,7 @@ pub(crate) async fn connector_status_value(
             json!({"name": connector_name, "connected": connected, "required": !connected, "detail": if connected {"Notion token is stored for this user."} else {"Notion token is missing for this user."}, "metadata": {}})
         }
         "google_workspace" => {
-            let has_keyring = workspace.join(".config/gogcli/keyring").exists();
+            let has_keyring = state.sandboxes.gogcli_keyring_dir(user_id)?.exists();
             let accounts = if has_keyring {
                 if let Some(gog) = google_workspace::gog_binary(state) {
                     google_workspace::list_accounts(state, user_id, &gog, true, 30)
@@ -239,6 +239,7 @@ pub async fn connector_auth_start(
         &connector_name,
         &payload,
         request_base_url_from_headers(&headers).as_deref(),
+        None,
     )
     .await?;
     clear_pending_auth_if_action_authorized(&state, &user_id, &connector_name, &result.0).await;
@@ -251,6 +252,7 @@ pub(crate) async fn connector_auth_start_action(
     connector_name: &str,
     payload: &Value,
     request_base_url: Option<&str>,
+    auth_context: Option<&ConnectorAuthContext>,
 ) -> Result<Json<Value>, ApiError> {
     connector_auth_start_action_for_feishu_authorization(
         state,
@@ -259,6 +261,7 @@ pub(crate) async fn connector_auth_start_action(
         payload,
         request_base_url,
         None,
+        auth_context,
     )
     .await
 }
@@ -270,12 +273,15 @@ pub(crate) async fn connector_auth_start_action_for_feishu_authorization(
     payload: &Value,
     request_base_url: Option<&str>,
     feishu_authorization: Option<&FeishuAuthorizationRequest>,
+    auth_context: Option<&ConnectorAuthContext>,
 ) -> Result<Json<Value>, ApiError> {
     ensure_connector_enabled(state, connector_name)?;
     state.sandboxes.ensure_sandbox(user_id)?;
     match connector_name {
         "notion" => notion_auth_start(state, user_id, payload).await,
-        "google_workspace" => google_workspace::auth_start(state, user_id, request_base_url).await,
+        "google_workspace" => {
+            google_workspace::auth_start(state, user_id, request_base_url, auth_context).await
+        }
         "bilibili" => bilibili_auth_start(state, user_id).await,
         "feishu" => match feishu_authorization {
             Some(FeishuAuthorizationRequest::ExplicitScopes(scopes)) => {
@@ -447,6 +453,12 @@ pub struct AccountsQuery {
     check: Option<bool>,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct ConnectorAuthContext {
+    pub(crate) session_id: String,
+    pub(crate) resume_mode: String,
+}
+
 #[utoipa::path(
     get,
     path = "/connectors/{connector_name}/accounts",
@@ -530,7 +542,9 @@ async fn cancel_connector_auth_state(
         .cancel_pending_connector_auth(user_id, connector_name)
         .await?;
     let runtime_cancelled = match connector_name {
-        "google_workspace" => google_workspace::clear_pending_oauth_for_user(state, user_id) > 0,
+        "google_workspace" => {
+            google_workspace::clear_pending_oauth_for_user(state, user_id).await? > 0
+        }
         "feishu" => cancel_feishu_setup(state, user_id).await,
         "bilibili" => release_pending_bilibili_qr(state, user_id).is_some(),
         "notion" => false,
@@ -1034,6 +1048,31 @@ fn now_epoch_seconds() -> u64 {
 }
 
 async fn codex_status(state: &AppState) -> Value {
+    if !state.config.codex.requires_service_auth {
+        let missing_keys = state
+            .config
+            .codex
+            .provider_env_keys
+            .iter()
+            .filter(|key| std::env::var_os(key).map_or(true, |value| value.is_empty()))
+            .cloned()
+            .collect::<Vec<_>>();
+        let connected = missing_keys.is_empty();
+        return json!({
+            "name": "openai_codex",
+            "connected": connected,
+            "required": !connected,
+            "detail": if connected {
+                "Codex custom provider credentials are configured."
+            } else {
+                "Codex custom provider credentials are missing."
+            },
+            "metadata": {
+                "auth_source": "provider_env",
+                "missing_env_keys": missing_keys
+            }
+        });
+    }
     let mut command = tokio::process::Command::new(&state.config.codex.codex_executable);
     command.args(["login", "status"]);
     command.env("CODEX_HOME", state.config.codex_home_path());

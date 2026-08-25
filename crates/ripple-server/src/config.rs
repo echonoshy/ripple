@@ -1,5 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use serde::Deserialize;
 use serde_json::{json, Value as JsonValue};
@@ -61,6 +61,7 @@ pub struct LoggingConfig {
 #[derive(Clone, Debug)]
 pub struct StorageConfig {
     pub sqlite_max_connections: u32,
+    pub shared_folders_root: PathBuf,
 }
 
 #[derive(Clone, Debug)]
@@ -142,6 +143,7 @@ pub struct SandboxConfig {
     pub lark_cli_install_root: Option<PathBuf>,
     pub notion_cli_install_root: Option<PathBuf>,
     pub gogcli_cli_install_root: Option<PathBuf>,
+    pub gogcli_data_subdir: PathBuf,
     pub cli_tools: Vec<CliToolConfig>,
     pub pypi_mirror_url: Option<String>,
     pub npm_registry_url: Option<String>,
@@ -160,6 +162,17 @@ pub struct CodexConfig {
     pub enabled: bool,
     pub codex_executable: String,
     pub app_server_args: Vec<String>,
+    /// Whether workers use the service Codex `auth.json`.
+    ///
+    /// Keep enabled for ChatGPT/OpenAI-backed Codex sessions. Custom providers
+    /// that authenticate through `provider_env_keys` can disable it.
+    pub requires_service_auth: bool,
+    /// Environment variable names required by the configured model provider.
+    ///
+    /// Values are inherited by the trusted Codex app-server process and are
+    /// excluded from model-facing shell commands by the managed permissions
+    /// profile.
+    pub provider_env_keys: Vec<String>,
     pub codex_home: Option<PathBuf>,
     /// Optional local root for Codex app-server's per-user SQLite state.
     ///
@@ -331,6 +344,7 @@ struct RawDocumentPreview {
 #[derive(Debug, Default, Deserialize)]
 struct RawStorage {
     sqlite_max_connections: Option<u32>,
+    shared_folders_root: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -351,6 +365,7 @@ struct RawSandbox {
     lark_cli_install_root: Option<String>,
     notion_cli_install_root: Option<String>,
     gogcli_cli_install_root: Option<String>,
+    gogcli_data_subdir: Option<String>,
     cli_tools: Option<Vec<RawCliTool>>,
     pypi_mirror_url: Option<String>,
     npm_registry_url: Option<String>,
@@ -387,6 +402,8 @@ struct RawCodex {
     enabled: Option<bool>,
     codex_executable: Option<String>,
     app_server_args: Option<Vec<String>>,
+    requires_service_auth: Option<bool>,
+    provider_env_keys: Option<Vec<String>>,
     codex_home: Option<String>,
     sqlite_root: Option<String>,
     approval_policy: Option<serde_yaml::Value>,
@@ -552,6 +569,12 @@ impl AppConfig {
         } else {
             None
         };
+        let gogcli_data_subdir = parse_gogcli_data_subdir(
+            sandbox
+                .gogcli_data_subdir
+                .as_deref()
+                .unwrap_or(".config/gogcli"),
+        )?;
 
         let config = Self {
             repo_root: repo_root.clone(),
@@ -603,6 +626,11 @@ impl AppConfig {
                     .sqlite_max_connections
                     .unwrap_or(DEFAULT_SQLITE_MAX_CONNECTIONS)
                     .max(1),
+                shared_folders_root: storage
+                    .shared_folders_root
+                    .as_deref()
+                    .map(|value| resolve_path(&repo_root, value))
+                    .unwrap_or_else(|| repo_root.join(".ripple/shared-folders")),
             },
             sandbox: SandboxConfig {
                 sandboxes_root: sandbox_sandboxes_root,
@@ -627,6 +655,7 @@ impl AppConfig {
                 lark_cli_install_root,
                 notion_cli_install_root,
                 gogcli_cli_install_root,
+                gogcli_data_subdir,
                 cli_tools: parse_cli_tools(&repo_root, sandbox.cli_tools)?,
                 pypi_mirror_url: sandbox.pypi_mirror_url,
                 npm_registry_url: sandbox.npm_registry_url,
@@ -643,6 +672,8 @@ impl AppConfig {
                         "stdio://".to_string(),
                     ]
                 }),
+                requires_service_auth: codex_raw.requires_service_auth.unwrap_or(true),
+                provider_env_keys: parse_provider_env_keys(codex_raw.provider_env_keys)?,
                 codex_home: Some(
                     clean_config_string(codex_raw.codex_home.as_deref())
                         .map(|value| resolve_path(&repo_root, &value))
@@ -823,6 +854,37 @@ fn validate_runtime_config(config: &AppConfig) -> anyhow::Result<()> {
         );
     }
     Ok(())
+}
+
+fn parse_provider_env_keys(raw: Option<Vec<String>>) -> anyhow::Result<Vec<String>> {
+    const RESERVED: &[&str] = &["CODEX_HOME", "HOME", "PATH", "SHELL", "USER"];
+
+    let mut seen = BTreeSet::new();
+    let mut keys = Vec::new();
+    for (index, value) in raw.unwrap_or_default().into_iter().enumerate() {
+        let key = value.trim();
+        let valid =
+            key.as_bytes()
+                .first()
+                .is_some_and(|byte| byte.is_ascii_uppercase() || *byte == b'_')
+                && key.as_bytes().iter().all(|byte| {
+                    byte.is_ascii_uppercase() || byte.is_ascii_digit() || *byte == b'_'
+                });
+        if !valid {
+            anyhow::bail!(
+                "external_agents.codex.provider_env_keys[{index}] must match [A-Z_][A-Z0-9_]*"
+            );
+        }
+        if RESERVED.contains(&key) {
+            anyhow::bail!(
+                "external_agents.codex.provider_env_keys[{index}] cannot override reserved environment variable {key}"
+            );
+        }
+        if seen.insert(key.to_string()) {
+            keys.push(key.to_string());
+        }
+    }
+    Ok(keys)
 }
 
 pub fn default_codex_approval_policy() -> JsonValue {
@@ -1037,6 +1099,21 @@ fn clean_config_string(value: Option<&str>) -> Option<String> {
         .map(str::to_string)
 }
 
+fn parse_gogcli_data_subdir(value: &str) -> anyhow::Result<PathBuf> {
+    let path = PathBuf::from(value.trim());
+    if path.as_os_str().is_empty()
+        || path.is_absolute()
+        || path
+            .components()
+            .any(|component| !matches!(component, Component::Normal(_)))
+        || !path.starts_with(".config")
+        || path == Path::new(".config")
+    {
+        anyhow::bail!("sandbox.gogcli_data_subdir must be a relative child path below .config");
+    }
+    Ok(path)
+}
+
 fn parse_model_presets(
     raw: BTreeMap<String, BTreeMap<String, serde_yaml::Value>>,
 ) -> BTreeMap<String, ModelPreset> {
@@ -1211,6 +1288,35 @@ mod tests {
         .expect("load config");
 
         assert!(!config.skills.auto_select_record_artifact_synthesis);
+    }
+
+    #[test]
+    fn parses_and_deduplicates_provider_env_keys() {
+        let config = with_temp_config(
+            "provider-env-keys",
+            "external_agents:\n  codex:\n    requires_service_auth: false\n    provider_env_keys: [BAILIAN_API_KEY, BAILIAN_API_KEY]\nserver:\n  api_keys: [test-key]\n",
+            AppConfig::load,
+        )
+        .expect("load config");
+
+        assert!(!config.codex.requires_service_auth);
+        assert_eq!(config.codex.provider_env_keys, vec!["BAILIAN_API_KEY"]);
+    }
+
+    #[test]
+    fn rejects_invalid_or_reserved_provider_env_keys() {
+        for (name, key) in [("invalid", "bailian-api-key"), ("reserved", "CODEX_HOME")] {
+            let error = with_temp_config(
+                name,
+                &format!(
+                    "external_agents:\n  codex:\n    provider_env_keys: [{key}]\nserver:\n  api_keys: [test-key]\n"
+                ),
+                AppConfig::load,
+            )
+            .expect_err("invalid provider environment key should fail");
+
+            assert!(error.to_string().contains("provider_env_keys[0]"));
+        }
     }
 
     #[test]
@@ -1735,6 +1841,46 @@ server:
     }
 
     #[test]
+    fn parses_gogcli_data_subdir() {
+        let config = with_temp_config(
+            "gogcli-data-subdir",
+            r#"
+server:
+  api_keys: ["test-key"]
+  sandbox:
+    gogcli_data_subdir: ".config/google-workspace"
+"#,
+            AppConfig::load,
+        )
+        .expect("load config");
+
+        assert_eq!(
+            config.sandbox.gogcli_data_subdir,
+            std::path::PathBuf::from(".config/google-workspace")
+        );
+    }
+
+    #[test]
+    fn rejects_unsafe_gogcli_data_subdir() {
+        for value in ["/tmp/gogcli", "../gogcli", ".local/share/gogcli", ".config"] {
+            let result = with_temp_config(
+                "unsafe-gogcli-data-subdir",
+                &format!(
+                    "server:\n  api_keys: [test-key]\n  sandbox:\n    gogcli_data_subdir: {value:?}\n"
+                ),
+                AppConfig::load,
+            );
+            let error = result.expect_err("unsafe gogcli data subdir must fail");
+            assert!(
+                error.to_string().contains(
+                    "sandbox.gogcli_data_subdir must be a relative child path below .config"
+                ),
+                "unexpected error for {value}: {error}"
+            );
+        }
+    }
+
+    #[test]
     fn parses_codex_worker_pool_limits() {
         let config = with_temp_config(
             "codex-worker-limits",
@@ -1790,6 +1936,26 @@ server:
         .expect("load config");
 
         assert_eq!(config.storage.sqlite_max_connections, 50);
+    }
+
+    #[test]
+    fn parses_shared_folders_root_relative_to_repo() {
+        let config = with_temp_config(
+            "shared-folders-root",
+            r#"
+server:
+  api_keys: ["test-key"]
+  storage:
+    shared_folders_root: "data/shared-folders"
+"#,
+            AppConfig::load,
+        )
+        .expect("load config");
+
+        assert_eq!(
+            config.storage.shared_folders_root,
+            config.repo_root.join("data/shared-folders")
+        );
     }
 
     #[test]

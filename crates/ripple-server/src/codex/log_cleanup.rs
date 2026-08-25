@@ -465,6 +465,7 @@ INSERT INTO logs (
             },
             storage: crate::config::StorageConfig {
                 sqlite_max_connections: 50,
+                shared_folders_root: std::path::PathBuf::from(".ripple/shared-folders"),
             },
             sandbox: SandboxConfig {
                 sandboxes_root: root.join(".ripple/sandboxes"),
@@ -483,6 +484,7 @@ INSERT INTO logs (
                 lark_cli_install_root: None,
                 notion_cli_install_root: None,
                 gogcli_cli_install_root: None,
+                gogcli_data_subdir: std::path::PathBuf::from(".config/gogcli"),
                 cli_tools: Vec::new(),
                 pypi_mirror_url: None,
                 npm_registry_url: None,
@@ -495,6 +497,8 @@ INSERT INTO logs (
                     "--listen".to_string(),
                     "stdio://".to_string(),
                 ],
+                requires_service_auth: true,
+                provider_env_keys: Vec::new(),
                 codex_home: Some(root.join(".ripple/codex-service-home")),
                 sqlite_root: None,
                 approval_policy: serde_json::json!("never"),

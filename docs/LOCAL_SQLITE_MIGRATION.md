@@ -16,7 +16,6 @@
   sandboxes/                        # workspace、credentials、agent-runs
   sandboxes-cache/                  # 可重建缓存，不备份
   codex-service-home/               # 服务 Codex auth；恢复时重新登录
-  codex-multi-auth/                 # 服务认证状态，按密钥策略单独保护
   backups/                          # 本地 SQLite 的逻辑备份目标
 ```
 

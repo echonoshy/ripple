@@ -20,11 +20,14 @@ mod protocol;
 mod runtime_env;
 mod types;
 
-use crate::api::connectors::{invoke_feishu_for_agent, missing_user_scopes_from_cli_result};
+use crate::api::connectors::{
+    invoke_feishu_for_agent, invoke_google_workspace_for_agent, missing_user_scopes_from_cli_result,
+};
 use crate::api::tasks::persist_task_update;
 use crate::codex::approvals::{approval_response_for_action, CodexApproval};
 use crate::codex::permissions::{
-    thread_permission_config_for_user, RIPPLE_CODEX_PERMISSION_PROFILE,
+    thread_permission_config_for_shared_folder, thread_permission_config_for_user,
+    RIPPLE_CODEX_PERMISSION_PROFILE,
 };
 use crate::config::AppConfig;
 use crate::mail_render::{render_mail, MailPrepareInput};
@@ -43,8 +46,9 @@ use protocol::{
 };
 use runtime_env::{
     codex_home_for_user, codex_runtime_home_for_user, codex_sqlite_home_for_user,
-    connector_credential_env, hardened_app_server_args, inherit_env_allowlist, node_runtime_paths,
-    read_json_string_field, requires_service_codex_auth, runtime_path, INHERITED_NETWORK_ENV,
+    connector_credential_env, hardened_app_server_args, inherit_env_allowlist,
+    inherit_required_env, node_runtime_paths, read_json_string_field, requires_service_codex_auth,
+    runtime_path, INHERITED_NETWORK_ENV,
 };
 pub use types::{AgentRunnerRequest, AgentRunnerResult, AgentRunnerStatus};
 
@@ -322,11 +326,10 @@ impl CodexAppServerSession {
         ensure_ripple_py_wrapper(&self.config)?;
         crate::runtime_checks::ensure_codex_linux_sandbox_prerequisites(&self.config).await?;
         let sandbox_manager = SandboxManager::new(self.config.clone());
-        if sandbox_manager.service_codex_auth_file().exists()
-            || requires_service_codex_auth(&self.config)
-        {
-            sandbox_manager.ensure_user_codex_home_auth_link(&self.user_key)?;
-        }
+        let link_service_auth = (self.config.codex.requires_service_auth
+            && sandbox_manager.service_codex_auth_file().exists())
+            || requires_service_codex_auth(&self.config);
+        sandbox_manager.ensure_user_codex_home_links(&self.user_key, link_service_auth)?;
         let codex_home = codex_home_for_user(&self.config, &self.user_key)?;
         let runtime_home = codex_runtime_home_for_user(&self.config, &self.user_key)?;
         let sqlite_home = codex_sqlite_home_for_user(&self.config, &self.user_key)?;
@@ -339,6 +342,7 @@ impl CodexAppServerSession {
         command.kill_on_drop(true);
         command.env_clear();
         inherit_env_allowlist(&mut command, INHERITED_NETWORK_ENV);
+        inherit_required_env(&mut command, &self.config.codex.provider_env_keys)?;
         let app_server_args = hardened_app_server_args(&self.config.codex.app_server_args);
         command
             .args(&app_server_args)
@@ -434,6 +438,10 @@ impl CodexAppServerSession {
             command.env(key, value);
         }
         if self.config.sandbox.gogcli_cli_install_root.is_some() {
+            command.env(
+                "GOG_DATA_DIR",
+                self.cwd.join(&self.config.sandbox.gogcli_data_subdir),
+            );
             command.env("GOG_KEYRING_BACKEND", "file");
             let pass_file = credentials_dir.join("gogcli-keyring.pass");
             if let Ok(password) = tokio::fs::read_to_string(pass_file).await {
@@ -950,7 +958,8 @@ impl CodexAppServerProvider {
                     Err(err) => {
                         let stderr_tail = session.stderr_tail_since(stderr_start).await;
                         let combined_error = format!("{err}\n{stderr_tail}");
-                        if !service_auth_refresh_attempted
+                        if self.config.codex.requires_service_auth
+                            && !service_auth_refresh_attempted
                             && codex_error_needs_service_auth_refresh(&combined_error)
                         {
                             service_auth_refresh_attempted = true;
@@ -1139,7 +1148,7 @@ impl CodexAppServerProvider {
                 turn_start_params(
                     &thread_id,
                     request,
-                    &self.config.codex.approval_policy,
+                    approval_policy_for_request(request, &self.config.codex.approval_policy),
                     additional_context_epoch,
                 ),
             )
@@ -1407,6 +1416,34 @@ impl CodexAppServerProvider {
                 ),
                 Err(err) => (false, format!("{err:?}")),
             }
+        } else if namespace == "codex_app" && tool == "request_google_workspace_auth" {
+            let user_id = request.user_id.as_deref().unwrap_or("default");
+            if !self.config.connector_enabled("google_workspace") {
+                (
+                    false,
+                    "Google Workspace connector is not enabled".to_string(),
+                )
+            } else {
+                match persist_google_workspace_auth_request(
+                    &self.storage,
+                    user_id,
+                    request.session_id.as_deref(),
+                    request
+                        .metadata
+                        .get("chat_user_input")
+                        .and_then(Value::as_str),
+                    &arguments,
+                )
+                .await
+                {
+                    Ok(output) => (
+                        true,
+                        serde_json::to_string(&output)
+                            .unwrap_or_else(|_| "{\"ok\":true}".to_string()),
+                    ),
+                    Err(err) => (false, format!("{err:?}")),
+                }
+            }
         } else if namespace == "codex_app" && tool == "task_execution_confirmed" {
             if request
                 .metadata
@@ -1517,6 +1554,71 @@ impl CodexAppServerProvider {
                     }
                     Err(err) => (false, format!("{err:?}")),
                 }
+            }
+        } else if namespace == "codex_app" && tool == "google_workspace_cli" {
+            let user_id = request.user_id.as_deref().unwrap_or("default");
+            let args = dynamic_tool_string_args(&arguments, "google_workspace_cli");
+            match args {
+                Ok(args) => {
+                    if request
+                        .metadata
+                        .get("task_response")
+                        .and_then(Value::as_bool)
+                        == Some(true)
+                    {
+                        let confirmed = match request.session_id.as_deref() {
+                            Some(session_id) => self
+                                .storage
+                                .load_session(user_id, session_id)
+                                .await?
+                                .as_ref()
+                                .map(task_session_execution_is_confirmed)
+                                .unwrap_or(false),
+                            None => false,
+                        };
+                        if !confirmed {
+                            let output = json!({
+                                "ok": false,
+                                "code": "task_confirmation_required",
+                                "connector": "google_workspace",
+                                "message": "Confirm task execution before calling Google Workspace."
+                            });
+                            return_dynamic_tool_response(
+                                session,
+                                request_id,
+                                false,
+                                serde_json::to_string(&output)
+                                    .unwrap_or_else(|_| "{\"ok\":false}".to_string()),
+                            )
+                            .await?;
+                            return Ok(true);
+                        }
+                    }
+                    let sandboxes = SandboxManager::new(self.config.clone());
+                    match invoke_google_workspace_for_agent(
+                        &self.config,
+                        &sandboxes,
+                        user_id,
+                        &args,
+                    )
+                    .await
+                    {
+                        Ok(output) => {
+                            let success =
+                                output.get("ok").and_then(Value::as_bool).unwrap_or(false);
+                            (
+                                success,
+                                serde_json::to_string(&output)
+                                    .unwrap_or_else(|_| "{\"ok\":false}".to_string()),
+                            )
+                        }
+                        Err(err) => (false, format!("{err:?}")),
+                    }
+                }
+                Err(output) => (
+                    false,
+                    serde_json::to_string(&output).unwrap_or_else(|_| "{\"ok\":false}".to_string()),
+                ),
             }
         } else if namespace == "codex_app" && tool == "feishu_cli" {
             let user_id = request.user_id.as_deref().unwrap_or("default");
@@ -1740,7 +1842,7 @@ impl CodexAppServerProvider {
                 let mut resume_params = json!({
                     "threadId": thread_id,
                     "cwd": request.cwd,
-                    "approvalPolicy": self.config.codex.approval_policy.clone(),
+                    "approvalPolicy": approval_policy_for_request(request, &self.config.codex.approval_policy),
                     "config": permission_config,
                     "permissions": RIPPLE_CODEX_PERMISSION_PROFILE,
                     "excludeTurns": true
@@ -1764,7 +1866,7 @@ impl CodexAppServerProvider {
 
         let mut start_params = json!({
             "cwd": request.cwd,
-            "approvalPolicy": self.config.codex.approval_policy.clone(),
+            "approvalPolicy": approval_policy_for_request(request, &self.config.codex.approval_policy),
             "ephemeral": !persistent_thread,
             "serviceName": "ripple",
             "config": permission_config,
@@ -2554,14 +2656,77 @@ fn thread_config_for_request(
     request: &AgentRunnerRequest,
 ) -> Value {
     let user_id = request.user_id.as_deref().unwrap_or("default");
-    let mut thread_config =
-        thread_permission_config_for_user(user_id, workspace_root, permission_root, config);
+    let shared_folders_root = request
+        .metadata
+        .get("shared_folders_root")
+        .and_then(Value::as_str)
+        .map(Path::new);
+    let user_workspace_root = request
+        .metadata
+        .get("user_workspace_root")
+        .and_then(Value::as_str)
+        .map(Path::new);
+    let shared_folder_root = request
+        .metadata
+        .get("shared_folder_root")
+        .and_then(Value::as_str)
+        .map(Path::new);
+    let parser_env_root = request
+        .metadata
+        .get("shared_file_parser_env_root")
+        .and_then(Value::as_str)
+        .map(Path::new);
+    let parser_python = request
+        .metadata
+        .get("shared_file_parser_python")
+        .and_then(Value::as_str)
+        .map(Path::new);
+    let mut thread_config = match (
+        shared_folders_root,
+        user_workspace_root,
+        shared_folder_root,
+        parser_env_root,
+        parser_python,
+    ) {
+        (
+            Some(shared_folders_root),
+            Some(user_workspace_root),
+            Some(shared_folder_root),
+            Some(parser_env_root),
+            Some(parser_python),
+        ) => thread_permission_config_for_shared_folder(
+            user_id,
+            workspace_root,
+            user_workspace_root,
+            permission_root,
+            shared_folders_root,
+            shared_folder_root,
+            parser_env_root,
+            parser_python,
+            config,
+        ),
+        _ => thread_permission_config_for_user(user_id, workspace_root, permission_root, config),
+    };
     if let Some(object) = thread_config.as_object_mut() {
         if image_generation_enabled_for_request(request) {
             object.insert("features.image_generation".to_string(), json!(true));
         }
     }
     thread_config
+}
+
+fn approval_policy_for_request<'a>(request: &AgentRunnerRequest, default: &'a Value) -> &'a Value {
+    static NEVER: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    if request
+        .metadata
+        .get("shared_folder_response")
+        .and_then(Value::as_bool)
+        == Some(true)
+    {
+        NEVER.get_or_init(|| json!("never"))
+    } else {
+        default
+    }
 }
 
 fn add_base_instructions(params: &mut Value, request: &AgentRunnerRequest) {
@@ -2582,6 +2747,14 @@ fn add_base_instructions(params: &mut Value, request: &AgentRunnerRequest) {
 }
 
 fn add_task_dynamic_tools(params: &mut Value, request: &AgentRunnerRequest) {
+    if request
+        .metadata
+        .get("shared_folder_response")
+        .and_then(Value::as_bool)
+        == Some(true)
+    {
+        return;
+    }
     if request.session_id.is_none() || request.metadata.get("chat_user_input").is_none() {
         return;
     }
@@ -2606,6 +2779,20 @@ fn add_task_dynamic_tools(params: &mut Value, request: &AgentRunnerRequest) {
                 "name": "feishu_cli",
                 "description": "Run one Feishu lark-cli business command for the current Ripple user. Credentials are server-owned. Do not use this for auth/config/status; if it returns code=connector_auth_required, request Ripple Feishu authorization instead.",
                 "inputSchema": feishu_cli_input_schema(),
+                "deferLoading": false
+            }),
+            json!({
+                "namespace": "codex_app",
+                "name": "google_workspace_cli",
+                "description": "Run one gog Google Workspace command for the current Ripple user. Pass arguments after gog. Start with [\"--json\",\"auth\",\"list\"] to select an account, then explicitly pass --account for every business command. Use --readonly for reads. Authentication and configuration are Ripple-owned; if code=connector_auth_required, request standard Google Workspace authorization.",
+                "inputSchema": google_workspace_cli_input_schema(),
+                "deferLoading": false
+            }),
+            json!({
+                "namespace": "codex_app",
+                "name": "request_google_workspace_auth",
+                "description": "Request Ripple-managed Google Workspace authorization for the current session. Call this when Google Workspace access is required and google_workspace_cli returns code=connector_auth_required, then stop all Google Workspace business operations for this turn.",
+                "inputSchema": google_workspace_auth_request_input_schema(),
                 "deferLoading": false
             }),
         ];
@@ -2763,6 +2950,51 @@ fn feishu_cli_input_schema() -> Value {
     })
 }
 
+fn google_workspace_cli_input_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "args": {
+                "type": "array",
+                "description": "Arguments after gog, for example [\"--account\",\"alice@example.com\",\"--json\",\"--readonly\",\"gmail\",\"search\",\"newer_than:7d\",\"--max\",\"5\"].",
+                "items": {"type": "string"},
+                "minItems": 1,
+                "maxItems": 64
+            }
+        },
+        "required": ["args"],
+        "additionalProperties": false
+    })
+}
+
+fn google_workspace_auth_request_input_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "force_reauth": {"type": "boolean"},
+            "reason": {"type": "string", "maxLength": 500}
+        },
+        "additionalProperties": false
+    })
+}
+
+fn dynamic_tool_string_args(arguments: &Value, tool: &str) -> Result<Vec<String>, Value> {
+    match arguments.get("args").and_then(Value::as_array) {
+        Some(values) => values
+            .iter()
+            .map(|value| value.as_str().map(str::to_string))
+            .collect::<Option<Vec<_>>>()
+            .ok_or_else(|| {
+                json!({
+                    "ok": false,
+                    "code": "invalid_arguments",
+                    "message": format!("{tool} args must be an array of strings.")
+                })
+            }),
+        None => Ok(Vec::new()),
+    }
+}
+
 fn prepare_feishu_mail_input_schema() -> Value {
     json!({
         "type": "object",
@@ -2865,6 +3097,47 @@ async fn persist_session_wait_user(
     Ok(json!({"ok": true, "question": question, "options": session.pending_options}))
 }
 
+async fn persist_google_workspace_auth_request(
+    storage: &Storage,
+    user_id: &str,
+    session_id: Option<&str>,
+    resume_user_input: Option<&str>,
+    arguments: &Value,
+) -> anyhow::Result<Value> {
+    let session_id =
+        session_id.context("request_google_workspace_auth requires a Ripple session")?;
+    let force_reauth = arguments
+        .get("force_reauth")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let reason = arguments
+        .get("reason")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("Google Workspace access is required");
+    if reason.len() > 500 {
+        anyhow::bail!("Google Workspace authorization reason must not exceed 500 bytes");
+    }
+    let Some(mut session) = storage.load_session(user_id, session_id).await? else {
+        anyhow::bail!("Ripple session not found");
+    };
+    session.pending_connector_auth = Some(json!({
+        "connector": "google_workspace",
+        "stage": "requested",
+        "force_reauth": force_reauth,
+        "reason": reason,
+        "source": "session_skill",
+        "resume_user_input": resume_user_input.unwrap_or_default()
+    }));
+    storage.save_session(&session).await?;
+    Ok(json!({
+        "ok": true,
+        "connector": "google_workspace",
+        "status": "authorization_requested"
+    }))
+}
+
 async fn persist_task_execution_confirmed(
     storage: &Storage,
     user_id: &str,
@@ -2908,6 +3181,15 @@ fn task_progress_content(arguments: &Value) -> anyhow::Result<String> {
         anyhow::bail!("task progress content must not exceed 1000 bytes");
     }
     Ok(content.to_string())
+}
+
+fn task_session_execution_is_confirmed(session: &SessionRecord) -> bool {
+    session
+        .pending_control_request
+        .as_ref()
+        .and_then(|value| value.get("type"))
+        .and_then(Value::as_str)
+        == Some("task_execution")
 }
 
 async fn persist_prepared_feishu_mail(
@@ -3522,6 +3804,7 @@ mod tests {
     #[test]
     fn pool_generation_includes_serialized_approval_policy() {
         let mut config = test_config();
+        config.codex.provider_env_keys = vec!["BAILIAN_API_KEY".to_string()];
         config.codex.approval_policy = json!({
             "granular": {
                 "sandbox_approval": true,
@@ -3536,6 +3819,7 @@ mod tests {
 
         assert!(generation.contains("\"granular\""));
         assert!(generation.contains("\"request_permissions\":true"));
+        assert!(generation.contains("BAILIAN_API_KEY"));
     }
 
     #[test]
@@ -3594,7 +3878,7 @@ mod tests {
             .get("dynamicTools")
             .and_then(Value::as_array)
             .expect("dynamic task tools");
-        assert_eq!(tools.len(), 3);
+        assert_eq!(tools.len(), 5);
         let tool = &tools[0];
         assert_eq!(
             tool.get("namespace").and_then(Value::as_str),
@@ -3626,6 +3910,22 @@ mod tests {
         assert!(feishu_tool
             .pointer("/inputSchema/properties/args")
             .is_some());
+        let google_tool = tools
+            .iter()
+            .find(|tool| tool.get("name").and_then(Value::as_str) == Some("google_workspace_cli"))
+            .expect("Google Workspace CLI tool");
+        assert!(google_tool
+            .pointer("/inputSchema/properties/args")
+            .is_some());
+        let google_auth_tool = tools
+            .iter()
+            .find(|tool| {
+                tool.get("name").and_then(Value::as_str) == Some("request_google_workspace_auth")
+            })
+            .expect("Google Workspace authorization tool");
+        assert!(google_auth_tool
+            .pointer("/inputSchema/properties/reason")
+            .is_some());
 
         let mut task_request = request;
         task_request.metadata["task_response"] = json!(true);
@@ -3634,7 +3934,7 @@ mod tests {
         let task_tools = task_params["dynamicTools"]
             .as_array()
             .expect("task session dynamic tools");
-        assert_eq!(task_tools.len(), 7);
+        assert_eq!(task_tools.len(), 9);
         let prepare_mail_tool = task_tools
             .iter()
             .find(|tool| tool.get("name").and_then(Value::as_str) == Some("prepare_feishu_mail"))
@@ -3789,6 +4089,10 @@ mod tests {
 
         assert!(requires_service_codex_auth(&config));
 
+        config.codex.requires_service_auth = false;
+        assert!(!requires_service_codex_auth(&config));
+
+        config.codex.requires_service_auth = true;
         config.codex.codex_executable = "/tmp/fake-codex-app-server".to_string();
         config.codex.app_server_args.clear();
 
@@ -3912,6 +4216,20 @@ mod tests {
             "additionalDetails": null,
             "codexErrorInfo": "other",
             "message": "unexpected status 404 Not Found: The requested model does not support the coding plan feature. Please refer to the documentation to select a compatible model."
+        });
+
+        assert_eq!(
+            classify_model_failure(&error),
+            Some(ModelFailureClass::Unsupported)
+        );
+    }
+
+    #[test]
+    fn model_failure_accepts_coding_plan_unsupported_model_shape() {
+        let error = json!({
+            "additionalDetails": null,
+            "codexErrorInfo": "other",
+            "message": "unexpected status 404 Not Found: The requested model does not support the coding plan feature. Please select a compatible model."
         });
 
         assert_eq!(
@@ -4098,6 +4416,7 @@ mod tests {
             },
             storage: crate::config::StorageConfig {
                 sqlite_max_connections: 50,
+                shared_folders_root: std::path::PathBuf::from(".ripple/shared-folders"),
             },
             sandbox: SandboxConfig {
                 sandboxes_root: root.join("sandboxes"),
@@ -4116,6 +4435,7 @@ mod tests {
                 lark_cli_install_root: None,
                 notion_cli_install_root: None,
                 gogcli_cli_install_root: None,
+                gogcli_data_subdir: std::path::PathBuf::from(".config/gogcli"),
                 cli_tools: Vec::new(),
                 pypi_mirror_url: None,
                 npm_registry_url: None,
@@ -4128,6 +4448,8 @@ mod tests {
                     "--listen".to_string(),
                     "stdio://".to_string(),
                 ],
+                requires_service_auth: true,
+                provider_env_keys: Vec::new(),
                 codex_home: Some(root.join(".ripple/codex-service-home")),
                 sqlite_root: None,
                 approval_policy: serde_json::json!("never"),

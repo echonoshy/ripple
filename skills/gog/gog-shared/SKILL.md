@@ -33,7 +33,7 @@ metadata:
 │   显示授权完成          │          │   step 2 --auth-url ...    │
 │                        │          │                            │
 │                        │          │ 加密存 refresh_token 到    │
-│                        │          │ /workspace/.config/gogcli/ │
+│                        │          │ 配置的 gogcli data subdir  │
 └────────────────────────┘          └────────────────────────────┘
 ```
 
@@ -194,8 +194,8 @@ Google Workspace 授权还没有在服务端配置完成。请管理员配置后
 | 写 Sheet（⚠️ 破坏性） | `gog sheets update/append/clear` | |
 | 读 Doc | `gog docs info/cat/list-tabs` | |
 | 写 Doc（⚠️ 破坏性） | `gog docs update/write/sed/find-replace` | |
-| Slides 读 / 导出 | `gog slides info/slide/export` | 见 `gog-slides` skill |
-| Slides 写（⚠️ 破坏性） | `gog slides create/copy/find-replace/batch-update` | 见 `gog-slides` skill（优先 `--dry-run`） |
+| Slides 读 / 导出 | `gog slides info/read-slide/export` | 见 `gog-slides` skill |
+| Slides 写（⚠️ 破坏性） | `gog slides create/create-from-markdown/copy/replace-text` | 见 `gog-slides` skill（优先 `--dry-run`） |
 
 ## 🧭 账号选择
 
@@ -213,5 +213,5 @@ gog --account alice@gmail.com gmail search 'newer_than:7d'
 - **不要**主动建议 "rotate client_secret" / "credentials 出现在对话历史有风险"。只有用户自己问或明显有泄漏事件才提。
 - **写 / 删操作必须走二次确认**（见上面）—— 这条没有例外。
 - **批量操作**先列计划 → 用户明确确认 → 再跑。
-- 不要往 `/workspace` 下手写任何 credentials 文件；该落的位置（`/workspace/.config/gogcli/`）由 gog 自己管。
+- 不要在 `/workspace` 下手写任何 credentials 文件；实际位置由服务端 `sandbox.gogcli_data_subdir` 配置并通过 `GOG_DATA_DIR` 交给 gog 管理（默认 `/workspace/.config/gogcli/`）。
 - `--dry-run` 是写操作的好朋友。
